@@ -29,7 +29,7 @@ Run a single test with `cargo test -p gage <test_name> -- --nocapture` (or `-p g
 
 The project's conventions are documented in [CLAUDE.md](CLAUDE.md) (written for AI coding assistants, but they apply to everyone). The ones that matter most:
 
-- **Go gage is the reference.** gage-rs is fully on-disk compatible with Go gage. If the two binaries disagree, Go is right unless a decision in [open-questions.md](doc/implementation/00_gage-cli/plans/rust-port/open-questions.md) says otherwise.
+- **Go gage is the reference for behavior.** gage-rs ports Go gage's behavior and on-disk schema, not its bytes, and does not promise to read vaults Go wrote. If the two binaries behave differently, Go is right unless a decision in [open-questions.md](doc/implementation/00_gage-cli/plans/rust-port/open-questions.md) says otherwise.
 - **Library/CLI split.** All real behavior lives in `crates/gage`; `crates/gage-cli` is a thin clap frontend. `crates/gage` must never use the print macros, touch stdin/stdout/stderr, or call `std::process::exit`. Clippy enforces this. Anything needing a human decision is a typed return value that the CLI renders.
 - **Tests first, at task granularity.** Write the tests for a change, then the implementation. Prefer in-process tests with injected IO and a fake `Prompter`; use a real terminal (pty) only where genuinely needed.
 - **No network, no real keys in tests.** Git behavior is tested against ephemeral local bare repos, not a mocked git crate. Use the existing seams (`Prompter`, `Locker`, `RemoteSyncer`) for failures that can't be produced honestly.
