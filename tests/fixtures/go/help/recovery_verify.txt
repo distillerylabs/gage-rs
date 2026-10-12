@@ -1,0 +1,18 @@
+Check a stored recovery key is still one of this vault's recipients.
+
+Paste the key you stored offline (it is read without echo, and neither shown
+nor kept) and gage checks that it is one of this vault's recipients. That
+proves the copy you hold is intact and belongs to this vault. It does not
+decrypt anything, so it cannot tell you the vault's entries are undamaged.
+
+It also says whether `gage recovery enroll` will accept the key, which is a
+narrower question: only the key registered as the vault's recovery key can
+enroll a device, even though any recipient's key decrypts the entries.
+
+It needs no passphrase: it never touches this device's identity file.
+
+Usage:
+  gage recovery verify [flags]
+
+Flags:
+  -u, --use string   vault to operate on (default: the current vault)

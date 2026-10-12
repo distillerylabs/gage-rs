@@ -1,0 +1,10 @@
+Print an entry's value
+
+Usage:
+  gage show <query> [flags]
+
+Flags:
+  -c, --clip           copy to the clipboard instead of printing, and clear it after a timeout
+      --field fields   print one entry from fields instead of the value
+  -q, --qr             render a QR code instead of printing the value
+  -u, --use string     vault to operate on (default: the current vault)

@@ -1,0 +1,14 @@
+# Build output
+/target/
+/dist/
+
+# Coverage output, written by `make cover`
+/lcov.info
+/coverage/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp

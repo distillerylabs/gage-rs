@@ -1,0 +1,4 @@
+Set or change a vault's git remote (origin)
+
+Usage:
+  gage git set-remote <name> <url>

@@ -1,0 +1,26 @@
+Use a recovery key to enroll a fresh identity for this device.
+
+For the machine whose identity file is gone, or whose passphrase is. Paste the
+recovery key you stored offline and gage generates a fresh identity for this
+device, admits it to the vault, and retires the key you just used — all in one
+commit. The key is retired because it has now been typed into a terminal, and
+it reads everything.
+
+A replacement recovery key is generated and shown once, so the vault is never
+left without a way back. --no-new-recovery-key skips it; --recovery-key-out
+writes it to a file instead of the screen.
+
+--replaces names the device that was lost, removing its key in the same commit
+so a stolen identity file stops opening anything new. Naming the device being
+enrolled is how you rebuild a machine under the name it already had, and the
+only case in which this replaces a local identity file rather than refusing.
+
+Usage:
+  gage recovery enroll [flags]
+
+Flags:
+      --device string             this device's name for the vault (default: normalized hostname)
+      --no-new-recovery-key       don't generate a replacement recovery key (leaves the vault without one)
+      --recovery-key-out string   write the replacement recovery key to this file (mode 0600) instead of showing it
+      --replaces string           device whose key to remove in the same commit (the one that was lost)
+  -u, --use string                vault to operate on (default: the current vault)

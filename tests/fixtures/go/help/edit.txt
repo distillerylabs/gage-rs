@@ -1,0 +1,7 @@
+Edit an entry's full YAML in $EDITOR
+
+Usage:
+  gage edit <query> [flags]
+
+Flags:
+  -u, --use string   vault to operate on (default: the current vault)

@@ -1,0 +1,7 @@
+Show which git hosts have a token
+
+Usage:
+  gage auth status [flags]
+
+Flags:
+      --host string   git host the token belongs to (default: the host of the current vault's origin)

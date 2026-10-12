@@ -1,0 +1,9 @@
+Manage tokens for git hosts
+
+Usage:
+  gage auth
+
+Available Commands:
+  login           Store a token for a git host
+  logout          Forget a git host's token
+  status          Show which git hosts have a token

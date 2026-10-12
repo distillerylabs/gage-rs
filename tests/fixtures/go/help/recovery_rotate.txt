@@ -1,0 +1,19 @@
+Replace this vault's recovery key, or add one if it has none.
+
+Generates a new recovery key, registers it as the vault's recovery-paper-key,
+and retires the old one, re-encrypting every entry in a single commit. The new
+key is shown once, exactly as `gage init` shows one; --recovery-key-out writes
+it to a file instead of the screen.
+
+Use it if a recovery key may have leaked. Retiring it stops it opening anything
+written from now on, but it still opens every version already in the vault's
+git history, so rotate the secrets themselves too.
+
+A vault made with --no-recovery-key has nothing to retire; this simply adds one.
+
+Usage:
+  gage recovery rotate [flags]
+
+Flags:
+      --recovery-key-out string   write the new recovery key to this file (mode 0600) instead of showing it
+  -u, --use string                vault to operate on (default: the current vault)

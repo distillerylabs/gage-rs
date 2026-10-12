@@ -1,0 +1,20 @@
+Admit an enrolling device and re-encrypt the vault to include it.
+
+Opens each pending request with the code(s) you were given out-of-band, shows
+what each one claims, and — on confirmation — adds them to the recipient list,
+re-encrypts every entry so they can read the whole vault, and removes every
+approved request, all in one commit.
+
+There is no --reencrypt flag: approval always re-encrypts, because a recipient
+who can read only part of a vault is a state gage has no use for. The unlock
+comes after the confirmation, so a wrong code or a declined prompt costs no
+passphrase. --device relabels a request whose claimed name now collides with
+an existing recipient; the code authenticated the key, not the label.
+
+Usage:
+  gage recipient approve [ID...] [flags]
+
+Flags:
+      --code stringArray   an enrollment code you were given out-of-band (repeatable; prompted for if absent)
+      --device string      record the approved key under this name instead of the one the request claims
+  -u, --use string         vault to operate on (default: the current vault)

@@ -1,0 +1,13 @@
+Revoke a recipient and re-encrypt the vault without its key.
+
+--reencrypt is required: without it the removed key still opens every entry
+that already exists, so the revocation would only look like one. Removing
+this device's own key is allowed but asks first, and removing the last
+recipient is refused outright.
+
+Usage:
+  gage recipient remove <pubkey-or-name> [flags]
+
+Flags:
+      --reencrypt    re-encrypt every entry to the reduced recipient list (required)
+  -u, --use string   vault to operate on (default: the current vault)

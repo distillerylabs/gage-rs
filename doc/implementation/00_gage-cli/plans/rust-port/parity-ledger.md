@@ -1,0 +1,180 @@
+# Parity ledger
+
+[← port plan](index.md)
+
+Everything Go gage shipped, as of the pinned commit
+[`64b6cf0`](https://github.com/distillerylabs/gage/commit/64b6cf078f3e756efb9d868cc1518dc1d9060748)
+([`tests/fixtures/go/GO_GAGE_SHA`](../../../../../tests/fixtures/go/GO_GAGE_SHA)),
+mapped to the gage-rs milestone that ports it or to an explicit exclusion.
+
+**Why this exists.** The Go milestone index is not a complete inventory: the
+recovery key (Go #7, six milestones, four commands) shipped through its own
+plan directory and is absent from that index, and several user-visible
+changes (`cat` formatting, parent-command help) appear in no milestone's
+plan at all. So this ledger draws on five independent sources, and an item
+any one of them knows about must have a row here:
+
+1. Go's GitHub issues and merged PRs (§1)
+2. Go's git history, which predates the current repository (§2,
+   [Q-GO-ISSUE-REFS](open-questions.md#q-go-issue-refs))
+3. Go's plan directories (§3)
+4. The help surface captured from the Go binary (§4,
+   `tests/fixtures/go/help/`)
+5. The Go test inventory (§5, `tests/fixtures/go/test-inventory.tsv`)
+
+Go's user docs (`doc/cli/`) are a sixth, cross-checking view (§6).
+
+**How it's used.** Planning a phase starts from its rows here and its rows in
+the test inventory. Each milestone doc lists the rows it claims under **Go
+sources**; the status column is updated when that milestone merges. P9
+closes the ledger: no row may be left `[ ]`.
+
+**Moving the pin.** Run `scripts/go-reference/capture.sh <go-checkout>`, then
+add rows for every Go issue, PR and commit since the previous pin. A test
+file the phase map doesn't know fails the script.
+
+Status: `[ ]` not ported, `[~]` in progress, `[x]` ported, `n/a` excluded
+(the reason is in the row).
+
+---
+
+## 1. GitHub issues and merged PRs (`distillerylabs/gage`)
+
+| Go ref | Item | Port to | Status |
+|---|---|---|---|
+| #1 / PR #2 | Module path `github.com/distillerylabs/gage` | n/a — Go module path; the crate/package names are decided in M0a | n/a |
+| #3 / PR #4 | Public-readiness: CI, SECURITY, CoC, contributor files | Bootstrap (#1 here) for the docs; M0a for CI | `[~]` |
+| PR #5, #6, #38, #39 | Dependabot bumps (Go modules, actions) | n/a — Rust gets its own dependabot config | n/a |
+| #7 / PRs #11, #19 | Recovery key: plan, phase 1 (R0–R2) and phase 2 (R3–R5) | P8 | `[ ]` |
+| #8 / PR #13 | R0 recovery key library | P8 | `[ ]` |
+| #9 / PR #14 | R1 recovery key at `gage init` (+ review-finding fixes) | P8 | `[ ]` |
+| #10 / PR #15 | R2 `gage recovery verify` + docs | P8 | `[ ]` |
+| #16 / PR #20 | R3 recovery identity, `RecoverDevice`; retired key can't come back; relative `--recovery-key-out` | P8 | `[ ]` |
+| #17 / PR #21 | R4 `gage recovery enroll` (+ seven review fixes) | P8 | `[ ]` |
+| #18 / PR #22 | R5 `gage recovery rotate`; reserved recovery label | P8 | `[ ]` |
+| PR #12 | Multi-milestone GitHub process in CLAUDE.md | Bootstrap (`CLAUDE.md`) | `[~]` |
+| #23 / PR #24 | Parent commands (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) list their children in their own help | P1 · M0b (registry/help), each parent's children as they land | `[ ]` |
+| #25 / PR #26 | Codecov reporting alongside the cover-check gate | M0a | `[ ]` |
+| #27, #28, #29 / PRs #30–#32 | Coverage toward 90% with honest tests; library and CLI coverage gate | M0a sets up the gate; every milestone keeps it | `[ ]` |
+| #34 / PR #35 | gosec configuration audit | M0a — the Rust analogue is the clippy lint set + cargo-deny config; audit it there | `[ ]` |
+| #36 / PR #37 | Pre-commit hook installer running `make lint` | M0a | `[ ]` |
+| #40 / PR #41 | Go toolchain/x/net bump for govulncheck | n/a — Go toolchain; Rust gets `make audit` in M0a | n/a |
+
+## 2. Pre-move work, identified by commit
+
+Issue numbers in this table belong to the repository Go gage lived in
+before `distillerylabs/gage`; the commit is the stable reference.
+
+| Go commit | Old ref | Item | Port to | Status |
+|---|---|---|---|---|
+| `4604dc5`…`4c23f99` | — | Milestones M0–M12 as planned | See §3 | — |
+| `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[ ]` |
+| `386c57e` | #38 | `init --remote` solicits an HTTPS token inline | P4 · M8a | `[ ]` |
+| `a0920b0`, `0a1beeb` | #39 | `vault remove` orphaned-identity cleanup (later revised by E0: compare public keys, `Confirm`, default keep) | P6 · M12 | `[ ]` |
+| `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | M0a (as a separate binary/script, never a `gage` subcommand) | `[ ]` |
+| `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[ ]` |
+| `a1572d5` | — | `ls` shows title and `updated_by` | P2 · M4 | `[ ]` |
+| `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 | `[ ]` |
+| `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[ ]` |
+| `e52828a` | — | Scrypt work-factor test hook and its guard tests | P2 · M2 | `[ ]` |
+| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[ ]` |
+| `3fd784c`, `fbc887f` | #46 | E1a unconditional re-encrypt + recipient regression fixes | Folded: P5 · M9 | `[ ]` |
+| `045bf24`, `9d72384` | #48 | E1b shared recipient write + fixes | P7 · E1b | `[ ]` |
+| `798ed47` | — | E2 sealed request | P7 · E2 | `[ ]` |
+| `c86ad4c` | — | E3 joining side | P7 · E3 | `[ ]` |
+| `f800af6`, `187c810`, `faf49b9` | #52 | E4 approving side (commit titled "Milestone 4") + fixes, docs | P7 · E4 | `[ ]` |
+| `a4b989e` | #58 / #59 | `insert --field NAME=VALUE` | P2 · M4 | `[ ]` |
+| `f0e17db`, `f1e391f` | #55 / #60, #61 | `cat`: display-only short id, column-aligned labels, flush-left multi-line values | P6 · M12 | `[ ]` |
+| `fb2f1e9` | #54 / #62 | `ls -H/--header` labelled `\|`-delimited table | P6 · M12 | `[ ]` |
+| `0aa325c` | #25 / #63 | M13 session Tab completion and command abbreviation | P3 · M13 | `[ ]` |
+| `bbb24ba` | #64 / #65 | Coverage and vulnerability reporting | M0a | `[ ]` |
+| `30b21df` | #66 / #67 | Apache-2.0 license; fixture-data cleanup | Bootstrap (`LICENSE`) | `[~]` |
+| `df3c0fe` | #4, #5 | Enrollment-design issues resolved in the TDD | Covered by the copied TDD; P7 | `[ ]` |
+| `6aa019a` | — | TOTP design begun | n/a — [Q-TOTP](open-questions.md#q-totp) | n/a |
+
+## 3. Plan directories (Go `doc/implementation/00_gage-cli/plans/`)
+
+| Go plan | Milestones | Port to | Status |
+|---|---|---|---|
+| `gage-cli-design/` | M0 | P1 · M0a + M0b | `[ ]` |
+| | M1 | P1 · M1 (+ E0) | `[ ]` |
+| | M2 | P2 · M2 (+ E0 identity paths) | `[ ]` |
+| | M3, M4 | P2 · M3, M4 | `[ ]` |
+| | M5, M6, M7, M13 | P3 | `[ ]` |
+| | M8a, M8b | P4 | `[ ]` |
+| | M9 (+ A19), M10, M11 | P5 | `[ ]` |
+| | M12 (+ post-plan items in §2) | P6 | `[ ]` |
+| | "Post-plan changes" section | Rows in §2 | — |
+| `gage-cli-init-design/` | E0, E1a | Folded (see §2) | `[ ]` |
+| | E1b, E2, E3, E4 | P7 | `[ ]` |
+| `recovery-key/` | R0–R5 (D1–D12) | P8 | `[ ]` |
+| `test-coverage/` | R0, R1 (coverage) | M0a gate + every milestone | `[ ]` |
+
+## 4. Help surface (`tests/fixtures/go/help/`)
+
+One fixture per command, captured from the Go binary. A command is `[x]`
+when gage-rs's `gage help <cmd>` matches its fixture byte for byte, or the
+difference is a recorded deviation. `root.txt` (the grouped listing) is
+re-compared at the end of every phase and must match exactly at P9.
+
+| Fixtures | Port to |
+|---|---|
+| `root`, `vault`, `vault_list`, `vault_info`, `vault_remove`, `vault_set-default`, `init`, `git`, `git_set-remote` | P1 (`init` flags grow through P2, P4 and P8 — see [Q-RECOVERY-INTERIM](open-questions.md#q-recovery-interim); `vault remove` cleanup in P6) |
+| `insert`, `cat`, `rm`, `ls` | P2 (`ls -H` and `cat` formatting in P6) |
+| `show`, `edit`, `rename`, `generate`, `search`, `reindex` | P3 |
+| `clone`, `sync`, `pull`, `push`, `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 |
+| `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5 |
+| `log`, `history` (and global output flags `--clip`, `--qr`, `--field`, `--script`) | P6 |
+| `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |
+| `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8 |
+| Session-mode `help` and session-only commands | P3 — not yet captured ([Q-SESSION-HELP-FIXTURES](open-questions.md#q-session-help-fixtures)) |
+
+## 5. Test inventory (`tests/fixtures/go/test-inventory.tsv`)
+
+All 1,271 Go test functions (`Test*`, including both `TestMain`s), each
+tagged with the phase that owns its file by
+`scripts/go-reference/phase-map.awk`. Phase tags are coarse: a milestone
+doc claims individual rows, and moving a row to another phase is a
+deliberate edit to the phase map. Each row is ported (by name or by
+an equivalent Rust test the milestone doc names) or excused in writing.
+
+| Phase | Go test functions | Main Go test files |
+|---|---|---|
+| P1 | 197 | `exitcode`, `atomicfile`, `vaultlock`, `xdgpaths`, `config`, `devicename`, `vaultconfig`, `gittest`; `vault_lifecycle`, `vaultid_keying`, `vault_create`, `help`, `registry`, `usageerror`, `errorprefix`, `version`, `main_integration` |
+| P2 | 220 | `agekey`, `memlock`, `crypt`, `unlock`, `identityfile_marker`, `init_identity`, `prompter`(`_pty`), `coredump`, `testsupport`; `entry`, `field`, `entry_crud`, `entry_edit`, `cat`, `insert_*`, `editor`, `scratchdir*` |
+| P3 | 197 | `resolve`(`_cli`), `generate`, `rename`, `edit`, `show`, `session`, `shell`, `repl`, `session_pty`, `sessionhelp`, `index`, `search`, `complete`(`_pty`) |
+| P4 | 172 | `gitrepo/*`, `remoteauth`, `syncerr`, `remotesync`, `sync_index`, `syncresolve`(`_cli`), `sync_cli`, `clone`, `auth`, `init_remote_auth` |
+| P5 | 136 | `recipients`, `recipient`, `recipient_batch`, `reencrypt`, `recipient_cli`, `identity_add`, `identity_cli`, `trustcache`(`_cli`), `move` |
+| P6 | 71 | `clip`, `qr`, `log`, `history`, `script` |
+| P7 | 186 | `enroll*`, `enrollment`, `approve_cli`, `approve_scope_cli`, `clone_enroll`, `enroll_cli`, `enroll_prompter` |
+| P8 | 92 | `recovery_key`, `recovery_enroll`, `recovery`, `init_recoverykey` |
+
+Known coarse spots to resolve when the phase is planned: `cat_test.go`
+(P2) holds the #55 formatting tests that belong to P6 · M12;
+`entry_test.go` (P2) holds the `ls -H` tests that belong to P6 · M12;
+`vault_lifecycle_test.go` and `vaultid_keying_test.go` (P1) hold #39
+orphan-cleanup tests that belong to P6 · M12; `init_*` files split across
+phases by flag.
+
+## 6. User docs (Go `doc/cli/`)
+
+gage-rs ports these as the behavior lands, so docs describe shipped
+behavior; each phase's last milestone updates the pages for its surface.
+
+| Go page | Port to |
+|---|---|
+| `vaults.md`, `configuration.md`, `exit-codes.md` | P1 |
+| `entries.md` | P2 (+ P6 for `cat`/`ls` display) |
+| `addressing-entries.md`, `session-mode.md` | P3 |
+| `sync.md`, `git-and-auth.md` | P4 |
+| `identities-and-recipients.md`, `sharing.md` | P5 (+ P8 for the recovery sections) |
+| `enrollment.md` | P7 |
+| `README.md`, `getting-started.md`, `command-reference.md` | Grown each phase; final pass in P9 |
+
+## Exclusions
+
+| Item | Reason |
+|---|---|
+| TOTP (`gage-cli-totp.md`) | Designed, never built in Go — [Q-TOTP](open-questions.md#q-totp) |
+| Go-specific tooling: golangci-lint/forbidigo config, govulncheck, go-test-coverage, `GOPROXY=off` | Replaced by Rust equivalents in M0a (clippy `disallowed-*`, cargo-deny, cargo-llvm-cov, `CARGO_NET_OFFLINE`); the *properties* they enforce are ported, the tools are not |
+| Go module path, Go toolchain bumps | Go-only |
