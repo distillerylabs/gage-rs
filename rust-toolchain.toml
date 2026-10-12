@@ -1,0 +1,7 @@
+# Pinned so every contributor and every CI platform builds with the same
+# compiler and the same clippy lint set. The floor is 1.89 (the workspace's
+# rust-version): std::fs::File::lock, see Q-FILE-LOCK.
+[toolchain]
+channel = "1.99.0"
+profile = "minimal"
+components = ["rustfmt", "clippy", "llvm-tools"]

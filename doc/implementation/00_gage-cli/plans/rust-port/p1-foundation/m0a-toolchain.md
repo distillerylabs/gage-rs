@@ -53,10 +53,10 @@ Settled here so they aren't re-derived at the keyboard:
 - **Dependency-ban check** is a Rust integration test,
   `crates/gage/tests/no_frontend_deps.rs`, not a CI-only script, so it runs
   in `make test` on every platform. It runs `cargo metadata
-  --format-version 1 --locked --offline`, walks `gage`'s normal (non-dev)
+  --format-version 1 --locked`, walks `gage`'s normal (non-dev)
   dependency closure, and fails on any denylisted crate: `clap*`,
   `rpassword`, `crossterm`, `termion`, `rustyline`, `reedline`, `arboard`,
-  `qrcode`, `dialoguer`, `inquire`. `serde_json` is a dev-dependency.
+  `qrcode`, `dialoguer`, `inquire`. `serde_json` is a dev-dependency. The metadata command omits `--offline`: `cargo metadata` needs every lockfile package on disk, which a bare `cargo test` hasn't fetched. `make test` fetches first and sets `CARGO_NET_OFFLINE=true`, which the command inherits, so the suite still can't reach the network where it matters. Build dependencies count; dev-only edges don't.
 - **Purity-lint self-test** is `make lint-selftest`, run by the CI lint
   job: it copies a file containing each disallowed macro/method into a
   scratch copy of `crates/gage` and asserts clippy fails on each one. A
@@ -64,14 +64,30 @@ Settled here so they aren't re-derived at the keyboard:
 - **Coverage**: `cargo-llvm-cov`, gate on total line coverage at **80**
   (`--fail-under-lines 80`), as Go's D3. Test-support code (`gittest`,
   arriving in M0b) is excluded via `--ignore-filename-regex`, as Go's D4.
-  CI uploads lcov to Codecov when a `CODECOV_TOKEN` secret exists and skips
-  the upload otherwise, so forks and a not-yet-configured repo stay green.
+  `make cover` writes `lcov.info` and `make cover-check` gates on the
+  collected data (`COVER_MIN`, default 80; override on the command line to
+  see it fail). `make cover-report` prints the summary, which CI also writes
+  to the job summary. CI uploads lcov to Codecov when a `CODECOV_TOKEN`
+  secret exists and skips the upload otherwise, so forks and a
+  not-yet-configured repo stay green.
 - **Version stamping hook**: the Makefile exports `GAGE_VERSION`
   (`git describe --tags --exact-match`, else `dev`) and `GAGE_COMMIT`
   (`git rev-parse --short HEAD`, else `unknown`); `crates/gage-cli/build.rs`
   only declares `rerun-if-env-changed` for both. Reading them is M0b's.
-- **Tool pins**: `cargo-deny` and `cargo-llvm-cov` are installed into
-  `./bin/<tool>-<version>/` by the Makefile, as Go does for its tools.
+- **Tool pins**: `cargo-deny` 0.20.2 and `cargo-llvm-cov` 0.9.1 are
+  installed into `./bin/<tool>-<version>/` by the Makefile, as Go does for
+  its tools.
+- **Audit policy** (`deny.toml`): vulnerabilities and yanked releases fail;
+  `unmaintained = "workspace"` (only direct dependencies; cargo-deny 0.20
+  has no warn level for it); licences are an explicit allowlist, starting at
+  `Apache-2.0` and `MIT` and extended one reviewed licence at a time as
+  dependencies need them; duplicate versions warn; wildcard versions fail
+  except between workspace crates; crates.io is the only source.
+- **Lint self-test**: `scripts/lint-selftest.sh` copies the workspace to a
+  scratch directory with one shared target dir, appends each forbidden item
+  to the scratch `lib.rs`, and requires clippy to reject it *with a
+  disallowed-item error* (not merely any failure). Eleven probes: the
+  untouched crate, the nine items, and a local `#[allow]` in test code.
 
 ## Tasks
 
@@ -79,49 +95,49 @@ Tests first, at task granularity.
 
 ### 1. Workspace and Makefile
 
-- [ ] Root `Cargo.toml` workspace (`resolver = "3"`), `rust-toolchain.toml`,
+- [x] Root `Cargo.toml` workspace (`resolver = "3"`), `rust-toolchain.toml`,
       `crates/gage` (empty `lib.rs` with crate-level docs) and
       `crates/gage-cli` (a `main.rs` that exits 0), `Cargo.lock` committed.
-- [ ] Workspace lints in `Cargo.toml`: `unsafe_code = "deny"` at the
+- [x] Workspace lints in `Cargo.toml`: `unsafe_code = "deny"` at the
       workspace level (Windows/Unix syscall modules opt in locally later),
       clippy `all` as warnings (denied by `-D warnings` in `make lint`).
-- [ ] `Makefile` targets `build`, `test`, `lint`, `fmt`, `audit`, `cover`,
+- [x] `Makefile` targets `build`, `test`, `lint`, `fmt`, `audit`, `cover`,
       `cover-check`, `clean`, `clean-tools`, `install-hooks`, as listed in
       CLAUDE.md. `test` runs `cargo fetch --locked` then
       `CARGO_NET_OFFLINE=true cargo test --locked --workspace`.
-- [ ] Test: `make build` produces `target/debug/gage` (`gage.exe` on
+- [x] Test: `make build` produces `target/debug/gage` (`gage.exe` on
       Windows) and it exits 0.
-- [ ] Test: `make test` passes with networking unavailable after the fetch
+- [x] Test: `make test` passes with networking unavailable after the fetch
       (CI runs it after `cargo fetch` with `CARGO_NET_OFFLINE=true`; locally,
       checked once by hand with the network off and noted in the PR).
 
 ### 2. Library purity lint
 
-- [ ] `crates/gage/clippy.toml`: `disallowed-macros` = `print`, `println`,
+- [x] `crates/gage/clippy.toml`: `disallowed-macros` = `print`, `println`,
       `eprint`, `eprintln`, `dbg`; `disallowed-methods` =
       `std::io::stdin`, `std::io::stdout`, `std::io::stderr`,
       `std::process::exit`. `crates/gage/src/lib.rs` denies
       `clippy::disallowed_macros` and `clippy::disallowed_methods`.
-- [ ] Test (`make lint-selftest`): each of the nine items, placed alone in a
+- [x] Test (`make lint-selftest`): each of the nine items, placed alone in a
       scratch copy of the crate, makes clippy fail; the unmodified crate
       passes.
-- [ ] Test: a `#[cfg(test)]` module using `println!` under a local
+- [x] Test: a `#[cfg(test)]` module using `println!` under a local
       `#[allow(clippy::disallowed_macros)]` passes, so tests can opt out
       locally and never crate-wide.
 
 ### 3. Dependency ban
 
-- [ ] `crates/gage/tests/no_frontend_deps.rs` as decided above.
-- [ ] Test: the check passes on the real workspace.
-- [ ] Test: the walker, fed a hand-built `cargo metadata` JSON fixture where
+- [x] `crates/gage/tests/no_frontend_deps.rs` as decided above.
+- [x] Test: the check passes on the real workspace.
+- [x] Test: the walker, fed a hand-built `cargo metadata` JSON fixture where
       `gage` depends transitively on `clap`, reports it with the path that
       pulls it in. Proves the check can fail.
-- [ ] Test: a denylisted crate reachable only through `gage`'s
+- [x] Test: a denylisted crate reachable only through `gage`'s
       *dev*-dependencies is not reported.
 
 ### 4. Audit and lint config
 
-- [ ] `deny.toml`: advisories (deny vulnerabilities, warn unmaintained),
+- [x] `deny.toml`: advisories (deny vulnerabilities, warn unmaintained),
       licenses (allowlist compatible with Apache-2.0), bans (deny wildcard
       versions, warn duplicates), sources (crates.io only). `make audit`
       runs it; it needs the network, like Go's `govulncheck`.
@@ -131,9 +147,9 @@ Tests first, at task granularity.
 
 ### 5. Coverage
 
-- [ ] `make cover` writes `lcov.info` and prints the summary; `make
+- [x] `make cover` writes `lcov.info` and prints the summary; `make
       cover-check` fails under 80.
-- [ ] Test: `make cover-check` fails when the threshold is temporarily set
+- [x] Test: `make cover-check` fails when the threshold is temporarily set
       above the measured figure (checked once by hand, noted in the PR).
 
 ### 6. CI
@@ -148,17 +164,17 @@ Tests first, at task granularity.
       linted natively), `make lint` and `make lint-selftest`.
 - [ ] `.github/workflows/audit.yml`: `make audit` on Linux, on pushes, PRs
       and a weekly schedule.
-- [ ] Actions pinned by commit SHA, `permissions: contents: read`,
+- [x] Actions pinned by commit SHA, `permissions: contents: read`,
       concurrency cancels superseded PR runs and never runs on `main`.
 
 ### 7. Developer tooling and docs
 
-- [ ] `scripts/install-pre-commit-hook.sh` (port of Go's): installs a hook
+- [x] `scripts/install-pre-commit-hook.sh` (port of Go's): installs a hook
       running `make lint`; `--uninstall`, `--force`. `make install-hooks
       ARGS=...`.
-- [ ] CLAUDE.md "Commands": remove the "nothing below exists until M0a"
+- [x] CLAUDE.md "Commands": remove the "nothing below exists until M0a"
       note and correct anything the implementation changed.
-- [ ] `.gitignore` covers `/bin/` and coverage output.
+- [x] `.gitignore` covers `/bin/` and coverage output.
 
 ## Definition of done
 

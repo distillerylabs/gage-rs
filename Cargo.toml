@@ -1,0 +1,19 @@
+[workspace]
+resolver = "3"
+members = ["crates/gage", "crates/gage-cli"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.89"
+license = "Apache-2.0"
+repository = "https://github.com/distillerylabs/gage-rs"
+publish = false
+
+# Syscall-level modules (memlock, vaultlock on Windows) opt in locally with
+# #[allow(unsafe_code)] when they arrive; nothing else may use unsafe.
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

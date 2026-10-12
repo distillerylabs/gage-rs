@@ -1,0 +1,43 @@
+# Config for cargo-deny, run by `make audit` and CI's audit workflow.
+#
+# This is the Rust analogue of Go gage's golangci-lint/gosec/govulncheck
+# setup: known-vulnerable or yanked dependencies, licences we can't ship
+# under Apache-2.0, surprise dependency sources, and wildcard versions.
+# (The library-purity half of that setup is clippy.toml; the dependency half
+# is crates/gage/tests/no_frontend_deps.rs.)
+
+[graph]
+all-features = true
+
+[advisories]
+# Vulnerabilities are always errors. Yanked releases are too, since a
+# yanked version is the maintainer saying "do not use this".
+yanked = "deny"
+# Only flag unmaintained crates that the workspace depends on directly: a
+# transitive one is rarely actionable from here, and still shows in the
+# RustSec report if someone goes looking.
+unmaintained = "workspace"
+ignore = []
+
+[licenses]
+# gage-rs is Apache-2.0, so everything it ships must be compatible with
+# that. Extended deliberately, one reviewed licence at a time, when a new
+# dependency needs one.
+allow = [
+    "Apache-2.0",
+    "MIT",
+]
+confidence-threshold = 0.93
+
+[bans]
+# Reported, not failed: two versions of a crate is a build-size nit, not a
+# defect, and the graph can't always be unified.
+multiple-versions = "warn"
+wildcards = "deny"
+# The workspace crates depend on each other by path, with no version.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

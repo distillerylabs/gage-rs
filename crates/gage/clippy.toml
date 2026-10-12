@@ -1,0 +1,21 @@
+# The library/CLI split, enforced. crates/gage decides what gage does;
+# gage-cli (and a future GUI/TUI) decides how to show it. So the library
+# never prints, never touches the process's standard streams, and never
+# exits the process: anything needing a human is a typed return value.
+#
+# lib.rs denies both lints crate-wide. Tests opt out locally with
+# #[allow(clippy::disallowed_macros)], never crate-wide. `make
+# lint-selftest` proves these paths still fire.
+disallowed-macros = [
+    { path = "std::print", reason = "crates/gage never prints; return a value and let the frontend render it" },
+    { path = "std::println", reason = "crates/gage never prints; return a value and let the frontend render it" },
+    { path = "std::eprint", reason = "crates/gage never prints; return a value and let the frontend render it" },
+    { path = "std::eprintln", reason = "crates/gage never prints; return a value and let the frontend render it" },
+    { path = "std::dbg", reason = "no debug output left in the library" },
+]
+disallowed-methods = [
+    { path = "std::io::stdin", reason = "input arrives through the Prompter or as a parameter, never straight from the process" },
+    { path = "std::io::stdout", reason = "output is a return value; the frontend owns the terminal" },
+    { path = "std::io::stderr", reason = "output is a return value; the frontend owns the terminal" },
+    { path = "std::process::exit", reason = "the library returns an error carrying an exit code; only the binary exits" },
+]

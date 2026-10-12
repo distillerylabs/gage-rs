@@ -1,0 +1,51 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Supersede in-flight runs on the same PR; never cancel runs on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Its own workflow, rather than a step in test.yml, so it gets its own
+# status badge. Still run across the full OS matrix: clippy only analyzes
+# code whose cfg matches the platform it runs on, so the platform-specific
+# code (memlock, vaultlock, ...) is only linted natively.
+jobs:
+  lint:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+        shell: bash
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # windows-latest doesn't ship GNU make; see test.yml.
+      - name: Install make (Windows)
+        if: runner.os == 'Windows'
+        run: choco install make --no-progress -y
+
+      - name: make lint
+        run: make lint
+        shell: bash
+
+      # Proves the library-purity lint still fires; see scripts/lint-selftest.sh.
+      - name: make lint-selftest
+        run: make lint-selftest
+        shell: bash

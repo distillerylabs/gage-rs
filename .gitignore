@@ -12,3 +12,6 @@ Thumbs.db
 
 # Editor
 *.swp
+
+# Pinned dev tools installed by the Makefile
+/bin/
