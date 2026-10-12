@@ -1,0 +1,7 @@
+Forget a git host's token
+
+Usage:
+  gage auth logout [flags]
+
+Flags:
+      --host string   git host the token belongs to (default: the host of the current vault's origin)

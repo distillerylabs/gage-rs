@@ -1,0 +1,4 @@
+List registered vaults
+
+Usage:
+  gage vault list

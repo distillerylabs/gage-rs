@@ -1,0 +1,4 @@
+Forget a vault locally, leaving its files untouched
+
+Usage:
+  gage vault remove <name>

@@ -1,0 +1,13 @@
+Remove an enrollment request without granting anything.
+
+Needs no code and no unlock: refusing to grant access requires proving
+nothing, it changes no recipient list, and anyone with git write access could
+delete the request directly anyway. It still takes the vault write lock and
+commits, like any other write — and warns if the push fails, since a deny that
+never reached the remote leaves the request live for every other device.
+
+Usage:
+  gage recipient deny <ID> [flags]
+
+Flags:
+  -u, --use string   vault to operate on (default: the current vault)

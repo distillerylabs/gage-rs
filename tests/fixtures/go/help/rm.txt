@@ -1,0 +1,7 @@
+Delete an entry
+
+Usage:
+  gage rm <query> [flags]
+
+Flags:
+  -u, --use string   vault to operate on (default: the current vault)

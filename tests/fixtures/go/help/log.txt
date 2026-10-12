@@ -1,0 +1,11 @@
+Show an entry's commit history — timestamps only, nothing decrypted.
+
+Commit timestamps for one entry. The commit messages themselves are entry
+UUIDs and nothing more, so this reveals no titles — see `gage history
+--decrypt` for the command that does show past values.
+
+Usage:
+  gage log [QUERY] [flags]
+
+Flags:
+  -u, --use string   vault to operate on (default: the current vault)

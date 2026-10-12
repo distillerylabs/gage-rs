@@ -1,0 +1,10 @@
+Find entries by title, description, or body text
+
+Usage:
+  gage search <pattern> [flags]
+
+Aliases:
+  grep, search
+
+Flags:
+  -u, --use string   vault to operate on (default: the current vault)

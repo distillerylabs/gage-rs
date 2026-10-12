@@ -1,0 +1,17 @@
+Register this device's identity and print its public key.
+
+Generates a fresh keypair for this device, wraps its private half with a
+passphrase you choose, and prints the public half. The vault does not yet
+trust that key: hand it to a device that can already read the vault and run
+`gage recipient add <pubkey> --device NAME` there.
+
+This is also the recovery path for a lost identity file — register a fresh
+identity under a new name rather than restoring the old key from a backup.
+
+Usage:
+  gage identity add [flags]
+
+Flags:
+      --device string   this device's name for the vault (default: normalized hostname)
+      --method string   how this device unlocks the vault (accepted: [passphrase]; default: the vault's own)
+  -u, --use string      vault to operate on (default: the current vault)
