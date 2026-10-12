@@ -1,11 +1,13 @@
 # Rust port — implementation plan
 
 Rolling, phased plan for porting [Go gage](https://github.com/distillerylabs/gage)
-to Rust with full on-disk compatibility. The spec is the two copied TDDs,
+to Rust with **behavioral parity** ([Q-COMPAT](open-questions.md#q-compat)):
+same behavior and on-disk schema, no byte-level or cross-binary
+compatibility promise. The spec is the two copied TDDs,
 [gage-cli-design.md](../../tdds/gage-cli-design.md) and
 [gage-cli-init-design.md](../../tdds/gage-cli-init-design.md); the Go binary at
 the pinned SHA ([`tests/fixtures/go/GO_GAGE_SHA`](../../../../../tests/fixtures/go/GO_GAGE_SHA))
-is the reference implementation.
+is the reference implementation for behavior.
 
 This file is the shared ground every phase stands on: the phase table, the
 Go-to-Rust milestone mapping, the layering and testing rules, the crate
@@ -42,11 +44,11 @@ post-plan changes. gage-rs ports **what the Go code does now**:
 So E0 and E1a have no Rust milestone of their own; their tests land in the
 milestones that own the surfaces they changed.
 
-**One deliberate interim gap:** the recovery key (P8) depends on M9 and the
-enrollment phase, so until P8 lands, Rust `gage init` behaves like Go `init`
-before Go #7 — no recovery key. Recorded as
-[Q-RECOVERY-INTERIM](open-questions.md#q-recovery-interim). There is no
-installed base, so nothing depends on the gap.
+**Interim gaps in `init`:** it requires `--recipient` until M2 and gains
+`--remote` in M8a ([Q-INIT-INTERIM](open-questions.md#q-init-interim)), and
+has no recovery key until P8, since that depends on M9 and the enrollment
+phase ([Q-RECOVERY-INTERIM](open-questions.md#q-recovery-interim)). There is
+no installed base, so nothing depends on the gaps.
 
 ---
 
@@ -59,15 +61,15 @@ line up.
 
 | Phase | Milestones | Status | Model | Depends on |
 |---|---|---|---|---|
-| P1 Foundation | M0a toolchain, CI, lint purity · M0b primitives · M1 vault lifecycle | `[ ]` | Sonnet; **Opus** for the P1 crate decisions and an Opus review of M0b's tests ⚑ | — |
-| P2 Crypto & entries | M2 identity + memlock · M3 entry format · M4 CRUD | `[ ]` | **Opus** for M2 ⚑; Sonnet for M3/M4 | P1 |
+| P1 Foundation ([plan](p1-foundation/index.md), [#4](https://github.com/distillerylabs/gage-rs/issues/4)) | M0a toolchain, CI, lint purity · M0b git-crate spike + primitives · M1 vault lifecycle | `[~]` planned | Sonnet; **Opus** for M0b's git-crate spike and an Opus review of M0b's tests ⚑ | — |
+| P2 Crypto & entries | M2 identity + memlock · M3 entry format · M4 CRUD | `[ ]` | **Opus** for M2 and the P2 crate decisions (Q-YAML-CRATE, Q-PLATFORM-CRATES, rest of Q-AGE-CRATE) ⚑; Sonnet for M3/M4 | P1 |
 | P3 Query & session | M5 resolver · M6 session/REPL · M7 metadata index · M13 completion | `[ ]` | Sonnet* | P2 |
 | P4 Sync | M8a transport & detection · M8b conflict resolution | `[ ]` | **Opus** | P3 |
 | P5 Recipients & trust | M9 recipients · M10 trust cache · M11 cross-vault | `[ ]` | **Opus** for M9; Sonnet* for M10/M11 | P4 |
 | P6 Polish | M12 output modes, `log`/`history`, `--script` | `[ ]` | Sonnet | P5 |
 | P7 Enrollment | E1b · E2 · E3 · E4 | `[ ]` | **Opus** | P5 |
 | P8 Recovery key | R0–R5, regrouped into 3–4 milestones | `[ ]` | **Opus** for the R1/R3/R4 material | P7; P6 (R1 displays the key through M12's QR renderer) |
-| P9 Parity sign-off | Ledger closed, help diff empty, differential suite complete | `[ ]` | **Opus** review | P8 |
+| P9 Parity sign-off | Ledger closed, every test-inventory row ported or excused, user docs complete | `[ ]` | **Opus** review | P8 |
 
 `⚑` = run an Opus review pass over that milestone's *tests* before moving
 on, even where Sonnet wrote them. `*` = borderline; start on Sonnet, switch
@@ -92,7 +94,7 @@ cover commands from every earlier phase.
 | M0 Scaffolding | P1 · M0a + M0b | Split because Cargo/CI/lint purity and the primitives are separately reviewable. #23 (parent-command help) and #27 (usage-error help) fold into M0b's registry/help tests. |
 | M1 Vault lifecycle | P1 · M1 | Includes E0's vault-id keying, `format_version = 2`, id validation, and the `[vaults.<name>].id` field. |
 | M2 Identity & memory protection | P2 · M2 | Includes E0's identity path and marker file; the scrypt work-factor guard tests. |
-| M3 Entry format | P2 · M3 | Golden-byte YAML compatibility with Go `yaml.v3` output. |
+| M3 Entry format | P2 · M3 | Same entry schema as Go; faithful round trip, not Go's YAML bytes ([Q-YAML-CRATE](open-questions.md#q-yaml-crate)). |
 | M4 CRUD | P2 · M4 | Includes `insert --field` (#58). |
 | M5 Query resolution | P3 · M5 | |
 | M6 Session mode | P3 · M6 | |
@@ -109,7 +111,8 @@ cover commands from every earlier phase.
 | E1b–E4 Enrollment | P7 · E1b, E2, E3, E4 | |
 | R0–R5 Recovery key | P8 | Go issue #7; sources are `plans/recovery-key/` and the TDD's "Recovery key at `init`". **Not listed in the Go core index.** |
 | Go test-coverage plan (R0/R1 coverage) | M0a | Coverage gating via `cargo-llvm-cov` from the first milestone, applied by every milestone after it. |
-| `make reset-local-state`, pre-commit hook | M0a | Developer tooling, not CLI surface. |
+| Pre-commit hook | M0a | Developer tooling, not CLI surface. |
+| `make reset-local-state` | M0b | Developer tooling; needs M0b's `xdgpaths`, so not M0a. |
 | TOTP TDD | — | Designed, never built in Go. Out of scope; see the ledger. |
 
 ---
@@ -136,23 +139,23 @@ architecture". Concretely, enforced from M0a:
 
 ## Crates
 
-Locked here only once decided; P1 settles the open rows before M1 starts,
-each as a `Q-` entry. "First used" names the milestone that introduces it.
+Locked here only once decided, each as a `Q-` entry. P1 settles what P1
+uses; Q-YAML-CRATE and Q-PLATFORM-CRATES move to P2 planning. "First used" names the milestone that introduces it.
 
 | Purpose | Choice | Status | First used | Go counterpart |
 |---|---|---|---|---|
-| CLI parsing/dispatch | `clap` (derive + builder for the registry) | likely | M0a | spf13/cobra |
-| TOML | `toml` + `serde` | likely | M0b | pelletier/go-toml v2 |
+| CLI parsing/dispatch, help rendering | `clap`, grouped from the registry | decided ([Q-HELP-RENDER](open-questions.md#q-help-render)) | M0a | spf13/cobra |
+| TOML | `toml` + `serde` (no custom emitter) | decided ([Q-COMPAT](open-questions.md#q-compat)) | M0b | pelletier/go-toml v2 |
 | Typed errors | `thiserror` (library), `anyhow` (CLI only) | likely | M0b | — |
-| Advisory file lock | `std::fs::File::lock` (Rust ≥ 1.89) or `fs4` | **decide in P1** ([Q-FILE-LOCK](open-questions.md#q-file-lock)) | M0b | x/sys flock/LockFileEx |
-| Git | `gix` or `git2` (vendored libgit2) | **decide in P1** ([Q-GIT-CRATE](open-questions.md#q-git-crate)) | M1 | go-git |
-| Encryption | `age` (rage) | likely; verify in P1 ([Q-AGE-CRATE](open-questions.md#q-age-crate)) | M2 | filippo.io/age |
-| Memory locking | `region`, or `libc`/`windows-sys` directly | **decide in P1** | M2 | x/sys mlock/VirtualLock |
+| Advisory file lock | `std::fs::File::lock` (Rust ≥ 1.89) | decided ([Q-FILE-LOCK](open-questions.md#q-file-lock)) | M0b | x/sys flock/LockFileEx |
+| Git | `gix` or `git2` (vendored libgit2) | **M0b spike** ([Q-GIT-CRATE](open-questions.md#q-git-crate)) | M0b | go-git |
+| Encryption | `age` (rage) | decided for recipient parsing; rest in P2 planning ([Q-AGE-CRATE](open-questions.md#q-age-crate)) | M1 | filippo.io/age |
+| Memory locking | `region`, or `libc`/`windows-sys` directly | **decide in P2** ([Q-PLATFORM-CRATES](open-questions.md#q-platform-crates)) | M2 | x/sys mlock/VirtualLock |
 | Secret hygiene | `zeroize`, `secrecy` | likely | M2 | manual zeroing |
-| Masked terminal input | `rpassword` or `crossterm` | **decide in P1** | M2 | x/term |
-| PTY (test-only) | `expectrl` or `portable-pty` | **decide in P1** | M2 | creack/pty |
-| YAML | `serde_yaml_ng`, `serde_norway` or `serde_yml` | **decide in P1** ([Q-YAML-CRATE](open-questions.md#q-yaml-crate)) | M3 | gopkg.in/yaml.v3 |
-| UUID | `uuid` (v4) | likely | M3 | google/uuid |
+| Masked terminal input | `rpassword` or `crossterm` | **decide in P2** | M2 | x/term |
+| PTY (test-only) | `expectrl` or `portable-pty` | **decide in P2** | M2 | creack/pty |
+| YAML | `serde_yaml_ng`, `serde_norway` or `serde_yml` | **decide in P2** ([Q-YAML-CRATE](open-questions.md#q-yaml-crate)) | M3 | gopkg.in/yaml.v3 |
+| UUID | `uuid` (v4) | likely | M0b (vault-id validation) | google/uuid |
 | Line editing | `rustyline` | likely | M6 | chzyer/readline |
 | Clipboard | `arboard` | likely | M12 | atotto/clipboard |
 | QR encoding | `qrcode` (encoding only; half-block rendering is gage's own) | likely | M12 | rsc.io/qr |
@@ -190,25 +193,28 @@ The Rust-specific parts:
 
 ## Compatibility and parity strategy
 
-1. **Go reference fixtures** (`tests/fixtures/go/`): the pinned SHA, the
-   captured help surface, and the test inventory, all regenerated by
-   `scripts/go-reference/capture.sh`. Milestones that touch on-disk bytes
-   (M1, M2, M3, M9, M10, E2, R0) add Go-written vaults, identity files and
-   entries under `tests/fixtures/go/vaults/`, generated by a script that
-   drives the pinned Go binary, committed so `make test` stays offline.
-2. **Parity ledger** ([parity-ledger.md](parity-ledger.md)): every shipped
-   Go item mapped to a milestone or an explicit exclusion.
-3. **Per-milestone parity check** (CLAUDE.md "Before considering any change
-   done"): claimed ledger rows and test-inventory rows all accounted for,
-   help output matching the fixtures, differential scenarios green.
-4. **Differential harness** (`tests/differential/`, from P2): scripted
-   scenarios run against both binaries, comparing exit codes, normalized
-   stdout/stderr, the resulting vault tree, and decrypted contents, plus
-   Go-writes/Rust-reads and the reverse. Runs in its own CI job that builds
-   Go gage at the pinned SHA; not part of `make test`.
+Behavioral parity ([Q-COMPAT](open-questions.md#q-compat)): Go is the spec,
+not a peer.
+
+1. **Go reference material** (`tests/fixtures/go/`): the pinned SHA, the
+   captured help surface, and the test inventory, regenerated by
+   `scripts/go-reference/capture.sh`. The help fixtures are a reference
+   for wording and grouping, not a byte gate
+   ([Q-HELP-RENDER](open-questions.md#q-help-render)). No Go-written vaults
+   are committed: cross-binary reading is not promised.
+2. **On-disk schema follows Go**: file names, field names, directory
+   layout, what is committed and what stays local, `format_version = 2`.
+   Bytes (TOML quoting, YAML style) are gage-rs's own.
+3. **Parity ledger** ([parity-ledger.md](parity-ledger.md)): every shipped
+   Go item mapped to a milestone or an explicit exclusion. It is the
+   feature checklist.
+4. **Per-milestone parity check** (CLAUDE.md "Before considering any change
+   done"): claimed ledger rows and test-inventory rows all accounted for.
 5. **P9 sign-off:** every ledger row closed, every test-inventory row
-   ported or excused, help diff empty, differential suite covering every
-   command, README declares gage-rs a drop-in replacement.
+   ported or excused, user docs complete.
+
+There is no differential harness running both binaries; it was withdrawn
+with byte parity.
 
 ---
 
@@ -222,8 +228,8 @@ Adapted from the Go plan's table. Milestone IDs are the Rust ones.
 | M0b | `Identity` type + `Vault::unlock(&dyn Prompter) -> Result<Identity, _>` signature, decided before any real crypto exists | M2 implements it; M4/M5 take `&Identity`; M6 caches it |
 | M0b | `vaultlock` advisory lock primitive, keyed by vault id | M4 onward: held across every read-modify-commit |
 | M0b | Atomic file write (temp + rename) | Global config, `.gage/config.toml`, `known-config.toml` (M10) |
-| M0b | Exit-code taxonomy, byte-for-byte the Go codes | Every command; M9's `verify` 0/1 contract; differential harness |
-| M0b | Command registry — name, aliases, description, group, one-shot/session availability | Every milestone that adds a command registers it; the help fixtures compare its rendering |
+| M0b | Exit-code taxonomy (Go's codes; no reason to differ) | Every command; M9's `verify` 0/1 contract |
+| M0b | Command registry — name, aliases, description, group, one-shot/session availability | Every milestone that adds a command registers it; one-shot help (clap) and M6's session help render from it |
 | M0b | `gittest::new_bare_remote` | M1's `set-remote` tests; M8a's sync harness |
 | M1 | `.gage/config.toml` schema with `format_version = 2` and `[vault].id`; unknown versions rejected with a directional message | Every later reader |
 | M1 | Global config schema, incl. per-vault `device`, `method`, `id`, `pubkey` | M2 populates; M4's `updated_by`; `unlock` dispatches on `method`; M12's orphan cleanup reads `pubkey` |

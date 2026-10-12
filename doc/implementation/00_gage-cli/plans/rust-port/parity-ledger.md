@@ -71,7 +71,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[ ]` |
 | `386c57e` | #38 | `init --remote` solicits an HTTPS token inline | P4 · M8a | `[ ]` |
 | `a0920b0`, `0a1beeb` | #39 | `vault remove` orphaned-identity cleanup (later revised by E0: compare public keys, `Confirm`, default keep) | P6 · M12 | `[ ]` |
-| `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | M0a (as a separate binary/script, never a `gage` subcommand) | `[ ]` |
+| `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | P1 · M0b (a separate binary, never a `gage` subcommand; needs `xdgpaths`) | `[ ]` |
 | `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[ ]` |
 | `a1572d5` | — | `ls` shows title and `updated_by` | P2 · M4 | `[ ]` |
 | `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 | `[ ]` |
@@ -112,14 +112,17 @@ before `distillerylabs/gage`; the commit is the stable reference.
 
 ## 4. Help surface (`tests/fixtures/go/help/`)
 
-One fixture per command, captured from the Go binary. A command is `[x]`
-when gage-rs's `gage help <cmd>` matches its fixture byte for byte, or the
-difference is a recorded deviation. `root.txt` (the grouped listing) is
-re-compared at the end of every phase and must match exactly at P9.
+One fixture per command, captured from the Go binary. Under behavioral
+parity they are a **reference, not a byte gate**
+([Q-HELP-RENDER](open-questions.md#q-help-render)): a command is ported
+when it exists with the same name, aliases, group, arguments and flags as
+its fixture (flags that land later, per the phase, excepted), and its help
+says what it does. gage-rs's help is rendered by clap and is not expected
+to match Cobra's layout.
 
 | Fixtures | Port to |
 |---|---|
-| `root`, `vault`, `vault_list`, `vault_info`, `vault_remove`, `vault_set-default`, `init`, `git`, `git_set-remote` | P1 (`init` flags grow through P2, P4 and P8 — see [Q-RECOVERY-INTERIM](open-questions.md#q-recovery-interim); `vault remove` cleanup in P6) |
+| `root`, `vault`, `vault_list`, `vault_info`, `vault_remove`, `vault_set-default`, `init`, `git`, `git_set-remote` | P1 (`init` flags grow through P2, P4 and P8 — see [Q-INIT-INTERIM](open-questions.md#q-init-interim) and [Q-RECOVERY-INTERIM](open-questions.md#q-recovery-interim); `vault remove` cleanup in P6) |
 | `insert`, `cat`, `rm`, `ls` | P2 (`ls -H` and `cat` formatting in P6) |
 | `show`, `edit`, `rename`, `generate`, `search`, `reindex` | P3 |
 | `clone`, `sync`, `pull`, `push`, `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 |
@@ -127,7 +130,7 @@ re-compared at the end of every phase and must match exactly at P9.
 | `log`, `history` (and global output flags `--clip`, `--qr`, `--field`, `--script`) | P6 |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |
 | `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8 |
-| Session-mode `help` and session-only commands | P3 — not yet captured ([Q-SESSION-HELP-FIXTURES](open-questions.md#q-session-help-fixtures)) |
+| Session-mode `help` and session-only commands | P3 — tested against the registry, not captured |
 
 ## 5. Test inventory (`tests/fixtures/go/test-inventory.tsv`)
 
@@ -140,8 +143,8 @@ an equivalent Rust test the milestone doc names) or excused in writing.
 
 | Phase | Go test functions | Main Go test files |
 |---|---|---|
-| P1 | 197 | `exitcode`, `atomicfile`, `vaultlock`, `xdgpaths`, `config`, `devicename`, `vaultconfig`, `gittest`; `vault_lifecycle`, `vaultid_keying`, `vault_create`, `help`, `registry`, `usageerror`, `errorprefix`, `version`, `main_integration` |
-| P2 | 220 | `agekey`, `memlock`, `crypt`, `unlock`, `identityfile_marker`, `init_identity`, `prompter`(`_pty`), `coredump`, `testsupport`; `entry`, `field`, `entry_crud`, `entry_edit`, `cat`, `insert_*`, `editor`, `scratchdir*` |
+| P1 | 186 | `exitcode`, `atomicfile`, `vaultlock`, `xdgpaths`, `config`, `devicename`, `vaultconfig`, `gittest`; `vault_lifecycle`, `vaultid_keying`, `vault_create`, `help`, `registry`, `usageerror`, `errorprefix`, `version`, `main_integration` |
+| P2 | 231 | `agekey`, `memlock`, `vault` (`Identity` close and page lock), `crypt`, `unlock`, `identityfile_marker`, `init_identity`, `prompter`(`_pty`), `coredump`, `testsupport`; `entry`, `field`, `entry_crud`, `entry_edit`, `cat`, `insert_*`, `editor`, `scratchdir*` |
 | P3 | 197 | `resolve`(`_cli`), `generate`, `rename`, `edit`, `show`, `session`, `shell`, `repl`, `session_pty`, `sessionhelp`, `index`, `search`, `complete`(`_pty`) |
 | P4 | 172 | `gitrepo/*`, `remoteauth`, `syncerr`, `remotesync`, `sync_index`, `syncresolve`(`_cli`), `sync_cli`, `clone`, `auth`, `init_remote_auth` |
 | P5 | 136 | `recipients`, `recipient`, `recipient_batch`, `reencrypt`, `recipient_cli`, `identity_add`, `identity_cli`, `trustcache`(`_cli`), `move` |
@@ -155,6 +158,14 @@ Known coarse spots to resolve when the phase is planned: `cat_test.go`
 `vault_lifecycle_test.go` and `vaultid_keying_test.go` (P1) hold #39
 orphan-cleanup tests that belong to P6 · M12; `init_*` files split across
 phases by flag.
+
+Resolved in P1 planning: the P1 rows of `vault_lifecycle_test.go` and
+`vaultid_keying_test.go` that belong elsewhere (P2, P4, P5, P6) are listed
+with their destination in [M1's doc](p1-foundation/m1-vault-lifecycle.md);
+`vault_test.go` was re-tagged P2 in the phase map (it tests `Identity`
+close and page locking); and M1 claims 7 P4-tagged rows of
+`gitrepo_test.go` (init-and-commit, set-remote, remote URL, `IsClean`)
+because it builds that surface.
 
 ## 6. User docs (Go `doc/cli/`)
 
@@ -177,4 +188,5 @@ behavior; each phase's last milestone updates the pages for its surface.
 |---|---|
 | TOTP (`gage-cli-totp.md`) | Designed, never built in Go — [Q-TOTP](open-questions.md#q-totp) |
 | Go-specific tooling: golangci-lint/forbidigo config, govulncheck, go-test-coverage, `GOPROXY=off` | Replaced by Rust equivalents in M0a (clippy `disallowed-*`, cargo-deny, cargo-llvm-cov, `CARGO_NET_OFFLINE`); the *properties* they enforce are ported, the tools are not |
+| Byte-level and cross-binary compatibility: Go's TOML/YAML bytes, Cobra's help layout and quirks, reading Go-written vaults | Behavioral parity only — [Q-COMPAT](open-questions.md#q-compat) |
 | Go module path, Go toolchain bumps | Go-only |

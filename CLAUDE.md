@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`gage-rs` is a Rust port of [`gage`](https://github.com/distillerylabs/gage) (`git` + `age`), a git-backed, age-encrypted secret & notes manager originally written in Go. The port is **fully on-disk compatible**: a vault written by either binary must be readable and writable by the other, and the Go implementation is the reference whenever the two disagree.
+`gage-rs` is a Rust port of [`gage`](https://github.com/distillerylabs/gage) (`git` + `age`), a git-backed, age-encrypted secret & notes manager originally written in Go. The port targets **behavioral parity**: Go gage is the spec (behavior, on-disk schema, test inventory), not a peer. There is no promise that either binary reads the other's vaults, and gage-rs does not reproduce Go's bytes (TOML/YAML style, Cobra's help layout). See [Q-COMPAT](doc/implementation/00_gage-cli/plans/rust-port/open-questions.md#q-compat).
 
 - Full design rationale: [doc/implementation/00_gage-cli/tdds/gage-cli-design.md](doc/implementation/00_gage-cli/tdds/gage-cli-design.md) and [gage-cli-init-design.md](doc/implementation/00_gage-cli/tdds/gage-cli-init-design.md). Both are copied verbatim from Go gage. Read the relevant section before changing behavior it documents: most non-obvious decisions (why a field lives where it does, why a check exists) are explained there, not in code comments.
 - The port plan (phases, Go-milestone mapping, crate choices, cross-milestone contracts): [doc/implementation/00_gage-cli/plans/rust-port/index.md](doc/implementation/00_gage-cli/plans/rust-port/index.md), with one doc per milestone alongside it once each phase is planned.
@@ -28,7 +28,7 @@ Run a single test: `cargo test -p gage <test_name> -- --nocapture` (or `-p gage-
 
 The toolchain is pinned in `rust-toolchain.toml`. Cargo-installed tools (cargo-deny, cargo-llvm-cov) are pinned in the Makefile and installed into `./bin`, not resolved from `PATH`.
 
-CI runs natively on Linux, macOS, and Windows, not cross-compiled. Several invariants (page-locking, vault file locking, core-dump suppression) only hold if real platform syscalls run, so cross-platform breakage can't be caught on one OS alone. A separate differential job builds Go gage at the pinned SHA and runs both binaries side by side (see "Compatibility and parity").
+CI runs natively on Linux, macOS, and Windows, not cross-compiled. Several invariants (page-locking, vault file locking, core-dump suppression) only hold if real platform syscalls run, so cross-platform breakage can't be caught on one OS alone.
 
 ## Development workflow
 
@@ -67,7 +67,7 @@ The no-commit/no-push rule above applies throughout: the exception is only what 
 
 **Before considering any change done:**
 - `make lint` (rustfmt check + clippy with `-D warnings`) and `make test` must both be clean; `cargo check --workspace --all-targets` is a fast intermediate check while iterating. Don't leave this for CI to catch — CI's only job is cross-platform confirmation (Linux/macOS/Windows), not first-pass discovery.
-- **Parity:** every ledger row and every Go test function the milestone claims is accounted for — ported, or listed in the milestone doc with a written reason it isn't. Help output for any command the milestone touches matches `tests/fixtures/go/help/`, or the deviation is recorded as a `Q-` entry. Differential scenarios for touched commands pass.
+- **Parity:** every ledger row and every Go test function the milestone claims is accounted for — ported, or listed in the milestone doc with a written reason it isn't. Any command the milestone touches has the name, aliases, group, arguments and flags of its `tests/fixtures/go/help/` reference (a reference, not a byte gate), or the difference is recorded as a `Q-` entry.
 
 **Write tests first, at task granularity.** Write a task's tests before its implementation, then implement to green, then move to the next task — don't write the whole implementation and backfill tests after, and don't try to author a whole milestone's test suite upfront against APIs that don't exist yet. This is the project's actual convention (see "Test conventions" in the [port plan](doc/implementation/00_gage-cli/plans/rust-port/index.md)), not a generic suggestion.
 
@@ -91,8 +91,8 @@ The no-commit/no-push rule above applies throughout: the exception is only what 
 
 ## Compatibility and parity
 
-- **Go wins.** When Rust and Go disagree on any observable behavior (on-disk bytes, exit codes, help text, error wording that tests pin), the Go binary at `tests/fixtures/go/GO_GAGE_SHA` is right unless a `Q-` entry in the [open-questions register](doc/implementation/00_gage-cli/plans/rust-port/open-questions.md) records a deliberate deviation.
-- **On-disk bytes are a contract.** `.gage/config.toml`, `.age-recipients`, `.gitattributes`, entry YAML inside the age payload, identity files, the trust cache, and the git commit layout must round-trip with Go. Any change that touches them keeps the cross-implementation fixture tests (`tests/fixtures/go/`) and the differential suite green.
+- **Go wins on behavior.** When Rust and Go disagree on observable behavior (what a command does, exit codes, what is refused and why), the Go binary at `tests/fixtures/go/GO_GAGE_SHA` is right unless a `Q-` entry in the [open-questions register](doc/implementation/00_gage-cli/plans/rust-port/open-questions.md) records a deliberate deviation. Bytes and layout of output are not behavior: TOML/YAML formatting and help layout are gage-rs's own.
+- **On-disk schema follows Go.** `.gage/config.toml`, `.age-recipients`, `.gitattributes`, the entry YAML fields inside the age payload, identity files, the trust cache, and the git commit layout keep Go's file names, field names and structure. Cross-binary reading is not promised or tested (no Go-written vaults are committed, no differential harness).
 - **The parity ledger is the inventory.** Anything Go shipped that the ledger doesn't map is a gap in the ledger, not permission to skip it. When the Go pin moves, rerun `scripts/go-reference/capture.sh` and add ledger rows for whatever shipped in between.
 
 ## Architecture: the library/CLI split is load-bearing

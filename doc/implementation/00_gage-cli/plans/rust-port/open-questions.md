@@ -16,13 +16,38 @@ Status: `[ ]` open, `[x]` resolved. A resolved entry is kept as a record.
 
 ### `[x]` Q-COMPAT — How compatible is gage-rs with Go gage? {#q-compat}
 
-**Resolved: fully on-disk compatible.** A vault written by either binary is
-readable and writable by the other. The Go binary at
-`tests/fixtures/go/GO_GAGE_SHA` is the reference; any observable difference
-(on-disk bytes, exit codes, help text, error wording that tests pin) is a
-bug in gage-rs unless an entry here records it as a deliberate deviation.
-This constrains crate choices (YAML output, age header, scrypt work factor)
-and is why the differential harness exists.
+**Resolved: behavioral parity, not byte parity** (amended in P1 planning,
+[#4](https://github.com/distillerylabs/gage-rs/issues/4)).
+
+Go gage is the **spec**: its TDDs, its behavior, its test inventory, and its
+on-disk *schema* (file names, field names, directory layout, what is
+committed and what stays local). It is not a **peer**: gage-rs does not
+promise that a vault written by one binary is readable or writable by the
+other, and does not reproduce Go's bytes (TOML quoting, YAML style, Cobra's
+help layout, usage-error wording).
+
+*Why the amendment.* The bootstrap decision was "fully on-disk compatible":
+either binary reads and writes the other's vaults, Go's bytes and help text
+are authoritative, and a differential harness proves it. There are no
+Go-written vaults to protect, so that cost had no beneficiary. Planning P1
+found it was a large share of the phase: a go-toml-style emitter, a
+Cobra-format help renderer and usage-error fixtures, a Windows lock byte
+range matching Go's, Go-written fixture vaults, and a separate spike
+milestone. Across the port it also drove the differential harness and
+golden-byte YAML.
+
+*What does not change.* Everything that comes from design or security
+rather than interop: the library/CLI split and its lint, process-level
+`vaultlock` tests, untrusted-input validation of vault ids and device
+names, vault-id keying, the exit-code taxonomy (kept at Go's numbers since
+there is no reason to differ), `.age-recipients` usable by stock `age`,
+standard age files and the scrypt guard tests, 3-OS CI, the coverage gate,
+and test-first milestones. Because the schema is the same, gage-rs will
+likely read a Go vault in practice; that is neither promised nor tested.
+
+*The risk accepted.* If Go gage gains users before the port finishes,
+compatibility is expensive to retrofit. This decision assumes Go is frozen
+as the reference or will be retired.
 
 ### `[x]` Q-PORT-STATE — Port Go's milestones as built, or Go's current behavior? {#q-port-state}
 
@@ -50,11 +75,9 @@ copied. If Go builds it, it enters the ledger when the pin moves.
 depends on M9's `commit_recipient_list` and the enrollment phase's
 pending-prune, so it cannot land with M1/M2. Until P8, Rust `gage init`
 creates no recovery key and accepts neither `--no-recovery-key` nor
-`--recovery-key-out`. This is a known, temporary help-surface and
-behavior difference from the pinned Go binary: the `init` help fixture and
-any differential scenario involving `init` are marked expected-to-differ
-until P8, and P8's definition of done removes those marks. Acceptable only
-because there is no installed base.
+`--recovery-key-out`. Under behavioral parity ([Q-COMPAT](#q-compat)) this
+is ordinary "not built yet", not a tracked deviation; P8 adds the flags.
+Acceptable because there is no installed base.
 
 ### `[x]` Q-GO-ISSUE-REFS — Which issue numbers do the Go plan docs cite? {#q-go-issue-refs}
 
@@ -70,59 +93,117 @@ complete.
 
 ---
 
-## Open — decide in P1, before M1
+## Resolved in P1 planning
 
-Each is decided by a short spike, recorded here with the evidence, and
-reflected in the [crates table](index.md#crates). **Model: Opus.**
+Settled in [#4](https://github.com/distillerylabs/gage-rs/issues/4) and the
+[P1 plan](p1-foundation/index.md).
 
-### `[ ]` Q-GIT-CRATE — `gix` or `git2`? {#q-git-crate}
+### `[x]` Q-FILE-LOCK — Which advisory-lock primitive? {#q-file-lock}
 
-**Blocks:** M1 (`init`, `set-remote`), and the whole of P4.
+**Resolved: `std::fs::File::lock`/`try_lock` on every platform** (stable
+since Rust 1.89, which the toolchain pin satisfies). The open question was
+whether a Go process and a Rust process exclude each other: Go's Windows
+implementation locks one reserved byte at offset `0x7fffffff_00000000`
+(so holder info at offset 0 stays readable), while std's `LockFileEx` call
+covers the whole range from offset 0. Under behavioral parity
+([Q-COMPAT](#q-compat)) cross-binary exclusion is not a requirement, so no
+spike is needed and `fs4` is not used.
 
-- `gix`: pure Rust, closest in spirit to go-git (no C, no system git).
-  Risk: push and merge support has historically trailed fetch/clone.
+Consequence for holder info on Windows: a contender may be unable to read
+the holder's `pid=`/`since=` record from a range the holder has locked.
+That record is best-effort in Go too (a zero record renders as "another
+process"), so M0b keeps the record but its tests assert holder detail on
+Unix only, and on Windows assert only that a contended error is returned.
+
+Contended-lock behavior (Go M0's open decision): poll every 20 ms up to a
+caller-given timeout, then return a typed `Contended { path, holder }`
+error. A zero timeout tries once. The OS releases the lock when the holder
+exits, including on kill.
+
+### `[x]` Q-GIT-CRATE — `gix` or `git2`? {#q-git-crate}
+
+**Resolved: decided by a short spike as M0b's first task (Opus).** It is
+needed in P1 because `gittest::new_bare_remote` (M0b) and `init`'s first
+commit (M1) both use it, and switching crates after P4 is expensive. The
+decision is driven by P4's needs, not by Go interop:
+
+- `gix`: pure Rust, closest in spirit to go-git. Risk: push and merge
+  support has historically trailed fetch/clone.
 - `git2`: libgit2, statically vendored so the binary stays self-contained
   and never shells out. Mature push/merge; a C dependency and its CVE stream.
 
-The spike must show, against a `gittest`-style local bare repo and offline:
-init + commit, fetch, fast-forward, **push over HTTPS with a token** (to a
-local smart-HTTP fixture), divergence detection, a merge commit with chosen
-per-file resolutions (M8b), history walk of one path (`log`/`history`), and
-that the local transport works on Windows CI. Go's M8a/M8b docs list what
-go-git's thin merge surface forced; check the candidate against that list.
+The spike must show, against a local bare repo and offline: init + commit
+with an explicit branch name and signature (never the user's git config),
+fetch, fast-forward, **an HTTPS token reaching the transport** (Go proves
+this with a custom transport registered under a `gagetest://` scheme that
+records the credentials it was handed, `gittest/transport.go`; the
+candidate needs an equivalent hook, plus HTTPS support compiled in without
+system libraries), divergence detection, a merge commit with chosen
+per-file resolutions (M8b), history walk of one path (`log`/`history`),
+and that the local transport works on Windows CI. Go's M8a/M8b docs list
+what go-git's thin merge surface forced; check the candidate against that
+list. Evidence is recorded here; the spike code is deleted before M0b's
+review.
 
-### `[ ]` Q-YAML-CRATE — Which YAML crate reproduces Go's entry bytes? {#q-yaml-crate}
+### `[x]` Q-AGE-CRATE — Does the `age` crate cover what gage needs? {#q-age-crate}
+
+**Resolved for P1; the rest moves to P2 planning.** M1 needs only recipient
+validation (a well-formed `age1…` bech32 X25519 key, so a malformed
+`--recipient` fails at the CLI boundary); the `age` crate's
+`x25519::Recipient` parsing covers that, and M1 adds the dependency.
+
+Still to check before M2: scrypt (passphrase) recipients with a settable
+work factor (shipped 2^19, plus the test-only hook and its guard tests),
+armored and binary formats, `.age-recipients` parsing (comments, blank
+lines), and E2's separate enrollment scrypt factor. Decrypting Go-written
+files is no longer required ([Q-COMPAT](#q-compat)).
+
+### `[x]` Q-INIT-INTERIM — What does `init` do before identities and sync exist? {#q-init-interim}
+
+**Resolved: `init` requires `--recipient` until M2, and has no CLI
+`--remote` until P4 · M8a.** M1 has no crypto, so there is no device key
+to generate; as in Go's own M1, `init` fails with an error naming
+`--recipient` when none is given, and the first `--recipient` key is
+labelled with the device name (`--device` or the normalized hostname),
+later ones `recipient-<n>`. M2 makes `--recipient` additive, as Go's
+current `init` is. The library's `Vault::create` accepts a remote and sets
+`origin`, but the CLI flag waits for M8a, because Go's `init --remote`
+publishes immediately and that needs push. `init`'s help text describes
+what M1 actually does.
+
+### `[x]` Q-HELP-RENDER — Who renders help and usage errors? {#q-help-render}
+
+**Resolved: clap, with grouping and availability from the registry.** The
+command registry (name, aliases, short description, group, one-shot or
+session availability) stays the single source, as Go's does, because P3's
+in-session `help` renders from it too. clap renders the one-shot help and
+usage errors; the root listing is grouped in registry order (via
+`help_heading` or a help template). Go's help fixtures are a reference for
+wording and grouping, not a byte gate, and Cobra's quirks (a parent with an
+unknown child exiting 0, `[flags]` added on usage errors) are not
+reproduced. Tests assert structure: grouping, aliases shown with the
+canonical name, the one-shot set equal to the registry, and usage errors
+showing the command's own usage and exiting with the usage code.
+
+---
+
+## Open — decide in P2 planning
+
+Moved from P1: they block M2/M3, and P2 planning is better informed.
+**Model: Opus.**
+
+### `[ ]` Q-YAML-CRATE — Which YAML crate for entries? {#q-yaml-crate}
 
 **Blocks:** M3.
 
 `serde_yaml` is deprecated. Candidates: `serde_yaml_ng`, `serde_norway`,
-`serde_yml`. The entry payload is YAML inside age, and `cat`/`edit` show it,
-so the choice is pinned with golden-byte tests against Go `yaml.v3` output:
-block scalars for multi-line values, key order, quoting of strings that look
-like numbers/bools/dates, timestamp format, empty `fields`. Go's `cat`
-post-processes through the YAML node tree (#60/#61), so node-level access
-matters too. A hand-written emitter for the fixed entry shape is an
-acceptable answer if no crate matches.
-
-### `[ ]` Q-AGE-CRATE — Does the `age` crate cover everything Go gage uses? {#q-age-crate}
-
-**Blocks:** M2.
-
-Check: X25519 recipients/identities, scrypt (passphrase) recipients with a
-settable work factor (shipped 2^19, plus the test-only hook and its guard
-tests), armored and binary formats as Go writes them, `.age-recipients`
-parsing identical to Go's (comments, blank lines, labels), and decryption of
-files Go wrote. Also E2's separate enrollment scrypt factor.
-
-### `[ ]` Q-FILE-LOCK — Which advisory-lock primitive? {#q-file-lock}
-
-**Blocks:** M0b.
-
-`std::fs::File::lock`/`try_lock` (stable since Rust 1.89) vs `fs4`. Must
-match Go's `flock`/`LockFileEx` semantics so a Go process and a Rust process
-exclude each other on the same lock file — a differential test, not only a
-unit test. Also settles Go M0's contended-lock behavior (block with a
-message naming the holder, with a timeout) for Rust.
+`serde_yml`. Byte parity with Go `yaml.v3` is not required
+([Q-COMPAT](#q-compat)); the requirement is a maintained crate that
+round-trips the entry shape faithfully and renders readably for
+`cat`/`edit`: block scalars for multi-line values, stable key order,
+quoting of strings that look like numbers/bools/dates, RFC 3339
+timestamps, unknown fields preserved. Go's `cat` post-processes through the
+YAML node tree (#60/#61), so node-level access matters.
 
 ### `[ ]` Q-PLATFORM-CRATES — memlock, masked input, pty {#q-platform-crates}
 
@@ -137,24 +218,15 @@ message naming the holder, with a timeout) for Rust.
 
 ---
 
-## Open — later phases
+## Withdrawn
 
-### `[ ]` Q-SESSION-HELP-FIXTURES — How are session-mode help surfaces captured? {#q-session-help-fixtures}
+Kept as a record; both existed only to serve byte parity.
 
-**Blocks:** P3 (M6).
+### `[x]` Q-SESSION-HELP-FIXTURES — How are session-mode help surfaces captured? {#q-session-help-fixtures}
 
-`tests/fixtures/go/help/` holds one-shot help only. The in-session `help`
-(and session-only commands) needs an unlocked session to render, so it
-can't be captured by `capture.sh` as written. Decide in P3's planning:
-extend the capture script with a scripted session against a throwaway
-vault, or compare through the differential harness instead.
+**Withdrawn** with the help byte gate ([Q-HELP-RENDER](#q-help-render)).
+P3's session help is tested structurally against the registry.
 
-### `[ ]` Q-DIFF-NORMALIZE — What does the differential harness normalize? {#q-diff-normalize}
+### `[x]` Q-DIFF-NORMALIZE — What does the differential harness normalize? {#q-diff-normalize}
 
-**Blocks:** P2 (first differential scenarios).
-
-UUIDs, timestamps, commit SHAs and ciphertext necessarily differ between
-runs. Decide the normalization rules (placeholder substitution, comparing
-decrypted content instead of ciphertext, comparing the git tree shape
-instead of SHAs) and, as important, what must **not** be normalized: exit
-codes, file names' shape, file modes, YAML bytes of decrypted entries.
+**Withdrawn** with the differential harness ([Q-COMPAT](#q-compat)).
