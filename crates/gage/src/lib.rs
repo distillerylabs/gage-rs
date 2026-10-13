@@ -6,3 +6,17 @@
 //! the dependency side of the same rule.
 
 #![deny(clippy::disallowed_macros, clippy::disallowed_methods)]
+
+pub mod atomicfile;
+pub mod config;
+pub mod devicename;
+pub mod exitcode;
+#[cfg(any(test, feature = "test-support"))]
+pub mod gittest;
+pub mod identity;
+pub mod paths;
+pub mod prompter;
+pub mod vault;
+pub mod vaultconfig;
+pub mod vaultlock;
+pub mod xdgpaths;

@@ -26,6 +26,8 @@ ignore = []
 allow = [
     "Apache-2.0",
     "MIT",
+    # The ICU crates git2 reaches through url -> idna (Q-GIT-CRATE).
+    "Unicode-3.0",
 ]
 confidence-threshold = 0.93
 

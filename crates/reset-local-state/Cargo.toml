@@ -1,0 +1,18 @@
+[package]
+name = "reset-local-state"
+description = "Developer tool: delete every directory gage owns on this machine (make reset-local-state)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+gage = { path = "../gage" }
+
+[dev-dependencies]
+tempfile = "3"

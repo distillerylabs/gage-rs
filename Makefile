@@ -1,13 +1,28 @@
 EXE := $(if $(filter Windows_NT,$(OS)),.exe,)
 
-# Version stamping. crates/gage-cli/build.rs declares both variables so a
-# change rebuilds the binary; the binary reads them in M0b.
+# Version stamping. crates/gage-cli/build.rs reads both variables (their
+# names are defined once, in crates/gage-cli/src/build_env.rs, and a test
+# checks these lines export exactly those) and rebuilds when they change.
 export GAGE_VERSION := $(shell git describe --tags --exact-match 2>/dev/null || echo dev)
 export GAGE_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 
 .PHONY: build
 build:
 	cargo build --locked -p gage-cli
+
+# Proves version stamping reaches the binary: build with a known tag and
+# commit, then require --version to print both. Go's
+# TestLinkTimeVersionInjection; CI runs it. The variables are overridden on
+# the cargo command line because this Makefile's own exports would win
+# otherwise.
+STAMP_VERSION := v9.9.9-testtag
+STAMP_COMMIT  := cafef00
+.PHONY: stamp-check
+stamp-check:
+	GAGE_VERSION=$(STAMP_VERSION) GAGE_COMMIT=$(STAMP_COMMIT) cargo build --locked -p gage-cli
+	@out="$$(./target/debug/gage$(EXE) --version)"; echo "$$out"; \
+	case "$$out" in *"$(STAMP_VERSION)"*"$(STAMP_COMMIT)"*) ;; \
+	*) echo "stamp-check: --version does not carry the stamped tag and commit" >&2; exit 1 ;; esac
 
 # The tests never touch the network: dependencies are fetched first, then
 # cargo is forbidden from going online. Run it with the network off once by
@@ -98,6 +113,12 @@ clippy:
 .PHONY: lint-selftest
 lint-selftest:
 	sh scripts/lint-selftest.sh
+
+# Deletes every directory gage owns on this machine, after showing them
+# and asking for "yes". A developer convenience, never a gage subcommand.
+.PHONY: reset-local-state
+reset-local-state:
+	cargo run --locked -q -p reset-local-state
 
 .PHONY: clean
 clean:

@@ -52,8 +52,8 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 | # | Milestone | Model | Depends on | Inventory rows | Status |
 |---|---|---|---|---|---|
-| M0a | [Toolchain, CI, lint purity](m0a-toolchain.md) ([#5](https://github.com/distillerylabs/gage-rs/issues/5)) | Sonnet | — | 0 | `[~]` |
-| M0b | [Git-crate spike, primitives, registry, help](m0b-primitives.md) ([#6](https://github.com/distillerylabs/gage-rs/issues/6)) | **Opus** for task 1 (spike); Sonnet after; ⚑ Opus review of the tests | M0a | 97 | `[ ]` |
+| M0a | [Toolchain, CI, lint purity](m0a-toolchain.md) ([#5](https://github.com/distillerylabs/gage-rs/issues/5)) | Sonnet | — | 0 | `[x]` |
+| M0b | [Git-crate spike, primitives, registry, help](m0b-primitives.md) ([#6](https://github.com/distillerylabs/gage-rs/issues/6)) | **Opus** for task 1 (spike); Sonnet after; ⚑ Opus review of the tests | M0a | 97 | `[~]` implemented; awaiting 3-OS CI |
 | M1 | [Vault lifecycle and vault-id keying](m1-vault-lifecycle.md) ([#7](https://github.com/distillerylabs/gage-rs/issues/7)) | Sonnet; ⚑ Opus review of the untrusted-input tests | M0b | 89 | `[ ]` |
 
 `⚑` = run an Opus review pass over that milestone's *tests* before moving on.
@@ -77,7 +77,7 @@ reason. Rows that move out of P1 entirely:
 
 | Destination | Rows |
 |---|---|
-| P2 · M2 | 3 from `vault_lifecycle` (identity generation), 1 from `vaultid_keying`, plus the identity halves of several M1 rows |
+| P2 · M2 | 3 from `vault_lifecycle` (identity generation), 1 from `vaultid_keying`, plus the identity halves of several M1 rows and the `Prompter::warn` half of `errorprefix`'s warning row |
 | P2 · M4 | 1 from `vaultid_keying` (shared lock exercised by `insert`), plus the `insert`/`show` half of one more |
 | P3 · M6 | 1 from `usageerror` (session-line usage errors) |
 | P4 · M8a | 1 from `vaultid_keying` (`clone`) |
