@@ -9,7 +9,7 @@
 //! so a `--stdin` script and the in-process tests drive the same code.
 
 use std::cell::RefCell;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 
 use gage::prompter::{Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse};
 use zeroize::Zeroizing;
@@ -36,10 +36,12 @@ pub enum SecretInput {
 }
 
 pub struct TerminalPrompter<R: Read, W: Write> {
-    /// Buffered across calls: a fresh reader per call would read ahead and
-    /// drop whatever followed the line it returned, which in a `--stdin`
-    /// script is the next command.
-    input: RefCell<BufReader<R>>,
+    /// Read a byte at a time, never ahead: whatever follows the line
+    /// returned belongs to whoever reads the stream next (the next prompt,
+    /// the next `--stdin` command, or `insert --value-stdin` reading the
+    /// value after the passphrase). `R` is stdin, which std already
+    /// buffers process-wide, so this costs nothing.
+    input: RefCell<R>,
     out: RefCell<W>,
     secrets: SecretInput,
 }
@@ -47,7 +49,7 @@ pub struct TerminalPrompter<R: Read, W: Write> {
 impl<R: Read, W: Write> TerminalPrompter<R, W> {
     pub fn new(input: R, out: W, secrets: SecretInput) -> TerminalPrompter<R, W> {
         TerminalPrompter {
-            input: RefCell::new(BufReader::new(input)),
+            input: RefCell::new(input),
             out: RefCell::new(out),
             secrets,
         }
@@ -105,15 +107,31 @@ impl<R: Read, W: Write> TerminalPrompter<R, W> {
 
     /// One line of the injected input, without its line ending. A last
     /// line with no newline is still an answer; end of input with nothing
-    /// at all is not.
+    /// at all is not. Stops at the newline: nothing after it is consumed.
     fn read_line(&self) -> Result<Zeroizing<String>, PromptError> {
-        let mut line = Zeroizing::new(String::new());
-        if self.input.borrow_mut().read_line(&mut line)? == 0 {
-            return Err(PromptError::Cancelled);
+        let mut bytes = Zeroizing::new(Vec::new());
+        let mut input = self.input.borrow_mut();
+        let mut byte = [0u8; 1];
+        loop {
+            match input.read(&mut byte) {
+                Ok(0) if bytes.is_empty() => return Err(PromptError::Cancelled),
+                Ok(0) => break,
+                Ok(_) if byte[0] == b'\n' => break,
+                Ok(_) => bytes.push(byte[0]),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => return Err(e.into()),
+            }
         }
-        let len = line.trim_end_matches(['\r', '\n']).len();
-        line.truncate(len);
-        Ok(line)
+        if bytes.last() == Some(&b'\r') {
+            bytes.pop();
+        }
+        match std::str::from_utf8(&bytes) {
+            Ok(line) => Ok(Zeroizing::new(line.to_string())),
+            Err(e) => Err(PromptError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            ))),
+        }
     }
 
     /// Asks for a brand-new identity's passphrase, twice: there is nothing
@@ -176,6 +194,12 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
     fn confirm(&self, prompt: &str) -> Result<bool, PromptError> {
         let answer = self.ask(&format!("{prompt} [y/N] "))?;
         Ok(matches!(answer.trim().to_lowercase().as_str(), "y" | "yes"))
+    }
+
+    /// Masked, like a passphrase: the value is a secret, and it is typed
+    /// where a screen or a recording could see it.
+    fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError> {
+        self.read_secret(&format!("Value for {title:?}: "))
     }
 
     fn warn(&self, msg: &str) {
@@ -248,6 +272,50 @@ mod tests {
             panic!("not a passphrase response")
         };
         p.to_string()
+    }
+
+    #[test]
+    fn value_is_read_as_a_line_and_prompts_with_the_title() {
+        let (p, out) = prompter("hunter2\nnext\n");
+        assert_eq!(&*p.value("ProtonMail").unwrap(), "hunter2");
+        assert!(
+            out.text().contains("Value for \"ProtonMail\": "),
+            "{}",
+            out.text()
+        );
+        assert!(!out.text().contains("hunter2"), "the value was echoed");
+        // Buffered like every other answer: the line after it survives.
+        assert_eq!(&*p.value("x").unwrap(), "next");
+        let err = p.value("x").unwrap_err();
+        assert!(matches!(err, PromptError::Cancelled), "{err}");
+    }
+
+    // `printf 'pass\nvalue' | gage insert x --value-stdin`: the prompter
+    // reads the passphrase line and the command then reads the rest of the
+    // same stream. A prompter that read ahead (a buffered reader) would
+    // swallow the value, and `insert` would store an empty secret without
+    // complaint, so it must stop at the end of the line it was asked for.
+    #[test]
+    fn a_line_read_never_consumes_input_beyond_its_newline() {
+        let mut stream = std::io::Cursor::new(b"pass\nthe value\nmore".to_vec());
+        {
+            let p = TerminalPrompter::new(&mut stream, SharedBuf::default(), SecretInput::Lines);
+            assert_eq!(passphrase(p.unlock(&unlock_req(1)).unwrap()), "pass");
+        }
+        let mut rest = String::new();
+        std::io::Read::read_to_string(&mut stream, &mut rest).unwrap();
+        assert_eq!(rest, "the value\nmore");
+    }
+
+    #[test]
+    fn a_line_that_is_not_utf8_is_an_io_error() {
+        let p = TerminalPrompter::new(
+            std::io::Cursor::new(vec![0xff, 0xfe, b'\n']),
+            SharedBuf::default(),
+            SecretInput::Lines,
+        );
+        let err = p.unlock(&unlock_req(1)).unwrap_err();
+        assert!(matches!(err, PromptError::Io(_)), "{err}");
     }
 
     // Go: TestReadingBufferedInputDoesNotSwallowFollowingLines

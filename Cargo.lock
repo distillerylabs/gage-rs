@@ -755,6 +755,7 @@ dependencies = [
  "rpassword",
  "tempfile",
  "thiserror 2.0.21",
+ "uuid",
  "windows-sys",
  "zeroize",
 ]

@@ -108,39 +108,39 @@ Tests first, at task granularity.
 
 ### 1. Library CRUD — `entry_crud` (13 rows)
 
-- [ ] `TestInsertRoundTripsThroughReadEntry`,
+- [x] `TestInsertRoundTripsThroughReadEntry`,
       `TestInsertCommitsExactlyOnceWithUUIDMessageAndFixedAuthor`,
       `TestInsertDuplicateTitleRejectedWithoutForce`,
       `TestInsertDuplicateTitleAllowedWithForce`.
-- [ ] `TestRemoveDeletesFileAndCommits`, `TestRemoveUnknownQueryFails`.
-- [ ] Resolution: `TestResolveByExactTitle`, `TestResolveByUUID`,
+- [x] `TestRemoveDeletesFileAndCommits`, `TestRemoveUnknownQueryFails`.
+- [x] Resolution: `TestResolveByExactTitle`, `TestResolveByUUID`,
       `TestResolveAmbiguousTitleFails` (typed candidate list),
       `TestResolveUnknownQueryFails`.
-- [ ] Lock ⚑ (task 2 writes these as process-level tests):
+- [x] Lock ⚑ (task 2 writes these as process-level tests):
       `TestInsertBlocksOnAConcurrentlyHeldWriteLock`,
       `TestReadDoesNotBlockOnAHeldWriteLock`,
       `TestWriteLockSerializesConcurrentInsertsAndLosesNoCommit`.
-- [ ] `gitrepo::commit_all`, with its own test that deletions are staged.
+- [x] `gitrepo::commit_all`, with its own test that deletions are staged.
 
 ### 2. Concurrency, process-level ⚑ — 2 CLI rows and the 3 library lock rows
 
-- [ ] The library lock rows above, with the lock held by a child process
+- [x] The library lock rows above, with the lock held by a child process
       (the test binary re-executed, as `vaultlock`'s tests do), never by a
       thread.
-- [ ] `TestConcurrentInsertsThroughTheCLIBothSucceed` (two real `gage`
+- [x] `TestConcurrentInsertsThroughTheCLIBothSucceed` (two real `gage`
       processes, two commits, both entries readable),
       `TestConcurrentReadsDoNotBlockEachOther`.
 
 ### 3. The one-shot handler and `--use` — 4 CLI rows
 
-- [ ] `TestNoUseFlagOperatesAgainstCurrentVault`,
+- [x] `TestNoUseFlagOperatesAgainstCurrentVault`,
       `TestUseFlagTargetsNamedVaultNotCurrent`,
       `TestUseUnregisteredVaultFailsBeforePromptingForAPassphrase`,
       `TestOneShotHandlerClosesIdentityOnEveryExitPathIncludingError`.
 
 ### 4. `insert`, `cat`, `rm`, `ls` — 20 CLI rows and `insert_multiline_pty` (1)
 
-- [ ] `insert`: `TestInsertThenCatRoundTripsValueThroughTheCLI`,
+- [x] `insert`: `TestInsertThenCatRoundTripsValueThroughTheCLI`,
       `TestInsertDefaultPromptsForValueViaPrompter`,
       `TestInsertValueStdinTrimsExactlyOneNewline`,
       `TestInsertValueStdinTrimsOneTrailingNewlineAndRoundTrips`,
@@ -154,20 +154,20 @@ Tests first, at task granularity.
       `TestInsertCommitMessageIsUUIDOnly`,
       `TestCommitAuthorIgnoresTheUsersGitConfig` (a child process with a
       hostile `HOME`, as M1's git-defaults test).
-- [ ] `cat` and `rm`: `TestCatUnknownFailsWithNotFound`,
+- [x] `cat` and `rm`: `TestCatUnknownFailsWithNotFound`,
       `TestRmDeletesFileAndCommitsThenCatAndLsNoLongerShowIt`.
-- [ ] `ls`: `TestLsListsInsertedTitleAlongsidePartialUUID`,
+- [x] `ls`: `TestLsListsInsertedTitleAlongsidePartialUUID`,
       `TestLsEmptyVaultNoOutput`, `TestLsPlaceholdersForMissingColumns`,
       `TestShortEntryIDLeavesShortStringsAlone`, and the `ls` half of
       `TestLsAndSearchPrintNothingWhenThereIsNothing` (the `search` half is
       P3 · M7).
-- [ ] An ambiguous `cat`/`rm` (two forced duplicate titles) prints the
+- [x] An ambiguous `cat`/`rm` (two forced duplicate titles) prints the
       candidates to stderr and exits Ambiguous.
-- [ ] Register `insert`, `cat`, `rm`, `ls` (one-shot and session) with
+- [x] Register `insert`, `cat`, `rm`, `ls` (one-shot and session) with
       Go's descriptions and the flags listed in the fixtures, less `-e`
       (P3) and `-H` (P6); add their error paths to the `errorprefix`
       table.
-- [ ] Real terminal (Unix only, as Go): `TestInsertMultilineCapturesFromARealTerminalUntilEOF`
+- [x] Real terminal (Unix only, as Go): `TestInsertMultilineCapturesFromARealTerminalUntilEOF`
       (`insert -m` reading until Ctrl-D on a `portable-pty` terminal,
       byte for byte).
 - Moved: `TestLsRendersIdenticallyInBothModes` (P3 · M7);
@@ -178,7 +178,7 @@ Tests first, at task granularity.
 
 ### 5. `insert --field` (#58) — `insert_field` (14 of 15 rows)
 
-- [ ] Parsing, all before any unlock:
+- [x] Parsing, all before any unlock:
       `TestInsertFieldMissingEqualsIsUsageErrorBeforeUnlock`,
       `TestInsertFieldEmptyNameIsUsageErrorBeforeUnlock`,
       `TestInsertFieldWhitespaceOnlyNameIsUsageErrorBeforeUnlock`,
@@ -188,36 +188,78 @@ Tests first, at task granularity.
       `TestInsertFieldValueWhitespaceIsPreserved`,
       `TestInsertFieldValueContainingEqualsIsPreservedVerbatim`,
       `TestInsertFieldEmptyValueIsStored`.
-- [ ] With value modes: `TestInsertFieldWithMultilineSetsBothValueAndFields`,
+- [x] With value modes: `TestInsertFieldWithMultilineSetsBothValueAndFields`,
       `TestInsertFieldWithValueStdinSetsBothValueAndFields`,
       `TestInsertFieldWithoutValueModeStillPromptsOnceAndStoresFields`.
-- [ ] Partial: `TestInsertFieldRoundTripsThroughShow` and
+- [x] Partial: `TestInsertFieldRoundTripsThroughShow` and
       `TestInsertMultipleFieldFlagsEachIndependentlyReadable` are verified
       through the stored entry (`Entry::field` on what `read_entry`
       returns); **the `show --field` halves move to P3 · M5**.
-- [ ] Moved: `TestInsertFieldWithEditFlagRejectedAsMutuallyExclusive`
+- [x] Moved: `TestInsertFieldWithEditFlagRejectedAsMutuallyExclusive`
       (P3 · M5, with `-e`).
 
 ### 6. Rows from P1
 
-- [ ] `vaultid_keying` `TestTwoRegistrationsOfOneRepositoryShareOneLock`:
+- [x] `vaultid_keying` `TestTwoRegistrationsOfOneRepositoryShareOneLock`:
       two registrations of one repository contend on one lock through
       `insert` (child processes).
-- [ ] The `insert` half of `TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath`
+- [x] The `insert` half of `TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath`
       (a registration with an empty id fails `insert` before any path is
       built); **the `show` half moves to P3 · M5**, the `identity list`
       half stays with P5.
 
 ### 7. User docs and ledger
 
-- [ ] Port Go's `doc/cli/entries.md` for the shipped surface: `insert`
+- [x] Port Go's `doc/cli/entries.md` for the shipped surface: `insert`
       (value modes, `--field`, `--description`, `-f`), `cat`, `rm`, `ls`,
       exact-match addressing (noting that substring matching arrives with
       P3), and the commit-per-write behavior. Link it from
       `doc/cli/README.md`.
-- [ ] Parity ledger: §3 M4, §2 `a1572d5` and `a4b989e`, §4 (`insert`,
+- [x] Parity ledger: §3 M4, §2 `a1572d5` and `a4b989e`, §4 (`insert`,
       `cat`, `rm`, `ls`), §6 `entries.md`; P2 rows of §5.
-- [ ] P2 index status column and the port plan's phase table.
+- [x] P2 index status column and the port plan's phase table.
+
+## Implementation notes
+
+What the implementation settled or changed, beyond the decisions above.
+
+- **`ls` columns** are separated by two spaces (the plan fixed everything
+  but the separator).
+- **The ambiguity error** prints each candidate as `  <full id>  <title>`
+  on stderr: full ids, so the next attempt can name one exactly.
+- **`-m` on a terminal** prints `gage: enter the value; finish with Ctrl-D
+  on an empty line` to stderr first. Off a terminal it prints nothing.
+- **The terminal prompter no longer reads ahead.** Found by running the real
+  binary: with one piped stdin (`printf 'pass\nvalue\n' | gage insert x
+  --value-stdin`) the prompter's buffered reader consumed the value along
+  with the passphrase line, and `insert` stored an empty secret and exited
+  0. In-process tests can't see it (they use fakes), so the prompter now
+  reads a byte at a time and stops at the newline, and a real-binary test
+  (`value_stdin_after_a_piped_passphrase_stores_the_value`) guards it. This
+  touches M2's prompter, which is why it is recorded here.
+- **New library surface for tests**, all behind `test-support` and never in
+  the shipped binary: `Vault::with_locker` became public (the one-shot
+  handler's "closes on every path" test needs it from `gage-cli`), and
+  `gitrepo::head_commit` / `commit_log` read commit metadata without giving
+  `gage-cli` a `git2` dependency.
+- **Where the tests live.** The library rows are in `entry/crud.rs`
+  (the lock rows with a real child process: the test binary re-executed).
+  The in-process CLI rows are `crates/gage-cli/src/entry_tests.rs`. The rows
+  that need a real process (two `gage` processes inserting, readers while a
+  writer holds the lock, `insert -m` on a pty) are
+  `crates/gage-cli/tests/entries.rs`, and pay the shipped binary's real
+  scrypt cost (about five seconds in all).
+- **Lock tests, mutation-checked.** With the lock removed from
+  `with_write_lock`, `insert_blocks_on_a_concurrently_held_write_lock` and
+  `write_lock_serializes_concurrent_inserts_and_loses_no_commit` fail. The
+  Opus review the plan asks for has not been done.
+- **`TestUseUnregisteredVaultFailsBeforePromptingForAPassphrase`** is
+  checked for all four commands, with a prompter that panics on any prompt.
+- **Clap rejects `-m` with `--value-stdin`** at parse time (`conflicts_with`),
+  which is before any I/O; the usage error carries the command's help.
+- **Deferred flags**: `insert -e` (P3 · M5) and `ls -H` (P6 · M12) are not
+  registered, so the `--field` help text omits its "mutually exclusive with
+  -e" clause until then.
 
 ## Definition of done
 

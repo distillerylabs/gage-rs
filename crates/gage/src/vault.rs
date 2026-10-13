@@ -454,9 +454,10 @@ impl Vault {
     }
 
     /// The same vault, page-locking through `locker` instead of the real
-    /// one. Tests only: the real one runs everywhere else.
-    #[cfg(test)]
-    pub(crate) fn with_locker(mut self, locker: Arc<dyn Locker>) -> Vault {
+    /// one. Tests only (this crate's, and gage-cli's through the
+    /// `test-support` feature): the real one runs everywhere else.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_locker(mut self, locker: Arc<dyn Locker>) -> Vault {
         self.locker = LockerSeam(Some(locker));
         self
     }
@@ -465,6 +466,13 @@ impl Vault {
     #[cfg(test)]
     pub(crate) fn locker(&self) -> Arc<dyn Locker> {
         self.locker.get()
+    }
+
+    /// This vault's write lock file, keyed by its id (so two registrations
+    /// of one repository contend on one lock). Fails on an id that can't
+    /// safely become a path component, before any path is built.
+    pub(crate) fn lock_file_path(&self) -> Result<PathBuf, paths::Error> {
+        paths::lock_file_path(&self.dirs, &self.id)
     }
 
     /// Where this vault's committed config lives.

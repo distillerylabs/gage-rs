@@ -145,6 +145,12 @@ pub trait Prompter {
     /// caller should abort what it was about to do.
     fn confirm(&self, prompt: &str) -> Result<bool, PromptError>;
 
+    /// Asks for the secret value of the entry titled `title`, without
+    /// echoing it. It is its own call rather than an unlock request: it
+    /// answers with free text the library never checks, and a GUI shows a
+    /// text field where an unlock shows a passphrase box.
+    fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError>;
+
     /// Delivers a non-fatal advisory to surface once: today, that
     /// page-locking key material failed and the unlock is proceeding
     /// without it, or that an existing identity file was reused. It
@@ -175,8 +181,10 @@ mod fake {
     pub struct FakePrompter {
         unlocks: Mutex<VecDeque<Result<UnlockResponse, PromptError>>>,
         confirms: Mutex<VecDeque<bool>>,
+        values: Mutex<VecDeque<Result<String, PromptError>>>,
         asked_unlock: Mutex<Vec<UnlockRequest>>,
         asked_confirm: Mutex<Vec<String>>,
+        asked_value: Mutex<Vec<String>>,
         warnings: Mutex<Vec<String>>,
     }
 
@@ -208,6 +216,21 @@ mod fake {
         pub fn with_confirm(self, answer: bool) -> FakePrompter {
             self.confirms.lock().unwrap().push_back(answer);
             self
+        }
+
+        pub fn with_value(self, value: &str) -> FakePrompter {
+            self.values.lock().unwrap().push_back(Ok(value.to_string()));
+            self
+        }
+
+        pub fn with_value_error(self, err: PromptError) -> FakePrompter {
+            self.values.lock().unwrap().push_back(Err(err));
+            self
+        }
+
+        /// The title of every entry whose value was asked for.
+        pub fn value_prompts(&self) -> Vec<String> {
+            self.asked_value.lock().unwrap().clone()
         }
 
         pub fn unlock_requests(&self) -> Vec<UnlockRequest> {
@@ -242,6 +265,16 @@ mod fake {
                 .unwrap()
                 .pop_front()
                 .unwrap_or_else(|| panic!("FakePrompter: unscripted confirm {prompt:?}")))
+        }
+
+        fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError> {
+            self.asked_value.lock().unwrap().push(title.to_string());
+            self.values
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| panic!("FakePrompter: unscripted value request for {title:?}"))
+                .map(Zeroizing::new)
         }
 
         fn warn(&self, msg: &str) {
@@ -300,6 +333,22 @@ mod tests {
             assert_eq!(err.code(), code, "{err}");
         }
         assert_eq!(Kind::Passphrase.to_string(), "passphrase");
+    }
+
+    #[test]
+    fn fake_prompter_scripts_values_and_records_whose_were_asked() {
+        let p = FakePrompter::new()
+            .with_value("s3cret")
+            .with_value_error(PromptError::Cancelled);
+        assert_eq!(&*p.value("ProtonMail").unwrap(), "s3cret");
+        assert!(matches!(p.value("Other"), Err(PromptError::Cancelled)));
+        assert_eq!(p.value_prompts(), vec!["ProtonMail", "Other"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "unscripted value request")]
+    fn an_unscripted_value_request_fails_the_test() {
+        let _ = FakePrompter::new().value("x");
     }
 
     #[test]

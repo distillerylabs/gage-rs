@@ -18,7 +18,7 @@ impl Vault {
     }
 
     /// `<vault>/entries/<id>.age`.
-    fn entry_path(&self, id: Uuid) -> PathBuf {
+    pub(super) fn entry_path(&self, id: Uuid) -> PathBuf {
         self.entries_dir().join(format!("{id}{ENTRY_FILE_EXT}"))
     }
 

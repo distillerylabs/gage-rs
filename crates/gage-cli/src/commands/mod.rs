@@ -14,10 +14,15 @@ use gage::xdgpaths::Dirs;
 use crate::Io;
 use crate::error::CliError;
 
+mod entry;
 mod git;
 mod init;
 mod vault;
 
+#[cfg(test)]
+pub(crate) use entry::{
+    parse_field_flags, render_ls, short_id, trim_one_trailing_newline, with_unlocked,
+};
 #[cfg(test)]
 pub(crate) use init::resolve_device_name;
 
@@ -25,6 +30,7 @@ pub(crate) use init::resolve_device_name;
 pub fn flags(name: &str) -> Vec<Arg> {
     match name {
         "init" => init::flags(),
+        "insert" | "cat" | "rm" | "ls" => entry::flags(name),
         _ => Vec::new(),
     }
 }
@@ -34,6 +40,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
 pub fn long_about(name: &str) -> Option<&'static str> {
     match name {
         "init" => Some(init::LONG_ABOUT),
+        "ls" => Some(entry::LS_LONG_ABOUT),
         _ => None,
     }
 }
@@ -48,6 +55,10 @@ pub fn run(
 ) -> Option<Result<(), CliError>> {
     Some(match name {
         "init" => init::run(matches, io, prompter),
+        "insert" => entry::insert(matches, io, prompter),
+        "cat" => entry::cat(matches, io, prompter),
+        "rm" => entry::rm(matches, io, prompter),
+        "ls" => entry::ls(matches, io, prompter),
         "vault list" => vault::list(io),
         "vault info" => vault::info(matches, io),
         "vault remove" => vault::remove(matches, io),

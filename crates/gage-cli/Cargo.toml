@@ -31,6 +31,7 @@ gage = { path = "../gage", features = ["test-support"] }
 thiserror = "2"
 portable-pty = "0.9"
 age = "0.12.1"
+uuid = "1"
 
 [target."cfg(unix)".dependencies]
 libc = "0.2"

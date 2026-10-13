@@ -64,12 +64,23 @@ impl Env {
     }
 
     pub(crate) fn run_with(&self, args: &[&str], prompter: &dyn Prompter) -> CliResult {
+        self.run_stdin(args, prompter, b"")
+    }
+
+    /// Like [`Env::run_with`], with `stdin` as the command's standard input.
+    pub(crate) fn run_stdin(
+        &self,
+        args: &[&str],
+        prompter: &dyn Prompter,
+        stdin: &[u8],
+    ) -> CliResult {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         let dirs = self.dirs.clone();
         let hostname = self.hostname.clone();
+        let mut stdin = stdin;
         let mut io = Io {
-            stdin: &mut std::io::empty(),
+            stdin: &mut stdin,
             stdout: &mut stdout,
             stderr: &mut stderr,
             stdin_is_terminal: false,

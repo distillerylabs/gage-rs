@@ -7,6 +7,7 @@
 //! delegate "this string comes back byte for byte" to a library's style
 //! heuristics: see `yaml` for the rules and the check behind them.
 
+mod crud;
 mod store;
 mod yaml;
 
@@ -19,6 +20,10 @@ use uuid::Uuid;
 use crate::crypt;
 use crate::exitcode::{Code, HasCode};
 
+pub use crud::{
+    Candidate, CandidateList, ListEntry, NewEntry, ResolveError, WRITE_LOCK_TIMEOUT, WriteError,
+    resolve_query,
+};
 pub use yaml::{marshal, unmarshal};
 
 /// The vault-relative directory every entry file lives under ("On-disk

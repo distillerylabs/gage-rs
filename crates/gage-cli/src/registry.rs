@@ -161,6 +161,22 @@ pub fn registry() -> Registry {
                 GROUP_VAULT,
                 Both,
             ),
+            command("insert", "<title>", "Create a new entry", GROUP_ENTRY, Both),
+            command(
+                "cat",
+                "<query>",
+                "Print an entry's full decrypted contents",
+                GROUP_ENTRY,
+                Both,
+            ),
+            command("rm", "<query>", "Delete an entry", GROUP_ENTRY, Both),
+            command(
+                "ls",
+                "",
+                "List entries with their ids, dates, and last writer",
+                GROUP_ENTRY,
+                Both,
+            ),
             command(
                 "git set-remote",
                 "<name> <url>",

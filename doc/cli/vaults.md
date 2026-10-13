@@ -9,8 +9,8 @@ subdirectory of an existing one.
 
 > **Status.** gage-rs can create a vault with this device's own
 > passphrase-protected identity, and list, inspect, re-point and forget
-> vaults. There are no entries yet: storing secrets and sync arrive in
-> later phases of the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
+> vaults. [Entries](entries.md) can be inserted, read, listed and deleted;
+> sync arrives in a later phase of the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
 
 ## Creating a vault
 
@@ -51,8 +51,8 @@ is a terminal, what you type isn't echoed. When stdin isn't a terminal
 If no passphrase is given (end of input, or three attempts that never
 matched), `init` exits `5` (`locked-or-auth`) having created nothing.
 
-The commands that read and write entries, arriving in a later phase,
-unlock the vault with the same passphrase. A wrong one is re-asked, up to
+The [entry commands](entries.md) unlock the vault with the same
+passphrase. A wrong one is re-asked, up to
 three attempts in all, then exits `5`; a missing identity file is `5` too.
 A damaged identity file is `1` (`conflict`) and is never re-asked, since no
 passphrase can fix it.

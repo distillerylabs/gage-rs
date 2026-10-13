@@ -130,6 +130,8 @@ fn print(io: &mut Io, text: &str) -> Result<(), CliError> {
 }
 
 #[cfg(test)]
+mod entry_tests;
+#[cfg(test)]
 mod init_identity_tests;
 #[cfg(test)]
 mod lifecycle_tests;

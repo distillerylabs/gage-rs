@@ -1,0 +1,1000 @@
+//! `insert`, `cat`, `rm` and `ls` through the real CLI, in-process, against
+//! a fresh temp directory standing in for gage's roots. The Go row each
+//! test ports is named above it. Real-binary properties (two processes
+//! contending, a real terminal) live in `tests/`.
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+use gage::entry::{self, Entry};
+use gage::exitcode::Code;
+use gage::locker::Locker;
+use gage::prompter::{FakePrompter, PromptError};
+use gage::vault::Vault;
+use gage::{gitrepo, vaultlock};
+use uuid::Uuid;
+
+use crate::commands::{parse_field_flags, render_ls, short_id, trim_one_trailing_newline};
+use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE};
+
+/// The device name `Env` gives every vault it inits (its hostname,
+/// normalized).
+const DEVICE: &str = "test-host";
+
+/// A prompter that unlocks once and, optionally, answers one value prompt.
+fn unlocks() -> FakePrompter {
+    FakePrompter::new().with_passphrase(PASSPHRASE)
+}
+
+fn with_value(value: &str) -> FakePrompter {
+    unlocks().with_value(value)
+}
+
+fn env_with_vault() -> Env {
+    let env = Env::new();
+    env.init("personal", &[]);
+    env
+}
+
+impl Env {
+    /// `gage insert <args>` answering the value prompt with `value`, and
+    /// requiring success.
+    fn insert_ok(&self, value: &str, args: &[&str]) -> Uuid {
+        let mut full = vec!["insert"];
+        full.extend_from_slice(args);
+        let r = self.run_with(&full, &with_value(value));
+        assert_eq!(r.code, Code::Success, "{full:?} failed:\n{}", r.stderr);
+        inserted_id(&r)
+    }
+
+    fn cmd(&self, args: &[&str]) -> CliResult {
+        self.run_with(args, &unlocks())
+    }
+
+    fn cmd_ok(&self, args: &[&str]) -> CliResult {
+        let r = self.cmd(args);
+        assert_eq!(r.code, Code::Success, "{args:?} failed:\n{}", r.stderr);
+        r
+    }
+
+    fn vault(&self, name: &str) -> Vault {
+        Vault::from_registration(&self.dirs, name, &self.entry(name)).unwrap()
+    }
+
+    /// Every entry in `name`, decrypted with the vault's real identity.
+    fn entries(&self, name: &str) -> Vec<(Uuid, Entry)> {
+        let vault = self.vault(name);
+        let identity = vault.unlock(&unlocks()).unwrap();
+        vault
+            .entry_ids()
+            .unwrap()
+            .into_iter()
+            .map(|id| (id, vault.read_entry(id, &identity).unwrap()))
+            .collect()
+    }
+
+    fn only_entry(&self, name: &str) -> (Uuid, Entry) {
+        let mut all = self.entries(name);
+        assert_eq!(all.len(), 1, "want exactly one entry");
+        all.remove(0)
+    }
+
+    fn commits(&self, name: &str) -> usize {
+        gitrepo::commit_count(&self.entry(name).path).unwrap()
+    }
+}
+
+/// The id in `gage: inserted "<title>" (<id>)`.
+fn inserted_id(r: &CliResult) -> Uuid {
+    let line = r.stdout.lines().next().unwrap();
+    let id = line.rsplit_once('(').unwrap().1.trim_end_matches(')');
+    Uuid::try_parse(id).unwrap_or_else(|_| panic!("no id in {line:?}"))
+}
+
+fn ls_lines(r: &CliResult) -> Vec<&str> {
+    r.stdout.lines().collect()
+}
+
+// --- the one-shot handler and --use ----------------------------------------
+
+// Go: TestNoUseFlagOperatesAgainstCurrentVault
+#[test]
+fn no_use_flag_operates_against_current_vault() {
+    let env = Env::new();
+    env.init("first", &[]);
+    env.init("second", &[]);
+    assert_eq!(env.global().current, "first");
+
+    env.insert_ok("v", &["in-current"]);
+
+    assert_eq!(env.entries("first").len(), 1);
+    assert!(env.entries("second").is_empty());
+    assert_eq!(ls_lines(&env.cmd_ok(&["ls"])).len(), 1);
+}
+
+// Go: TestUseFlagTargetsNamedVaultNotCurrent
+#[test]
+fn use_flag_targets_named_vault_not_current() {
+    let env = Env::new();
+    env.init("first", &[]);
+    env.init("second", &[]);
+
+    env.insert_ok("v", &["in-second", "--use", "second"]);
+    env.insert_ok("v", &["also-second", "-u", "second"]);
+
+    assert!(env.entries("first").is_empty());
+    assert_eq!(env.entries("second").len(), 2);
+    assert_eq!(env.cmd_ok(&["ls"]).stdout, "", "the current vault is empty");
+    assert_eq!(ls_lines(&env.cmd_ok(&["ls", "--use", "second"])).len(), 2);
+    let r = env.cmd_ok(&["cat", "in-second", "--use", "second"]);
+    assert!(r.stdout.contains("in-second"));
+    env.cmd_ok(&["rm", "in-second", "--use", "second"]);
+    assert_eq!(env.entries("second").len(), 1);
+}
+
+// Go: TestUseUnregisteredVaultFailsBeforePromptingForAPassphrase. The
+// prompter has nothing scripted, so any prompt at all would panic.
+#[test]
+fn use_unregistered_vault_fails_before_prompting_for_a_passphrase() {
+    let env = env_with_vault();
+    for args in [
+        &["ls", "--use", "ghost"][..],
+        &["cat", "x", "--use", "ghost"],
+        &["rm", "x", "--use", "ghost"],
+        &["insert", "x", "--use", "ghost"],
+    ] {
+        let prompter = FakePrompter::new();
+        let r = env.run_with(args, &prompter);
+        assert_eq!(r.code, Code::NotFound, "{args:?}: {}", r.stderr);
+        assert!(r.stderr.contains("ghost"), "{}", r.stderr);
+        assert!(prompter.unlock_requests().is_empty(), "{args:?}");
+        assert!(prompter.value_prompts().is_empty(), "{args:?}");
+    }
+}
+
+#[test]
+fn no_current_vault_is_a_usage_error_before_any_prompt() {
+    let env = Env::new();
+    let prompter = FakePrompter::new();
+    let r = env.run_with(&["ls"], &prompter);
+    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert!(prompter.unlock_requests().is_empty());
+}
+
+/// Counts page locks and unlocks, to see an `Identity` close.
+#[derive(Default)]
+struct Counting {
+    locks: AtomicUsize,
+    unlocks: AtomicUsize,
+}
+
+impl Locker for Counting {
+    fn lock(&self, _: &[u8]) -> std::io::Result<()> {
+        self.locks.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+    fn unlock(&self, _: &[u8]) -> std::io::Result<()> {
+        self.unlocks.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+// Go: TestOneShotHandlerClosesIdentityOnEveryExitPathIncludingError
+#[test]
+fn one_shot_handler_closes_identity_on_every_exit_path_including_error() {
+    let env = env_with_vault();
+    let run = |result: Result<(), crate::error::CliError>| {
+        let counter = Arc::new(Counting::default());
+        let vault = env.vault("personal").with_locker(counter.clone());
+        let got = crate::commands::with_unlocked(&vault, &unlocks(), |identity| {
+            assert_eq!(counter.locks.load(Ordering::SeqCst), 1, "unlocked");
+            assert_eq!(counter.unlocks.load(Ordering::SeqCst), 0, "still open");
+            assert!(identity.page_locked());
+            result
+        });
+        (
+            got.is_ok(),
+            counter.locks.load(Ordering::SeqCst),
+            counter.unlocks.load(Ordering::SeqCst),
+        )
+    };
+
+    assert_eq!(run(Ok(())), (true, 1, 1), "success path");
+    let failure = crate::error::CliError::new(Code::Internal, "the command failed");
+    assert_eq!(run(Err(failure)), (false, 1, 1), "error path");
+}
+
+// --- insert -----------------------------------------------------------------
+
+// Go: TestInsertThenCatRoundTripsValueThroughTheCLI
+#[test]
+fn insert_then_cat_round_trips_value_through_the_cli() {
+    let env = env_with_vault();
+
+    let r = env.run_with(&["insert", "ProtonMail"], &with_value("hunter2"));
+
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    let id = inserted_id(&r);
+    assert_eq!(r.stdout, format!("gage: inserted \"ProtonMail\" ({id})\n"));
+    let cat = env.cmd_ok(&["cat", "ProtonMail"]);
+    let e = entry::unmarshal(cat.stdout.as_bytes()).unwrap();
+    assert_eq!(e.title, "ProtonMail");
+    assert_eq!(e.value, "hunter2");
+    // By id, too, in any spelling.
+    let by_id = env.cmd_ok(&["cat", &id.simple().to_string()]);
+    assert_eq!(by_id.stdout, cat.stdout);
+}
+
+// Go: TestInsertDefaultPromptsForValueViaPrompter
+#[test]
+fn insert_default_prompts_for_value_via_prompter() {
+    let env = env_with_vault();
+    let prompter = with_value("from the prompter");
+
+    let r = env.run_with(&["insert", "Bank"], &prompter);
+
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(prompter.value_prompts(), vec!["Bank"]);
+    assert_eq!(env.only_entry("personal").1.value, "from the prompter");
+}
+
+#[test]
+fn a_failed_unlock_never_asks_for_the_value() {
+    let env = env_with_vault();
+    let prompter = FakePrompter::new().with_unlock_error(PromptError::Cancelled);
+
+    let r = env.run_with(&["insert", "Bank"], &prompter);
+
+    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert!(prompter.value_prompts().is_empty());
+    assert!(env.entries("personal").is_empty());
+}
+
+// Go: TestInsertValueStdinTrimsExactlyOneNewline
+#[test]
+fn insert_value_stdin_trims_exactly_one_newline() {
+    let env = env_with_vault();
+    for (stdin, want) in [
+        ("secret\n", "secret"),
+        ("secret\r\n", "secret"),
+        ("secret", "secret"),
+        ("secret\n\n", "secret\n"),
+        ("two\nlines\n", "two\nlines"),
+        ("\n", ""),
+    ] {
+        let title = format!("t-{}", stdin.escape_debug());
+        let r = env.run_stdin(
+            &["insert", &title, "--value-stdin"],
+            &unlocks(),
+            stdin.as_bytes(),
+        );
+        assert_eq!(r.code, Code::Success, "{stdin:?}: {}", r.stderr);
+        let entries = env.entries("personal");
+        let e = entries.iter().find(|(_, e)| e.title == title).unwrap();
+        assert_eq!(e.1.value, want, "{stdin:?}");
+    }
+}
+
+// Go: TestInsertValueStdinTrimsOneTrailingNewlineAndRoundTrips
+#[test]
+fn insert_value_stdin_trims_one_trailing_newline_and_round_trips() {
+    let env = env_with_vault();
+    let prompter = unlocks();
+    let r = env.run_stdin(
+        &["insert", "Wifi", "--value-stdin"],
+        &prompter,
+        b"p@ss w0rd=\n",
+    );
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert!(
+        prompter.value_prompts().is_empty(),
+        "stdin replaces the prompt"
+    );
+    let cat = env.cmd_ok(&["cat", "Wifi"]);
+    assert_eq!(
+        entry::unmarshal(cat.stdout.as_bytes()).unwrap().value,
+        "p@ss w0rd="
+    );
+}
+
+// Go: TestValueStdinAndPromptPathsStoreIdenticalEntries
+#[test]
+fn value_stdin_and_prompt_paths_store_identical_entries() {
+    let env = env_with_vault();
+    let args = ["--description", "same", "--field", "user=me"];
+    env.insert_ok("the value", &[&["via-prompt"][..], &args].concat());
+    let mut full = vec!["insert", "via-stdin", "--value-stdin"];
+    full.extend_from_slice(&args);
+    let r = env.run_stdin(&full, &unlocks(), b"the value\n");
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+
+    let entries = env.entries("personal");
+    let get = |t: &str| &entries.iter().find(|(_, e)| e.title == t).unwrap().1;
+    let (a, b) = (get("via-prompt"), get("via-stdin"));
+    assert_eq!(a.value, b.value);
+    assert_eq!(a.description, b.description);
+    assert_eq!(a.fields, b.fields);
+    assert_eq!(a.updated_by, b.updated_by);
+}
+
+// Go: TestTrimOneTrailingNewline
+#[test]
+fn trim_one_trailing_newline_cases() {
+    let trim = |s: &str| trim_one_trailing_newline(s.to_string().into()).to_string();
+    assert_eq!(trim(""), "");
+    assert_eq!(trim("a"), "a");
+    assert_eq!(trim("a\n"), "a");
+    assert_eq!(trim("a\r\n"), "a");
+    assert_eq!(trim("a\n\n"), "a\n");
+    assert_eq!(trim("a\r\n\r\n"), "a\r\n");
+    assert_eq!(trim("\n"), "");
+    assert_eq!(trim("\r\n"), "");
+    assert_eq!(trim("a\r"), "a\r", "a lone CR is not a line ending");
+    assert_eq!(trim("a\nb"), "a\nb");
+}
+
+// Go: TestInsertMutuallyExclusiveValueFlagsRejectedBeforeAnyIO
+#[test]
+fn insert_mutually_exclusive_value_flags_rejected_before_any_io() {
+    let env = env_with_vault();
+    let before = env.commits("personal");
+    // Nothing scripted: a prompt would panic, and stdin is never read.
+    let prompter = FakePrompter::new();
+
+    let r = env.run_stdin(
+        &["insert", "x", "-m", "--value-stdin"],
+        &prompter,
+        b"never read\n",
+    );
+
+    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert!(prompter.unlock_requests().is_empty());
+    assert!(prompter.value_prompts().is_empty());
+    assert_eq!(env.commits("personal"), before);
+    assert!(env.entries("personal").is_empty());
+}
+
+// Go: TestInsertDescriptionStoredAndShownByCat
+#[test]
+fn insert_description_stored_and_shown_by_cat() {
+    let env = env_with_vault();
+    env.insert_ok("v", &["Router", "--description", "the one in the hall"]);
+    let cat = env.cmd_ok(&["cat", "Router"]);
+    assert!(cat.stdout.contains("the one in the hall"), "{}", cat.stdout);
+    assert_eq!(
+        env.only_entry("personal").1.description,
+        "the one in the hall"
+    );
+}
+
+// Go: TestInsertDuplicateTitleRejectedUnlessForced
+#[test]
+fn insert_duplicate_title_rejected_unless_forced() {
+    let env = env_with_vault();
+    env.insert_ok("first", &["dup"]);
+    let before = env.commits("personal");
+
+    let refused = env.run_with(&["insert", "dup"], &with_value("second"));
+    assert_eq!(refused.code, Code::Conflict, "{}", refused.stderr);
+    assert!(refused.stderr.contains("--force"), "{}", refused.stderr);
+    assert_eq!(env.entries("personal").len(), 1);
+    assert_eq!(env.commits("personal"), before);
+
+    env.insert_ok("second", &["dup", "-f"]);
+    env.insert_ok("third", &["dup", "--force"]);
+    assert_eq!(env.entries("personal").len(), 3);
+}
+
+// Go: TestInsertSetsTimestampsAndUpdatedBy
+#[test]
+fn insert_sets_timestamps_and_updated_by() {
+    let env = env_with_vault();
+    let start = now_unix();
+    env.insert_ok("v", &["Stamped"]);
+    let end = now_unix();
+
+    let e = env.only_entry("personal").1;
+    let (created, updated) = (e.created.unwrap(), e.updated.unwrap());
+    assert_eq!(created, updated, "created and updated start equal");
+    assert!((start..=end).contains(&created.as_unix()), "{created}");
+    assert_eq!(e.updated_by, DEVICE);
+}
+
+// Go: TestInsertProducesExactlyOneCommit
+#[test]
+fn insert_produces_exactly_one_commit() {
+    let env = env_with_vault();
+    let before = env.commits("personal");
+    env.insert_ok("v", &["one"]);
+    assert_eq!(env.commits("personal"), before + 1);
+    env.insert_ok("v", &["two"]);
+    assert_eq!(env.commits("personal"), before + 2);
+    assert!(gitrepo::is_clean(&env.entry("personal").path).unwrap());
+}
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+/// Today's UTC date as `YYYY-MM-DD`.
+fn today() -> String {
+    entry::Timestamp::from_unix(now_unix()).unwrap().to_string()[..10].to_string()
+}
+
+// Go: TestInsertCommitMessageIsUUIDOnly
+#[test]
+fn insert_commit_message_is_uuid_only() {
+    let env = env_with_vault();
+    let id = env.insert_ok("v", &["A Very Identifying Title"]);
+    let head = gitrepo::head_commit(&env.entry("personal").path).unwrap();
+    assert_eq!(
+        head.message,
+        id.to_string(),
+        "no title, no verb, no newline"
+    );
+    assert!(env.only_entry("personal").0 == id);
+
+    env.cmd_ok(&["rm", "A Very Identifying Title"]);
+    let head = gitrepo::head_commit(&env.entry("personal").path).unwrap();
+    assert_eq!(
+        head.message,
+        id.to_string(),
+        "a removal is named the same way"
+    );
+}
+
+const HOSTILE_HOME_ENV: &str = "GAGE_CLI_TEST_HOSTILE_HOME";
+
+/// The child side of the test below: `init` and `insert` in-process with
+/// HOME pointing at a git config naming someone else.
+#[test]
+#[allow(clippy::disallowed_macros)]
+fn hostile_home_trampoline() {
+    let Some(home) = std::env::var_os(HOSTILE_HOME_ENV) else {
+        return;
+    };
+    let env = Env::new();
+    env.init("personal", &[]);
+    env.insert_ok("v", &["Title"]);
+    let head = gitrepo::head_commit(&env.entry("personal").path).unwrap();
+    for (name, email) in [
+        (&head.author_name, &head.author_email),
+        (&head.committer_name, &head.committer_email),
+    ] {
+        assert_eq!(name, gitrepo::AUTHOR_NAME);
+        assert_eq!(email, gitrepo::AUTHOR_EMAIL);
+    }
+    let _ = home;
+    eprintln!("CHECKED");
+}
+
+// Go: TestCommitAuthorIgnoresTheUsersGitConfig. A child process, because
+// HOME is process-wide and libgit2 reads it once.
+#[test]
+fn commit_author_ignores_the_users_git_config() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join(".gitconfig"),
+        "[user]\n\tname = Someone Else\n\temail = else@example.com\n",
+    )
+    .unwrap();
+    assert!(home.path().join(".gitconfig").exists());
+
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "entry_tests::hostile_home_trampoline",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(HOSTILE_HOME_ENV, home.path())
+        .env("HOME", home.path())
+        .env("USERPROFILE", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join(".config"))
+        .env("GIT_AUTHOR_NAME", "Env Author")
+        .env("GIT_COMMITTER_NAME", "Env Committer")
+        .env_remove("GIT_CONFIG_GLOBAL")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "child failed:\n{stderr}");
+    assert!(stderr.contains("CHECKED"), "child ran no check:\n{stderr}");
+}
+
+// --- cat / rm ---------------------------------------------------------------
+
+// Go: TestCatUnknownFailsWithNotFound
+#[test]
+fn cat_unknown_fails_with_not_found() {
+    let env = env_with_vault();
+    env.insert_ok("v", &["exists"]);
+    let r = env.cmd(&["cat", "nope"]);
+    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.stdout, "");
+    assert!(r.stderr.contains("nope"), "{}", r.stderr);
+    // Exact match only until substring resolution (P3): a prefix misses.
+    assert_eq!(env.cmd(&["cat", "exis"]).code, Code::NotFound);
+}
+
+// Go: TestRmDeletesFileAndCommitsThenCatAndLsNoLongerShowIt
+#[test]
+fn rm_deletes_file_and_commits_then_cat_and_ls_no_longer_show_it() {
+    let env = env_with_vault();
+    let id = env.insert_ok("v", &["Doomed"]);
+    env.insert_ok("v", &["Survivor"]);
+    let before = env.commits("personal");
+
+    let r = env.cmd_ok(&["rm", "Doomed"]);
+
+    assert_eq!(r.stdout, format!("gage: removed {id}\n"));
+    assert_eq!(env.commits("personal"), before + 1);
+    assert!(
+        !env.entry("personal")
+            .path
+            .join("entries")
+            .join(format!("{id}.age"))
+            .exists()
+    );
+    assert!(gitrepo::is_clean(&env.entry("personal").path).unwrap());
+    assert_eq!(env.cmd(&["cat", "Doomed"]).code, Code::NotFound);
+    let ls = env.cmd_ok(&["ls"]);
+    assert!(!ls.stdout.contains("Doomed") && ls.stdout.contains("Survivor"));
+    assert_eq!(env.cmd(&["rm", "Doomed"]).code, Code::NotFound);
+}
+
+#[test]
+fn an_ambiguous_cat_or_rm_lists_the_candidates_and_exits_ambiguous() {
+    let env = env_with_vault();
+    let a = env.insert_ok("one", &["twin"]);
+    let b = env.insert_ok("two", &["twin", "-f"]);
+    let before = env.commits("personal");
+
+    for cmd in ["cat", "rm"] {
+        let r = env.cmd(&[cmd, "twin"]);
+        assert_eq!(r.code, Code::Ambiguous, "{cmd}: {}", r.stderr);
+        assert_eq!(r.stdout, "", "{cmd} wrote to stdout");
+        assert!(r.stderr.contains(&a.to_string()), "{cmd}: {}", r.stderr);
+        assert!(r.stderr.contains(&b.to_string()), "{cmd}: {}", r.stderr);
+    }
+    assert_eq!(env.entries("personal").len(), 2, "nothing was removed");
+    assert_eq!(env.commits("personal"), before);
+    // The id the error offers does resolve.
+    env.cmd_ok(&["cat", &a.to_string()]);
+    env.cmd_ok(&["rm", &a.to_string()]);
+    assert_eq!(env.entries("personal").len(), 1);
+}
+
+// --- ls ---------------------------------------------------------------------
+
+// Go: TestLsListsInsertedTitleAlongsidePartialUUID
+#[test]
+fn ls_lists_inserted_title_alongside_partial_uuid() {
+    let env = env_with_vault();
+    let id = env.insert_ok("v", &["ProtonMail"]);
+
+    let r = env.cmd_ok(&["ls"]);
+
+    let line = ls_lines(&r)[0].to_string();
+    let cols: Vec<&str> = line.split_whitespace().collect();
+    assert_eq!(cols[0], "ProtonMail");
+    assert_eq!(cols[1], &id.to_string()[..8]);
+    assert!(!line.contains(&id.to_string()), "the full id is not shown");
+    assert_eq!(cols[2], today());
+    assert_eq!(cols[3], today());
+    assert_eq!(cols[4], DEVICE);
+}
+
+// Go: TestLsEmptyVaultNoOutput, and the ls half of
+// TestLsAndSearchPrintNothingWhenThereIsNothing (search is P3 · M7).
+#[test]
+fn ls_empty_vault_no_output() {
+    let env = env_with_vault();
+    let r = env.cmd_ok(&["ls"]);
+    assert_eq!(r.stdout, "");
+    assert_eq!(r.stderr, "");
+}
+
+fn row(title: &str, created: Option<i64>, updated_by: &str) -> gage::entry::ListEntry {
+    gage::entry::ListEntry {
+        id: Uuid::parse_str("0123abcd-0000-4000-8000-000000000000").unwrap(),
+        title: title.into(),
+        description: String::new(),
+        created: created.and_then(entry::Timestamp::from_unix),
+        updated: None,
+        updated_by: updated_by.into(),
+    }
+}
+
+// Go: TestLsPlaceholdersForMissingColumns
+#[test]
+fn ls_placeholders_for_missing_columns() {
+    let lines = render_ls(&[row("bare", None, "")]);
+    assert_eq!(lines, ["bare  0123abcd  -  -  -"]);
+    let lines = render_ls(&[row("full", Some(1_768_386_720), "laptop")]);
+    assert_eq!(lines, ["full  0123abcd  2026-01-14  -  laptop"]);
+}
+
+#[test]
+fn ls_pads_titles_to_the_widest_counted_in_characters_and_trims_the_end() {
+    let rows = [row("héllo", Some(0), "a"), row("x", Some(0), "")];
+    let lines = render_ls(&rows);
+    assert_eq!(
+        lines,
+        [
+            "héllo  0123abcd  1970-01-01  -  a",
+            "x      0123abcd  1970-01-01  -  -",
+        ]
+    );
+    assert!(lines.iter().all(|l| l == l.trim_end()));
+    assert!(render_ls(&[]).is_empty());
+}
+
+#[test]
+fn ls_is_sorted_by_title_and_shows_the_real_writer() {
+    let env = env_with_vault();
+    for t in ["banana", "Apple", "cherry"] {
+        env.insert_ok("v", &[t]);
+    }
+    let r = env.cmd_ok(&["ls"]);
+    let titles: Vec<&str> = ls_lines(&r)
+        .iter()
+        .map(|l| l.split_whitespace().next().unwrap())
+        .collect();
+    assert_eq!(titles, ["Apple", "banana", "cherry"]);
+}
+
+// Go: TestShortEntryIDLeavesShortStringsAlone
+#[test]
+fn short_entry_id_leaves_short_strings_alone() {
+    assert_eq!(short_id("0123456789abcdef"), "01234567");
+    assert_eq!(short_id("01234567"), "01234567");
+    assert_eq!(short_id("0123"), "0123");
+    assert_eq!(short_id(""), "");
+    assert_eq!(short_id("ééééééééé"), "éééééééé", "counts characters");
+}
+
+// --- insert --field ---------------------------------------------------------
+
+fn strings(v: &[&str]) -> Vec<String> {
+    v.iter().map(|s| s.to_string()).collect()
+}
+
+// Go: TestInsertFieldMissingEqualsIsUsageErrorBeforeUnlock, and the other
+// parse failures below, through the CLI: nothing scripted, so an unlock
+// would panic.
+#[test]
+fn bad_field_flags_are_usage_errors_before_unlock() {
+    let env = env_with_vault();
+    let before = env.commits("personal");
+    for (flag, why) in [
+        ("username", "no ="),
+        ("=value", "empty name"),
+        ("   =value", "whitespace-only name"),
+        ("\t \n=v", "whitespace-only name"),
+    ] {
+        let prompter = FakePrompter::new();
+        let r = env.run_with(&["insert", "x", "--field", flag], &prompter);
+        assert_eq!(r.code, Code::Usage, "{why}: {}", r.stderr);
+        assert!(prompter.unlock_requests().is_empty(), "{why}");
+        assert!(r.stderr.contains("--field"), "{why}: {}", r.stderr);
+    }
+    // Go: TestInsertDuplicateFieldNameIsUsageErrorBeforeUnlock and
+    // TestInsertFieldNamesEqualAfterStrippingAreDuplicates.
+    for pair in [["a=1", "a=2"], ["user=1", "u ser=2"], ["a=1", " a\t=1"]] {
+        let prompter = FakePrompter::new();
+        let r = env.run_with(
+            &["insert", "x", "--field", pair[0], "--field", pair[1]],
+            &prompter,
+        );
+        assert_eq!(r.code, Code::Usage, "{pair:?}: {}", r.stderr);
+        assert!(prompter.unlock_requests().is_empty(), "{pair:?}");
+    }
+    assert_eq!(env.commits("personal"), before);
+}
+
+// Go: TestInsertFieldMissingEqualsIsUsageErrorBeforeUnlock (parse half)
+#[test]
+fn parse_field_flags_rejects_what_it_must() {
+    for bad in [&["noequals"][..], &["=v"], &[" \t=v"], &["a=1", "a=2"]] {
+        let err = parse_field_flags(&strings(bad)).unwrap_err();
+        assert_eq!(err.code(), Code::Usage, "{bad:?}");
+    }
+    assert!(parse_field_flags(&[]).unwrap().is_empty());
+}
+
+// Go: TestInsertFieldNameWhitespaceIsStripped
+#[test]
+fn insert_field_name_whitespace_is_stripped() {
+    let f = parse_field_flags(&strings(&["  user name\t=me", "tot p=1"])).unwrap();
+    assert_eq!(f["username"], "me");
+    assert_eq!(f["totp"], "1");
+}
+
+// Go: TestInsertFieldValueWhitespaceIsPreserved
+#[test]
+fn insert_field_value_whitespace_is_preserved() {
+    let f = parse_field_flags(&strings(&["note=  padded \t value  "])).unwrap();
+    assert_eq!(f["note"], "  padded \t value  ");
+}
+
+// Go: TestInsertFieldValueContainingEqualsIsPreservedVerbatim
+#[test]
+fn insert_field_value_containing_equals_is_preserved_verbatim() {
+    let f = parse_field_flags(&strings(&["token=a=b==c", "url=x?y=z"])).unwrap();
+    assert_eq!(f["token"], "a=b==c");
+    assert_eq!(f["url"], "x?y=z");
+}
+
+// Go: TestInsertFieldEmptyValueIsStored
+#[test]
+fn insert_field_empty_value_is_stored() {
+    let env = env_with_vault();
+    env.insert_ok("v", &["x", "--field", "pin="]);
+    let e = env.only_entry("personal").1;
+    assert_eq!(e.field("pin").unwrap(), "", "an empty value is a field");
+}
+
+// Go: TestInsertFieldWithMultilineSetsBothValueAndFields. The stdin here
+// is not a terminal, so the "terminal" read is the same stream.
+#[test]
+fn insert_field_with_multiline_sets_both_value_and_fields() {
+    let env = env_with_vault();
+    let r = env.run_stdin(
+        &["insert", "x", "-m", "--field", "user=me"],
+        &unlocks(),
+        b"line one\nline two\n",
+    );
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    let e = env.only_entry("personal").1;
+    assert_eq!(e.value, "line one\nline two\n", "-m keeps every byte");
+    assert_eq!(e.field("user").unwrap(), "me");
+}
+
+// Go: TestInsertFieldWithValueStdinSetsBothValueAndFields
+#[test]
+fn insert_field_with_value_stdin_sets_both_value_and_fields() {
+    let env = env_with_vault();
+    let r = env.run_stdin(
+        &["insert", "x", "--value-stdin", "--field", "user=me"],
+        &unlocks(),
+        b"s3cret\n",
+    );
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    let e = env.only_entry("personal").1;
+    assert_eq!(e.value, "s3cret");
+    assert_eq!(e.field("user").unwrap(), "me");
+}
+
+// Go: TestInsertFieldWithoutValueModeStillPromptsOnceAndStoresFields
+#[test]
+fn insert_field_without_value_mode_still_prompts_once_and_stores_fields() {
+    let env = env_with_vault();
+    let prompter = with_value("prompted");
+    let r = env.run_with(&["insert", "x", "--field", "user=me"], &prompter);
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(prompter.value_prompts().len(), 1, "asked once");
+    let e = env.only_entry("personal").1;
+    assert_eq!(e.value, "prompted");
+    assert_eq!(e.field("user").unwrap(), "me");
+}
+
+// Go: TestInsertFieldRoundTripsThroughShow and
+// TestInsertMultipleFieldFlagsEachIndependentlyReadable. `show --field`
+// arrives with P3 · M5, so each is checked through the stored entry
+// (`Entry::field`, which `show --field` calls) and through `cat`.
+#[test]
+fn insert_fields_round_trip_and_are_each_independently_readable() {
+    let env = env_with_vault();
+    env.insert_ok(
+        "v",
+        &[
+            "Account",
+            "--field",
+            "username=me@proton.me",
+            "--field",
+            "totp=JBSW",
+            "--field",
+            "recovery code=1234 5678",
+        ],
+    );
+    let e = env.only_entry("personal").1;
+    assert_eq!(e.field("username").unwrap(), "me@proton.me");
+    assert_eq!(e.field("totp").unwrap(), "JBSW");
+    assert_eq!(e.field("recoverycode").unwrap(), "1234 5678");
+    assert_eq!(e.fields.len(), 3);
+    let cat = env.cmd_ok(&["cat", "Account"]);
+    let shown = entry::unmarshal(cat.stdout.as_bytes()).unwrap();
+    assert_eq!(shown.fields, e.fields);
+}
+
+// --- error prefix -----------------------------------------------------------
+
+// Go: TestNoCommandDoublesGagesOwnPrefix, M4's rows: every failure the
+// entry commands added, prefixed exactly once.
+#[test]
+fn no_entry_command_doubles_gages_own_prefix() {
+    use crate::error::ERROR_PREFIX;
+    let doubled = format!("{ERROR_PREFIX}{ERROR_PREFIX}");
+    let env = env_with_vault();
+    env.insert_ok("v", &["dup"]);
+    env.insert_ok("v", &["twin"]);
+    env.insert_ok("v", &["twin", "-f"]);
+    let cases: &[(&str, &[&str])] = &[
+        ("insert missing title", &["insert"]),
+        (
+            "insert unregistered vault",
+            &["insert", "x", "--use", "ghost"],
+        ),
+        ("insert duplicate title", &["insert", "dup"]),
+        (
+            "insert field without =",
+            &["insert", "x", "--field", "nope"],
+        ),
+        ("insert empty field name", &["insert", "x", "--field", "=v"]),
+        (
+            "insert duplicate field",
+            &["insert", "x", "--field", "a=1", "--field", "a=2"],
+        ),
+        (
+            "insert exclusive modes",
+            &["insert", "x", "-m", "--value-stdin"],
+        ),
+        ("cat missing query", &["cat"]),
+        ("cat unknown", &["cat", "nope"]),
+        ("cat ambiguous", &["cat", "twin"]),
+        ("cat unregistered vault", &["cat", "x", "--use", "ghost"]),
+        ("rm unknown", &["rm", "nope"]),
+        ("rm ambiguous", &["rm", "twin"]),
+        ("ls unregistered vault", &["ls", "--use", "ghost"]),
+        ("ls unknown flag", &["ls", "--no-such-flag"]),
+    ];
+    let mut results: Vec<(&str, CliResult)> = cases
+        .iter()
+        .map(|(name, args)| (*name, env.run_with(args, &with_value("v"))))
+        .collect();
+    // Failing at the passphrase, and with no vault to operate on.
+    results.push((
+        "ls cancelled passphrase",
+        env.run_with(
+            &["ls"],
+            &FakePrompter::new().with_unlock_error(PromptError::Cancelled),
+        ),
+    ));
+    results.push(("ls no current vault", Env::new().run(&["ls"])));
+    for (name, r) in &results {
+        assert_ne!(
+            r.code,
+            Code::Success,
+            "{name}: this table only covers failures"
+        );
+        for line in r.stdout.lines().chain(r.stderr.lines()) {
+            assert!(!line.contains(&doubled), "{name}: {line}");
+            assert!(line.matches(ERROR_PREFIX).count() <= 1, "{name}: {line}");
+        }
+        assert!(
+            r.stderr.starts_with(ERROR_PREFIX),
+            "{name}: unprefixed:\n{}",
+            r.stderr
+        );
+    }
+}
+
+// --- rows moved from P1 ------------------------------------------------------
+
+// The insert half of Go's TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath
+// (the `show` half is P3 · M5, `identity list` is P5): a registration with
+// an empty id fails `insert` before any path is built from it.
+#[test]
+fn a_registration_without_an_id_fails_insert_before_any_path_is_built() {
+    let env = env_with_vault();
+    let mut global = env.global();
+    global.vaults.get_mut("personal").unwrap().id.clear();
+    env.save_global(&global);
+    let before = env.tree();
+    let prompter = FakePrompter::new();
+
+    let r = env.run_with(&["insert", "x"], &prompter);
+
+    assert_ne!(r.code, Code::Success, "{}", r.stderr);
+    assert!(prompter.value_prompts().is_empty());
+    assert_eq!(env.tree(), before, "no lock or identity path was created");
+    assert!(env.entries_dir_is_empty("personal"));
+}
+
+impl Env {
+    fn entries_dir_is_empty(&self, name: &str) -> bool {
+        std::fs::read_dir(self.entry(name).path.join("entries"))
+            .unwrap()
+            .next()
+            .is_none()
+    }
+}
+
+const HOLDER_ENV: &str = "GAGE_CLI_TEST_LOCK_HOLDER";
+
+/// The child side of the test below: takes the write lock at the given
+/// path, announces it on stderr, and holds it until stdin closes.
+#[test]
+#[allow(clippy::disallowed_macros, clippy::disallowed_methods)]
+fn lock_holder_trampoline() {
+    use std::io::Read;
+    let Some(path) = std::env::var_os(HOLDER_ENV) else {
+        return;
+    };
+    let lock = vaultlock::Lock::acquire(
+        std::path::Path::new(&path),
+        std::time::Duration::from_secs(5),
+    )
+    .unwrap();
+    eprintln!("ACQUIRED");
+    let _ = std::io::stdin().read(&mut [0u8]);
+    lock.release().unwrap();
+}
+
+// Go: TestTwoRegistrationsOfOneRepositoryShareOneLock. Two registrations
+// of one repository, under different local names, contend on one lock: it
+// is keyed by the vault's id, not the name. A child process holds the lock
+// (a real process, since a thread-held lock would prove nothing about the
+// file lock), and a real `insert` through the *other* registration has to
+// wait for it, then succeeds once it lets go.
+#[test]
+#[allow(clippy::disallowed_macros, clippy::disallowed_methods)]
+fn two_registrations_of_one_repository_share_one_lock() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let env = env_with_vault();
+    let mut global = env.global();
+    let copy = global.vaults["personal"].clone();
+    global.vaults.insert("alias".into(), copy);
+    env.save_global(&global);
+    assert_eq!(env.entry("alias").id, env.entry("personal").id);
+
+    // Held through the "personal" registration's id.
+    let lock_path = gage::paths::lock_file_path(&env.dirs, &env.entry("personal").id).unwrap();
+    std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+    let mut holder = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "entry_tests::lock_holder_trampoline",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(HOLDER_ENV, &lock_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = BufReader::new(holder.stderr.take().unwrap());
+    assert!(
+        stderr.lines().any(|l| l.unwrap() == "ACQUIRED"),
+        "the holder never took the lock"
+    );
+
+    let env_ref = &env;
+    std::thread::scope(|scope| {
+        let (tx, rx) = mpsc::channel();
+        scope.spawn(move || {
+            let r = env_ref.run_with(&["insert", "via-alias", "--use", "alias"], &with_value("v"));
+            let _ = tx.send(r.code);
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_millis(500)).is_err(),
+            "insert through the other registration did not wait for the lock"
+        );
+        drop(holder.stdin.take());
+        assert_eq!(
+            rx.recv_timeout(Duration::from_secs(10)),
+            Ok(Code::Success),
+            "insert never proceeded after the lock was released"
+        );
+    });
+    let _ = holder.wait();
+    assert_eq!(env.entries("personal").len(), 1);
+}
