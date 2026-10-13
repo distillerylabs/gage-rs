@@ -988,7 +988,7 @@ fn git_set_remote_on_an_unregistered_name_is_not_found() {
 
 // --- error prefix -----------------------------------------------------------
 
-// Go: TestNoCommandDoublesGagesOwnPrefix, M1's rows (M0b's are in
+// Go: TestNoCommandDoublesGagesOwnPrefix, M1's and M2's rows (M0b's are in
 // `tests`): every failure this milestone added, prefixed exactly once.
 #[test]
 fn no_vault_command_doubles_gages_own_prefix() {
@@ -1032,6 +1032,27 @@ fn no_vault_command_doubles_gages_own_prefix() {
         .map(|(name, args)| (*name, env.run(args)))
         .collect();
     results.push(("vault info no current", no_current.run(&["vault", "info"])));
+    // M2's rows: init failing at the passphrase, and failing after the
+    // identity exists (the rollback path, whose error can carry the
+    // rollback's own failure appended).
+    results.push((
+        "init passphrase cancelled",
+        no_current.run_with(
+            &["init", "fresh"],
+            &FakePrompter::new().with_unlock_error(gage::prompter::PromptError::Cancelled),
+        ),
+    ));
+    results.push((
+        "init empty passphrase",
+        no_current.run_with(&["init", "fresh"], &FakePrompter::new().with_passphrase("")),
+    ));
+    let occupied = no_current.root.path().join("occupied");
+    std::fs::create_dir(&occupied).unwrap();
+    std::fs::write(occupied.join("keep.txt"), "mine").unwrap();
+    results.push((
+        "init into a non-empty directory after generating the identity",
+        no_current.run(&["init", "fresh", "--dir", occupied.to_str().unwrap()]),
+    ));
     for (name, r) in &results {
         assert_ne!(
             r.code,

@@ -517,6 +517,12 @@ fn identity_file_is_age_keygen_compatible() {
     let file = age::IdentityFile::from_buffer(plaintext.as_slice()).unwrap();
     let recipients = file.to_recipients().unwrap();
     assert_eq!(recipients.len(), 1, "age's own parser sees one key");
+    // And the key age derives from it (age-keygen -y's conversion) is the
+    // public key gage reported and will list as this device's recipient: a
+    // file whose comment and key disagreed would pass everything above.
+    let mut derived = Vec::new();
+    file.write_recipients_file(&mut derived).unwrap();
+    assert_eq!(String::from_utf8(derived).unwrap(), format!("{pubkey}\n"));
 }
 
 // Go: TestCreateIdentityReusesAnExistingFile (#39's other half): never
@@ -834,6 +840,56 @@ fn unlock_with_a_well_formed_but_wrong_kind_of_file_is_corrupt_not_wrong_passphr
     let err = v.unlock(&p).unwrap_err();
     assert!(matches!(err, UnlockError::CorruptIdentityFile(_)), "{err}");
     assert_eq!(p.unlock_requests().len(), 1);
+}
+
+// A file claiming more scrypt work than gage will do is corrupt, not a
+// wrong passphrase (the Q-AGE-CRATE classification): re-prompting can't
+// lower the claimed factor, so it fails after one prompt, at once. This is
+// the behavioral half of the cap the source scans check; age refuses the
+// stanza on its logN alone, before any key derivation, so a hostile file
+// claiming 2^30 costs nothing.
+#[test]
+fn unlock_of_a_file_claiming_excessive_work_is_corrupt_not_wrong_passphrase() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let path = m.identity_path(&v.id, "laptop-1");
+    let original = String::from_utf8_lossy(&std::fs::read(&path).unwrap()).into_owned();
+    let excessive = crypt::SCRYPT_MAX_WORK_FACTOR + 1;
+
+    // Only the stanza's logN changes; the salt, body and MAC stay as
+    // written.
+    let mut rewrote = false;
+    let damaged: Vec<u8> = std::fs::read(&path)
+        .unwrap()
+        .split_inclusive(|&b| b == b'\n')
+        .flat_map(|line| match std::str::from_utf8(line) {
+            Ok(text) if text.starts_with("-> scrypt ") => {
+                let mut fields: Vec<&str> = text.trim_end().split(' ').collect();
+                let factor = excessive.to_string();
+                *fields.last_mut().unwrap() = &factor;
+                rewrote = true;
+                format!("{}\n", fields.join(" ")).into_bytes()
+            }
+            _ => line.to_vec(),
+        })
+        .collect();
+    assert!(rewrote, "no scrypt stanza in:\n{original}");
+    std::fs::write(&path, &damaged).unwrap();
+
+    let p = prompter(&[PASSPHRASE, PASSPHRASE, PASSPHRASE]);
+    let start = std::time::Instant::now();
+    let err = v.unlock(&p).unwrap_err();
+
+    assert!(
+        matches!(err, UnlockError::CorruptIdentityFile(_)),
+        "{err:?}"
+    );
+    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(p.unlock_requests().len(), 1, "re-prompted for a passphrase");
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(5),
+        "the claimed factor was worked rather than refused"
+    );
 }
 
 // A file that decrypts but holds no key line is corrupt too (Go's

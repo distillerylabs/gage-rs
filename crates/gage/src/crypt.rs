@@ -122,11 +122,15 @@ impl HasCode for Error {
 /// ```
 ///
 /// ```compile_fail,E0451
-/// let r = gage::crypt::Recipient { spelling: String::new() };
+/// let r = gage::crypt::Recipient { kind: todo!(), spelling: String::new() };
 /// ```
 ///
-/// while the constructors are reachable from the same place (stable
-/// rustdoc doesn't check the codes above; this is what rules out a typo):
+/// The literal names every field, and `todo!()` stands in for the one whose
+/// type is private, so the fields' privacy is the only thing left for it to
+/// fail on: a missing field or an unnameable type can't pass it for the
+/// wrong reason. Meanwhile the type and its constructors are reachable from
+/// the same place (stable rustdoc doesn't check the codes above; this is
+/// what rules out a typo in the path):
 ///
 /// ```
 /// let r = gage::crypt::Recipient::parse(

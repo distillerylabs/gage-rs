@@ -376,6 +376,29 @@ mod tests {
         assert!(start.elapsed() < Duration::from_millis(500));
     }
 
+    // The other half of the timeout: a non-zero one is waited out before
+    // giving up, rather than treated as a single try. Without this, an
+    // acquire that ignored its timeout would pass every test above (each
+    // contended case either expects failure or is released mid-wait).
+    #[test]
+    fn a_contended_acquire_waits_out_its_timeout_before_failing() {
+        let (_dir, path) = lock_path();
+        let _holder = Holder::spawn(&path);
+        let timeout = Duration::from_millis(300);
+
+        let start = Instant::now();
+        let err = Lock::acquire(&path, timeout).unwrap_err();
+        let waited = start.elapsed();
+
+        assert!(matches!(err, Error::Contended { .. }), "{err:?}");
+        assert!(waited >= timeout, "gave up after {waited:?} of {timeout:?}");
+        assert!(
+            waited < timeout + Duration::from_secs(2),
+            "overshot a {timeout:?} timeout by {:?}",
+            waited - timeout
+        );
+    }
+
     // Go: TestReleaseOnANilLockIsANoOp. Rust has no nil lock: release is
     // Drop plus an explicit release() that reports the unlock error. What
     // carries over is that both together are safe: release consumes the

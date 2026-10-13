@@ -421,6 +421,24 @@ test` locally (macOS). Not yet done: the Opus review of the tests, and
 Linux and Windows CI (the Windows `memlock` and core-dump code has only
 been checked against `windows-sys`'s declarations, not compiled).
 
+Test audit additions (beyond Go's rows, each mutation-checked):
+`unlock_of_a_file_claiming_excessive_work_is_corrupt_not_wrong_passphrase`
+(the behavioral half of the decrypt cap: a claimed factor above 22 is
+corrupt after one prompt, not re-prompted);
+`init_that_gets_no_passphrase_fails_locked_and_writes_nothing` (cancel,
+empty, EOF, never-matching confirmation: LockedOrAuth, nothing written)
+and M2's rows in the `errorprefix` table; and
+`crates/gage-cli/tests/shipped_features.rs` (a non-dev build of `gage-cli`
+never enables `gage/test-support`, so the shipped binary can't lower the
+work factor; Q-SCRYPT-HOOK's premise, checked through cargo's resolver).
+Also tightened: the keygen-compatibility test checks age's derived
+recipient equals the reported key;
+`every_unlock_failure_keeps_its_exit_code_through_the_cli` carries each
+real unlock failure through `CliError` (Go's row covers only the
+missing-identity one); the `Recipient` struct-literal `compile_fail`
+doctest names every field, so only privacy can fail it; and a vaultlock
+test proves a contended acquire waits out its whole timeout.
+
 
 Every box above checked; all 83 claimed rows ported, or excused in this
 doc with a reason, or moved in task 6's list; the rows from P1 in task 8

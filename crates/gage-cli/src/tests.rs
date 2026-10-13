@@ -470,9 +470,11 @@ fn unknown_command_shows_full_help_listing() {
 // is no session yet.)
 #[test]
 fn coded_application_errors_do_not_grow_usage_text() {
+    // Both are Usage: a session-only command in one-shot mode (Go's
+    // session.go) and an unknown help topic.
     for args in [&["status"][..], &["help", "nope"]] {
         let r = run(args);
-        assert_ne!(r.code, Code::Success);
+        assert_eq!(r.code, Code::Usage, "{args:?}:\n{}", r.stderr);
         assert!(!r.stderr.contains("Usage:"), "{args:?}:\n{}", r.stderr);
     }
 }

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use gage::config::VaultEntry;
 use gage::crypt::{self, Recipient};
 use gage::exitcode::{Code, HasCode};
-use gage::prompter::{FakePrompter, Kind, Purpose};
+use gage::prompter::{FakePrompter, Kind, PromptError, Prompter, Purpose};
 use gage::vault::{UnlockError, Vault};
 use gage::{paths, recipients};
 
@@ -134,6 +134,75 @@ fn unlock_typed_errors_carry_the_right_exit_code() {
     assert_eq!(CliError::from(err).code(), Code::LockedOrAuth);
 }
 
+// Beyond Go's row above, which takes one error to the exit status: every
+// way a real unlock of a real vault fails keeps its library code through
+// the CLI's error type, so no conversion on the way out (added context, a
+// wrapped source) can turn an authentication failure into an Internal
+// one, or a damaged file into a retryable auth failure.
+#[test]
+fn every_unlock_failure_keeps_its_exit_code_through_the_cli() {
+    type Setup = fn(&Env, &VaultEntry);
+    let cases: [(&str, Setup, FakePrompter, Code); 5] = [
+        (
+            "wrong passphrase",
+            |_, _| {},
+            FakePrompter::new()
+                .with_passphrase("not it")
+                .with_unlock_error(PromptError::Cancelled),
+            Code::LockedOrAuth,
+        ),
+        (
+            "empty passphrase",
+            |_, _| {},
+            FakePrompter::new().with_passphrase(""),
+            Code::LockedOrAuth,
+        ),
+        (
+            "corrupt identity file",
+            |env, entry| {
+                let path = paths::identity_file_path(&env.dirs, &entry.id, &entry.device).unwrap();
+                let data = std::fs::read(&path).unwrap();
+                std::fs::write(&path, &data[..data.len() / 3]).unwrap();
+            },
+            FakePrompter::new().with_passphrase(PASSPHRASE),
+            Code::Conflict,
+        ),
+        (
+            "unsupported local method",
+            |env, _| {
+                let mut global = env.global();
+                global.vaults.get_mut("personal").unwrap().method = "yubikey".into();
+                env.save_global(&global);
+            },
+            FakePrompter::new(),
+            Code::LockedOrAuth,
+        ),
+        (
+            "unsafe recorded device name",
+            |env, _| {
+                let mut global = env.global();
+                global.vaults.get_mut("personal").unwrap().device = "../escape".into();
+                env.save_global(&global);
+            },
+            FakePrompter::new(),
+            Code::LockedOrAuth,
+        ),
+    ];
+    for (name, setup, p, want) in cases {
+        let env = Env::new();
+        env.ok(&["init", "personal", "--device", "laptop-1"]);
+        let entry = env.entry("personal");
+        setup(&env, &entry);
+
+        let vault = Vault::from_registration(&env.dirs, "personal", &entry).unwrap();
+        let err = vault.unlock(&p).unwrap_err();
+
+        assert_eq!(err.code(), want, "{name}: library code for {err:?}");
+        let cli = CliError::from(err);
+        assert_eq!(cli.code(), want, "{name}: code changed in the CLI");
+    }
+}
+
 // Go: TestInitLeavesNoVaultBehindWhenCreateFails. The target directory is
 // checked after the identity exists (as Go does), so the rollback is what
 // stands between a fixable failure and an orphaned private key.
@@ -184,7 +253,9 @@ fn two_failed_inits_leave_no_orphaned_identities() {
     let dir = non_empty_dir(&env);
     for attempt in 1..=2 {
         let r = env.run(&["init", "personal", "--dir", dir.to_str().unwrap()]);
-        assert_ne!(r.code, Code::Success, "attempt {attempt}");
+        // The target directory refusal, after the identity exists: the
+        // rollback path, not an earlier rejection that never generated a key.
+        assert_eq!(r.code, Code::Conflict, "attempt {attempt}: {}", r.stderr);
     }
     assert_eq!(
         wrapped_identity_files(&identities_root(&env)),
@@ -355,6 +426,67 @@ fn init_refuses_bad_flags_before_asking_for_a_passphrase() {
         assert_eq!(r.code, Code::Usage, "{args:?}");
     }
     assert!(!identities_root(&env).exists());
+}
+
+/// A terminal prompter reading `input` as piped stdin, its prompts
+/// discarded: these tests assert on the command's own streams.
+fn piped_prompter(input: &'static str) -> Box<dyn Prompter> {
+    Box::new(TerminalPrompter::new(
+        input.as_bytes(),
+        std::io::sink(),
+        SecretInput::Lines,
+    ))
+}
+
+// When no passphrase can be had, init fails as an authentication failure
+// (the exit status a script branches on) before writing anything: the
+// passphrase is asked for before the key is generated, so there is no
+// identity to roll back, no vault, and no registration. Through the fake
+// prompter for each library-visible outcome, and through the real terminal
+// prompter on piped stdin for the ways a human or script actually gets
+// there.
+#[test]
+fn init_that_gets_no_passphrase_fails_locked_and_writes_nothing() {
+    let cases: Vec<(&str, Box<dyn Prompter>)> = vec![
+        (
+            "prompter cancelled",
+            Box::new(FakePrompter::new().with_unlock_error(PromptError::Cancelled)),
+        ),
+        (
+            "empty passphrase",
+            Box::new(FakePrompter::new().with_passphrase("")),
+        ),
+        ("stdin at end of input", piped_prompter("")),
+        (
+            "confirmation never matches",
+            piped_prompter("a\nb\nc\nd\ne\nf\n"),
+        ),
+        ("only empty passphrases", piped_prompter("\n\n\n")),
+        ("input ends mid-confirmation", piped_prompter("s3cret\n")),
+    ];
+    for (name, p) in cases {
+        let env = Env::new();
+        let r = env.run_with(&["init", "personal", "--device", "laptop-1"], &*p);
+
+        assert_eq!(r.code, Code::LockedOrAuth, "{name}: {}", r.stderr);
+        assert!(r.stderr.starts_with("gage: "), "{name}: {}", r.stderr);
+        assert_eq!(r.stdout, "", "{name}: reported success on stdout");
+        assert!(
+            !identities_root(&env).exists(),
+            "{name}: wrote under identities/"
+        );
+        assert!(
+            !env.default_vault_path("personal").exists(),
+            "{name}: created the vault"
+        );
+        assert!(
+            !paths::global_config_file(&env.dirs).exists(),
+            "{name}: registered the vault"
+        );
+
+        // And nothing stands in the way of the retry.
+        env.ok(&["init", "personal", "--device", "laptop-1"]);
+    }
 }
 
 // The plan's in-process half of Go's TestPromptsGoToTheErrorStreamNotStdout:
