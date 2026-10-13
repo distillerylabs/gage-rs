@@ -1,0 +1,22 @@
+[package]
+name = "gage-cli"
+description = "gage command-line frontend (binary: gage)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "gage"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+gage = { path = "../gage" }
+
+[dev-dependencies]
+assert_cmd = "2"

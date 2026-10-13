@@ -1,0 +1,116 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Supersede in-flight runs on the same PR; never cancel runs on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Build, tests and the coverage gate. Lint and audit are separate workflows
+# (lint.yml, audit.yml) so each gets its own status badge.
+jobs:
+  test:
+    # Pinned so the required-check names stay "test (<os>)" regardless of
+    # which extra keys the matrix entries carry.
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            codecov-flag: linux
+          - os: macos-latest
+            codecov-flag: macos
+          - os: windows-latest
+            codecov-flag: windows
+    runs-on: ${{ matrix.os }}
+    env:
+      # Empty on fork PRs (GitHub withholds repo secrets from them) and
+      # until the secret is configured; the Codecov step is skipped then.
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Natively on each OS, not cross-compiled: page-locking, vault file
+      # locking and core-dump suppression only hold if the real platform
+      # syscalls run. The compiler version comes from rust-toolchain.toml.
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+        shell: bash
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      # `make cover` installs the pinned cargo-llvm-cov into ./bin on first
+      # use (see CARGO_LLVM_COV_BIN in the Makefile). Caching that keyed on
+      # the Makefile avoids rebuilding it on every run, while still
+      # reinstalling automatically when the pin changes.
+      - name: Cache tool binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin
+          key: test-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+      # windows-latest doesn't ship GNU make; every other platform in the
+      # matrix already has it. make build/test/lint must run natively on all
+      # three OSes, so this is the one bit of matrix-specific setup rather
+      # than a reason to avoid a Makefile.
+      - name: Install make (Windows)
+        if: runner.os == 'Windows'
+        run: choco install make --no-progress -y
+
+      - name: make build
+        run: make build
+        shell: bash
+
+      # The instrumented run of the whole suite: the same tests as
+      # `make test`, offline after a cargo fetch, plus coverage. Collected
+      # on every OS because the platform-specific code only runs natively.
+      - name: make cover
+        run: make cover
+        shell: bash
+
+      # Kept separate from the threshold check below so the report and
+      # artifacts still land when it fails.
+      - name: Coverage report
+        shell: bash
+        run: |
+          {
+            echo "## Coverage (${{ runner.os }})"
+            echo '```'
+            make cover-report
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-${{ runner.os }}
+          path: lcov.info
+
+      # Reporting only (PR diff-coverage comments, trends, the line-by-line
+      # UI; see codecov.yml). Does not gate the job: make cover-check below
+      # does. fail_ci_if_error is false so a Codecov outage never reddens CI
+      # for a contributor whose code is fine.
+      - name: Upload coverage to Codecov
+        if: env.CODECOV_TOKEN != ''
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          flags: ${{ matrix.codecov-flag }}
+          fail_ci_if_error: false
+
+      # Fails the job if total line coverage is below COVER_MIN.
+      - name: make cover-check
+        run: make cover-check
+        shell: bash

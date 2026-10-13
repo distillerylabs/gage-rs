@@ -1,0 +1,40 @@
+name: Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  # Weekly, since advisories land without any code change.
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+
+# Supersede in-flight runs on the same PR; never cancel runs on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Its own workflow, rather than a job in test.yml, so it gets its own status
+# badge: unlike build/test/lint, this result can change without a code
+# change when a new advisory lands. Needs the network (cargo-deny fetches
+# the RustSec database) and is platform-independent, so it runs once.
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+
+      - name: Cache audit toolchain
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin
+          key: audit-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+      - name: make audit
+        run: make audit

@@ -1,0 +1,42 @@
+# Codecov config for coverage *reporting* only: PR diff-coverage comments,
+# trend graphs, and the browsable line-by-line UI. The pass/fail gate for CI
+# is `make cover-check` (Makefile, COVER_MIN) — see test.yml. Codecov's own
+# status checks below are informational so they never block a PR.
+#
+# lcov.info is uploaded separately per OS (see test.yml), tagged with the
+# linux/macos/windows flags below, because the memlock/vaultlock/core-dump
+# code exercises real platform syscalls and each OS's coverage is genuinely
+# different — not a redundant re-upload of the same numbers.
+
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+# All three matrix jobs in test.yml run together on every push/PR
+# (fail-fast: false), so there's never a run where only some of the three
+# uploads happen — carryforward isn't needed. Set explicitly to false
+# (matches the default) so a future reader knows this was considered.
+flags:
+  linux:
+    carryforward: false
+  macos:
+    carryforward: false
+  windows:
+    carryforward: false
+
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+
+# Keep in sync with COVER_IGNORE in the Makefile: gittest is test
+# scaffolding that doesn't ship in the gage binary. Codecov and
+# cargo-llvm-cov are separate tools with no shared config format, so this is
+# a deliberate small duplication, not an oversight.
+ignore:
+  - "crates/gage/src/gittest"

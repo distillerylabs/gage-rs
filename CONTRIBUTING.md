@@ -7,8 +7,6 @@ Contributions are licensed under the project's [Apache-2.0 license](LICENSE).
 
 ## Setup
 
-> The Cargo workspace and Makefile land in the first code milestone (P1 · M0a). Until then this repo holds only docs.
-
 Requires the Rust toolchain pinned in `rust-toolchain.toml` (rustup installs it automatically).
 
 ```
@@ -16,7 +14,9 @@ make build       # cargo build -> target/debug/gage
 make test        # offline cargo test across the workspace (no network, no pre-existing keys)
 make lint        # cargo fmt --check + cargo clippy -D warnings
 make fmt         # cargo fmt --all
-make audit       # cargo-deny: advisories, bans, licenses
+make audit       # cargo-deny: advisories, bans, licenses (needs network)
+make cover       # test run with coverage; then `make cover-check` for the 80% floor
+make install-hooks  # pre-commit hook that runs `make lint`
 ```
 
 Run a single test with `cargo test -p gage <test_name> -- --nocapture` (or `-p gage-cli`).

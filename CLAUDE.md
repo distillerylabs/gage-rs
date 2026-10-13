@@ -13,15 +13,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-> Nothing below exists until P1/M0a lands the Cargo workspace and Makefile. Until then the repo is docs only.
-
 ```
 make build       # cargo build --locked -p gage-cli -> target/debug/gage
 make test        # cargo fetch, then CARGO_NET_OFFLINE=true cargo test --locked --workspace (no network, no pre-existing keys)
 make lint        # cargo fmt --check + cargo clippy --workspace --all-targets --locked -- -D warnings
 make fmt         # cargo fmt --all
+make lint-selftest  # proves the library-purity lint still fires (CI runs it with lint)
 make audit       # cargo-deny (advisories, bans, licenses); needs network, like govulncheck
-make cover       # cargo-llvm-cov coverage report
+make cover       # instrumented test run -> lcov.info + summary (cargo-llvm-cov)
+make cover-check # fail if total line coverage < COVER_MIN (80); run `make cover` first
+make install-hooks  # git pre-commit hook that runs `make lint`
 ```
 
 Run a single test: `cargo test -p gage <test_name> -- --nocapture` (or `-p gage-cli`).
