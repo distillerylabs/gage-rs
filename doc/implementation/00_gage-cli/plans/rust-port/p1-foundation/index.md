@@ -39,7 +39,7 @@ peer. That removed roughly a third of this phase.
 | [Q-COMPAT](../open-questions.md#q-compat) | Amended: behavioral parity, not byte parity. No cross-binary promise, no differential harness. |
 | [Q-FILE-LOCK](../open-questions.md#q-file-lock) | `std::fs::File::lock`/`try_lock` on every platform. Contended: poll every 20 ms up to a timeout, then a typed `Contended { path, holder }`. |
 | [Q-GIT-CRATE](../open-questions.md#q-git-crate) | Decided by an Opus spike as M0b's first task, against P4's push/merge needs. |
-| [Q-AGE-CRATE](../open-questions.md#q-age-crate) | `age` crate for recipient validation in M1; the rest moves to P2 planning. |
+| [Q-AGE-CRATE](../open-questions.md#q-age-crate) | Amended in M1: recipient validation is Go's shape-only `agekey`, not the `age` crate, which arrives with P2 · M2; the rest moves to P2 planning. |
 | [Q-YAML-CRATE](../open-questions.md#q-yaml-crate), [Q-PLATFORM-CRATES](../open-questions.md#q-platform-crates) | Moved to P2 planning, where they block. |
 | [Q-INIT-INTERIM](../open-questions.md#q-init-interim) | `init` requires `--recipient` until M2; CLI `--remote` waits for P4 · M8a. |
 | [Q-HELP-RENDER](../open-questions.md#q-help-render) | clap renders help and usage errors; the registry is the single source for groups and availability; tests assert structure. |
@@ -54,7 +54,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 |---|---|---|---|---|---|
 | M0a | [Toolchain, CI, lint purity](m0a-toolchain.md) ([#5](https://github.com/distillerylabs/gage-rs/issues/5)) | Sonnet | — | 0 | `[x]` |
 | M0b | [Git-crate spike, primitives, registry, help](m0b-primitives.md) ([#6](https://github.com/distillerylabs/gage-rs/issues/6)) | **Opus** for task 1 (spike); Sonnet after; ⚑ Opus review of the tests | M0a | 97 | `[~]` implemented; awaiting 3-OS CI |
-| M1 | [Vault lifecycle and vault-id keying](m1-vault-lifecycle.md) ([#7](https://github.com/distillerylabs/gage-rs/issues/7)) | Sonnet; ⚑ Opus review of the untrusted-input tests | M0b | 89 | `[ ]` |
+| M1 | [Vault lifecycle and vault-id keying](m1-vault-lifecycle.md) ([#7](https://github.com/distillerylabs/gage-rs/issues/7)) | Sonnet; ⚑ Opus review of the untrusted-input tests | M0b | 89 | `[~]` implemented; awaiting 3-OS CI |
 
 `⚑` = run an Opus review pass over that milestone's *tests* before moving on.
 M0b's is for `vaultlock`: a thread-based test passes and proves nothing,
@@ -70,8 +70,9 @@ and a clean seam before the TDD work starts.
 
 All 186 P1 rows of `tests/fixtures/go/test-inventory.tsv` are claimed by
 M0b (97) or M1 (89). M1 also claims 7 P4-tagged `gitrepo_test.go` rows
-(init-and-commit, set-remote, remote URL, `IsClean`), because it builds
-that git surface. Each milestone doc lists what it ports and, for every
+(init-and-commit, set-remote, remote URL, `IsClean`) and the 5 P2-tagged
+`agekey_test.go` rows, because it builds that git surface and that
+validator. Each milestone doc lists what it ports and, for every
 row or part of a row it does not finish, the destination milestone and the
 reason. Rows that move out of P1 entirely:
 

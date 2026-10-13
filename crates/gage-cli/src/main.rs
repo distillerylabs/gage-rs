@@ -4,6 +4,7 @@
 
 use std::io::IsTerminal;
 
+use gage::xdgpaths::Dirs;
 use gage_cli::{BuildInfo, Io};
 
 fn main() {
@@ -16,14 +17,15 @@ fn main() {
         stderr: &mut std::io::stderr().lock(),
         stdin_is_terminal,
         build: BuildInfo::stamped(),
+        dirs: &Dirs::from_process,
+        hostname: &|| Ok(hostname::get()?.to_string_lossy().into_owned()),
     };
     let code = gage_cli::run(&args, &mut io, &NoPrompter);
     std::process::exit(code.as_i32());
 }
 
-/// Nothing in M0b asks a question yet; the terminal prompter arrives with
-/// the first command that needs one (M1's vault removal confirmation, M2's
-/// passphrase).
+/// Nothing asks a question yet; the terminal prompter arrives with the
+/// first command that needs one (M2's passphrase).
 struct NoPrompter;
 
 impl gage::prompter::Prompter for NoPrompter {
