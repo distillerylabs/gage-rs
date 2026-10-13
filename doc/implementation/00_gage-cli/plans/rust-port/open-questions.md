@@ -122,28 +122,69 @@ exits, including on kill.
 
 ### `[x]` Q-GIT-CRATE — `gix` or `git2`? {#q-git-crate}
 
-**Resolved: decided by a short spike as M0b's first task (Opus).** It is
-needed in P1 because `gittest::new_bare_remote` (M0b) and `init`'s first
-commit (M1) both use it, and switching crates after P4 is expensive. The
-decision is driven by P4's needs, not by Go interop:
+**Resolved: `git2` 0.21 (libgit2 1.9.7), statically vendored**, with
+`default-features = false` and features `https`, `vendored-libgit2`,
+`vendored-openssl`, plus `libz-sys` with `static`. No `ssh`: gage's
+supported remote auth is HTTPS + token. Decided by M0b's spike
+([#6](https://github.com/distillerylabs/gage-rs/issues/6)), driven by P4's
+needs rather than Go interop. It is needed in P1 because
+`gittest::new_bare_remote` (M0b) and `init`'s first commit (M1) both use it,
+and switching after P4 would be expensive.
 
-- `gix`: pure Rust, closest in spirit to go-git. Risk: push and merge
-  support has historically trailed fetch/clone.
-- `git2`: libgit2, statically vendored so the binary stays self-contained
-  and never shells out. Mature push/merge; a C dependency and its CVE stream.
+**Why not `gix`.** `gix` 0.89 has no push. Nothing in `gix` or
+`gix-protocol` 0.67 implements the receive-pack (send-pack) client side;
+the only `receive_pack` module is the fetch side receiving a pack. gage
+pushes after every write (P4 · M8a), so `gix` would mean hand-writing the
+push protocol, or running a second git stack beside it. Settled by source
+inspection, so no `gix` code was built. Its pure-Rust build and
+closeness to go-git don't outweigh a missing core operation. Revisit only if
+the crate grows a push client before P4 starts.
 
-The spike must show, against a local bare repo and offline: init + commit
-with an explicit branch name and signature (never the user's git config),
-fetch, fast-forward, **an HTTPS token reaching the transport** (Go proves
-this with a custom transport registered under a `gagetest://` scheme that
-records the credentials it was handed, `gittest/transport.go`; the
-candidate needs an equivalent hook, plus HTTPS support compiled in without
-system libraries), divergence detection, a merge commit with chosen
-per-file resolutions (M8b), history walk of one path (`log`/`history`),
-and that the local transport works on Windows CI. Go's M8a/M8b docs list
-what go-git's thin merge surface forced; check the candidate against that
-list. Evidence is recorded here; the spike code is deleted before M0b's
-review.
+**Evidence for `git2`.** A throwaway workspace member ran on the
+`6-m0b-git-spike` branch,
+[CI run 38325834646](https://github.com/distillerylabs/gage-rs/actions/runs/38325834646):
+green on Linux, macOS and Windows, offline after `cargo fetch`, about
+1.5–2 minutes for a cold build including vendored OpenSSL. The branch and
+its code were then deleted. Every scenario ran in a child process whose
+HOME, USERPROFILE, XDG_CONFIG_HOME and APPDATA pointed at a hostile global
+config (`user.name`, `init.defaultBranch=hostile`, `commit.gpgSign=true`,
+`core.autocrlf=true`). Each test first asserted libgit2 could see that
+config, so none of them is vacuous.
+
+| Requirement | Result |
+|---|---|
+| init + commit with explicit branch and signature | `RepositoryInitOptions::initial_head("main")` (bare and non-bare) and explicit `Signature`s win over the hostile config. libgit2 never signs commits on its own. |
+| fetch + fast-forward from a local bare repo | Named `origin` remote, explicit refspec, `graph_ahead_behind` = (0, 1), then `reference` + `checkout_head(force)`. |
+| push to a local bare repo | Works. Rejections arrive through the `push_update_reference` callback as well as the return value. |
+| divergence detection | A non-fast-forward push fails with the typed `ErrorCode::NotFastForward`, so no string matching is needed (cf. Go M8a's "don't pattern-match go-git's rejection string"). After fetch, `graph_ahead_behind` = (1, 1) and `merge_base` work. |
+| merge commit with chosen per-file resolutions | `merge_trees(base, ours, theirs)` gives an in-memory index. The conflicted path (opaque binary `.age`) is resolved by taking a chosen side's `IndexEntry` (clearing its stage bits), disjoint additions merge cleanly, `write_tree_to` + `commit` with parents `[local, remote]` (local first), then checkout. The result is a clean tree, and the push fast-forwards. That is the `PrepareMerge`/`PendingMerge.Commit` shape M8b needs, with no working-tree writes until commit. |
+| single-path history walk | `revwalk` (topological + time), keeping commits whose blob at the path differs from any parent's. Traverses merge commits; the logic is gage's own, as in Go. |
+| HTTPS token reaches the transport | libgit2 passes credentials to its *built-in* HTTP transport, not to a custom registered one (`transport::register` sees no credentials). So the hook is a **loopback HTTP server that records the `Authorization` header**. That is stronger than Go's `gagetest://` recorder, because it observes the token on the wire. The challenge path is a 401, then the `credentials` callback, then `Basic base64(user:token)` for both fetch (upload-pack) and push (receive-pack). Proactive auth like go-git's `BasicAuth` uses `FetchOptions/PushOptions::custom_headers` and sends the header on the first request, with no 401 round trip. |
+| HTTPS compiled in, no system libraries | `Version::https()` true, `ssh()` false, `vendored()` true. An `https://` remote fails as a connection error, not an unsupported scheme. Backends: OpenSSL (vendored, static) on Linux, Security.framework on macOS, WinHTTP on Windows. Linux `ldd` shows only libc, libgcc_s and **libz**, so P4 adds `libz-sys/static`. |
+| local transport on Windows | Works with plain `C:\...` paths for the remote URL. |
+
+**Consequences carried into the milestones that use it:**
+
+- **Isolate libgit2 from the user's and system git config.** libgit2
+  *honors* `url.<base>.insteadOf` from the user's global config: a hostile
+  rewrite redirected a fetch to a decoy repo on all three OSes. go-git
+  doesn't, and the design says gage doesn't (CLAUDE.md: "`insteadOf`
+  rewrites are not honored"). `git2::opts::set_search_path` set to an empty
+  directory for `System`, `XDG`, `Global` and `ProgramData` before any other
+  libgit2 call hides all of them (0 entries visible afterwards). It is an
+  `unsafe fn` (a process-global libgit2 option), so `gitrepo` gets one
+  `#[allow(unsafe_code)]` call behind a `std::sync::Once`, run before every
+  repository open. That lands with `gitrepo` in M1, with a test that a
+  hostile `insteadOf` is ignored. The same isolation covers `core.autocrlf`
+  from Git for Windows' system config, which the spike didn't trigger, but
+  gage shouldn't depend on that.
+- **Pin repo-local config at init** anyway (`core.autocrlf=false`), as
+  defense in depth for a vault opened by stock git or an older gage.
+- **`deny.toml` must allow `Unicode-3.0`**: `git2`'s `url` → `idna` → ICU
+  crates carry it. libgit2's own C code is GPLv2 with the linking
+  exception, which permits static linking into an Apache-2.0 binary.
+- A C dependency means following libgit2 and OpenSSL advisories:
+  `make audit` (cargo-deny) covers the `-sys` crates' RustSec entries.
 
 ### `[x]` Q-AGE-CRATE — Does the `age` crate cover what gage needs? {#q-age-crate}
 

@@ -146,16 +146,16 @@ uses; Q-YAML-CRATE and Q-PLATFORM-CRATES move to P2 planning. "First used" names
 |---|---|---|---|---|
 | CLI parsing/dispatch, help rendering | `clap`, grouped from the registry | decided ([Q-HELP-RENDER](open-questions.md#q-help-render)) | M0a | spf13/cobra |
 | TOML | `toml` + `serde` (no custom emitter) | decided ([Q-COMPAT](open-questions.md#q-compat)) | M0b | pelletier/go-toml v2 |
-| Typed errors | `thiserror` (library), `anyhow` (CLI only) | likely | M0b | — |
+| Typed errors | `thiserror` (library), `anyhow` (CLI only) | decided | M0b | — |
 | Advisory file lock | `std::fs::File::lock` (Rust ≥ 1.89) | decided ([Q-FILE-LOCK](open-questions.md#q-file-lock)) | M0b | x/sys flock/LockFileEx |
-| Git | `gix` or `git2` (vendored libgit2) | **M0b spike** ([Q-GIT-CRATE](open-questions.md#q-git-crate)) | M0b | go-git |
+| Git | `git2` (vendored libgit2 + OpenSSL, `https`, no `ssh`) | decided ([Q-GIT-CRATE](open-questions.md#q-git-crate)) | M0b | go-git |
 | Encryption | `age` (rage) | decided for recipient parsing; rest in P2 planning ([Q-AGE-CRATE](open-questions.md#q-age-crate)) | M1 | filippo.io/age |
 | Memory locking | `region`, or `libc`/`windows-sys` directly | **decide in P2** ([Q-PLATFORM-CRATES](open-questions.md#q-platform-crates)) | M2 | x/sys mlock/VirtualLock |
 | Secret hygiene | `zeroize`, `secrecy` | likely | M2 | manual zeroing |
 | Masked terminal input | `rpassword` or `crossterm` | **decide in P2** | M2 | x/term |
 | PTY (test-only) | `expectrl` or `portable-pty` | **decide in P2** | M2 | creack/pty |
 | YAML | `serde_yaml_ng`, `serde_norway` or `serde_yml` | **decide in P2** ([Q-YAML-CRATE](open-questions.md#q-yaml-crate)) | M3 | gopkg.in/yaml.v3 |
-| UUID | `uuid` (v4) | likely | M0b (vault-id validation) | google/uuid |
+| UUID | `uuid` (v4) | decided | M0b (vault-id validation) | google/uuid |
 | Line editing | `rustyline` | likely | M6 | chzyer/readline |
 | Clipboard | `arboard` | likely | M12 | atotto/clipboard |
 | QR encoding | `qrcode` (encoding only; half-block rendering is gage's own) | likely | M12 | rsc.io/qr |

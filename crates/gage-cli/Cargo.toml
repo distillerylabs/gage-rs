@@ -16,7 +16,11 @@ path = "src/main.rs"
 workspace = true
 
 [dependencies]
+anyhow = "1"
+clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions", "string"] }
 gage = { path = "../gage" }
 
 [dev-dependencies]
 assert_cmd = "2"
+gage = { path = "../gage", features = ["test-support"] }
+thiserror = "2"

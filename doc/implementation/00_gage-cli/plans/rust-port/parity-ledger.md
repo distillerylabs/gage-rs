@@ -53,7 +53,7 @@ Status: `[ ]` not ported, `[~]` in progress, `[x]` ported, `n/a` excluded
 | #17 / PR #21 | R4 `gage recovery enroll` (+ seven review fixes) | P8 | `[ ]` |
 | #18 / PR #22 | R5 `gage recovery rotate`; reserved recovery label | P8 | `[ ]` |
 | PR #12 | Multi-milestone GitHub process in CLAUDE.md | Bootstrap (`CLAUDE.md`) | `[~]` |
-| #23 / PR #24 | Parent commands (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) list their children in their own help | P1 · M0b (registry/help), each parent's children as they land | `[ ]` |
+| #23 / PR #24 | Parent commands (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) list their children in their own help | P1 · M0b (registry/help), each parent's children as they land | `[~]` M0b: mechanism, proven on a test registry; real parents from M1 |
 | #25 / PR #26 | Codecov reporting alongside the cover-check gate | M0a | `[ ]` |
 | #27, #28, #29 / PRs #30–#32 | Coverage toward 90% with honest tests; library and CLI coverage gate | M0a sets up the gate; every milestone keeps it | `[ ]` |
 | #34 / PR #35 | gosec configuration audit | M0a — the Rust analogue is the clippy lint set + cargo-deny config; audit it there | `[ ]` |
@@ -68,16 +68,16 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | Go commit | Old ref | Item | Port to | Status |
 |---|---|---|---|---|
 | `4604dc5`…`4c23f99` | — | Milestones M0–M12 as planned | See §3 | — |
-| `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[ ]` |
+| `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[x]` (session half: P3 · M6) |
 | `386c57e` | #38 | `init --remote` solicits an HTTPS token inline | P4 · M8a | `[ ]` |
 | `a0920b0`, `0a1beeb` | #39 | `vault remove` orphaned-identity cleanup (later revised by E0: compare public keys, `Confirm`, default keep) | P6 · M12 | `[ ]` |
-| `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | P1 · M0b (a separate binary, never a `gage` subcommand; needs `xdgpaths`) | `[ ]` |
-| `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[ ]` |
+| `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | P1 · M0b (a separate binary, never a `gage` subcommand; needs `xdgpaths`) | `[x]` |
+| `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[x]` errors; warnings end to end with `Prompter::warn` (P2 · M2) |
 | `a1572d5` | — | `ls` shows title and `updated_by` | P2 · M4 | `[ ]` |
 | `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 | `[ ]` |
 | `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[ ]` |
 | `e52828a` | — | Scrypt work-factor test hook and its guard tests | P2 · M2 | `[ ]` |
-| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[ ]` |
+| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders |
 | `3fd784c`, `fbc887f` | #46 | E1a unconditional re-encrypt + recipient regression fixes | Folded: P5 · M9 | `[ ]` |
 | `045bf24`, `9d72384` | #48 | E1b shared recipient write + fixes | P7 · E1b | `[ ]` |
 | `798ed47` | — | E2 sealed request | P7 · E2 | `[ ]` |
@@ -96,7 +96,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 
 | Go plan | Milestones | Port to | Status |
 |---|---|---|---|
-| `gage-cli-design/` | M0 | P1 · M0a + M0b | `[ ]` |
+| `gage-cli-design/` | M0 | P1 · M0a + M0b | `[x]` |
 | | M1 | P1 · M1 (+ E0) | `[ ]` |
 | | M2 | P2 · M2 (+ E0 identity paths) | `[ ]` |
 | | M3, M4 | P2 · M3, M4 | `[ ]` |
