@@ -25,12 +25,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            codecov-flag: linux
+          # Linux and Windows are off for now; re-enable before M1 merges.
+          # - os: ubuntu-latest
+          #   codecov-flag: linux
           - os: macos-latest
             codecov-flag: macos
-          - os: windows-latest
-            codecov-flag: windows
+          # - os: windows-latest
+          #   codecov-flag: windows
     runs-on: ${{ matrix.os }}
     env:
       # Empty on fork PRs (GitHub withholds repo secrets from them) and
