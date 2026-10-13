@@ -7,15 +7,18 @@
 
 #![deny(clippy::disallowed_macros, clippy::disallowed_methods)]
 
+pub mod agekey;
 pub mod atomicfile;
 pub mod config;
 pub mod devicename;
 pub mod exitcode;
+pub mod gitrepo;
 #[cfg(any(test, feature = "test-support"))]
 pub mod gittest;
 pub mod identity;
 pub mod paths;
 pub mod prompter;
+pub mod recipients;
 pub mod vault;
 pub mod vaultconfig;
 pub mod vaultlock;

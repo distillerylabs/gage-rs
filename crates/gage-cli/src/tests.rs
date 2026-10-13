@@ -1,7 +1,9 @@
-//! In-process CLI tests: `run_with` against injected IO and a fake
-//! prompter. Help tests assert structure (grouping, aliases, the one-shot
-//! set equal to the registry), not Cobra's bytes (Q-HELP-RENDER), and use
-//! test registries where M0b's real one has no such commands yet.
+//! In-process CLI tests of parsing, help and dispatch: `run_with` against
+//! injected IO and a fake prompter. Help tests assert structure (grouping,
+//! aliases, the one-shot set equal to the registry), not Cobra's bytes
+//! (Q-HELP-RENDER), and inject test commands where the real registry has
+//! none of the shape under test. Vault lifecycle tests live in
+//! `lifecycle_tests`.
 
 use std::collections::BTreeSet;
 
@@ -10,9 +12,7 @@ use gage::prompter::FakePrompter;
 use super::*;
 use crate::cli::command_list_line;
 use crate::error::ERROR_PREFIX;
-use crate::registry::{
-    Availability, CommandInfo, GROUP_ENTRY, GROUP_VAULT, ParentInfo, Registry, registry,
-};
+use crate::registry::{Availability, CommandInfo, GROUP_ENTRY, GROUP_VAULT, Registry, registry};
 
 struct CliResult {
     code: Code,
@@ -29,6 +29,9 @@ fn run_reg(reg: &Registry, args: &[&str], stdin_is_terminal: bool) -> CliResult 
         stderr: &mut stderr,
         stdin_is_terminal,
         build: version::resolve_build_info(Some("v1.2.3"), Some("abcdef1")),
+        // Nothing here reaches a command that reads them.
+        dirs: &|| panic!("a parsing test resolved gage's directories"),
+        hostname: &|| panic!("a parsing test read the hostname"),
     };
     let code = run_with(reg, &args, &mut io, &FakePrompter::new());
     CliResult {
@@ -56,27 +59,6 @@ fn cmd(
         usage: "",
         availability,
     }
-}
-
-/// The real registry plus a `vault` parent with three children, the
-/// shape M1's real `vault`/`git` parents take.
-fn registry_with_parent() -> Registry {
-    let mut reg = registry();
-    reg.parents.push(ParentInfo {
-        name: "vault",
-        short: "Manage registered vaults",
-    });
-    for (name, short) in [
-        ("vault list", "List registered vaults"),
-        ("vault info", "Show a vault's type, method and remote"),
-        ("vault remove", "Forget a vault locally"),
-    ] {
-        reg.commands.push(CommandInfo {
-            short,
-            ..cmd(name, &[], GROUP_VAULT, Availability::Both)
-        });
-    }
-    reg
 }
 
 /// Every command line in the root listing: indented lines other than the
@@ -132,7 +114,8 @@ fn parent_tree_paths(root: &clap::Command) -> Vec<String> {
 // otherwise render with an empty description and nothing would fail.
 #[test]
 fn registry_completeness() {
-    for reg in [registry(), registry_with_parent()] {
+    {
+        let reg = registry();
         let tree = cli::build(&reg, &BuildInfo::stamped());
         let paths: BTreeSet<String> = command_tree_paths(&tree).into_iter().collect();
         let registered: BTreeSet<String> =
@@ -149,7 +132,7 @@ fn registry_completeness() {
 // Proves the parent half above would catch a misspelled ParentInfo.
 #[test]
 fn registry_completeness_detects_parent_drift() {
-    let mut reg = registry_with_parent();
+    let mut reg = registry();
     reg.parents[0].name = "vualt";
     let tree = cli::build(&reg, &BuildInfo::stamped());
     let parents: BTreeSet<String> = parent_tree_paths(&tree).into_iter().collect();
@@ -203,7 +186,8 @@ fn help_flag_exits_zero() {
 // Go: TestHelpCommandExitsZeroAndMatchesHelpFlag
 #[test]
 fn help_command_exits_zero_and_matches_help_flag() {
-    for reg in [registry(), registry_with_parent()] {
+    {
+        let reg = registry();
         let (flag, command) = (
             run_reg(&reg, &["--help"], false),
             run_reg(&reg, &["help"], false),
@@ -268,7 +252,7 @@ fn help_output_is_grouped() {
 // from passing vacuously on M0b's all-session registry.
 #[test]
 fn one_shot_help_matches_registry_exactly() {
-    let mut reg = registry_with_parent();
+    let mut reg = registry();
     reg.commands.push(cmd(
         "fake-oneshot",
         &["fake-alias"],
@@ -355,66 +339,78 @@ fn command_help_lists_aliases_sorted_with_the_canonical_name() {
     assert!(!run(&["help", "use"]).stdout.contains("Aliases:"));
 }
 
-// Go: TestParentCommandHelpListsItsChildren (M1 adds the same assertion for
-// the real `vault` and `git` parents).
+// Go: TestParentCommandHelpListsItsChildren, over both real parents.
 #[test]
 fn parent_command_help_lists_its_children() {
-    let r = run_reg(&registry_with_parent(), &["vault"], false);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
-    assert!(
-        r.stdout.contains("Manage registered vaults"),
-        "{}",
-        r.stdout
-    );
-    assert!(r.stdout.contains("Available Commands:"), "{}", r.stdout);
-    for child in ["list", "info", "remove"] {
-        assert!(
-            r.stdout.contains(&format!("  {child} ")),
-            "missing {child}:\n{}",
-            r.stdout
-        );
+    for (parent, short, children) in [
+        (
+            "vault",
+            "Manage registered vaults",
+            &["list", "info", "remove", "set-default"][..],
+        ),
+        ("git", "Git-specific vault operations", &["set-remote"]),
+    ] {
+        let r = run(&[parent]);
+        assert_eq!(r.code, Code::Success, "{}", r.stderr);
+        assert!(r.stdout.contains(short), "{}", r.stdout);
+        assert!(r.stdout.contains("Available Commands:"), "{}", r.stdout);
+        for child in children {
+            assert!(
+                r.stdout.contains(&format!("  {child} ")),
+                "missing {parent} {child}:\n{}",
+                r.stdout
+            );
+        }
     }
 }
 
 // Go: TestParentCommandChildrenListedWithTheirShortText
 #[test]
 fn parent_command_children_listed_with_their_short_text() {
-    let reg = registry_with_parent();
-    let out = run_reg(&reg, &["vault"], false).stdout;
-    let short = reg.find("vault info").unwrap().short;
-    assert!(
-        out.lines()
-            .any(|l| l.trim_start().starts_with("info") && l.ends_with(short)),
-        "{out}"
-    );
+    let reg = registry();
+    for (parent, child) in [
+        ("vault", "info"),
+        ("vault", "set-default"),
+        ("git", "set-remote"),
+    ] {
+        let out = run(&[parent]).stdout;
+        let short = reg.find(&format!("{parent} {child}")).unwrap().short;
+        assert!(
+            out.lines()
+                .any(|l| l.trim_start().starts_with(child) && l.ends_with(short)),
+            "{out}"
+        );
+    }
 }
 
 // Go: TestParentCommandHelpMatchesAcrossBareDashHelpAndHelpCommand
 #[test]
 fn parent_command_help_matches_across_bare_dash_help_and_help_command() {
-    let reg = registry_with_parent();
-    let bare = run_reg(&reg, &["vault"], false).stdout;
-    assert!(bare.contains("Available Commands:"));
-    assert_eq!(run_reg(&reg, &["vault", "--help"], false).stdout, bare);
-    assert_eq!(run_reg(&reg, &["help", "vault"], false).stdout, bare);
+    for parent in ["vault", "git"] {
+        let bare = run(&[parent]).stdout;
+        assert!(bare.contains("Available Commands:"));
+        assert_eq!(run(&[parent, "--help"]).stdout, bare);
+        assert_eq!(run(&["help", parent]).stdout, bare);
+    }
 }
 
 // Go: TestLeafCommandHelpUnchangedByTheChildrenListing
 #[test]
 fn leaf_command_help_unchanged_by_the_children_listing() {
-    let reg = registry_with_parent();
-    let r = run_reg(&reg, &["vault", "list", "--help"], false);
-    assert_eq!(r.code, Code::Success);
-    assert!(
-        r.stdout.contains("Usage:\n  gage vault list"),
-        "{}",
-        r.stdout
-    );
-    assert!(!r.stdout.contains("Available Commands:"), "{}", r.stdout);
-    assert_eq!(
-        run_reg(&reg, &["help", "vault", "list"], false).stdout,
-        r.stdout
-    );
+    for path in [&["vault", "list"][..], &["git", "set-remote"]] {
+        let help: Vec<&str> = path.iter().copied().chain(["--help"]).collect();
+        let r = run(&help);
+        assert_eq!(r.code, Code::Success);
+        assert!(
+            r.stdout
+                .contains(&format!("Usage:\n  gage {}", path.join(" "))),
+            "{}",
+            r.stdout
+        );
+        assert!(!r.stdout.contains("Available Commands:"), "{}", r.stdout);
+        let topic: Vec<&str> = ["help"].into_iter().chain(path.iter().copied()).collect();
+        assert_eq!(run(&topic).stdout, r.stdout);
+    }
 }
 
 // Go's TestListsCommandEntryIgnoresProse is excused: it tests a helper that
@@ -463,7 +459,7 @@ fn unknown_command_shows_full_help_listing() {
         r.stderr
     );
     // Unknown under a parent shows that parent's help.
-    let r = run_reg(&registry_with_parent(), &["vault", "nope"], false);
+    let r = run_reg(&registry(), &["vault", "nope"], false);
     assert_eq!(r.code, Code::Usage);
     assert!(r.stderr.contains("Available Commands:"), "{}", r.stderr);
 }
@@ -560,7 +556,14 @@ fn bare_gage_with_redirected_stdin_prints_root_help() {
 // stubs do, rather than looking like an unknown command.
 #[test]
 fn an_unimplemented_one_shot_command_is_internal() {
-    let r = run_reg(&registry_with_parent(), &["vault", "list"], false);
+    let mut reg = registry();
+    reg.commands.push(cmd(
+        "fake-oneshot",
+        &[],
+        GROUP_VAULT,
+        Availability::OneShotOnly,
+    ));
+    let r = run_reg(&reg, &["fake-oneshot"], false);
     assert_eq!(r.code, Code::Internal);
-    assert_eq!(r.stderr, "gage: vault list is not implemented yet\n");
+    assert_eq!(r.stderr, "gage: fake-oneshot is not implemented yet\n");
 }

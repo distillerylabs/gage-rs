@@ -48,9 +48,23 @@ impl CliError {
 }
 
 impl fmt::Display for CliError {
-    // The whole chain, `outer: inner`, as one line.
+    // The whole chain, `outer: inner`, as one line, except a cause the
+    // layer above already put in its own message: library errors name
+    // their source (`reading x: permission denied`) and expose it as
+    // `source()` too, and saying it twice helps nobody.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:#}", self.err)
+        let mut rendered = String::new();
+        for cause in self.err.chain() {
+            let msg = cause.to_string();
+            if rendered.contains(&msg) {
+                continue;
+            }
+            if !rendered.is_empty() {
+                rendered.push_str(": ");
+            }
+            rendered.push_str(&msg);
+        }
+        f.write_str(&rendered)
     }
 }
 
@@ -111,6 +125,26 @@ mod tests {
             assert_eq!(with_context.code(), code);
             assert_eq!(with_context.to_string(), "context: library failure");
         }
+    }
+
+    // Library errors name their source in their own message (`reading x:
+    // permission denied`) and also expose it as `source()`. Rendering the
+    // chain must not say the same cause twice.
+    #[test]
+    fn a_cause_already_in_the_message_is_not_repeated() {
+        let dir = std::env::temp_dir().join("gage-cli-error-test-missing-dir");
+        let lib_err =
+            gage::config::write(&dir.join("config.toml"), &Default::default()).unwrap_err();
+        let cause = std::error::Error::source(&lib_err).unwrap().to_string();
+        let err: CliError = lib_err.into();
+
+        let rendered = err.to_string();
+
+        assert_eq!(rendered.matches(&cause).count(), 1, "{rendered}");
+        assert!(rendered.starts_with("config: writing "), "{rendered}");
+
+        let with_context = err.context("saving");
+        assert_eq!(with_context.to_string(), format!("saving: {rendered}"));
     }
 
     #[test]

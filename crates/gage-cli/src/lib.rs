@@ -11,12 +11,14 @@ use std::io::{Read, Write};
 
 use gage::exitcode::Code;
 use gage::prompter::Prompter;
+use gage::xdgpaths::{self, Dirs};
 
 // build.rs include!s it too; the crate itself only needs it for the test
 // that checks the Makefile exports the same names.
 #[cfg(test)]
 mod build_env;
 pub mod cli;
+mod commands;
 pub mod error;
 pub mod registry;
 pub mod version;
@@ -36,6 +38,13 @@ pub struct Io<'a> {
     pub stdin_is_terminal: bool,
     /// What `--version` reports. `main` passes [`BuildInfo::stamped`].
     pub build: BuildInfo,
+    /// gage's config, data and state roots. `main` passes
+    /// [`Dirs::from_process`]; tests point them at a temp directory. A
+    /// function, so a command that needs none (help) never fails for want
+    /// of a home directory.
+    pub dirs: &'a dyn Fn() -> Result<Dirs, xdgpaths::Error>,
+    /// This machine's hostname: `init`'s default device name.
+    pub hostname: &'a dyn Fn() -> std::io::Result<String>,
 }
 
 /// Runs one invocation (`args` without the program name) and returns its
@@ -85,18 +94,23 @@ fn dispatch(
             let text = cli::help_topic(reg, &io.build, &topic)?;
             print(io, &text)
         }
-        Outcome::Command(name, _) => {
+        Outcome::Command(name, matches) => {
             let info = reg
                 .find(name)
                 .expect("parse only returns registered commands");
-            Err(match info.availability {
-                Availability::SessionOnly => CliError::new(
+            if info.availability == Availability::SessionOnly {
+                return Err(CliError::new(
                     Code::Usage,
                     format!(
                         "{name} is only available in a session; run `gage` with no arguments to start one"
                     ),
-                ),
-                _ => CliError::new(Code::Internal, format!("{name} is not implemented yet")),
+                ));
+            }
+            commands::run(name, &matches, io).unwrap_or_else(|| {
+                Err(CliError::new(
+                    Code::Internal,
+                    format!("{name} is not implemented yet"),
+                ))
             })
         }
     }
@@ -113,5 +127,7 @@ fn print(io: &mut Io, text: &str) -> Result<(), CliError> {
     Ok(())
 }
 
+#[cfg(test)]
+mod lifecycle_tests;
 #[cfg(test)]
 mod tests;

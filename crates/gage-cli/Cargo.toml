@@ -19,8 +19,11 @@ workspace = true
 anyhow = "1"
 clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions", "string"] }
 gage = { path = "../gage" }
+# init's default device name; std has no hostname call.
+hostname = "0.4"
 
 [dev-dependencies]
 assert_cmd = "2"
+tempfile = "3"
 gage = { path = "../gage", features = ["test-support"] }
 thiserror = "2"

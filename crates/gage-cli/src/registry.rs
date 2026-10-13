@@ -81,10 +81,10 @@ pub struct Registry {
     pub parents: Vec<ParentInfo>,
 }
 
-/// The real registry. M0b has only the session meta-verbs; vault commands
-/// arrive in M1, which also adds the `vault` and `git` parents.
+/// The real registry. Commands are listed in the order Go's registry
+/// lists them, which is the order each group renders in.
 pub fn registry() -> Registry {
-    use Availability::SessionOnly;
+    use Availability::{Both, OneShotOnly, SessionOnly};
     let session = |name, aliases, usage, short| CommandInfo {
         name,
         aliases,
@@ -92,6 +92,14 @@ pub fn registry() -> Registry {
         group: GROUP_SESSION,
         usage,
         availability: SessionOnly,
+    };
+    let command = |name, usage, short, group, availability| CommandInfo {
+        name,
+        aliases: &[],
+        short,
+        group,
+        usage,
+        availability,
     };
     Registry {
         commands: vec![
@@ -115,8 +123,62 @@ pub fn registry() -> Registry {
             ),
             session("exit", &["quit"], "", "Leave the session"),
             session("help", &[], "[command]", "Show help for gage's commands"),
+            // One-shot only: it creates a vault rather than operating on
+            // one, which leaves "does the new vault become the session's
+            // current one?" unanswered (Go's Q-CMD-AVAILABILITY).
+            command(
+                "init",
+                "<name>",
+                "Create a new vault",
+                GROUP_VAULT,
+                OneShotOnly,
+            ),
+            command(
+                "vault list",
+                "",
+                "List registered vaults",
+                GROUP_VAULT,
+                Both,
+            ),
+            command(
+                "vault info",
+                "[name]",
+                "Show a vault's type, method, recipient count, and (for git) remote/status",
+                GROUP_VAULT,
+                Both,
+            ),
+            command(
+                "vault remove",
+                "<name>",
+                "Forget a vault locally, leaving its files untouched",
+                GROUP_VAULT,
+                Both,
+            ),
+            command(
+                "vault set-default",
+                "<name>",
+                "Change which vault is used when none is given",
+                GROUP_VAULT,
+                Both,
+            ),
+            command(
+                "git set-remote",
+                "<name> <url>",
+                "Set or change a vault's git remote (origin)",
+                GROUP_GIT,
+                Both,
+            ),
         ],
-        parents: vec![],
+        parents: vec![
+            ParentInfo {
+                name: "vault",
+                short: "Manage registered vaults",
+            },
+            ParentInfo {
+                name: "git",
+                short: "Git-specific vault operations",
+            },
+        ],
     }
 }
 

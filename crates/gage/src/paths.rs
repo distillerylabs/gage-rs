@@ -37,6 +37,12 @@ impl HasCode for Error {
     }
 }
 
+/// `$GAGE_CONFIG/config.toml`: the global config, the vaults this device
+/// knows (see `config`).
+pub fn global_config_file(dirs: &Dirs) -> PathBuf {
+    dirs.config.join("config.toml")
+}
+
 /// `$GAGE_DATA/vaults`: where the vaults themselves (git repos) live.
 pub fn vaults_dir(dirs: &Dirs) -> PathBuf {
     dirs.data.join("vaults")
@@ -108,6 +114,14 @@ mod tests {
             ("lock_file_path", lock_file_path),
             ("trust_cache_dir", trust_cache_dir),
         ]
+    }
+
+    #[test]
+    fn global_config_file_shape() {
+        assert_eq!(
+            global_config_file(&dirs()),
+            dirs().config.join("config.toml")
+        );
     }
 
     // Go: TestIdentityFilePathShape

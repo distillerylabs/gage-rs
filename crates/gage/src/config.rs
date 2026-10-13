@@ -108,6 +108,11 @@ pub enum Error {
         path: PathBuf,
         source: toml::ser::Error,
     },
+    #[error("config: creating {path}: {source}")]
+    CreateDir {
+        path: PathBuf,
+        source: std::io::Error,
+    },
     #[error("config: writing {path}: {source}")]
     Write {
         path: PathBuf,
@@ -119,6 +124,104 @@ impl HasCode for Error {
     fn code(&self) -> Code {
         Code::Internal
     }
+}
+
+/// Why a lookup or change in the vault registry was refused.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum RegistryError {
+    /// Refused rather than overwritten: there is no story for what
+    /// replacing a registration should do to the vault it points at, and
+    /// refusing is the choice that's safe to widen later.
+    #[error("{0:?} is already a registered vault")]
+    AlreadyRegistered(String),
+    #[error("no such vault {0:?}")]
+    NotRegistered(String),
+    #[error("no vault name given and no current vault is set")]
+    NoCurrent,
+}
+
+impl HasCode for RegistryError {
+    fn code(&self) -> Code {
+        match self {
+            RegistryError::AlreadyRegistered(_) => Code::Conflict,
+            RegistryError::NotRegistered(_) => Code::NotFound,
+            RegistryError::NoCurrent => Code::Usage,
+        }
+    }
+}
+
+impl Global {
+    /// Adds a new registration, which becomes `current` if nothing is.
+    pub fn register(&mut self, name: &str, entry: VaultEntry) -> Result<(), RegistryError> {
+        if self.vaults.contains_key(name) {
+            return Err(RegistryError::AlreadyRegistered(name.to_string()));
+        }
+        self.vaults.insert(name.to_string(), entry);
+        if self.current.is_empty() {
+            self.current = name.to_string();
+        }
+        Ok(())
+    }
+
+    /// The registration named `name`.
+    pub fn entry(&self, name: &str) -> Result<&VaultEntry, RegistryError> {
+        self.vaults
+            .get(name)
+            .ok_or_else(|| RegistryError::NotRegistered(name.to_string()))
+    }
+
+    /// `name` if given, else `current`: the vault a command defaults to.
+    pub fn name_or_current<'a>(&'a self, name: Option<&'a str>) -> Result<&'a str, RegistryError> {
+        match name.unwrap_or(&self.current) {
+            "" => Err(RegistryError::NoCurrent),
+            name => Ok(name),
+        }
+    }
+
+    /// Forgets a registration, and clears `current` if it named it.
+    /// Returns what was removed.
+    pub fn unregister(&mut self, name: &str) -> Result<VaultEntry, RegistryError> {
+        let entry = self
+            .vaults
+            .remove(name)
+            .ok_or_else(|| RegistryError::NotRegistered(name.to_string()))?;
+        if self.current == name {
+            self.current.clear();
+        }
+        Ok(entry)
+    }
+
+    /// Makes `name`, which must be registered, the current vault.
+    pub fn set_default(&mut self, name: &str) -> Result<(), RegistryError> {
+        self.entry(name)?;
+        self.current = name.to_string();
+        Ok(())
+    }
+}
+
+/// Reads the global config, treating a missing file as an empty registry:
+/// no vault has been registered on this machine yet.
+pub fn load(path: &Path) -> Result<Global, Error> {
+    match read(path) {
+        Err(Error::NotFound { .. }) => Ok(Global::default()),
+        other => other,
+    }
+}
+
+/// Writes the global config, creating its directory (mode 0700) first if
+/// this is the first vault ever registered here.
+pub fn save(path: &Path, global: &Global) -> Result<(), Error> {
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder.create(dir).map_err(|source| Error::CreateDir {
+            path: dir.to_path_buf(),
+            source,
+        })?;
+    }
+    write(path, global)
 }
 
 /// Parses the global config at `path`.
@@ -157,7 +260,6 @@ pub fn write(path: &Path, global: &Global) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
 
     fn one_vault() -> Global {
         Global {
@@ -281,8 +383,12 @@ mod tests {
     // applied to config::write: a refactor that dropped the atomicfile
     // call would leave atomicfile's tests green and only this one would
     // notice.
+    // Unix only: Windows refuses to rename over a file that has an open
+    // handle, so the old-handle probe cannot run there.
+    #[cfg(unix)]
     #[test]
     fn global_config_write_is_atomic() {
+        use std::io::Read;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         write(&path, &one_vault()).unwrap();
@@ -348,6 +454,120 @@ mod tests {
             write(&path, &g).unwrap();
         }
         assert_eq!(read(&path).unwrap().current, "b");
+    }
+
+    fn entry(path: &str) -> VaultEntry {
+        VaultEntry {
+            path: path.into(),
+            vault_type: "git".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn register_makes_the_first_vault_current_and_only_the_first() {
+        let mut g = Global::default();
+        g.register("personal", entry("/a")).unwrap();
+        assert_eq!(g.current, "personal");
+        g.register("work", entry("/b")).unwrap();
+        assert_eq!(g.current, "personal");
+        assert_eq!(g.entry("work").unwrap(), &entry("/b"));
+    }
+
+    #[test]
+    fn register_refuses_a_name_already_registered_and_changes_nothing() {
+        let mut g = Global::default();
+        g.register("personal", entry("/a")).unwrap();
+        let before = g.clone();
+
+        let err = g.register("personal", entry("/b")).unwrap_err();
+
+        assert_eq!(err, RegistryError::AlreadyRegistered("personal".into()));
+        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(g, before);
+    }
+
+    #[test]
+    fn entry_of_an_unknown_name_is_not_found() {
+        let err = one_vault().entry("nope").unwrap_err();
+        assert_eq!(err, RegistryError::NotRegistered("nope".into()));
+        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.to_string(), "no such vault \"nope\"");
+    }
+
+    #[test]
+    fn name_or_current_prefers_the_given_name() {
+        let g = one_vault();
+        assert_eq!(g.name_or_current(Some("work")).unwrap(), "work");
+        assert_eq!(g.name_or_current(None).unwrap(), "personal");
+        let err = Global::default().name_or_current(None).unwrap_err();
+        assert_eq!(err, RegistryError::NoCurrent);
+        assert_eq!(err.code(), Code::Usage);
+    }
+
+    #[test]
+    fn unregister_clears_current_only_when_it_named_the_vault() {
+        let mut g = one_vault();
+        g.register("work", entry("/b")).unwrap();
+
+        assert_eq!(g.unregister("work").unwrap(), entry("/b"));
+        assert_eq!(g.current, "personal");
+        g.unregister("personal").unwrap();
+        assert_eq!(g.current, "");
+        assert!(g.vaults.is_empty());
+        assert_eq!(
+            g.unregister("personal").unwrap_err(),
+            RegistryError::NotRegistered("personal".into())
+        );
+    }
+
+    #[test]
+    fn set_default_requires_a_registered_name_and_changes_nothing_otherwise() {
+        let mut g = one_vault();
+        g.register("work", entry("/b")).unwrap();
+        g.set_default("work").unwrap();
+        assert_eq!(g.current, "work");
+
+        let before = g.clone();
+        let err = g.set_default("nope").unwrap_err();
+        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(g, before);
+    }
+
+    #[test]
+    fn load_treats_a_missing_file_as_an_empty_registry() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            load(&dir.path().join("config.toml")).unwrap(),
+            Global::default()
+        );
+    }
+
+    #[test]
+    fn load_still_reports_a_malformed_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "current = ").unwrap();
+        assert!(matches!(load(&path), Err(Error::Parse { .. })));
+    }
+
+    #[test]
+    fn save_creates_the_config_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config").join("gage").join("config.toml");
+
+        save(&path, &one_vault()).unwrap();
+
+        assert_eq!(load(&path).unwrap(), one_vault());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(path.parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o700);
+        }
     }
 
     #[cfg(unix)]

@@ -189,9 +189,18 @@ config, so none of them is vacuous.
 ### `[x]` Q-AGE-CRATE — Does the `age` crate cover what gage needs? {#q-age-crate}
 
 **Resolved for P1; the rest moves to P2 planning.** M1 needs only recipient
-validation (a well-formed `age1…` bech32 X25519 key, so a malformed
-`--recipient` fails at the CLI boundary); the `age` crate's
-`x25519::Recipient` parsing covers that, and M1 adds the dependency.
+validation, so a malformed `--recipient` fails at the CLI boundary.
+
+*Amended in M1:* that validation is Go's shape-only Bech32 check
+(`agekey`), ported as is, not the `age` crate's `x25519::Recipient`
+parsing this entry first chose. Go deliberately accepts every recipient
+`.age-recipients` may legally hold, plugin recipients (`age1yubikey1…`)
+included, so a vault shared with a device that uses one still round-trips
+its config; X25519 parsing would refuse those, a behavior deviation. So M1
+adds no `age` dependency: P2 · M2 adds it, together with the
+`.age-recipients` round-trip test through the crate's reader and the
+`deny.toml` license decisions its dependencies need (`curve25519-dalek` is
+BSD-3-Clause).
 
 Still to check before M2: scrypt (passphrase) recipients with a settable
 work factor (shipped 2^19, plus the test-only hook and its guard tests),

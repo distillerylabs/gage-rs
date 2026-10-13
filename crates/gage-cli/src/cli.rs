@@ -109,12 +109,20 @@ fn leaf(info: &CommandInfo, name: &'static str) -> Command {
     let mut cmd = styled(Command::new(name).about(info.short))
         .aliases(info.aliases.iter().copied())
         .hide(info.availability == Availability::SessionOnly);
-    if !info.aliases.is_empty() {
-        cmd = cmd.help_template(format!(
-            "{{about-with-newline}}\nUsage:\n  {{usage}}\n\n{}{{all-args}}",
-            alias_section(info, name)
-        ));
-    }
+    // A command's long description replaces its short one in its own help.
+    // Baked into the template rather than set as clap's long_about, so
+    // `-h`, `--help` and `gage help <cmd>` all render the same text.
+    let about = crate::commands::long_about(info.name)
+        .map(|long| format!("{long}\n"))
+        .unwrap_or_else(|| "{about-with-newline}".into());
+    let aliases = if info.aliases.is_empty() {
+        String::new()
+    } else {
+        alias_section(info, name)
+    };
+    cmd = cmd.help_template(format!(
+        "{about}\nUsage:\n  {{usage}}\n\n{aliases}{{all-args}}"
+    ));
     if info.name == "help" {
         // The topic is a command path, `help vault list`.
         return cmd.arg(
@@ -124,7 +132,10 @@ fn leaf(info: &CommandInfo, name: &'static str) -> Command {
                 .trailing_var_arg(true),
         );
     }
-    for arg in usage_args(info.usage) {
+    for arg in usage_args(info.usage)
+        .into_iter()
+        .chain(crate::commands::flags(info.name))
+    {
         cmd = cmd.arg(arg);
     }
     cmd

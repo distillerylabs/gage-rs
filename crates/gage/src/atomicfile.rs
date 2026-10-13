@@ -95,7 +95,6 @@ fn set_mode(_file: &std::fs::File, _mode: u32) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::io::Read;
 
     fn names_in(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(dir)
@@ -159,8 +158,12 @@ mod tests {
     // handle opened on the old one still reads the old bytes. An in-place
     // write reuses the same file, which is exactly the state in which a
     // crash leaves a truncated config.
+    // Unix only: Windows refuses to rename over a file that has an open
+    // handle, so the old-handle probe cannot run there.
+    #[cfg(unix)]
     #[test]
     fn replaces_rather_than_truncates_in_place() {
+        use std::io::Read;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         write(&path, b"current = \"personal\"\n", 0o600).unwrap();

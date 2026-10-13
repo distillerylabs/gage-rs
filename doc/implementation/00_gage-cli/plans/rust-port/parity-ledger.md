@@ -53,7 +53,7 @@ Status: `[ ]` not ported, `[~]` in progress, `[x]` ported, `n/a` excluded
 | #17 / PR #21 | R4 `gage recovery enroll` (+ seven review fixes) | P8 | `[ ]` |
 | #18 / PR #22 | R5 `gage recovery rotate`; reserved recovery label | P8 | `[ ]` |
 | PR #12 | Multi-milestone GitHub process in CLAUDE.md | Bootstrap (`CLAUDE.md`) | `[~]` |
-| #23 / PR #24 | Parent commands (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) list their children in their own help | P1 · M0b (registry/help), each parent's children as they land | `[~]` M0b: mechanism, proven on a test registry; real parents from M1 |
+| #23 / PR #24 | Parent commands (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) list their children in their own help | P1 · M0b (registry/help), each parent's children as they land | `[~]` M0b: mechanism; M1: real `vault` and `git` parents and their children |
 | #25 / PR #26 | Codecov reporting alongside the cover-check gate | M0a | `[ ]` |
 | #27, #28, #29 / PRs #30–#32 | Coverage toward 90% with honest tests; library and CLI coverage gate | M0a sets up the gate; every milestone keeps it | `[ ]` |
 | #34 / PR #35 | gosec configuration audit | M0a — the Rust analogue is the clippy lint set + cargo-deny config; audit it there | `[ ]` |
@@ -77,7 +77,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 | `[ ]` |
 | `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[ ]` |
 | `e52828a` | — | Scrypt work-factor test hook and its guard tests | P2 · M2 | `[ ]` |
-| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders |
+| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders; M1: `[vault].id`, format 2 with the directional refusal, the registration-vs-vault id check |
 | `3fd784c`, `fbc887f` | #46 | E1a unconditional re-encrypt + recipient regression fixes | Folded: P5 · M9 | `[ ]` |
 | `045bf24`, `9d72384` | #48 | E1b shared recipient write + fixes | P7 · E1b | `[ ]` |
 | `798ed47` | — | E2 sealed request | P7 · E2 | `[ ]` |
@@ -97,7 +97,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | Go plan | Milestones | Port to | Status |
 |---|---|---|---|
 | `gage-cli-design/` | M0 | P1 · M0a + M0b | `[x]` |
-| | M1 | P1 · M1 (+ E0) | `[ ]` |
+| | M1 | P1 · M1 (+ E0) | `[~]` implemented; awaiting 3-OS CI |
 | | M2 | P2 · M2 (+ E0 identity paths) | `[ ]` |
 | | M3, M4 | P2 · M3, M4 | `[ ]` |
 | | M5, M6, M7, M13 | P3 | `[ ]` |
@@ -167,6 +167,10 @@ close and page locking); and M1 claims 7 P4-tagged rows of
 `gitrepo_test.go` (init-and-commit, set-remote, remote URL, `IsClean`)
 because it builds that surface.
 
+Resolved in M1: M1 also claims the 5 P2-tagged `agekey_test.go` rows,
+because it ports `agekey` for recipient validation
+([Q-AGE-CRATE](open-questions.md#q-age-crate)).
+
 ## 6. User docs (Go `doc/cli/`)
 
 gage-rs ports these as the behavior lands, so docs describe shipped
@@ -174,7 +178,7 @@ behavior; each phase's last milestone updates the pages for its surface.
 
 | Go page | Port to |
 |---|---|
-| `vaults.md`, `configuration.md`, `exit-codes.md` | P1 |
+| `vaults.md`, `configuration.md`, `exit-codes.md` | P1 · M1: `doc/cli/` |
 | `entries.md` | P2 (+ P6 for `cat`/`ls` display) |
 | `addressing-entries.md`, `session-mode.md` | P3 |
 | `sync.md`, `git-and-auth.md` | P4 |
