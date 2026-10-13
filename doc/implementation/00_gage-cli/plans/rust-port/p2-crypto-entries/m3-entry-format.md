@@ -206,3 +206,6 @@ Every box above checked; all 37 rows ported or excused in this doc;
 `make lint` and `make test` clean locally and on Linux, macOS and Windows
 CI. Entries can be written and read back at the library level. No CLI
 verb touches them yet.
+
+Status: **done.** `make lint` and `make test` are green on Linux, macOS
+and Windows CI.

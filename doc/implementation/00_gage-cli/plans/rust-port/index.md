@@ -62,7 +62,7 @@ line up.
 | Phase | Milestones | Status | Model | Depends on |
 |---|---|---|---|---|
 | P1 Foundation ([plan](p1-foundation/index.md), [#4](https://github.com/distillerylabs/gage-rs/issues/4)) | M0a toolchain, CI, lint purity · M0b git-crate spike + primitives · M1 vault lifecycle | `[x]` | Sonnet; **Opus** for M0b's git-crate spike and an Opus review of M0b's tests ⚑ | — |
-| P2 Crypto & entries ([plan](p2-crypto-entries/index.md), [#12](https://github.com/distillerylabs/gage-rs/issues/12)) | M2 identity + memlock · M3 entry format · M4 CRUD | `[~]` M2–M4 implemented; CI and the ⚑ reviews pending | **Opus** for M2 ⚑; Sonnet for M3/M4 (⚑ Opus review of M4's lock tests) | P1 |
+| P2 Crypto & entries ([plan](p2-crypto-entries/index.md), [#12](https://github.com/distillerylabs/gage-rs/issues/12)) | M2 identity + memlock · M3 entry format · M4 CRUD | `[x]` | **Opus** for M2 ⚑; Sonnet for M3/M4 (⚑ Opus review of M4's lock tests) | P1 |
 | P3 Query & session | M5 resolver · M6 session/REPL · M7 metadata index · M13 completion | `[ ]` | Sonnet* | P2 |
 | P4 Sync | M8a transport & detection · M8b conflict resolution | `[ ]` | **Opus** | P3 |
 | P5 Recipients & trust | M9 recipients · M10 trust cache · M11 cross-vault | `[ ]` | **Opus** for M9; Sonnet* for M10/M11 | P4 |

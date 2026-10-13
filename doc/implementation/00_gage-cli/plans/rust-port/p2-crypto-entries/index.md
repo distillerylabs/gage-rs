@@ -71,9 +71,9 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 | # | Milestone | Model | Depends on | Inventory rows | Status |
 |---|---|---|---|---|---|
-| M2 | [Identity, age wrapper, memory protection](m2-identity-crypto.md) ([#13](https://github.com/distillerylabs/gage-rs/issues/13)) | **Opus**; ⚑ Opus review of the tests | P1 | 83 + 4 moved from P1 (+ identity halves of 5) | `[~]` |
-| M3 | [Entry format](m3-entry-format.md) ([#14](https://github.com/distillerylabs/gage-rs/issues/14)) | Sonnet | M2 | 37 | `[~]` |
-| M4 | [One-shot CRUD](m4-crud.md) ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) | Sonnet; ⚑ Opus review of the multi-process lock tests XX
+| M2 | [Identity, age wrapper, memory protection](m2-identity-crypto.md) ([#13](https://github.com/distillerylabs/gage-rs/issues/13)) | **Opus**; ⚑ Opus review of the tests | P1 | 83 + 4 moved from P1 (+ identity halves of 5) | `[x]` |
+| M3 | [Entry format](m3-entry-format.md) ([#14](https://github.com/distillerylabs/gage-rs/issues/14)) | Sonnet | M2 | 37 | `[x]` |
+| M4 | [One-shot CRUD](m4-crud.md) ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) | Sonnet; ⚑ Opus review of the multi-process lock tests | M3 | 54 + 2 moved from P1 | `[x]` |
 
 `⚑` = run an Opus review pass over that milestone's *tests* before moving
 on. M2's is the one Go's plan calls out as not to economize on: crypto

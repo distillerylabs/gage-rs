@@ -288,3 +288,8 @@ with the remainder named in this doc, or moved; the rows from P1 in task
 `make test` clean locally and on Linux, macOS and Windows CI. `gage` is a
 usable, minimal single-device secrets manager: insert, list, read and
 delete, all committed, all locked against concurrent writers.
+
+Status: **done.** Every box is checked, the Opus review of the lock tests
+is recorded under Implementation notes, and `make lint` and `make test`
+are green on Linux, macOS and Windows CI
+([PR #19](https://github.com/distillerylabs/gage-rs/pull/19)).

@@ -416,10 +416,11 @@ Tests first, at task granularity. Library tasks (1–5) before CLI tasks
 
 ## Definition of done
 
-Status: every task above is implemented and green on `make lint` and `make
-test` locally (macOS). Not yet done: the Opus review of the tests, and
-Linux and Windows CI (the Windows `memlock` and core-dump code has only
-been checked against `windows-sys`'s declarations, not compiled).
+Status: **done.** Every task above is implemented; the Opus review of
+the tests is the test audit below; `make lint` and `make test` are green
+on Linux, macOS and Windows CI, so the Windows `memlock` and core-dump
+code now compiles and runs there, not only against `windows-sys`'s
+declarations.
 
 Test audit additions (beyond Go's rows, each mutation-checked):
 `unlock_of_a_file_claiming_excessive_work_is_corrupt_not_wrong_passphrase`
