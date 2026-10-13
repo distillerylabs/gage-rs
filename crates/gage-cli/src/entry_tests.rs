@@ -338,13 +338,13 @@ fn trim_one_trailing_newline_cases() {
 fn insert_mutually_exclusive_value_flags_rejected_before_any_io() {
     let env = env_with_vault();
     let before = env.commits("personal");
-    // Nothing scripted: a prompt would panic, and stdin is never read.
+    // Nothing scripted: a prompt would panic, and so would reading stdin.
     let prompter = FakePrompter::new();
 
-    let r = env.run_stdin(
+    let r = env.run_reader(
         &["insert", "x", "-m", "--value-stdin"],
         &prompter,
-        b"never read\n",
+        &mut ExplodingReader,
     );
 
     assert_eq!(r.code, Code::Usage, "{}", r.stderr);
@@ -352,6 +352,50 @@ fn insert_mutually_exclusive_value_flags_rejected_before_any_io() {
     assert!(prompter.value_prompts().is_empty());
     assert_eq!(env.commits("personal"), before);
     assert!(env.entries("personal").is_empty());
+
+    // The guard above means something: either mode alone gets through.
+    for mode in ["-m", "--value-stdin"] {
+        let title = format!("alone{mode}");
+        let r = env.run_stdin(&["insert", &title, mode], &unlocks(), b"v\n");
+        assert_eq!(r.code, Code::Success, "{mode}: {}", r.stderr);
+    }
+}
+
+/// Stdin that fails the test if anything reads it.
+struct ExplodingReader;
+
+impl std::io::Read for ExplodingReader {
+    fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
+        panic!("stdin was read");
+    }
+}
+
+#[test]
+fn a_cancelled_value_prompt_after_unlocking_writes_nothing() {
+    let env = env_with_vault();
+    let before = env.commits("personal");
+    let prompter = unlocks().with_value_error(PromptError::Cancelled);
+
+    let r = env.run_with(&["insert", "Bank"], &prompter);
+
+    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.stdout, "");
+    assert_eq!(prompter.value_prompts(), vec!["Bank"]);
+    assert!(env.entries("personal").is_empty());
+    assert_eq!(env.commits("personal"), before);
+}
+
+#[test]
+fn a_value_on_stdin_that_is_not_utf8_is_a_usage_error() {
+    let env = env_with_vault();
+    let before = env.commits("personal");
+    for mode in ["--value-stdin", "-m"] {
+        let r = env.run_stdin(&["insert", "x", mode], &unlocks(), b"\xff\xfe\n");
+        assert_eq!(r.code, Code::Usage, "{mode}: {}", r.stderr);
+        assert!(r.stderr.contains("UTF-8"), "{mode}: {}", r.stderr);
+    }
+    assert!(env.entries("personal").is_empty());
+    assert_eq!(env.commits("personal"), before);
 }
 
 // Go: TestInsertDescriptionStoredAndShownByCat
@@ -446,42 +490,69 @@ fn insert_commit_message_is_uuid_only() {
     );
 }
 
-const HOSTILE_HOME_ENV: &str = "GAGE_CLI_TEST_HOSTILE_HOME";
-
-/// The child side of the test below: `init` and `insert` in-process with
-/// HOME pointing at a git config naming someone else.
-#[test]
-#[allow(clippy::disallowed_macros)]
-fn hostile_home_trampoline() {
-    let Some(home) = std::env::var_os(HOSTILE_HOME_ENV) else {
-        return;
-    };
-    let env = Env::new();
-    env.init("personal", &[]);
-    env.insert_ok("v", &["Title"]);
-    let head = gitrepo::head_commit(&env.entry("personal").path).unwrap();
+/// Requires the tip commit of `vault` to be authored and committed by
+/// gage itself.
+fn assert_anonymous_author(vault: &std::path::Path, after: &str) {
+    let head = gitrepo::head_commit(vault).unwrap();
     for (name, email) in [
         (&head.author_name, &head.author_email),
         (&head.committer_name, &head.committer_email),
     ] {
-        assert_eq!(name, gitrepo::AUTHOR_NAME);
-        assert_eq!(email, gitrepo::AUTHOR_EMAIL);
+        assert_eq!(name, gitrepo::AUTHOR_NAME, "after {after}");
+        assert_eq!(email, gitrepo::AUTHOR_EMAIL, "after {after}");
     }
-    let _ = home;
+}
+
+// Go: TestCommitAuthorIgnoresTheUsersGitConfig. As Go: the vault's own
+// `.git/config` names a real person, which is the config git consults
+// first, and neither an insert nor a removal is authored as them.
+#[test]
+fn commit_author_ignores_the_users_git_config() {
+    let env = env_with_vault();
+    let vault = env.entry("personal").path;
+    let config = vault.join(".git").join("config");
+    let mut text = std::fs::read_to_string(&config).unwrap();
+    text.push_str("[user]\n\tname = Real Human\n\temail = human@example.invalid\n");
+    std::fs::write(&config, text).unwrap();
+
+    env.insert_ok("v", &["Title"]);
+    assert_anonymous_author(&vault, "insert");
+    env.cmd_ok(&["rm", "Title"]);
+    assert_anonymous_author(&vault, "rm");
+}
+
+const HOSTILE_HOME_ENV: &str = "GAGE_CLI_TEST_HOSTILE_HOME";
+
+/// The child side of the test below: `init`, `insert` and `rm` in-process
+/// with HOME pointing at a git config naming someone else.
+#[test]
+#[allow(clippy::disallowed_macros)]
+fn hostile_home_trampoline() {
+    if std::env::var_os(HOSTILE_HOME_ENV).is_none() {
+        return;
+    }
+    let env = env_with_vault();
+    let vault = env.entry("personal").path;
+    env.insert_ok("v", &["Title"]);
+    assert_anonymous_author(&vault, "insert");
+    env.cmd_ok(&["rm", "Title"]);
+    assert_anonymous_author(&vault, "rm");
     eprintln!("CHECKED");
 }
 
-// Go: TestCommitAuthorIgnoresTheUsersGitConfig. A child process, because
-// HOME is process-wide and libgit2 reads it once.
+// The global half of the row above: a user-wide git config (and git's
+// author variables) naming someone else. A child process, because HOME is
+// process-wide and libgit2 reads it once. This is the check that holds on
+// a machine with no git identity of its own, where a fallback to gage's
+// author would pass every other author test.
 #[test]
-fn commit_author_ignores_the_users_git_config() {
+fn commit_author_ignores_a_global_git_config() {
     let home = tempfile::tempdir().unwrap();
     std::fs::write(
         home.path().join(".gitconfig"),
         "[user]\n\tname = Someone Else\n\temail = else@example.com\n",
     )
     .unwrap();
-    assert!(home.path().join(".gitconfig").exists());
 
     let out = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
@@ -490,7 +561,7 @@ fn commit_author_ignores_the_users_git_config() {
             "--nocapture",
             "--test-threads=1",
         ])
-        .env(HOSTILE_HOME_ENV, home.path())
+        .env(HOSTILE_HOME_ENV, "1")
         .env("HOME", home.path())
         .env("USERPROFILE", home.path())
         .env("XDG_CONFIG_HOME", home.path().join(".config"))
@@ -615,6 +686,12 @@ fn ls_placeholders_for_missing_columns() {
     assert_eq!(lines, ["bare  0123abcd  -  -  -"]);
     let lines = render_ls(&[row("full", Some(1_768_386_720), "laptop")]);
     assert_eq!(lines, ["full  0123abcd  2026-01-14  -  laptop"]);
+    let lines = render_ls(&[row("", Some(0), "laptop")]);
+    assert_eq!(
+        lines,
+        ["-  0123abcd  1970-01-01  -  laptop"],
+        "an empty title"
+    );
 }
 
 #[test]
@@ -662,9 +739,12 @@ fn strings(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
 }
 
-// Go: TestInsertFieldMissingEqualsIsUsageErrorBeforeUnlock, and the other
-// parse failures below, through the CLI: nothing scripted, so an unlock
-// would panic.
+// Go: TestInsertFieldMissingEqualsIsUsageErrorBeforeUnlock,
+// TestInsertFieldEmptyNameIsUsageErrorBeforeUnlock and
+// TestInsertFieldWhitespaceOnlyNameIsUsageErrorBeforeUnlock (the first
+// loop), TestInsertDuplicateFieldNameIsUsageErrorBeforeUnlock and
+// TestInsertFieldNamesEqualAfterStrippingAreDuplicates (the second),
+// through the CLI: nothing scripted, so an unlock would panic.
 #[test]
 fn bad_field_flags_are_usage_errors_before_unlock() {
     let env = env_with_vault();
@@ -681,8 +761,6 @@ fn bad_field_flags_are_usage_errors_before_unlock() {
         assert!(prompter.unlock_requests().is_empty(), "{why}");
         assert!(r.stderr.contains("--field"), "{why}: {}", r.stderr);
     }
-    // Go: TestInsertDuplicateFieldNameIsUsageErrorBeforeUnlock and
-    // TestInsertFieldNamesEqualAfterStrippingAreDuplicates.
     for pair in [["a=1", "a=2"], ["user=1", "u ser=2"], ["a=1", " a\t=1"]] {
         let prompter = FakePrompter::new();
         let r = env.run_with(
@@ -695,7 +773,7 @@ fn bad_field_flags_are_usage_errors_before_unlock() {
     assert_eq!(env.commits("personal"), before);
 }
 
-// Go: TestInsertFieldMissingEqualsIsUsageErrorBeforeUnlock (parse half)
+// The parser behind the CLI rows above, on its own.
 #[test]
 fn parse_field_flags_rejects_what_it_must() {
     for bad in [&["noequals"][..], &["=v"], &[" \t=v"], &["a=1", "a=2"]] {
@@ -748,6 +826,7 @@ fn insert_field_with_multiline_sets_both_value_and_fields() {
         b"line one\nline two\n",
     );
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.stderr, "", "the Ctrl-D hint is for a terminal only");
     let e = env.only_entry("personal").1;
     assert_eq!(e.value, "line one\nline two\n", "-m keeps every byte");
     assert_eq!(e.field("user").unwrap(), "me");
@@ -898,7 +977,15 @@ fn a_registration_without_an_id_fails_insert_before_any_path_is_built() {
 
     let r = env.run_with(&["insert", "x"], &prompter);
 
-    assert_ne!(r.code, Code::Success, "{}", r.stderr);
+    // The vault's own config still carries its id, so the empty one is
+    // caught as a registration that doesn't match the vault, as Go's.
+    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert!(
+        r.stderr.contains("points at a different vault"),
+        "{}",
+        r.stderr
+    );
+    assert!(prompter.unlock_requests().is_empty());
     assert!(prompter.value_prompts().is_empty());
     assert_eq!(env.tree(), before, "no lock or identity path was created");
     assert!(env.entries_dir_is_empty("personal"));

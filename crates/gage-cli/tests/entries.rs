@@ -33,13 +33,33 @@ impl Machine {
         m
     }
 
+    /// The XDG variables every `gage` process on this machine sees.
+    fn xdg(&self) -> [(&'static str, PathBuf); 3] {
+        [
+            ("XDG_CONFIG_HOME", self.root.path().join("config")),
+            ("XDG_DATA_HOME", self.root.path().join("data")),
+            ("XDG_STATE_HOME", self.root.path().join("state")),
+        ]
+    }
+
     fn gage(&self, args: &[&str]) -> assert_cmd::Command {
         let mut cmd = cargo_bin_cmd!("gage");
-        cmd.args(args)
-            .env("XDG_CONFIG_HOME", self.root.path().join("config"))
-            .env("XDG_DATA_HOME", self.root.path().join("data"))
-            .env("XDG_STATE_HOME", self.root.path().join("state"));
+        cmd.args(args).envs(self.xdg());
         cmd
+    }
+
+    /// gage's roots as the binary resolves them from [`Machine::xdg`], so
+    /// a path the test builds is the one the binary uses, not a copy of
+    /// its layout.
+    fn dirs(&self) -> gage::xdgpaths::Dirs {
+        let xdg = self.xdg();
+        let env = |k: &str| {
+            xdg.iter()
+                .find(|(name, _)| *name == k)
+                .map(|(_, p)| p.to_string_lossy().into_owned())
+        };
+        gage::xdgpaths::Dirs::resolve(gage::xdgpaths::Os::current(), &env, self.root.path())
+            .unwrap()
     }
 
     /// Runs `args` with `stdin` after the passphrase line, and returns
@@ -120,11 +140,11 @@ fn concurrent_inserts_through_the_cli_both_succeed() {
 fn concurrent_reads_do_not_block_each_other() {
     let m = Machine::with_vault();
     m.ok(&["insert", "readable"], "v\n");
-    let lock_path = m
-        .root
-        .path()
-        .join("state/gage/locks")
-        .join(format!("{}.lock", m.vault_id()));
+    let lock_path = gage::paths::lock_file_path(&m.dirs(), &m.vault_id()).unwrap();
+    assert!(
+        lock_path.parent().unwrap().is_dir(),
+        "the insert above made the lock directory, so this is the path writers lock"
+    );
     let held = gage::vaultlock::Lock::acquire(&lock_path, std::time::Duration::ZERO)
         .expect("the write lock is free before the readers start");
 
@@ -180,12 +200,8 @@ fn insert_multiline_captures_from_a_real_terminal_until_eof() {
         .unwrap();
     let mut cmd = CommandBuilder::new(assert_cmd::cargo::cargo_bin!("gage"));
     cmd.args(["insert", "Notes", "-m"]);
-    for (k, sub) in [
-        ("XDG_CONFIG_HOME", "config"),
-        ("XDG_DATA_HOME", "data"),
-        ("XDG_STATE_HOME", "state"),
-    ] {
-        cmd.env(k, m.root.path().join(sub));
+    for (k, v) in m.xdg() {
+        cmd.env(k, v);
     }
     let mut child = pair.slave.spawn_command(cmd).unwrap();
     drop(pair.slave);

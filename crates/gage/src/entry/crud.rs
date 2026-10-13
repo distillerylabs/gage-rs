@@ -257,12 +257,9 @@ impl Vault {
             };
             let id = new_id();
             self.write_entry(id, &entry)?;
-            if let Err(e) = gitrepo::commit_all(&self.path, &id.to_string()) {
-                // Leave the working tree as it was found rather than
-                // dirty with an entry no commit records.
-                let _ = std::fs::remove_file(self.entry_path(id));
-                return Err(e.into());
-            }
+            // A failed commit leaves the entry file in the working tree, as
+            // Go: the next write's commit picks it up.
+            gitrepo::commit_all(&self.path, &id.to_string())?;
             Ok(id)
         })
     }
@@ -496,7 +493,8 @@ mod tests {
         assert_eq!(f.vault.entry_ids().unwrap().len(), 2);
     }
 
-    // Go: TestRemoveDeletesFileAndCommits
+    // Go: TestRemoveDeletesFileAndCommits. By UUID, as Go: the title path
+    // is the CLI's `rm` test.
     #[test]
     fn remove_deletes_file_and_commits() {
         let f = Fixture::new();
@@ -506,13 +504,55 @@ mod tests {
             .unwrap();
         let before = f.commits();
 
-        let removed = f.vault.remove(&f.identity(), "gone soon").unwrap();
+        let removed = f.vault.remove(&f.identity(), &id.to_string()).unwrap();
 
         assert_eq!(removed, id);
+        assert!(!f.vault.entry_path(id).exists());
         assert!(f.vault.entry_ids().unwrap().is_empty());
         assert_eq!(f.commits(), before + 1);
-        assert_eq!(f.head().message, id.to_string());
+        let head = f.head();
+        assert_eq!(head.message, id.to_string());
+        assert_eq!(head.author_name, gitrepo::AUTHOR_NAME);
+        assert_eq!(head.author_email, gitrepo::AUTHOR_EMAIL);
+        assert_eq!(head.committer_email, gitrepo::AUTHOR_EMAIL);
         assert!(gitrepo::is_clean(&f.vault.path).unwrap());
+        let err = f.vault.read_entry(id, &f.identity()).unwrap_err();
+        assert!(
+            matches!(&err, Error::EntryNotFound { id: got } if *got == id),
+            "{err}"
+        );
+    }
+
+    // Not a Go row, but Go's behavior: a failed commit fails the insert and
+    // leaves the entry file uncommitted in the working tree (no rollback),
+    // and the next successful write's commit records it.
+    #[test]
+    fn an_insert_whose_commit_fails_leaves_the_entry_uncommitted() {
+        let f = Fixture::new();
+        let before = f.commits();
+        // A held index lock is what a concurrent git process looks like:
+        // staging can't write the index, so the commit fails for real.
+        let index_lock = f.vault.path.join(".git").join("index.lock");
+        std::fs::write(&index_lock, "").unwrap();
+
+        let err = f
+            .vault
+            .insert(&f.identity(), new_entry("x", "v"), false)
+            .unwrap_err();
+
+        assert!(matches!(err, WriteError::Git(_)), "{err}");
+        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(f.commits(), before);
+        assert_eq!(f.vault.entry_ids().unwrap().len(), 1, "the file stays");
+        std::fs::remove_file(&index_lock).unwrap();
+        assert!(!gitrepo::is_clean(&f.vault.path).unwrap());
+
+        f.vault
+            .insert(&f.identity(), new_entry("y", "v"), false)
+            .unwrap();
+        assert_eq!(f.commits(), before + 1);
+        assert!(gitrepo::is_clean(&f.vault.path).unwrap());
+        assert_eq!(f.vault.list(&f.identity()).unwrap().len(), 2);
     }
 
     // Go: TestRemoveUnknownQueryFails

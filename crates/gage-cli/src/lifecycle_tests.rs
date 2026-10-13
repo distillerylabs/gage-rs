@@ -72,15 +72,25 @@ impl Env {
         &self,
         args: &[&str],
         prompter: &dyn Prompter,
-        stdin: &[u8],
+        mut stdin: &[u8],
+    ) -> CliResult {
+        self.run_reader(args, prompter, &mut stdin)
+    }
+
+    /// Like [`Env::run_stdin`], reading stdin from any reader (one that
+    /// fails the test if it is read, say).
+    pub(crate) fn run_reader(
+        &self,
+        args: &[&str],
+        prompter: &dyn Prompter,
+        stdin: &mut dyn std::io::Read,
     ) -> CliResult {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         let dirs = self.dirs.clone();
         let hostname = self.hostname.clone();
-        let mut stdin = stdin;
         let mut io = Io {
-            stdin: &mut stdin,
+            stdin,
             stdout: &mut stdout,
             stderr: &mut stderr,
             stdin_is_terminal: false,

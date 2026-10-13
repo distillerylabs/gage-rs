@@ -249,10 +249,29 @@ What the implementation settled or changed, beyond the decisions above.
   writer holds the lock, `insert -m` on a pty) are
   `crates/gage-cli/tests/entries.rs`, and pay the shipped binary's real
   scrypt cost (about five seconds in all).
-- **Lock tests, mutation-checked.** With the lock removed from
-  `with_write_lock`, `insert_blocks_on_a_concurrently_held_write_lock` and
-  `write_lock_serializes_concurrent_inserts_and_loses_no_commit` fail. The
-  Opus review the plan asks for has not been done.
+- **Lock tests, mutation-checked (the Opus review).** With the lock removed
+  from `with_write_lock`, `insert_blocks_on_a_concurrently_held_write_lock`,
+  `write_lock_serializes_concurrent_inserts_and_loses_no_commit` and
+  `two_registrations_of_one_repository_share_one_lock` fail on every run.
+  `concurrent_inserts_through_the_cli_both_succeed` caught it in one run of
+  five: two real processes rarely overlap in the few milliseconds a commit
+  takes (Go's has the same weakness), so the library tests are the guard
+  and the CLI test only shows the commands work side by side. With `ls`
+  taking the write lock, `concurrent_reads_do_not_block_each_other` fails;
+  it builds the lock path with `paths::lock_file_path` from the dirs the
+  binary resolves, so it can't silently hold a lock no writer uses.
+- **Commit author, two tests.** `commit_author_ignores_the_users_git_config`
+  is Go's row (a `[user]` in the vault's own `.git/config`, checked after
+  `insert` and `rm`). `commit_author_ignores_a_global_git_config` adds a
+  hostile `HOME` in a child process: on a machine with no git identity a
+  fallback to gage's author passes every other author test, so this is the
+  one that still holds there.
+- **A failed commit is not rolled back**, as Go: `insert` leaves the entry
+  file uncommitted and `rm` leaves the file deleted, and the next write's
+  commit records either. `an_insert_whose_commit_fails_leaves_the_entry_uncommitted`
+  pins it, with a held `.git/index.lock` making the commit fail. (An earlier
+  draft removed the file on a failed insert commit; it was taken out to
+  match Go.)
 - **`TestUseUnregisteredVaultFailsBeforePromptingForAPassphrase`** is
   checked for all four commands, with a prompter that panics on any prompt.
 - **Clap rejects `-m` with `--value-stdin`** at parse time (`conflicts_with`),
