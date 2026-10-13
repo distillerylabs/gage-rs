@@ -384,6 +384,9 @@ mod tests {
     // applied to config::write: a refactor that dropped the atomicfile
     // call would leave atomicfile's tests green and only this one would
     // notice.
+    // Unix only: Windows refuses to rename over a file that has an open
+    // handle, so the old-handle probe cannot run there.
+    #[cfg(unix)]
     #[test]
     fn global_config_write_is_atomic() {
         let dir = tempfile::tempdir().unwrap();

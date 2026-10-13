@@ -159,6 +159,9 @@ mod tests {
     // handle opened on the old one still reads the old bytes. An in-place
     // write reuses the same file, which is exactly the state in which a
     // crash leaves a truncated config.
+    // Unix only: Windows refuses to rename over a file that has an open
+    // handle, so the old-handle probe cannot run there.
+    #[cfg(unix)]
     #[test]
     fn replaces_rather_than_truncates_in_place() {
         let dir = tempfile::tempdir().unwrap();
