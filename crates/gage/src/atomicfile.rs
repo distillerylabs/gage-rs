@@ -95,7 +95,6 @@ fn set_mode(_file: &std::fs::File, _mode: u32) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use std::fs;
-    use std::io::Read;
 
     fn names_in(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs::read_dir(dir)
@@ -164,6 +163,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn replaces_rather_than_truncates_in_place() {
+        use std::io::Read;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         write(&path, b"current = \"personal\"\n", 0o600).unwrap();

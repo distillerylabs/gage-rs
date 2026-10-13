@@ -260,7 +260,6 @@ pub fn write(path: &Path, global: &Global) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
 
     fn one_vault() -> Global {
         Global {
@@ -389,6 +388,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn global_config_write_is_atomic() {
+        use std::io::Read;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         write(&path, &one_vault()).unwrap();
