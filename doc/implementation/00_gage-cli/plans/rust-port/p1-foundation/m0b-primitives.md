@@ -338,7 +338,16 @@ row.
 Opus review of the tests (⚑): `vaultlock` holders are child processes,
 the waiter is checked to still be blocked before the release, the kill
 test reaps the holder first, and the mutation check above confirms the
-contention tests fail without a real lock.
+contention tests fail without a real lock. The review also found and fixed
+four gaps:
+- `gage -v` is the version shorthand, as Cobra's default is; clap's `-V`
+  is now an unknown flag.
+- `atomicfile`'s `mode` is asserted with modes other than the temp file's
+  own `0600`; before this, removing `set_mode` left every test green.
+- `devicename::normalize` lowercases one char to one char, as Go does
+  (`İstanbul` → `istanbul`, not `i-stanbul`).
+- Registry completeness also checks parents: a `ParentInfo` with no tree
+  parent, or the other way round, fails.
 
 Remaining: green on Linux, macOS and Windows CI for the PR.
 

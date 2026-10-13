@@ -41,6 +41,15 @@ pub fn build(reg: &Registry, build: &BuildInfo) -> Command {
     let mut root = Command::new("gage")
         .about(ROOT_ABOUT)
         .version(build.version_text())
+        // Go's spellings, `-v, --version` (Cobra's default for a root with
+        // a version), in place of clap's `-V, --version`.
+        .disable_version_flag(true)
+        .arg(
+            Arg::new("version")
+                .short('v')
+                .long("version")
+                .action(ArgAction::Version),
+        )
         .disable_help_subcommand(true)
         .override_help(render_root_help(reg))
         .subcommands(children(reg, ""));

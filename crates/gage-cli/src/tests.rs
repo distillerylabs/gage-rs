@@ -110,9 +110,26 @@ fn command_tree_paths(root: &clap::Command) -> Vec<String> {
 
 // --- registry -------------------------------------------------------------
 
+/// Every parent (non-leaf) command path in a clap tree.
+fn parent_tree_paths(root: &clap::Command) -> Vec<String> {
+    fn walk(c: &clap::Command, prefix: &mut Vec<String>, out: &mut Vec<String>) {
+        for sub in c.get_subcommands().filter(|s| s.has_subcommands()) {
+            prefix.push(sub.get_name().to_string());
+            out.push(prefix.join(" "));
+            walk(sub, prefix, out);
+            prefix.pop();
+        }
+    }
+    let mut out = Vec::new();
+    walk(root, &mut Vec::new(), &mut out);
+    out
+}
+
 // Go: TestRegistryCompleteness. Every clap command is registered and every
 // registry entry has a clap command, so a command added outside the
-// registry fails here at once.
+// registry fails here at once. Parents too: a `ParentInfo` that names no
+// parent in the tree (a typo), or a parent with no `ParentInfo`, would
+// otherwise render with an empty description and nothing would fail.
 #[test]
 fn registry_completeness() {
     for reg in [registry(), registry_with_parent()] {
@@ -121,7 +138,23 @@ fn registry_completeness() {
         let registered: BTreeSet<String> =
             reg.commands.iter().map(|c| c.name.to_string()).collect();
         assert_eq!(paths, registered);
+
+        let parents: BTreeSet<String> = parent_tree_paths(&tree).into_iter().collect();
+        let registered_parents: BTreeSet<String> =
+            reg.parents.iter().map(|p| p.name.to_string()).collect();
+        assert_eq!(parents, registered_parents);
     }
+}
+
+// Proves the parent half above would catch a misspelled ParentInfo.
+#[test]
+fn registry_completeness_detects_parent_drift() {
+    let mut reg = registry_with_parent();
+    reg.parents[0].name = "vualt";
+    let tree = cli::build(&reg, &BuildInfo::stamped());
+    let parents: BTreeSet<String> = parent_tree_paths(&tree).into_iter().collect();
+    let registered: BTreeSet<String> = reg.parents.iter().map(|p| p.name.to_string()).collect();
+    assert_ne!(parents, registered);
 }
 
 // Go: TestRegistryCompletenessDetectsNestedDrift. Proves the walk above
@@ -302,13 +335,13 @@ fn command_help_lists_aliases_sorted_with_the_canonical_name() {
         "{}",
         r.stdout
     );
-    // Sorted, so the canonical name isn't always first.
     let r = run(&["help", "exit"]);
     assert!(
         r.stdout.contains("Aliases:\n  exit, quit\n"),
         "{}",
         r.stdout
     );
+    // Sorted, so the canonical name isn't always first.
     let mut reg = registry();
     reg.commands
         .push(cmd("search", &["grep"], GROUP_ENTRY, Availability::Both));
@@ -485,12 +518,23 @@ fn no_command_doubles_gages_own_prefix() {
 
 // --- version and dispatch -------------------------------------------------
 
-// Go: TestVersionFlagPrintsVersionAndCommit
+// Go: TestVersionFlagPrintsVersionAndCommit. Both of Cobra's spellings:
+// it gives a root with a version `-v` as the shorthand.
 #[test]
 fn version_flag_prints_version_and_commit() {
-    let r = run(&["--version"]);
-    assert_eq!(r.code, Code::Success);
-    assert_eq!(r.stdout, "gage v1.2.3 (commit abcdef1)\n");
+    for flag in ["--version", "-v"] {
+        let r = run(&[flag]);
+        assert_eq!(r.code, Code::Success, "{flag}: {}", r.stderr);
+        assert_eq!(r.stdout, "gage v1.2.3 (commit abcdef1)\n", "{flag}");
+    }
+}
+
+// clap's own `-V` is not one of Go's spellings, so it is an unknown flag.
+#[test]
+fn capital_v_is_not_a_version_flag() {
+    let r = run(&["-V"]);
+    assert_eq!(r.code, Code::Usage, "{}", r.stdout);
+    assert_eq!(r.stdout, "");
 }
 
 // Bare `gage` on a terminal goes to the session entry point, which fails

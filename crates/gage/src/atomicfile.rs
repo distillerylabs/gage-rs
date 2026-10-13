@@ -123,6 +123,23 @@ mod tests {
         }
     }
 
+    // The temp file is created 0600 already, so only a mode other than
+    // 0600 proves `mode` is applied rather than inherited. Not
+    // umask-dependent: the bits are set with chmod, not at creation.
+    #[cfg(unix)]
+    #[test]
+    fn applies_the_requested_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        for mode in [0o644, 0o640, 0o600] {
+            let path = dir.path().join(format!("file-{mode:o}"));
+            write(&path, b"x", mode).unwrap();
+            let got = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(got & 0o777, mode, "{mode:o}");
+        }
+    }
+
     // Go: TestWriteFileOverwritesAtomically
     #[test]
     fn overwrites_and_leaves_no_temp_file() {

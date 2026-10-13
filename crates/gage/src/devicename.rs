@@ -25,7 +25,12 @@ fn allowed(c: char) -> bool {
 /// survives: callers should ask for an explicit name rather than invent
 /// one.
 pub fn normalize(hostname: &str) -> Option<String> {
-    let lower = hostname.to_lowercase();
+    // One char to one char, as Go's strings.ToLower does: `İ` lowercases
+    // to `i` there, where str::to_lowercase gives `i` plus a combining dot.
+    let lower: String = hostname
+        .chars()
+        .map(|c| c.to_lowercase().next().unwrap_or(c))
+        .collect();
     let host = lower.split('.').next().unwrap_or_default();
     let mut name = String::with_capacity(host.len());
     for c in host.chars() {
@@ -107,6 +112,15 @@ mod tests {
     #[test]
     fn normalize_replaces_non_ascii() {
         assert_eq!(normalize("Zoë's Mac").as_deref(), Some("zo-s-mac"));
+    }
+
+    // Lowercasing matches Go's strings.ToLower, which maps one rune to one
+    // rune: `İ` is `i` (Rust's full mapping would add a combining dot,
+    // which then becomes a `-`), and the Kelvin sign is `k`.
+    #[test]
+    fn normalize_lowercases_like_go() {
+        assert_eq!(normalize("İstanbul").as_deref(), Some("istanbul"));
+        assert_eq!(normalize("\u{212A}elvin").as_deref(), Some("kelvin"));
     }
 
     // Go: TestValidAccepts
