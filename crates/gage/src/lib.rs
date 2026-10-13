@@ -12,6 +12,7 @@ pub mod atomicfile;
 pub mod config;
 pub mod crypt;
 pub mod devicename;
+pub mod entry;
 pub mod exitcode;
 pub mod gitrepo;
 #[cfg(any(test, feature = "test-support"))]

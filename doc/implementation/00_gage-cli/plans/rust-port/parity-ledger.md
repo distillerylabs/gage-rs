@@ -99,7 +99,8 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `gage-cli-design/` | M0 | P1 · M0a + M0b | `[x]` |
 | | M1 | P1 · M1 (+ E0) | `[x]` |
 | | M2 | P2 · M2 (+ E0 identity paths) | `[~]` implemented ([#13](https://github.com/distillerylabs/gage-rs/issues/13)); CI and the Opus test review pending |
-| | M3, M4 | P2 · M3, M4 | `[ ]` planned ([#12](https://github.com/distillerylabs/gage-rs/issues/12)) |
+| | M3 | P2 · M3 | `[~]` implemented ([#14](https://github.com/distillerylabs/gage-rs/issues/14)); CI pending |
+| | M4 | P2 · M4 | `[ ]` planned ([#12](https://github.com/distillerylabs/gage-rs/issues/12)) |
 | | M5, M6, M7, M13 | P3 | `[ ]` |
 | | M8a, M8b | P4 | `[ ]` |
 | | M9 (+ A19), M10, M11 | P5 | `[ ]` |

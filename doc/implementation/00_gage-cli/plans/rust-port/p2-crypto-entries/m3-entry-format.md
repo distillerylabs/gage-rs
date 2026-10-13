@@ -98,46 +98,46 @@ Tests first, at task granularity.
 
 ### 1. The `Entry` type and timestamps (6 rows)
 
-- [ ] `TestTimestampRoundTripsWithoutDriftOrPrecisionLoss`,
+- [x] `TestTimestampRoundTripsWithoutDriftOrPrecisionLoss`,
       `TestTimestampUnmarshalYAMLRejectsBadRFC3339`,
       `TestTimestampUnmarshalYAMLRejectsNonStringNode` (a mapping where a
       timestamp belongs).
-- [ ] `TestTimestampMarshalYAMLEmitsUnderlyingTime`, as "a timestamp is
+- [x] `TestTimestampMarshalYAMLEmitsUnderlyingTime`, as "a timestamp is
       emitted as an unquoted RFC 3339 scalar". Go's version tests a
       `MarshalYAML` method, which has no Rust counterpart.
-- [ ] `TestEveryEntryFieldIsMarshaled`: an exhaustive destructuring of
+- [x] `TestEveryEntryFieldIsMarshaled`: an exhaustive destructuring of
       `Entry` (a new field stops it compiling) plus a check that each field
       reaches the output, in place of Go's reflection.
-- [ ] `TestNewEntryIDsAreValidUUIDv4AndUnique` (large N).
+- [x] `TestNewEntryIDsAreValidUUIDv4AndUnique` (large N).
 
 ### 2. The emitter and parser (13 rows)
 
-- [ ] Shape: `TestEntryMarshalMatchesDesignDocShape` (the design doc's
+- [x] Shape: `TestEntryMarshalMatchesDesignDocShape` (the design doc's
       example, field for field), `TestEntryMarshalIsDeterministic`,
       `TestEntryEmptyDescriptionAndFieldsRoundTripConsistently` (absent,
       never `null` or `""`), `TestEntryMultiLineValueStaysReadable`
       (a literal block, not an escaped string).
-- [ ] Fidelity: `TestEntryValueRoundTripsYAMLHostileContent` (leading `-`,
+- [x] Fidelity: `TestEntryValueRoundTripsYAMLHostileContent` (leading `-`,
       embedded newlines, `:`, trailing whitespace, non-ASCII, a leading
       newline, tabs, CRLF, control characters),
       `TestEntryEveryStringFieldRoundTripsHostileContent`,
       `TestEntryQuotedFallbackRoundTripsEverything`,
       `TestVerifyFaithfulReportsEachMismatchedField`.
-- [ ] Unknown keys: `TestEntryPreservesUnknownFields`,
+- [x] Unknown keys: `TestEntryPreservesUnknownFields`,
       `TestExtraPreservesLargeAndNestedValues`,
       `TestUnknownValueNodeHandlesEveryClosedSetType` (null, bool, int,
       float, string, sequence, mapping), `TestUnknownValueNodeMapAndSeqRecurse`.
-- [ ] Parsing decisions above, as Rust-side tests: raw text for
+- [x] Parsing decisions above, as Rust-side tests: raw text for
       `0x1F`-style scalars in gage's fields, `null`/`~` as empty, a
       duplicate key refused, a second document refused, a BOM accepted.
-- [ ] Excused: `TestUnknownValueNodeDefaultFallsBackToLibraryEncoding`.
+- [x] Excused: `TestUnknownValueNodeDefaultFallsBackToLibraryEncoding`.
       Go's unknown values are `any`, so an exotic type can reach the
       emitter; Rust's are a closed node type and the match is exhaustive,
       so there is no default branch to test.
 
 ### 3. Fields — `field` (4 rows)
 
-- [ ] `TestEntryFieldExtractsNamedField`,
+- [x] `TestEntryFieldExtractsNamedField`,
       `TestEntryFieldEmptyValueIsAFieldNotAMiss`,
       `TestEntryFieldOnEntryWithNoFieldsSaysSo`,
       `TestEntryFieldUnknownNameErrorsClearly` (typed errors; the messages
@@ -145,30 +145,60 @@ Tests first, at task granularity.
 
 ### 4. Entry files (12 rows)
 
-- [ ] `TestWriteEntryThenReadEntryRoundTrips`,
+- [x] `TestWriteEntryThenReadEntryRoundTrips`,
       `TestEncryptDecryptEntryRoundTripIsByteIdentical`,
       `TestEntryDecryptableByEveryRecipient`.
-- [ ] `TestWriteEntryFilePermissions` (`0600`; `entries/` `0700`; Unix
+- [x] `TestWriteEntryFilePermissions` (`0600`; `entries/` `0700`; Unix
       only), `TestWriteEntryTightensAnExistingLooseEntriesDir`,
       `TestWriteEntryIsAtomic` (through `atomicfile`; an interrupted write
       leaves the old ciphertext or nothing).
-- [ ] `TestEntryFileRevealsNothingInPlaintext` (no title, value or field
+- [x] `TestEntryFileRevealsNothingInPlaintext` (no title, value or field
       bytes in the file).
-- [ ] `TestWriteEntryRejectsARecipientItCannotEncryptTo` (a plugin
+- [x] `TestWriteEntryRejectsARecipientItCannotEncryptTo` (a plugin
       recipient in `.age-recipients`), `TestWriteEntryWithoutARecipientsFileFails`.
-- [ ] `TestReadEntryUnknownIDFails` (NotFound),
+- [x] `TestReadEntryUnknownIDFails` (NotFound),
       `TestReadEntryWithNonRecipientIdentityFailsWithTypedError`,
       `TestReadEntryOnCorruptCiphertextFails`.
 
 ### 5. Listing (2 rows)
 
-- [ ] `TestEntryIDsListsFilesInEntriesDir`,
+- [x] `TestEntryIDsListsFilesInEntriesDir`,
       `TestEntryIDsSkipsSubdirectoriesAndStrayFiles`; plus "no `entries/`
       directory is an empty list".
 
 ### 6. Ledger
 
-- [ ] Parity ledger §3 M3 row updated.
+- [x] Parity ledger §3 M3 row updated.
+
+## Implementation notes
+
+Where the code differs from the recommended answers above (nothing here
+changes behaviour Go has):
+
+- **Unknown values are `entry::Extra`, a closed enum** (`Plain`, `Text`,
+  `Seq`, `Map`), not owned `saphyr` nodes. It keeps what the plan wanted
+  (a plain scalar stays plain, `0x1F` stays `0x1F`, a quoted one is
+  written double-quoted, collections recurse, nested maps keep document
+  order) and derives `Eq`, so `Entry` does too and "faithful" is one
+  `==`. Tags are dropped and aliases expanded, as in Go. `saphyr`'s spans
+  are not carried; P6 · M12's `cat` alignment re-parses the text it
+  renders.
+- **`saphyr-parser` is a direct dependency** (same 0.2 line): `saphyr`
+  doesn't re-export `Parser`, and `early_parse(false)` needs a hand-built
+  `YamlLoader`.
+- **Keys are compared after loading**, because with `early_parse(false)`
+  `a` and `"a"` are different keys to the loader: duplicates are refused
+  on the key's text.
+- **`verify_faithful` names mismatched fields, never their contents**
+  (Go's message echoes `%q` of the secret).
+- **`Entry`'s `Debug` redacts** the value, field values and unknown
+  fields; `marshal` returns `Zeroizing<Vec<u8>>` and `read_entry` wipes
+  the decrypted YAML.
+- **`entry_ids` accepts only the canonical lower-case hyphenated
+  spelling**, the one `entry_path` builds; Go's `uuid.Parse` also takes
+  other spellings that it could then never read back.
+- **A timestamp that is present but empty or null is a parse error**
+  (Go's behaviour); an absent one is `None` and is not written.
 
 ## Definition of done
 
