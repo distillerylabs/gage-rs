@@ -202,11 +202,48 @@ adds no `age` dependency: P2 · M2 adds it, together with the
 `deny.toml` license decisions its dependencies need (`curve25519-dalek` is
 BSD-3-Clause).
 
-Still to check before M2: scrypt (passphrase) recipients with a settable
-work factor (shipped 2^19, plus the test-only hook and its guard tests),
-armored and binary formats, `.age-recipients` parsing (comments, blank
-lines), and E2's separate enrollment scrypt factor. Decrypting Go-written
-files is no longer required ([Q-COMPAT](#q-compat)).
+*Resolved in P2 planning* ([#12](https://github.com/distillerylabs/gage-rs/issues/12)):
+**`age` 0.12.1, default features only.** Checked with a throwaway spike
+against the crate, not from its docs:
+
+- **Scrypt work factor**: `scrypt::Recipient::set_work_factor(u8)` writes
+  the factor into the file's `-> scrypt <salt> <logN>` stanza, so the
+  shipped 19, the test hook and the guard tests all work as in Go
+  ([Q-SCRYPT-HOOK](#q-scrypt-hook)). The factor is per recipient, so E2's
+  separate enrollment factor needs nothing more. `scrypt::Identity` caps
+  the factor it accepts at a value *calibrated per machine*
+  (measured + 4), so gage sets 22 explicitly, as Go does.
+- **Scrypt in debug builds** is about 50x slower than release (factor 19:
+  36 s against 0.73 s), and every scrypt identity or recipient runs an
+  87 ms calibration pass. `[profile.dev.package.*]` `opt-level = 3` for
+  `scrypt`, `salsa20`, `pbkdf2`, `sha2` and `hmac` brings debug builds to
+  release speed.
+- **Errors differ from Go's.** A wrong passphrase is
+  `DecryptError::DecryptionFailed` on a header where
+  `Decryptor::is_scrypt()` is true; Go's age reports it as "no identity
+  matched" and gage inspects the stanza types. An X25519 file offered to a
+  scrypt identity is `NoMatchingKeys` with `is_scrypt()` false, so it is a
+  corrupt identity file, not a wrong passphrase. For entries,
+  `NoMatchingKeys` is "not a recipient" and everything else (header
+  errors, `InvalidMac`, a payload read error) is corrupt ciphertext. A
+  damaged scrypt stanza body is indistinguishable from a wrong passphrase,
+  as in Go.
+- **Mixing**: `Encryptor::with_recipients` refuses a scrypt recipient
+  combined with anything, including a second scrypt recipient
+  (`MixedRecipientAndPassphrase`); gage still refuses first, as Go.
+- **Formats**: binary only; gage never writes armor, so the `armor`
+  feature stays off. The identity file is age-keygen format and parses
+  with `age::IdentityFile::from_buffer`.
+- **`.age-recipients` parsing**: age's `cli_common::read_recipients`
+  needs the `cli-common` feature, which pulls `rpassword` and `pinentry`
+  into the library; even as a dev-dependency it would unify into the
+  graph the purity check reads. The round trip test parses each
+  non-blank, non-comment line with `x25519::Recipient`, the parser stock
+  `age -R` uses for those lines.
+- **Licences**: the dalek crates need **BSD-3-Clause** in `deny.toml`;
+  everything else matches the allow list through an MIT/Apache option.
+
+Decrypting Go-written files is not required ([Q-COMPAT](#q-compat)).
 
 ### `[x]` Q-INIT-INTERIM — What does `init` do before identities and sync exist? {#q-init-interim}
 
@@ -237,34 +274,108 @@ showing the command's own usage and exiting with the usage code.
 
 ---
 
-## Open — decide in P2 planning
+## Resolved in P2 planning
 
-Moved from P1: they block M2/M3, and P2 planning is better informed.
-**Model: Opus.**
+Settled in [#12](https://github.com/distillerylabs/gage-rs/issues/12) and
+the [P2 plan](p2-crypto-entries/index.md), with throwaway spikes against
+the candidate crates.
 
-### `[ ]` Q-YAML-CRATE — Which YAML crate for entries? {#q-yaml-crate}
+### `[x]` Q-YAML-CRATE — Which YAML crate for entries? {#q-yaml-crate}
 
-**Blocks:** M3.
+**Resolved: `saphyr` 0.2 to parse, a gage-owned emitter to write, `jiff`
+for timestamps.**
 
-`serde_yaml` is deprecated. Candidates: `serde_yaml_ng`, `serde_norway`,
-`serde_yml`. Byte parity with Go `yaml.v3` is not required
-([Q-COMPAT](#q-compat)); the requirement is a maintained crate that
-round-trips the entry shape faithfully and renders readably for
-`cat`/`edit`: block scalars for multi-line values, stable key order,
-quoting of strings that look like numbers/bools/dates, RFC 3339
-timestamps, unknown fields preserved. Go's `cat` post-processes through the
-YAML node tree (#60/#61), so node-level access matters.
+Go doesn't hand the entry to yaml.v3 to style: it builds the document as
+a node tree with a chosen style per scalar, re-parses its own output, and
+falls back to quoting every string if anything changed, because yaml.v3's
+styling loses a leading newline and writes tabs into blocks it can't read
+back. That property is gage's to own whatever the library, so the
+question was only which crate *reads* entries.
 
-### `[ ]` Q-PLATFORM-CRATES — memlock, masked input, pty {#q-platform-crates}
+- **`saphyr`** (pure Rust, YAML 1.2, MIT/Apache) loaded with
+  `early_parse(false)` keeps every scalar's original text and style: an
+  unknown `x: 0x1F` stays `0x1F` and is re-emitted as written. It rejects
+  duplicate keys and records spans, which P6 · M12's `cat` alignment
+  needs (Go's walks the node tree for line positions). Used with
+  `default-features = false`; that adds **Zlib** (`foldhash`) to
+  `deny.toml`. It doesn't strip a BOM and accepts several documents, so
+  gage strips the one and refuses the other.
+- **Rejected:** `serde_yaml_ng` reads unknown `0x1F` back as `31`, and
+  offers no per-scalar style control, so Go's quoted fallback can't be
+  expressed; it is also a translation of libyaml to unsafe Rust.
+  `serde_norway` is the same lineage. `serde_yml` is unsound
+  (RUSTSEC-2025-0068).
+- **Timestamps**: `jiff` parses RFC 3339 with any offset and normalizes
+  to UTC seconds, as Go's `time.Parse`. `humantime`, already a
+  dependency, accepts only `Z`.
 
-**Blocks:** M2.
+The rules for reading gage's own fields (raw text, `null` as empty, what
+is a parse error) and for emitting are in
+[M3](p2-crypto-entries/m3-entry-format.md).
 
-- memlock: `region` vs `libc` + `windows-sys` directly, behind the `Locker`
-  seam; plus core-dump suppression (`setrlimit`/`prctl` on Unix, Windows
-  equivalent).
-- Masked terminal input: `rpassword` vs `crossterm`.
-- PTY for the few real-terminal tests: `expectrl` vs `portable-pty`, which
-  must run on Windows CI (ConPTY).
+### `[x]` Q-PLATFORM-CRATES — memlock, masked input, pty {#q-platform-crates}
+
+**Resolved: `libc` + `windows-sys` directly, `zeroize`, `rpassword`,
+`portable-pty` (dev-only).**
+
+- **memlock**: `mlock`/`munlock` and `VirtualLock`/`VirtualUnlock` called
+  directly from one `#[allow(unsafe_code)]` module, as Go uses `x/sys`.
+  `region` would cover only part of it: gage also needs page-aligned
+  allocation (Go's `memlock.Alloc`, so two keys never share a page lock)
+  and core-dump calls. Allocation is `std::alloc` with a page-size
+  `Layout`, rounded to whole pages. `zeroize` wipes, with writes the
+  compiler can't remove (Go's loop has no such guarantee).
+- **Core dumps** (in `gage-cli`, a process policy): `setrlimit(RLIMIT_CORE, 0)`
+  on Unix and `SetErrorMode` on Windows, as Go. No
+  `prctl(PR_SET_DUMPABLE)`: Go doesn't, and it also blocks debuggers.
+- **Masked input**: `rpassword` 7.5 (Apache-2.0). It does its own raw-mode
+  handling on the controlling terminal, and its input can be pointed at a
+  path, which lets the real-terminal test hand it a PTY's slave in-process,
+  as Go hands `x/term` the slave fd. `crossterm` is a TUI toolkit; nothing
+  in P2 needs more than no-echo line input.
+- **PTY tests**: `portable-pty` 0.9 as a `gage-cli` dev-dependency, for
+  `openpty`, the slave's path and its termios. The amendment: these tests
+  are **Unix only**, as Go's are (`//go:build linux || darwin`); the
+  earlier note that they must run on Windows (ConPTY) went beyond Go.
+
+### `[x]` Q-IDENTITY-SECRET — How does `Identity` hold its key? {#q-identity-secret}
+
+**Resolved: the secret key line in a locked page-aligned buffer; the
+X25519 key parsed per operation; `Drop` wipes, unlocks and frees.**
+
+Go keeps the `AGE-SECRET-KEY-1…` line in a page-aligned, locked buffer and
+records as a gap that age's parsed key sits in ordinary garbage-collected
+memory. In Rust, `age::x25519::Identity` zeroizes itself on drop, but it
+lives wherever its owner puts it, and a global-allocator `Box` shares
+pages. So gage keeps only the key line, in a `memlock::LockedBuf`, and
+parses the X25519 key for each decrypt (microseconds against the
+Diffie-Hellman it precedes), dropping it straight after. The remaining
+gap, recorded as Go records its own: `age`'s bech32 decoding makes
+transient copies that are neither locked nor wiped.
+
+`Drop` order is zeroize, then unlock (only if the lock took), then
+deallocate. `Identity` is not `Clone`. Go's runtime checks for using an
+identity after `Close` and for copies sharing one `Close` become
+`compile_fail` doctests; its nil and zero-value cases are excused, since
+neither is constructible.
+
+### `[x]` Q-SCRYPT-HOOK — How do tests lower the scrypt work factor? {#q-scrypt-hook}
+
+**Resolved: an atomic live copy, a setter that exists only in test
+builds, and an idempotent fixture helper.**
+
+Go has `const shippedScryptWorkFactor = 19`, a package variable the crypto
+path reads, a `SetScryptWorkFactorForTests` forbidden outside tests by
+lint, and a `TestMain` per package that lowers it. In Rust: a `const` for
+the shipped value; a `static AtomicU8` live copy; the setter under
+`#[cfg(any(test, feature = "test-support"))]`, so it doesn't exist in
+the shipped binary at all (`gage-cli` enables `test-support` only as a
+dev-dependency, which resolver 3 keeps out of normal builds). Rust has no
+`TestMain`, so `testsupport::fast_scrypt()` (a `std::sync::Once`) is
+called by the fixtures that create or unlock vaults; a test that forgets
+it is slow, not wrong. Go's three guard tests are ported: the constant is
+19, a source scan finds no other store to the atomic, and a real file
+written with the shipped value carries 19 in its header.
 
 ---
 

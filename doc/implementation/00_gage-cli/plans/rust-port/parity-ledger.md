@@ -97,9 +97,9 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | Go plan | Milestones | Port to | Status |
 |---|---|---|---|
 | `gage-cli-design/` | M0 | P1 · M0a + M0b | `[x]` |
-| | M1 | P1 · M1 (+ E0) | `[~]` implemented; awaiting 3-OS CI |
-| | M2 | P2 · M2 (+ E0 identity paths) | `[ ]` |
-| | M3, M4 | P2 · M3, M4 | `[ ]` |
+| | M1 | P1 · M1 (+ E0) | `[x]` |
+| | M2 | P2 · M2 (+ E0 identity paths) | `[ ]` planned ([#12](https://github.com/distillerylabs/gage-rs/issues/12)) |
+| | M3, M4 | P2 · M3, M4 | `[ ]` planned ([#12](https://github.com/distillerylabs/gage-rs/issues/12)) |
 | | M5, M6, M7, M13 | P3 | `[ ]` |
 | | M8a, M8b | P4 | `[ ]` |
 | | M9 (+ A19), M10, M11 | P5 | `[ ]` |
@@ -144,17 +144,15 @@ an equivalent Rust test the milestone doc names) or excused in writing.
 | Phase | Go test functions | Main Go test files |
 |---|---|---|
 | P1 | 186 | `exitcode`, `atomicfile`, `vaultlock`, `xdgpaths`, `config`, `devicename`, `vaultconfig`, `gittest`; `vault_lifecycle`, `vaultid_keying`, `vault_create`, `help`, `registry`, `usageerror`, `errorprefix`, `version`, `main_integration` |
-| P2 | 231 | `agekey`, `memlock`, `vault` (`Identity` close and page lock), `crypt`, `unlock`, `identityfile_marker`, `init_identity`, `prompter`(`_pty`), `coredump`, `testsupport`; `entry`, `field`, `entry_crud`, `entry_edit`, `cat`, `insert_*`, `editor`, `scratchdir*` |
-| P3 | 197 | `resolve`(`_cli`), `generate`, `rename`, `edit`, `show`, `session`, `shell`, `repl`, `session_pty`, `sessionhelp`, `index`, `search`, `complete`(`_pty`) |
+| P2 | 193 | `agekey`, `memlock`, `vault` (`Identity` close and page lock), `crypt`, `unlock`, `identityfile_marker`, `init_identity`, `prompter`(`_pty`), `coredump`, `testsupport`; `entry`, `field`, `entry_crud`, `insert_field`, `insert_multiline_pty` |
+| P3 | 225 | `resolve`(`_cli`), `generate`, `rename`, `edit`, `show`, `session`, `shell`, `repl`, `session_pty`, `sessionhelp`, `index`, `search`, `complete`(`_pty`); `entry_edit`, `insert_edit`, `editor`, `scratchdir*` |
 | P4 | 172 | `gitrepo/*`, `remoteauth`, `syncerr`, `remotesync`, `sync_index`, `syncresolve`(`_cli`), `sync_cli`, `clone`, `auth`, `init_remote_auth` |
 | P5 | 136 | `recipients`, `recipient`, `recipient_batch`, `reencrypt`, `recipient_cli`, `identity_add`, `identity_cli`, `trustcache`(`_cli`), `move` |
-| P6 | 71 | `clip`, `qr`, `log`, `history`, `script` |
+| P6 | 81 | `clip`, `qr`, `log`, `history`, `script`, `cat` |
 | P7 | 186 | `enroll*`, `enrollment`, `approve_cli`, `approve_scope_cli`, `clone_enroll`, `enroll_cli`, `enroll_prompter` |
 | P8 | 92 | `recovery_key`, `recovery_enroll`, `recovery`, `init_recoverykey` |
 
-Known coarse spots to resolve when the phase is planned: `cat_test.go`
-(P2) holds the #55 formatting tests that belong to P6 · M12;
-`entry_test.go` (P2) holds the `ls -H` tests that belong to P6 · M12;
+Known coarse spots to resolve when the phase is planned:
 `vault_lifecycle_test.go` and `vaultid_keying_test.go` (P1) hold #39
 orphan-cleanup tests that belong to P6 · M12; `init_*` files split across
 phases by flag.
@@ -170,6 +168,14 @@ because it builds that surface.
 Resolved in M1: M1 also claims the 5 P2-tagged `agekey_test.go` rows,
 because it ports `agekey` for recipient validation
 ([Q-AGE-CRATE](open-questions.md#q-age-crate)).
+
+Resolved in P2 planning: `entry_edit`, `insert_edit`, `editor` and
+`scratchdir*` were re-tagged P3 (Go's M5 owns `edit`, `rename` and the
+`$EDITOR` round trip), and `cat_test.go` was re-tagged P6 (it holds only
+#55's `cat` display tests). The P2 rows that belong elsewhere, including
+`entry_test.go`'s `ls -H` tests and the `prompter_test.go` rows for later
+phases' questions, are listed with their destination in the
+[P2 plan](p2-crypto-entries/index.md#inventory-accounting).
 
 ## 6. User docs (Go `doc/cli/`)
 

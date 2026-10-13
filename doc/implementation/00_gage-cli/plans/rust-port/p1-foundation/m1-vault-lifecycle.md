@@ -1,6 +1,6 @@
 # M1 — Vault lifecycle and vault-id keying
 
-[← M0b](m0b-primitives.md) · [P1 plan](index.md) · next: P2 (planned when it starts)
+[← M0b](m0b-primitives.md) · [P1 plan](index.md) · next: [P2 · M2](../p2-crypto-entries/m2-identity-crypto.md)
 
 > **Recommended model: Sonnet.** Config schemas, validation and vault CRUD,
 > with every decision recorded below. **Run an Opus review pass over the

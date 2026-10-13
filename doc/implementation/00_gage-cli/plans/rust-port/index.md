@@ -61,8 +61,8 @@ line up.
 
 | Phase | Milestones | Status | Model | Depends on |
 |---|---|---|---|---|
-| P1 Foundation ([plan](p1-foundation/index.md), [#4](https://github.com/distillerylabs/gage-rs/issues/4)) | M0a toolchain, CI, lint purity · M0b git-crate spike + primitives · M1 vault lifecycle | `[~]` planned | Sonnet; **Opus** for M0b's git-crate spike and an Opus review of M0b's tests ⚑ | — |
-| P2 Crypto & entries | M2 identity + memlock · M3 entry format · M4 CRUD | `[ ]` | **Opus** for M2 and the P2 crate decisions (Q-YAML-CRATE, Q-PLATFORM-CRATES, rest of Q-AGE-CRATE) ⚑; Sonnet for M3/M4 | P1 |
+| P1 Foundation ([plan](p1-foundation/index.md), [#4](https://github.com/distillerylabs/gage-rs/issues/4)) | M0a toolchain, CI, lint purity · M0b git-crate spike + primitives · M1 vault lifecycle | `[x]` | Sonnet; **Opus** for M0b's git-crate spike and an Opus review of M0b's tests ⚑ | — |
+| P2 Crypto & entries ([plan](p2-crypto-entries/index.md), [#12](https://github.com/distillerylabs/gage-rs/issues/12)) | M2 identity + memlock · M3 entry format · M4 CRUD | `[~]` planned | **Opus** for M2 ⚑; Sonnet for M3/M4 (⚑ Opus review of M4's lock tests) | P1 |
 | P3 Query & session | M5 resolver · M6 session/REPL · M7 metadata index · M13 completion | `[ ]` | Sonnet* | P2 |
 | P4 Sync | M8a transport & detection · M8b conflict resolution | `[ ]` | **Opus** | P3 |
 | P5 Recipients & trust | M9 recipients · M10 trust cache · M11 cross-vault | `[ ]` | **Opus** for M9; Sonnet* for M10/M11 | P4 |
@@ -139,8 +139,8 @@ architecture". Concretely, enforced from M0a:
 
 ## Crates
 
-Locked here only once decided, each as a `Q-` entry. P1 settles what P1
-uses; Q-YAML-CRATE and Q-PLATFORM-CRATES move to P2 planning. "First used" names the milestone that introduces it.
+Locked here only once decided, each as a `Q-` entry. Each phase's
+planning settles what that phase uses. "First used" names the milestone that introduces it.
 
 | Purpose | Choice | Status | First used | Go counterpart |
 |---|---|---|---|---|
@@ -149,12 +149,13 @@ uses; Q-YAML-CRATE and Q-PLATFORM-CRATES move to P2 planning. "First used" names
 | Typed errors | `thiserror` (library), `anyhow` (CLI only) | decided | M0b | — |
 | Advisory file lock | `std::fs::File::lock` (Rust ≥ 1.89) | decided ([Q-FILE-LOCK](open-questions.md#q-file-lock)) | M0b | x/sys flock/LockFileEx |
 | Git | `git2` (vendored libgit2 + OpenSSL, `https`, no `ssh`) | decided ([Q-GIT-CRATE](open-questions.md#q-git-crate)) | M0b | go-git |
-| Encryption | `age` (rage) | decided for recipient parsing; rest in P2 planning ([Q-AGE-CRATE](open-questions.md#q-age-crate)) | M1 | filippo.io/age |
-| Memory locking | `region`, or `libc`/`windows-sys` directly | **decide in P2** ([Q-PLATFORM-CRATES](open-questions.md#q-platform-crates)) | M2 | x/sys mlock/VirtualLock |
-| Secret hygiene | `zeroize`, `secrecy` | likely | M2 | manual zeroing |
-| Masked terminal input | `rpassword` or `crossterm` | **decide in P2** | M2 | x/term |
-| PTY (test-only) | `expectrl` or `portable-pty` | **decide in P2** | M2 | creack/pty |
-| YAML | `serde_yaml_ng`, `serde_norway` or `serde_yml` | **decide in P2** ([Q-YAML-CRATE](open-questions.md#q-yaml-crate)) | M3 | gopkg.in/yaml.v3 |
+| Encryption | `age` 0.12 (rage), default features | decided ([Q-AGE-CRATE](open-questions.md#q-age-crate)); M1 kept Go's shape-only `agekey` check instead | M2 | filippo.io/age |
+| Memory locking, core dumps | `libc`/`windows-sys` directly | decided ([Q-PLATFORM-CRATES](open-questions.md#q-platform-crates)) | M2 | x/sys mlock/VirtualLock, setrlimit |
+| Secret hygiene | `zeroize` (`secrecy` arrives through `age`) | decided ([Q-IDENTITY-SECRET](open-questions.md#q-identity-secret)) | M2 | manual zeroing |
+| Masked terminal input | `rpassword` | decided ([Q-PLATFORM-CRATES](open-questions.md#q-platform-crates)) | M2 | x/term |
+| PTY (test-only, Unix) | `portable-pty` | decided ([Q-PLATFORM-CRATES](open-questions.md#q-platform-crates)) | M2 | creack/pty |
+| YAML | `saphyr` to parse; gage's own emitter | decided ([Q-YAML-CRATE](open-questions.md#q-yaml-crate)) | M3 | gopkg.in/yaml.v3 |
+| Timestamps | `jiff` | decided ([Q-YAML-CRATE](open-questions.md#q-yaml-crate)) | M3 | time |
 | UUID | `uuid` (v4) | decided | M0b (vault-id validation) | google/uuid |
 | Line editing | `rustyline` | likely | M6 | chzyer/readline |
 | Clipboard | `arboard` | likely | M12 | atotto/clipboard |
@@ -185,7 +186,10 @@ The Rust-specific parts:
   threads.
 - **Scrypt cost:** a test-only hook lowers the live work factor in test
   builds, with the three guard tests Go has (shipped constant, sole writer,
-  shipped value reaches a real age header).
+  shipped value reaches a real age header)
+  ([Q-SCRYPT-HOOK](open-questions.md#q-scrypt-hook)). The scrypt crates
+  build at `opt-level = 3` even in the dev profile, since debug-build
+  scrypt is about 50x slower ([Q-AGE-CRATE](open-questions.md#q-age-crate)).
 - **Cross-platform CI from M0a:** Linux, macOS and Windows, natively.
 - **Coverage:** `cargo-llvm-cov` from M0a, with the gate in CI.
 
