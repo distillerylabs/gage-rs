@@ -8,6 +8,7 @@ use clap::{Arg, ArgMatches};
 use gage::config::{self, Global};
 use gage::exitcode::Code;
 use gage::paths;
+use gage::prompter::Prompter;
 use gage::xdgpaths::Dirs;
 
 use crate::Io;
@@ -39,9 +40,14 @@ pub fn long_about(name: &str) -> Option<&'static str> {
 
 /// Runs the one-shot command registered as `name`, or `None` if there is
 /// no such implemented command.
-pub fn run(name: &str, matches: &ArgMatches, io: &mut Io) -> Option<Result<(), CliError>> {
+pub fn run(
+    name: &str,
+    matches: &ArgMatches,
+    io: &mut Io,
+    prompter: &dyn Prompter,
+) -> Option<Result<(), CliError>> {
     Some(match name {
-        "init" => init::run(matches, io),
+        "init" => init::run(matches, io, prompter),
         "vault list" => vault::list(io),
         "vault info" => vault::info(matches, io),
         "vault remove" => vault::remove(matches, io),

@@ -10,16 +10,25 @@
 pub mod agekey;
 pub mod atomicfile;
 pub mod config;
+pub mod crypt;
 pub mod devicename;
 pub mod exitcode;
 pub mod gitrepo;
 #[cfg(any(test, feature = "test-support"))]
 pub mod gittest;
 pub mod identity;
+pub mod identityfile;
+pub mod locker;
+pub mod memlock;
 pub mod paths;
 pub mod prompter;
 pub mod recipients;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testsupport;
 pub mod vault;
 pub mod vaultconfig;
 pub mod vaultlock;
 pub mod xdgpaths;
+
+#[cfg(test)]
+mod unlock_tests;

@@ -11,7 +11,7 @@ codes and their numbers are Go gage's.
 | `2` | `usage` | The command line itself was invalid: bad flags or arguments, an unknown (sub)command, an unknown `--type` or `--method`, an invalid `--device`, a malformed `--recipient`, or `vault info` with no name and no default vault. |
 | `3` | `not-found` | A name or query resolved to nothing. Today: a vault name that isn't registered. |
 | `4` | `ambiguous` | A query resolved to more than one candidate and there was nobody to ask (one-shot mode only). No command reaches it yet. |
-| `5` | `locked-or-auth` | An unlock failed: wrong passphrase, no local identity for this device, an expired git auth token. No command reaches it yet. |
+| `5` | `locked-or-auth` | An unlock failed: wrong passphrase, no local identity for this device, an expired git auth token. Today only `init` reaches it, when no new passphrase is given. |
 | `6` | `internal` | An unexpected error that fits none of the above: an unreadable file, a malformed config, a git failure. |
 | `7` | `unreachable` | A remote could not be reached at all (DNS failure, connection refused, timeout). Reached only by an explicitly invoked sync command, which doesn't exist yet. |
 

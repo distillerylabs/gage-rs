@@ -168,13 +168,13 @@ Tests first, at task granularity. Library tasks (1–5) before CLI tasks
 
 ### 1. `memlock` and the `Locker` seam — `memlock` (4 rows)
 
-- [ ] `TestLockUnlockRoundTrip` (a key-sized buffer; skipped only for a
+- [x] `TestLockUnlockRoundTrip` (a key-sized buffer; skipped only for a
       resource-limit refusal: `ENOMEM`/`EPERM` on Unix, working-set or
       quota errors on Windows; any other error fails),
       `TestEmptySliceIsANoOp`.
-- [ ] `TestAllocGivesEachBufferItsOwnPage` (the `844f880` regression),
+- [x] `TestAllocGivesEachBufferItsOwnPage` (the `844f880` regression),
       `TestUnlockingOneBufferLeavesAnotherLocked`.
-- [ ] `memlock::{lock, unlock}` and `LockedBuf` (page-aligned, own pages,
+- [x] `memlock::{lock, unlock}` and `LockedBuf` (page-aligned, own pages,
       fixed length, zeroized in `Drop`) in one `#[allow(unsafe_code)]`
       module; `Locker` trait with the real implementation as the default.
 - Rust notes: Go's capacity-cap assertion becomes "the buffer can't grow"
@@ -182,21 +182,21 @@ Tests first, at task granularity. Library tasks (1–5) before CLI tasks
 
 ### 2. The age wrapper and the work-factor hook — `crypt` (17 rows), `testsupport` (1)
 
-- [ ] Round trips: `TestEncryptDecryptRoundTripIsByteIdentical`,
+- [x] Round trips: `TestEncryptDecryptRoundTripIsByteIdentical`,
       `TestEachRecipientCanDecryptIndependently`,
       `TestEncryptToEmptyPayloadRoundTrips`,
       `TestPassphraseRecipientAloneRoundTrips`.
-- [ ] Refusals: `TestEncryptToZeroRecipientsIsRefused`,
+- [x] Refusals: `TestEncryptToZeroRecipientsIsRefused`,
       `TestScryptRecipientCannotBeCombined` (with an X25519 recipient and
       with a second scrypt recipient; gage refuses before `age` does),
       `TestParseRecipientRejectsNonEncryptableStrings` (plugin recipient,
       secret key, malformed), `TestRecipientStringRendersTheParsedSpelling`
       (a passphrase recipient renders `<passphrase>`, never a key).
-- [ ] Decrypt failures: `TestDecryptWithANonRecipientFailsTyped`,
+- [x] Decrypt failures: `TestDecryptWithANonRecipientFailsTyped`,
       `TestCorruptedCiphertextFailsCleanly` (truncated header, truncated
       payload, a flipped payload byte, garbage, empty input; each is
       `CorruptCiphertext` with no partial plaintext).
-- [ ] Work factor ⚑: `TestScryptWorkFactorIsDeliberate` (the constant is
+- [x] Work factor ⚑: `TestScryptWorkFactorIsDeliberate` (the constant is
       19), `TestScryptWorkFactorIsActuallyApplied` (read the
       `-> scrypt <salt> <logN>` stanza off a real file),
       `TestShippedWorkFactorReachesARealAgeFile` (restore 19 for one
@@ -207,9 +207,20 @@ Tests first, at task granularity. Library tasks (1–5) before CLI tasks
       `TestEveryScryptIdentityCapsItsWorkFactor` (a source scan:
       `age::scrypt::Identity::new` appears only in the one constructor,
       which sets the cap; the enrollment half is P7's).
-- [ ] `TestMain` → `testsupport::fast_scrypt()`, plus a test that it
+- [x] `TestMain` → `testsupport::fast_scrypt()`, plus a test that it
       lowers the live factor and is idempotent.
-- [ ] Excused: `TestEncryptRefusesAZeroValueRecipient`. A `Recipient` has
+- Done notes: `TestCorruptedCiphertextFailsCleanly` keeps Go's six cases;
+  the two that damage the header's recipient stanza keep Go's
+  either-error assertion (a damaged X25519 stanza is indistinguishable from
+  someone else's), and the plan's five, plus a mid-payload truncation, must
+  be `CorruptCiphertext`. `TestShippedWorkFactorReachesARealAgeFile` runs
+  in a child process that never calls the hook, since lowering and
+  restoring a process-wide value races Rust's parallel tests
+  ([Q-SCRYPT-HOOK](../open-questions.md#q-scrypt-hook)). Added beyond Go:
+  the recipient-side twin of the cap scan (one `scrypt::Recipient::new`, in
+  the function that sets the factor). All three guard scans were
+  mutation-checked (a stray store, a dropped `set_work_factor`).
+- [x] Excused: `TestEncryptRefusesAZeroValueRecipient`. A `Recipient` has
       private fields and no `Default`, so the only way to get one is its
       constructors; a `compile_fail` doctest asserts it can't be built by
       hand. `TestDecryptWithAClosedIdentityFails` becomes a `compile_fail`
@@ -217,45 +228,55 @@ Tests first, at task granularity. Library tasks (1–5) before CLI tasks
 
 ### 3. `Identity` — `vault` (11 rows)
 
-- [ ] `TestIdentityCloseReleasesTheLockAndZeroesTheKey` (a recording
+- [x] `TestIdentityCloseReleasesTheLockAndZeroesTheKey` (a recording
       `Locker` sees the buffer all zeros when its `unlock` runs),
       `TestIdentityCloseIsIdempotent` (as "drop unlocks exactly once"),
       `TestCloseAfterAFailedPageLockDoesNotUnlockAnything`.
-- [ ] `TestPageLockFailureWarnsOnceAndProceeds`,
+- [x] `TestPageLockFailureWarnsOnceAndProceeds`,
       `TestPageLockIsAttemptedExactlyOncePerUnlock`,
       `TestUnlockPageLocksOrWarnsButNeverBoth` (with the real locker, so it
       holds whether or not this host allows locking),
       `TestDefaultLockerIsTheRealMemlockBackedOne`. These need
       `Vault::unlock`, so they are written in task 5's red-green cycle.
-- [ ] `compile_fail` doctests: `TestUsingAnIdentityAfterCloseFails`,
+- [x] `compile_fail` doctests: `TestUsingAnIdentityAfterCloseFails`,
       `TestIdentityCopiesShareOneClose` (not `Clone`),
       `crypt`'s `TestDecryptWithAClosedIdentityFails`.
-- [ ] Excused: `TestNilIdentityCloseDoesNotPanic`,
+- [x] Excused: `TestNilIdentityCloseDoesNotPanic`,
       `TestZeroIdentityIsSafeToCloseAndUnusable`. Rust has no nil
       `Identity`, and there is no zero value: the type can't be
       constructed outside the library.
+- Done notes: stable rustdoc does not check the `E0xxx` codes on a
+  `compile_fail` block (verified by mislabelling one), so each is paired
+  with a compiling sibling: the same code minus the offending line. The
+  `Identity` rows live in `crates/gage/src/unlock_tests.rs` with task 5's.
 
 ### 4. Identity files — `unlock` (10 of 23 rows), `identityfile_marker` (4)
 
-- [ ] Create: `TestCreateIdentityFileIsPassphraseWrappedAndSoleRecipient`,
+- [x] Create: `TestCreateIdentityFileIsPassphraseWrappedAndSoleRecipient`,
       `TestCreateIdentityWritesTheFileWithTightPermissions` (directory
       `0700`, tightened if it exists looser; file `0600`; Unix only),
       `TestCreateIdentityRejectsAnEmptyPassphrase`,
       `TestIdentityFileIsAgeKeygenCompatible` (the decrypted plaintext is
       `# created: …`, `# public key: …`, the key line; it parses with
       `age::IdentityFile::from_buffer`).
-- [ ] Reuse, not overwrite: `TestCreateIdentityReusesAnExistingFile`,
+- [x] Reuse, not overwrite: `TestCreateIdentityReusesAnExistingFile`,
       `TestCreateIdentityReuseRejectsWrongPassphrase`.
-- [ ] Untrusted input ⚑: `TestCreateIdentityRefusesAnUnsafeDeviceName`,
+- [x] Untrusted input ⚑: `TestCreateIdentityRefusesAnUnsafeDeviceName`,
       `TestIdentityFilePathRefusesAnUnsafeDeviceName`,
       `TestIdentityFilePathRefusesAnUnsafeVaultName` (the vault *id*,
       since E0).
-- [ ] `TestRemoveIdentityIsTheRollbackPathAndNothingMore`.
-- [ ] Marker: `TestIdentitiesDirectoryCarriesAPlaintextMarkerNamingTheVault`,
+- [x] `TestRemoveIdentityIsTheRollbackPathAndNothingMore`.
+- [x] Marker: `TestIdentitiesDirectoryCarriesAPlaintextMarkerNamingTheVault`,
       `TestNothingReadsTheMarkerToMakeADecision`,
       `TestRemovingANonLastIdentityLeavesTheMarkerInPlace`,
       `TestRemovingTheLastIdentityLeavesNoOrphanedDirectory`.
-- [ ] The `.age-recipients` round trip M1 deferred: every non-blank,
+- Done notes: `TestNothingReadsTheMarkerToMakeADecision` ports its unlock
+  half; Go's `HasIdentity` and `ListIdentities` halves move with those
+  functions (P4 · M8a's clone, and `identity list`). Added: the
+  "tightened if it exists looser" half as its own test
+  (`create_identity_tightens_an_existing_looser_directory`), and a file
+  that decrypts to no usable key line is corrupt.
+- [x] The `.age-recipients` round trip M1 deferred: every non-blank,
       non-comment line of a written file parses with
       `age::x25519::Recipient`, the parser stock `age -R` uses for those
       lines. age's own `read_recipients` needs `cli-common`, a frontend
@@ -263,52 +284,73 @@ Tests first, at task granularity. Library tasks (1–5) before CLI tasks
 
 ### 5. `Vault::unlock` — `unlock` (13 of 23 rows)
 
-- [ ] `TestUnlockProducesAnIdentityThatDecrypts`,
+- [x] `TestUnlockProducesAnIdentityThatDecrypts`,
       `TestUnlockRequestsThePassphraseThroughThePrompter` (kind
       `Passphrase`, purpose `Unlock`, vault name, device, attempt 1).
-- [ ] Distinguishable errors: `TestUnlockWithTheWrongPassphraseIsDistinguishable`,
+- [x] Distinguishable errors: `TestUnlockWithTheWrongPassphraseIsDistinguishable`,
       `TestUnlockWithACorruptIdentityFileIsDistinguishable`,
       `TestUnlockWithNoLocalIdentityIsDistinguishable`,
       `TestUnlockWithAWellFormedButWrongKindOfFileIsCorruptNotWrongPassphrase`
       (an X25519-encrypted file where the identity file should be).
-- [ ] Retry: `TestUnlockRetriesThroughThePrompterAndStopsWhenItStops`,
+- [x] Retry: `TestUnlockRetriesThroughThePrompterAndStopsWhenItStops`,
       `TestUnlockDoesNotRetryOnNonPassphraseFailures`,
       `TestUnlockRejectsAnEmptyPassphrase`,
-      `TestUnlockRejectsAPrompterAnsweringTheWrongKind`.
-- [ ] Local method and untrusted input ⚑:
+      ~~`TestUnlockRejectsAPrompterAnsweringTheWrongKind`~~: excused, a
+      response of another kind is unconstructible. `UnlockResponse` has one
+      variant per `Kind`, so the library's destructuring is irrefutable
+      today and becomes a compile error, forcing the refusal arm, the day a
+      second `Kind` is added.
+- [x] Local method and untrusted input ⚑:
       `TestUnlockDispatchesOnTheLocalMethodNotTheVaultDefault`,
       `TestUnlockNeverBuildsAPathFromAnUnvalidatedDeviceName`,
       `TestUnlockWithNoRecordedDeviceIsAMissingIdentityNotAnUnsafeName`.
-- [ ] `UnlockError` replaces M0b's "not implemented" placeholder with
+- [x] `UnlockError` replaces M0b's "not implemented" placeholder with
       variants carrying Go's exit codes (`WrongPassphrase`,
       `NoLocalIdentity`, `UnsupportedMethod`, a prompter that gave up:
       LockedOrAuth; `CorruptIdentityFile`: Conflict).
 - Rust notes: `Vault` gets its `Locker` through a constructor used by
   tests only (`Vault::with_locker`); `from_registration` and `create` use
   the real one, which `TestDefaultLockerIsTheRealMemlockBackedOne` pins.
+- Settled in implementation: `Vault` carries this device's `Dirs`, so
+  `Vault::create(&dirs, &spec)` and `Vault::from_registration(&dirs, name,
+  entry)` take them. Go reads its roots from the process environment;
+  gage-rs injects them everywhere, and `unlock` needs them for both the
+  registration (device, method) and the identity file. `unlock` keeps the
+  documented `Vault::unlock(&dyn Prompter)` signature. One `UnlockError`
+  (in `identityfile`, re-exported as `vault::UnlockError`) covers unlock,
+  create and remove; a wrong passphrase carries the prompter's reason for
+  stopping as its source. The 100-attempt runaway guard has no test (100
+  scrypt passes); it isn't a Go row.
 
 ### 6. The terminal prompter — `prompter` (11 of 17 rows), `prompter_pty` (1)
 
-- [ ] `TestPromptsGoToTheErrorStreamNotStdout`,
+- [x] `TestPromptsGoToTheErrorStreamNotStdout`,
       `TestReadingBufferedInputDoesNotSwallowFollowingLines`,
       `TestReadingPastEndOfInputFails`.
-- [ ] Unlock: `TestRetryPolicyLivesInThePrompter` (attempt 4 refused),
+- [x] Unlock: `TestRetryPolicyLivesInThePrompter` (attempt 4 refused),
       `TestRetryPromptTellsTheUserWhichAttemptThisIs` ("attempt 2 of 3"),
       `TestNewPassphraseIsConfirmed` (purpose `Create` asks twice and
       re-asks on a mismatch, up to 3 times),
       `TestNewPassphraseRejectsAnEmptyOne`.
-- [ ] `TestConfirmDefaultsToNo`, `TestConfirmStillRendersDefaultNo`
+- [x] `TestConfirmDefaultsToNo`, `TestConfirmStillRendersDefaultNo`
       (`[y/N]`), `TestWarnIsSurfacedAndReturnsNothing`.
-- [ ] `TestPrompterRefusesAMethodItCannotSatisfy`: `Kind` is
+- [x] `TestPrompterRefusesAMethodItCannotSatisfy`: `Kind` is
       `#[non_exhaustive]`, so the CLI's match must have a wildcard arm,
       which returns a typed refusal. Untestable until a second `Kind`
       exists; excused with that reason, and the arm is reviewed instead.
-- [ ] Real terminal (Unix only, as Go):
+- [x] Real terminal (Unix only, as Go):
       `TestRealPrompterReadsAPassphraseWithoutEchoing`, against a
       `portable-pty` pair: wait until the terminal's `ECHO` flag is off,
       type the passphrase, assert it came back, was never echoed, and that
       the prompt names the vault.
-- [ ] `main` swaps M0b's `NoPrompter` for the terminal prompter.
+- [x] `main` swaps M0b's `NoPrompter` for the terminal prompter.
+- Done notes: `TestPromptsGoToTheErrorStreamNotStdout` is about `main`'s
+  wiring, so it is a real-binary smoke test (`assert_cmd`, redirected
+  stdin; also the one run of the shipped KDF cost), with an in-process
+  half driving `init` through the real prompter. `Io` no longer holds
+  stdin's lock for the run: the prompter reads the same stream, and that
+  lock isn't reentrant. The PTY test was mutation-checked (the same
+  terminal read through the plain line reader fails on echo).
 - Moved: `TestChooseOnAnEmptyCandidateListIsInternal`,
   `TestChooseRetriesThenGivesUp` (P3 · M6), `TestConfirmDefaultYesDefaultsToYes`
   (P4 · M8a), `TestResolveConflictNeverGuesses` (P4 · M8b),
@@ -317,25 +359,29 @@ Tests first, at task granularity. Library tasks (1–5) before CLI tasks
 
 ### 7. Core dumps — `coredump` (3 rows)
 
-- [ ] `TestCoreDumpsAreDisabled`: process-level, so in a child process
+- [x] `TestCoreDumpsAreDisabled`: process-level, so in a child process
       (the test binary re-executed, as M0b's `vaultlock` tests do); reads
       back `RLIMIT_CORE` = 0 on Unix and the error-mode bits on Windows.
-- [ ] `TestDisablingCoreDumpsIsIdempotent`.
-- [ ] `TestMainDisablesCoreDumpsAtStartup`: a source assertion that the
+- [x] `TestDisablingCoreDumpsIsIdempotent`.
+- [x] `TestMainDisablesCoreDumpsAtStartup`: a source assertion that the
       call is `main`'s first statement, as Go's (a missing call is
       silent).
+- Done notes: both behavioral tests run in child processes, because a
+  lowered hard limit is permanent and inherited by children; the main test
+  first undoes any suppression already in force, so it isn't vacuous on
+  macOS. Mutation-checked (a no-op `disable_core_dumps` fails it).
 
 ### 8. `gage init` generates the identity — `init_identity` (8 rows) and rows from P1
 
-- [ ] `TestInitAsksForTheNewPassphraseThroughThePrompter`,
+- [x] `TestInitAsksForTheNewPassphraseThroughThePrompter`,
       `TestInitReportsTheDeviceAndPublicKey`,
       `TestInitThenUnlockDecryptsSomethingEncryptedToTheVault`,
       `TestUnlockTypedErrorsCarryTheRightExitCode`.
-- [ ] Failure leaves nothing behind: `TestInitLeavesNoVaultBehindWhenCreateFails`,
+- [x] Failure leaves nothing behind: `TestInitLeavesNoVaultBehindWhenCreateFails`,
       `TestInitWithARejectedDeviceNameWritesNoIdentityFile`,
       `TestTwoFailedInitsLeaveNoOrphanedIdentities`,
       `TestInitAfterVaultRemoveGeneratesAFreshKeyRatherThanReusingTheOldOne`.
-- [ ] From P1 (M1's task 7 and partial rows):
+- [x] From P1 (M1's task 7 and partial rows):
       `TestInitWithNoRecipientGeneratesThisDevicesIdentity` (rewrites
       M1's interim "requires `--recipient`" test),
       `TestInitWritesTheWrappedIdentityFile`,
@@ -347,20 +393,34 @@ Tests first, at task granularity. Library tasks (1–5) before CLI tasks
       `TestReinitAfterVaultRemoveIsAnOrdinaryRetry`, and the `init` half of
       `TestInitAndIdentityAddRecordThePubkeyAndCloneDoesNot` (global
       config records `pubkey`).
-- [ ] The warning row of `errorprefix`'s table, end to end through
+- [x] The warning row of `errorprefix`'s table, end to end through
       `Prompter::warn` (no doubled `gage: gage:`).
-- [ ] `init`'s help text describes what it now does; `--recipient` is
+- [x] `init`'s help text describes what it now does; `--recipient` is
       optional.
-- [ ] Q-INIT-INTERIM: mark the `--recipient` half done.
+- [x] Q-INIT-INTERIM: mark the `--recipient` half done.
+- Done notes: `init` validates every flag before asking for the passphrase
+  and leaves the target-directory check (and rollback) where Go has them
+  ([Q-INIT-ORDER](../open-questions.md#q-init-order)). The warning row of
+  `errorprefix` is asserted on the library's two M2 warnings
+  (`warnings_do_not_double_gages_own_prefix`), which the terminal prompter
+  prints verbatim. Process slip, recorded: this task's implementation was
+  written before its tests; the rollback tests were then mutation-checked
+  (skipping the rollback fails both).
 
 ### 9. Ledger and docs
 
-- [ ] Parity ledger: §3 M2 row and §2 `844f880`, `e52828a`, `ddce8b1`,
+- [x] Parity ledger: §3 M2 row and §2 `844f880`, `e52828a`, `ddce8b1`,
       E0 rows updated.
-- [ ] `doc/cli/vaults.md`: `init` without `--recipient`, the identity file
+- [x] `doc/cli/vaults.md`: `init` without `--recipient`, the identity file
       and its marker, the passphrase prompt and retry policy.
 
 ## Definition of done
+
+Status: every task above is implemented and green on `make lint` and `make
+test` locally (macOS). Not yet done: the Opus review of the tests, and
+Linux and Windows CI (the Windows `memlock` and core-dump code has only
+been checked against `windows-sys`'s declarations, not compiled).
+
 
 Every box above checked; all 83 claimed rows ported, or excused in this
 doc with a reason, or moved in task 6's list; the rows from P1 in task 8

@@ -21,9 +21,19 @@ clap = { version = "4", default-features = false, features = ["std", "help", "us
 gage = { path = "../gage" }
 # init's default device name; std has no hostname call.
 hostname = "0.4"
+rpassword = "7.5"
+zeroize = "1"
 
 [dev-dependencies]
 assert_cmd = "2"
 tempfile = "3"
 gage = { path = "../gage", features = ["test-support"] }
 thiserror = "2"
+portable-pty = "0.9"
+age = "0.12.1"
+
+[target."cfg(unix)".dependencies]
+libc = "0.2"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Diagnostics_Debug"] }

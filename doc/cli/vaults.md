@@ -7,47 +7,94 @@ method. You can have as many vaults as you want (`personal`, `work`,
 different set of readers for a subset of secrets, that's a new vault, not a
 subdirectory of an existing one.
 
-> **Status.** gage-rs can create, list, inspect, re-point and forget
-> vaults. Nothing in them is encrypted yet: identities, entries and sync
-> arrive in later phases of the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
+> **Status.** gage-rs can create a vault with this device's own
+> passphrase-protected identity, and list, inspect, re-point and forget
+> vaults. There are no entries yet: storing secrets and sync arrive in
+> later phases of the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
 
 ## Creating a vault
 
 ```
-gage init <name> --recipient PUBKEY [--recipient PUBKEY ...]
+gage init <name> [--recipient PUBKEY ...]
                  [--dir PATH] [--device NAME]
                  [--type git] [--method passphrase]
 ```
 
-`init` creates the vault's directory, writes its committed config
-(`.gage/config.toml`), its recipient list (`.age-recipients`), a
-`.gitignore` and a `.gitattributes`, makes one git commit of all of it, and
-registers the vault on this machine. It refuses, before touching anything:
+`init` generates this device's identity for the new vault, then creates
+the vault's directory, writes its committed config (`.gage/config.toml`),
+its recipient list (`.age-recipients`), a `.gitignore` and a
+`.gitattributes`, makes one git commit of all of it, and registers the
+vault on this machine. It prints this device's name and public key: the
+key is what you hand another device's `recipient add`.
+
+Before asking for anything, it refuses:
 
 - a name that's already registered (exit `1`, `conflict`);
-- a target directory that exists and isn't empty, or a target that isn't a
-  directory at all (exit `1`);
 - an unknown `--type` or `--method`, an invalid `--device`, or a malformed
   `--recipient` (exit `2`, `usage`).
 
-The options:
+A target directory that exists and isn't empty, or a target that isn't a
+directory at all, is refused too (exit `1`), after the passphrase prompt.
+The identity generated for it is removed again, so a failed `init` leaves
+no key and no vault behind and can simply be retried.
 
-- **`--recipient`** is required for now and can be repeated. gage-rs can't
-  generate this device's own key yet, so the first key you give is recorded
-  as this device's (labelled with the device name) and any later ones as
-  `recipient-2`, `recipient-3`, and so on. Repeating a key writes it again.
-  A later release generates this device's key itself, and `--recipient`
-  becomes additive, as it is in Go gage. A recipient is any well-formed
+### The passphrase
+
+`init` asks you to choose a passphrase, twice: there is nothing to check a
+new passphrase against, so a typo would otherwise only surface at the next
+unlock. It protects this device's private key, stays on this device, and
+**cannot be recovered or reset**. An empty passphrase is refused. The
+prompts go to stderr, so they never end up in redirected output; when stdin
+is a terminal, what you type isn't echoed. When stdin isn't a terminal
+(a script), each answer is one line of stdin.
+
+If no passphrase is given (end of input, or three attempts that never
+matched), `init` exits `5` (`locked-or-auth`) having created nothing.
+
+The commands that read and write entries, arriving in a later phase,
+unlock the vault with the same passphrase. A wrong one is re-asked, up to
+three attempts in all, then exits `5`; a missing identity file is `5` too.
+A damaged identity file is `1` (`conflict`) and is never re-asked, since no
+passphrase can fix it.
+
+### The identity file
+
+The private key is stored, wrapped with your passphrase (age's scrypt, at
+a work factor of 2^19), at
+`$GAGE_DATA/identities/<vault-id>/<device>.age`: outside the vault, so it
+is never committed or synced. The directory is `0700` and the file `0600`.
+The file is an ordinary passphrase-encrypted age-keygen key file, so the
+stock age tool can use it too (`age -d -i <device>.age ...`).
+
+The directory is named by the vault's id, not its name; a plaintext
+`vault-name.txt` beside the key says which vault it belongs to, for when
+you back the file up by hand. Nothing reads it. Losing the identity file
+loses this device's access to the vault: there is no copy, by design.
+
+While a vault is unlocked, `gage` keeps the key in memory it asks the OS
+not to swap out, and wipes it when it's done. Where the OS refuses (a low
+`ulimit -l`, some containers), `gage` warns once and carries on. Core
+dumps are disabled for the whole process; on Windows, which has no direct
+equivalent, `gage` suppresses the crash dialog that would offer to write
+one, which is a narrower guarantee.
+
+### The options
+
+- **`--recipient`** adds another recipient alongside this device's own key,
+  for someone whose public key you already hold. It can be repeated; keys
+  are written in the order given, after this device's, labelled
+  `recipient-2`, `recipient-3`, and so on. A recipient is any well-formed
   `age1...` public key, including plugin recipients such as
   `age1yubikey1...`; an identity (`AGE-SECRET-KEY-1...`) is refused.
 - **`--dir`**: without it, the vault is created at
   `$GAGE_DATA/vaults/<name>` (see [Configuration](configuration.md)).
-- **`--device`** names this device as a recipient label. Without it, the
-  name is your hostname, normalized: lowercased, cut at the first `.`,
-  anything outside `a-z 0-9 . _ -` replaced with `-`. An explicit name must
-  already be valid; it's refused rather than rewritten into a different
-  one. If your hostname normalizes to nothing usable, `init` asks you to
-  pass `--device`.
+- **`--device`** names this device: the label on its recipient entry and
+  the name of its identity file. Without it, the name is your hostname,
+  normalized: lowercased, cut at the first `.`, anything outside
+  `a-z 0-9 . _ -` replaced with `-`. An explicit name must already be
+  valid; it's refused rather than rewritten into a different one. If your
+  hostname normalizes to nothing usable, `init` asks you to pass
+  `--device`.
 - **`--method`** sets the vault's *default* identity method, recorded in
   its committed config as a suggestion for devices joining later. Each
   device's actual method is local config and can differ. `passphrase` is

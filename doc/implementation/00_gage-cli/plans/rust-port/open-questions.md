@@ -258,6 +258,10 @@ current `init` is. The library's `Vault::create` accepts a remote and sets
 publishes immediately and that needs push. `init`'s help text describes
 what M1 actually does.
 
+*P2 · M2:* the `--recipient` half is done. `init` generates this device's
+identity, `--recipient` is optional and additive (this device's key first),
+and the help says so. The `--remote` half still waits for P4 · M8a.
+
 ### `[x]` Q-HELP-RENDER — Who renders help and usage errors? {#q-help-render}
 
 **Resolved: clap, with grouping and availability from the registry.** The
@@ -376,6 +380,32 @@ called by the fixtures that create or unlock vaults; a test that forgets
 it is slow, not wrong. Go's three guard tests are ported: the constant is
 19, a source scan finds no other store to the atomic, and a real file
 written with the shipped value carries 19 in its header.
+
+*P2 · M2:* the last of those runs in a child process (the test binary
+re-executed) that never calls the hook, rather than lowering and restoring
+the live value as Go does: Rust's tests share one process and run in
+parallel, so a temporary store would race every other scrypt test. The
+child proves the stronger thing anyway, that the live value *starts* at the
+shipped one. The source scan is a whitelist (the one declaration, `.load`
+reads, the setter's body), so an alias of the static is refused too.
+
+## Resolved in P2 implementation
+
+### `[x]` Q-INIT-ORDER — When does `init` ask for the new passphrase? {#q-init-order}
+
+**Resolved: after every check the flags allow, before the disk checks.**
+Go's `runInit` generates the identity (and asks for the passphrase twice)
+before `Create` validates `--type`, `--method` and the `--recipient` keys,
+although its own comment says knowable failures should come first. gage-rs
+validates those first (`CreateSpec::validate_without_device_key`), so a bad
+flag never costs two blind passphrase entries. The target-directory check
+stays where Go has it, inside `Vault::create` after the key exists, with
+the rollback that removes the key; Go's rollback tests depend on that
+ordering. Observable difference: with no passphrase available (stdin at end
+of input), `gage init x --type s3` exits `2` (usage) here and `5`
+(locked-or-auth) in Go (given `--no-recovery-key`, without which Go's
+recovery-key planning refuses a non-terminal run first). With a passphrase
+available the two agree.
 
 ---
 

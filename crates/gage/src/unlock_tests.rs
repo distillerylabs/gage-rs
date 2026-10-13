@@ -1,0 +1,1012 @@
+//! Identity files, `Vault::unlock` and the unlocked `Identity`'s lifetime,
+//! against real files under temp roots and real scrypt (at the test work
+//! factor). Ports Go's `unlock_test.go`, `identityfile_marker_test.go` and
+//! the `Identity`/`Locker` rows of `vault_test.go`; each test names its Go
+//! row. Excused rows are listed in the M2 plan doc with their reasons.
+
+use std::any::Any;
+use std::io;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use crate::config::{self, Global, VaultEntry};
+use crate::crypt::{self, Recipient};
+use crate::exitcode::{Code, HasCode};
+use crate::identity::SECRET_KEY_PREFIX;
+use crate::identityfile::{self, MARKER_FILE_NAME, UnlockError};
+use crate::locker::{Locker, MemLocker};
+use crate::paths;
+use crate::prompter::{FakePrompter, Kind, PromptError, Purpose};
+use crate::testsupport::fast_scrypt;
+use crate::vault::{self, CreateSpec, Vault};
+use crate::vaultconfig;
+use crate::xdgpaths::Dirs;
+
+const PASSPHRASE: &str = "correct horse battery staple";
+
+/// One isolated machine: its own config, data and state roots (Go's
+/// `isolateXDG`).
+struct Machine {
+    root: tempfile::TempDir,
+    dirs: Dirs,
+}
+
+impl Machine {
+    fn new() -> Machine {
+        fast_scrypt();
+        let root = tempfile::tempdir().unwrap();
+        let dirs = Dirs {
+            config: root.path().join("config").join("gage"),
+            data: root.path().join("data").join("gage"),
+            state: root.path().join("state").join("gage"),
+        };
+        Machine { root, dirs }
+    }
+
+    /// Writes the global config record `Vault::unlock` reads this device's
+    /// name and method from, replacing any other (Go's `registerVault`).
+    fn register(&self, name: &str, id: &str, device: &str, method: &str) {
+        let mut global = Global::default();
+        global
+            .register(
+                name,
+                VaultEntry {
+                    path: self.root.path().join(name),
+                    id: id.to_string(),
+                    vault_type: vault::TYPE_GIT.into(),
+                    device: device.to_string(),
+                    method: method.to_string(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        config::save(&paths::global_config_file(&self.dirs), &global).unwrap();
+    }
+
+    fn vault(&self, name: &str, id: &str) -> Vault {
+        Vault::for_tests(&self.dirs, name, id)
+    }
+
+    fn create_identity(&self, id: &str, name: &str, device: &str) -> String {
+        identityfile::create(
+            &self.dirs,
+            id,
+            name,
+            device,
+            &FakePrompter::new().with_passphrase(PASSPHRASE),
+        )
+        .unwrap()
+    }
+
+    /// A registered vault with this device's identity on disk (Go's
+    /// `newUnlockableVault`): the vault and the identity's public key.
+    fn unlockable(&self, name: &str, device: &str) -> (Vault, String) {
+        let id = vaultconfig::new_id();
+        self.register(name, &id, device, vault::METHOD_PASSPHRASE);
+        let pubkey = self.create_identity(&id, name, device);
+        (self.vault(name, &id), pubkey)
+    }
+
+    fn identity_path(&self, id: &str, device: &str) -> PathBuf {
+        paths::identity_file_path(&self.dirs, id, device).unwrap()
+    }
+
+    fn identities_root(&self) -> PathBuf {
+        self.dirs.data.join("identities")
+    }
+
+    /// The file names in a vault's identities directory, sorted, or `None`
+    /// if the directory is gone.
+    fn identities_dir_entries(&self, id: &str) -> Option<Vec<String>> {
+        let dir = paths::identities_dir(&self.dirs, id).unwrap();
+        let entries = std::fs::read_dir(dir).ok()?;
+        let mut names: Vec<String> = entries
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        Some(names)
+    }
+}
+
+fn prompter(passphrases: &[&str]) -> FakePrompter {
+    FakePrompter::new().with_passphrases(passphrases)
+}
+
+/// A prompter answering `passphrases` in order, then refusing (Go's
+/// `fakePrompter` running out of answers).
+fn prompter_then_gives_up(passphrases: &[&str]) -> FakePrompter {
+    prompter(passphrases).with_unlock_error(PromptError::Cancelled)
+}
+
+fn round_trip(id: &crate::identity::Identity, pubkey: &str) {
+    let payload = b"only this identity can read this";
+    let ct = crypt::encrypt(payload, &[Recipient::parse(pubkey).unwrap()]).unwrap();
+    assert_eq!(crypt::decrypt(&ct, id).unwrap(), payload);
+}
+
+fn truncate_identity_file(path: &std::path::Path) {
+    let data = std::fs::read(path).unwrap();
+    std::fs::write(path, &data[..data.len() / 3]).unwrap();
+}
+
+/// The shapes a device name must never take, since it becomes a filename
+/// component. They arrive from config any git-writer can edit.
+fn unsafe_device_names() -> Vec<String> {
+    [
+        "../../../../etc/cron.d/x",
+        "..",
+        ".",
+        "sub/dir",
+        r"sub\dir",
+        "C:evil",
+        "with space",
+        "UPPER",
+    ]
+    .into_iter()
+    .map(String::from)
+    .chain(std::iter::once("a".repeat(200)))
+    .collect()
+}
+
+// --- Locker fakes -----------------------------------------------------------
+
+/// A locker that succeeds without asking the OS, so the `Drop` contract
+/// tests hold on hosts that refuse to lock pages (Go's `alwaysLocks`). The
+/// real one is covered by `memlock`'s own tests and by
+/// `unlock_page_locks_or_warns_but_never_both`.
+struct AlwaysLocks;
+
+impl Locker for AlwaysLocks {
+    fn lock(&self, _: &[u8]) -> io::Result<()> {
+        Ok(())
+    }
+    fn unlock(&self, _: &[u8]) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Counts lock and unlock calls and records what each one was handed, or
+/// fails every lock with `lock_err` (Go's `countingLocker`).
+#[derive(Default)]
+struct CountingLocker {
+    lock_err: Option<&'static str>,
+    locked: Mutex<Vec<Vec<u8>>>,
+    unlocked: Mutex<Vec<Vec<u8>>>,
+}
+
+impl CountingLocker {
+    fn failing(reason: &'static str) -> Arc<CountingLocker> {
+        Arc::new(CountingLocker {
+            lock_err: Some(reason),
+            ..Default::default()
+        })
+    }
+
+    fn locks(&self) -> usize {
+        self.locked.lock().unwrap().len()
+    }
+
+    fn unlocks(&self) -> usize {
+        self.unlocked.lock().unwrap().len()
+    }
+}
+
+impl Locker for CountingLocker {
+    fn lock(&self, buf: &[u8]) -> io::Result<()> {
+        self.locked.lock().unwrap().push(buf.to_vec());
+        match self.lock_err {
+            Some(reason) => Err(io::Error::other(reason)),
+            None => AlwaysLocks.lock(buf),
+        }
+    }
+
+    fn unlock(&self, buf: &[u8]) -> io::Result<()> {
+        self.unlocked.lock().unwrap().push(buf.to_vec());
+        match self.lock_err {
+            // Nothing was locked; a real locker would fail here, which is
+            // exactly what Drop must never reach.
+            Some(_) => Err(io::Error::other(
+                "asked to unlock a page that was never locked",
+            )),
+            None => AlwaysLocks.unlock(buf),
+        }
+    }
+}
+
+// --- Identity (Go's vault_test.go rows) -------------------------------------
+
+// Go: TestIdentityCloseReleasesTheLockAndZeroesTheKey. Drop's contract in
+// one place: the key is wiped *before* the page lock comes off, so the
+// locker's unlock sees nothing but zeros.
+#[test]
+fn identity_close_releases_the_lock_and_zeroes_the_key() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let counter = Arc::new(CountingLocker::default());
+    let v = v.with_locker(counter.clone());
+
+    let id = v.unlock(&prompter(&[PASSPHRASE])).unwrap();
+    assert_eq!(counter.locks(), 1, "one lock per unlock");
+    assert!(id.page_locked());
+    let held = counter.locked.lock().unwrap()[0].clone();
+    assert!(
+        held.starts_with(SECRET_KEY_PREFIX.as_bytes()),
+        "locked something other than the key line"
+    );
+
+    drop(id);
+
+    let unlocked = counter.unlocked.lock().unwrap().clone();
+    assert_eq!(unlocked.len(), 1, "one page unlock per drop");
+    assert_eq!(
+        unlocked[0].len(),
+        held.len(),
+        "unlocked a different range than was locked"
+    );
+    assert!(
+        unlocked[0].iter().all(|&b| b == 0),
+        "the key was not wiped before its page lock came off"
+    );
+}
+
+// Go: TestIdentityCloseIsIdempotent. Rust runs Drop exactly once by
+// construction; what remains to prove is that one drop releases the page
+// exactly once.
+#[test]
+fn identity_close_is_idempotent() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let counter = Arc::new(CountingLocker::default());
+    let id = v
+        .with_locker(counter.clone())
+        .unlock(&prompter(&[PASSPHRASE]))
+        .unwrap();
+    drop(id);
+    assert_eq!(counter.unlocks(), 1);
+}
+
+// Go: TestCloseAfterAFailedPageLockDoesNotUnlockAnything
+#[test]
+fn close_after_a_failed_page_lock_does_not_unlock_anything() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let counter = CountingLocker::failing("nope");
+    let id = v
+        .with_locker(counter.clone())
+        .unlock(&prompter(&[PASSPHRASE]))
+        .unwrap();
+    drop(id);
+    assert_eq!(counter.locks(), 1);
+    assert_eq!(
+        counter.unlocks(),
+        0,
+        "unlocked a page whose lock had failed"
+    );
+}
+
+// Go: TestPageLockFailureWarnsOnceAndProceeds: a weaker guarantee beats an
+// unusable tool.
+#[test]
+fn page_lock_failure_warns_once_and_proceeds() {
+    let m = Machine::new();
+    let (v, pubkey) = m.unlockable("personal", "laptop-1");
+    let v = v.with_locker(CountingLocker::failing("mlock: cannot allocate memory"));
+    let p = prompter(&[PASSPHRASE]);
+
+    let id = v
+        .unlock(&p)
+        .expect("a page-lock failure aborted the unlock");
+
+    round_trip(&id, &pubkey);
+    assert!(!id.page_locked());
+    let warnings = p.warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains("cannot allocate memory"),
+        "{}",
+        warnings[0]
+    );
+    assert!(warnings[0].contains("laptop-1"), "{}", warnings[0]);
+}
+
+// Go: TestPageLockIsAttemptedExactlyOncePerUnlock: three passphrase
+// attempts, still one lock, so one possible warning, structurally.
+#[test]
+fn page_lock_is_attempted_exactly_once_per_unlock() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let counter = Arc::new(CountingLocker::default());
+    let p = prompter(&["wrong", "wrong again", PASSPHRASE]);
+    let _id = v.with_locker(counter.clone()).unlock(&p).unwrap();
+    assert_eq!(counter.locks(), 1);
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+}
+
+// Go: TestUnlockPageLocksOrWarnsButNeverBoth, with the real locker: holds
+// whether or not this host grants the lock.
+#[test]
+fn unlock_page_locks_or_warns_but_never_both() {
+    let m = Machine::new();
+    let (v, pubkey) = m.unlockable("personal", "laptop-1");
+    let p = prompter(&[PASSPHRASE]);
+
+    let id = v
+        .unlock(&p)
+        .expect("unlock must succeed whether or not the page lock is granted");
+
+    match (id.page_locked(), p.warnings().len()) {
+        (true, 0) | (false, 1) => {}
+        (locked, n) => panic!(
+            "page_locked = {locked} with {n} warnings: {:?}",
+            p.warnings()
+        ),
+    }
+    round_trip(&id, &pubkey);
+}
+
+// Go: TestDefaultLockerIsTheRealMemlockBackedOne: what stops the injected
+// test lockers from quietly becoming "gage never page-locks at all".
+#[test]
+fn default_locker_is_the_real_memlock_backed_one() {
+    let m = Machine::new();
+    let root = tempfile::tempdir().unwrap();
+    let spec = CreateSpec {
+        name: "personal".into(),
+        id: vaultconfig::new_id(),
+        path: root.path().join("personal"),
+        vault_type: vault::TYPE_GIT.into(),
+        method: vault::METHOD_PASSPHRASE.into(),
+        device: "laptop-1".into(),
+        recipients: vec![age::x25519::Identity::generate().to_public().to_string()],
+        remote: None,
+    };
+    let created = Vault::create(&m.dirs, &spec).unwrap();
+    let entry = VaultEntry {
+        path: spec.path.clone(),
+        id: spec.id.clone(),
+        ..Default::default()
+    };
+    let resolved = Vault::from_registration(&m.dirs, "personal", &entry).unwrap();
+    for (how, v) in [("create", created), ("from_registration", resolved)] {
+        let locker = v.locker();
+        assert!(
+            (&*locker as &dyn Any).is::<MemLocker>(),
+            "{how}: not the memlock-backed locker"
+        );
+    }
+}
+
+// --- identity files (Go's unlock_test.go and identityfile_marker_test.go) ---
+
+// Go: TestCreateIdentityWritesTheFileWithTightPermissions
+#[test]
+fn create_identity_writes_the_file_with_tight_permissions() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    let p = prompter(&[PASSPHRASE]);
+
+    let pubkey = identityfile::create(&m.dirs, &id, "personal", "laptop-1", &p).unwrap();
+
+    let path = m.identity_path(&id, "laptop-1");
+    assert_eq!(
+        path,
+        m.dirs
+            .data
+            .join("identities")
+            .join(&id)
+            .join("laptop-1.age")
+    );
+    assert!(path.is_file());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), 0o600, "identity file");
+        assert_eq!(mode(path.parent().unwrap()), 0o700, "identities directory");
+    }
+    Recipient::parse(&pubkey).expect("create returned something that is not a usable recipient");
+    let requests = p.unlock_requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(
+        requests[0].purpose,
+        Purpose::Create,
+        "asked to unlock rather than for a new passphrase"
+    );
+    assert_eq!(
+        (requests[0].vault.as_str(), requests[0].device.as_str()),
+        ("personal", "laptop-1")
+    );
+}
+
+// The plan's "tightened if it exists looser" half of the same row: an
+// identities directory left 0755 by an older build or a wide umask is not
+// trusted as it stands.
+#[cfg(unix)]
+#[test]
+fn create_identity_tightens_an_existing_looser_directory() {
+    use std::os::unix::fs::PermissionsExt;
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    let dir = paths::identities_dir(&m.dirs, &id).unwrap();
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    m.create_identity(&id, "personal", "laptop-1");
+
+    let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o700);
+}
+
+// Go: TestCreateIdentityFileIsPassphraseWrappedAndSoleRecipient (A3), and
+// the work factor read off a real identity file.
+#[test]
+fn create_identity_file_is_passphrase_wrapped_and_sole_recipient() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    let pubkey = m.create_identity(&id, "personal", "laptop-1");
+    let data = std::fs::read(m.identity_path(&id, "laptop-1")).unwrap();
+    let text = String::from_utf8_lossy(&data);
+
+    assert!(
+        !text.contains(SECRET_KEY_PREFIX),
+        "the identity file holds a plaintext key line"
+    );
+    assert!(
+        !text.contains(&pubkey),
+        "the identity file leaks its public key"
+    );
+    let stanzas: Vec<&str> = text.lines().filter(|l| l.starts_with("-> ")).collect();
+    assert_eq!(
+        stanzas.len(),
+        1,
+        "want exactly one recipient stanza: {stanzas:?}"
+    );
+    assert!(stanzas[0].starts_with("-> scrypt "), "{}", stanzas[0]);
+    let factor: u8 = stanzas[0]
+        .split_whitespace()
+        .nth(3)
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(factor, crypt::scrypt_work_factor());
+}
+
+// Go: TestCreateIdentityRejectsAnEmptyPassphrase: accepting it would write
+// a real, long-lived key protected by nothing.
+#[test]
+fn create_identity_rejects_an_empty_passphrase() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    let err =
+        identityfile::create(&m.dirs, &id, "personal", "laptop-1", &prompter(&[""])).unwrap_err();
+    assert!(matches!(err, UnlockError::EmptyPassphrase), "{err}");
+    assert!(
+        !m.identities_root().exists(),
+        "something was written despite the refusal"
+    );
+}
+
+// Go: TestIdentityFileIsAgeKeygenCompatible: the decrypted contents are
+// what age-keygen writes, so stock `age -d -i <device>.age` can use it.
+#[test]
+fn identity_file_is_age_keygen_compatible() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    let pubkey = m.create_identity(&id, "personal", "laptop-1");
+    let wrapped = std::fs::read(m.identity_path(&id, "laptop-1")).unwrap();
+
+    let plaintext = age::decrypt(&crypt::scrypt_identity(PASSPHRASE), &wrapped).unwrap();
+    let text = String::from_utf8(plaintext.clone()).unwrap();
+    let lines: Vec<&str> = text.trim_end_matches('\n').split('\n').collect();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    let created = lines[0]
+        .strip_prefix("# created: ")
+        .expect("a # created: comment");
+    assert!(
+        created.len() == 20 && created.ends_with('Z') && &created[10..11] == "T",
+        "not an RFC 3339 UTC timestamp: {created}"
+    );
+    assert_eq!(lines[1], format!("# public key: {pubkey}"));
+    assert!(
+        lines[2].starts_with(SECRET_KEY_PREFIX),
+        "{}",
+        &lines[2][..16]
+    );
+    assert!(text.ends_with('\n'));
+
+    let file = age::IdentityFile::from_buffer(plaintext.as_slice()).unwrap();
+    let recipients = file.to_recipients().unwrap();
+    assert_eq!(recipients.len(), 1, "age's own parser sees one key");
+}
+
+// Go: TestCreateIdentityReusesAnExistingFile (#39's other half): never
+// overwrite the only copy of a private key; reuse it, and say so.
+#[test]
+fn create_identity_reuses_an_existing_file() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    let first = m.create_identity(&id, "personal", "laptop-1");
+    let before = std::fs::read(m.identity_path(&id, "laptop-1")).unwrap();
+
+    let p = prompter(&[PASSPHRASE]);
+    let second = identityfile::create(&m.dirs, &id, "personal", "laptop-1", &p).unwrap();
+
+    assert_eq!(second, first);
+    assert_eq!(
+        p.unlock_requests()[0].purpose,
+        Purpose::Unlock,
+        "reuse opens the file, it doesn't choose a passphrase"
+    );
+    let warnings = p.warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains("reusing the existing local identity file"),
+        "{}",
+        warnings[0]
+    );
+    assert_eq!(
+        std::fs::read(m.identity_path(&id, "laptop-1")).unwrap(),
+        before
+    );
+
+    m.register("personal", &id, "laptop-1", vault::METHOD_PASSPHRASE);
+    let unlocked = m
+        .vault("personal", &id)
+        .unlock(&prompter(&[PASSPHRASE]))
+        .unwrap();
+    assert_eq!(unlocked.recipient(), first);
+}
+
+// Go: TestCreateIdentityReuseRejectsWrongPassphrase: never mint a new key
+// over, or appear to succeed against, a file it never opened.
+#[test]
+fn create_identity_reuse_rejects_wrong_passphrase() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    m.create_identity(&id, "personal", "laptop-1");
+    let before = std::fs::read(m.identity_path(&id, "laptop-1")).unwrap();
+
+    let err = identityfile::create(
+        &m.dirs,
+        &id,
+        "personal",
+        "laptop-1",
+        &prompter_then_gives_up(&["a different passphrase"]),
+    )
+    .unwrap_err();
+
+    assert!(matches!(err, UnlockError::WrongPassphrase(_)), "{err}");
+    assert_eq!(
+        std::fs::read(m.identity_path(&id, "laptop-1")).unwrap(),
+        before
+    );
+}
+
+// Go: TestCreateIdentityRefusesAnUnsafeDeviceName
+#[test]
+fn create_identity_refuses_an_unsafe_device_name() {
+    let m = Machine::new();
+    let err = identityfile::create(
+        &m.dirs,
+        &vaultconfig::new_id(),
+        "personal",
+        "../../escape",
+        &FakePrompter::new(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            UnlockError::UnsafePath(paths::Error::InvalidDeviceName(_))
+        ),
+        "{err}"
+    );
+    assert!(!m.identities_root().exists());
+}
+
+// Go: TestIdentityFilePathRefusesAnUnsafeDeviceName, at the one builder
+// every caller goes through.
+#[test]
+fn identity_file_path_refuses_an_unsafe_device_name() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    for device in std::iter::once(String::new()).chain(unsafe_device_names()) {
+        let err = paths::identity_file_path(&m.dirs, &id, &device).unwrap_err();
+        assert_eq!(err, paths::Error::InvalidDeviceName(device.clone()));
+        assert_eq!(err.code(), Code::LockedOrAuth);
+    }
+}
+
+// Go: TestIdentityFilePathRefusesAnUnsafeVaultName: since A20 the other
+// path component is the vault id, and anything but a UUID is refused.
+#[test]
+fn identity_file_path_refuses_an_unsafe_vault_name() {
+    let m = Machine::new();
+    for id in [
+        "",
+        ".",
+        "..",
+        "../evil",
+        "a/b",
+        r"a\b",
+        "C:evil",
+        "trailing/",
+        "personal",
+    ] {
+        let err = paths::identity_file_path(&m.dirs, id, "laptop-1").unwrap_err();
+        assert_eq!(err, paths::Error::InvalidVaultId(id.to_string()), "{id:?}");
+    }
+}
+
+// Go: TestRemoveIdentityIsTheRollbackPathAndNothingMore
+#[test]
+fn remove_identity_is_the_rollback_path_and_nothing_more() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    m.create_identity(&id, "personal", "laptop-1");
+    m.create_identity(&id, "personal", "desktop-2");
+
+    identityfile::remove(&m.dirs, &id, "laptop-1").unwrap();
+    assert!(!m.identity_path(&id, "laptop-1").exists());
+    assert!(
+        m.identity_path(&id, "desktop-2").exists(),
+        "took another device's identity with it"
+    );
+
+    // Idempotent: a rollback runs where the state is already uncertain.
+    identityfile::remove(&m.dirs, &id, "laptop-1").unwrap();
+
+    let err = identityfile::remove(&m.dirs, &id, "../../escape").unwrap_err();
+    assert!(matches!(err, UnlockError::UnsafePath(_)), "{err}");
+
+    m.register("personal", &id, "desktop-2", vault::METHOD_PASSPHRASE);
+    m.vault("personal", &id)
+        .unlock(&prompter(&[PASSPHRASE]))
+        .expect("the surviving identity no longer unlocks");
+}
+
+// Go: TestIdentitiesDirectoryCarriesAPlaintextMarkerNamingTheVault
+#[test]
+fn identities_directory_carries_a_plaintext_marker_naming_the_vault() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    m.create_identity(&id, "personal", "laptop-1");
+    assert_eq!(
+        m.identities_dir_entries(&id).unwrap(),
+        ["laptop-1.age", MARKER_FILE_NAME]
+    );
+    let dir = paths::identities_dir(&m.dirs, &id).unwrap();
+    let marker = std::fs::read_to_string(dir.join(MARKER_FILE_NAME)).unwrap();
+    assert_eq!(marker.trim(), "personal");
+}
+
+// Go: TestNothingReadsTheMarkerToMakeADecision, the unlock half. Go also
+// checks HasIdentity and ListIdentities, which arrive with clone (P4 · M8a)
+// and `identity list` and carry this check with them.
+#[test]
+fn nothing_reads_the_marker_to_make_a_decision() {
+    let m = Machine::new();
+    let (v, pubkey) = m.unlockable("personal", "laptop-1");
+    let marker = paths::identities_dir(&m.dirs, &v.id)
+        .unwrap()
+        .join(MARKER_FILE_NAME);
+    std::fs::remove_file(&marker).unwrap();
+
+    let unlocked = v
+        .unlock(&prompter(&[PASSPHRASE]))
+        .expect("unlock without the marker");
+    assert_eq!(unlocked.recipient(), pubkey);
+    assert!(!marker.exists(), "a read path recreated the marker");
+}
+
+// Go: TestRemovingTheLastIdentityLeavesNoOrphanedDirectory
+#[test]
+fn removing_the_last_identity_leaves_no_orphaned_directory() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    m.create_identity(&id, "personal", "laptop-1");
+    identityfile::remove(&m.dirs, &id, "laptop-1").unwrap();
+    assert_eq!(m.identities_dir_entries(&id), None);
+}
+
+// Go: TestRemovingANonLastIdentityLeavesTheMarkerInPlace
+#[test]
+fn removing_a_non_last_identity_leaves_the_marker_in_place() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    for device in ["laptop-1", "desktop-2"] {
+        m.create_identity(&id, "personal", device);
+    }
+    identityfile::remove(&m.dirs, &id, "laptop-1").unwrap();
+    assert_eq!(
+        m.identities_dir_entries(&id).unwrap(),
+        ["desktop-2.age", MARKER_FILE_NAME]
+    );
+}
+
+// --- Vault::unlock (Go's unlock_test.go) ------------------------------------
+
+// Go: TestUnlockProducesAnIdentityThatDecrypts: the milestone's
+// definition of done at the library level.
+#[test]
+fn unlock_produces_an_identity_that_decrypts() {
+    let m = Machine::new();
+    let (v, pubkey) = m.unlockable("personal", "laptop-1");
+    let id = v.unlock(&prompter(&[PASSPHRASE])).unwrap();
+    assert_eq!(id.device(), "laptop-1");
+    assert_eq!(id.recipient(), pubkey);
+    round_trip(&id, &pubkey);
+}
+
+// Go: TestUnlockRequestsThePassphraseThroughThePrompter
+#[test]
+fn unlock_requests_the_passphrase_through_the_prompter() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let p = prompter(&[PASSPHRASE]);
+    v.unlock(&p).unwrap();
+    let requests = p.unlock_requests();
+    assert_eq!(requests.len(), 1);
+    let req = &requests[0];
+    assert_eq!(req.kind, Kind::Passphrase);
+    assert_eq!(req.purpose, Purpose::Unlock);
+    assert_eq!(
+        (req.vault.as_str(), req.device.as_str()),
+        ("personal", "laptop-1")
+    );
+    assert_eq!(req.attempt, 1);
+}
+
+// Go: TestUnlockWithTheWrongPassphraseIsDistinguishable
+#[test]
+fn unlock_with_the_wrong_passphrase_is_distinguishable() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let err = v
+        .unlock(&prompter_then_gives_up(&["not the passphrase"]))
+        .unwrap_err();
+    assert!(matches!(err, UnlockError::WrongPassphrase(_)), "{err}");
+    assert_eq!(err.code(), Code::LockedOrAuth);
+}
+
+// Go: TestUnlockRetriesThroughThePrompterAndStopsWhenItStops: the library
+// keeps no count; the prompter decides when to stop.
+#[test]
+fn unlock_retries_through_the_prompter_and_stops_when_it_stops() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+
+    // A later attempt succeeds.
+    let p = prompter(&["wrong", "also wrong", PASSPHRASE]);
+    v.unlock(&p).unwrap();
+    let attempts: Vec<u32> = p.unlock_requests().iter().map(|r| r.attempt).collect();
+    assert_eq!(attempts, [1, 2, 3]);
+
+    // The prompter giving up ends the loop, and its reason survives.
+    let p = prompter_then_gives_up(&["wrong", "still wrong"]);
+    let err = v.unlock(&p).unwrap_err();
+    assert!(
+        matches!(err, UnlockError::WrongPassphrase(PromptError::Cancelled)),
+        "{err:?}"
+    );
+    assert_eq!(p.unlock_requests().len(), 3, "2 answers + 1 refusal");
+}
+
+// Go: TestUnlockDoesNotRetryOnNonPassphraseFailures
+#[test]
+fn unlock_does_not_retry_on_non_passphrase_failures() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    truncate_identity_file(&m.identity_path(&v.id, "laptop-1"));
+    let p = prompter(&["a", "b", "c", PASSPHRASE]);
+    v.unlock(&p).unwrap_err();
+    assert_eq!(p.unlock_requests().len(), 1);
+}
+
+// Go: TestUnlockWithACorruptIdentityFileIsDistinguishable
+#[test]
+fn unlock_with_a_corrupt_identity_file_is_distinguishable() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    truncate_identity_file(&m.identity_path(&v.id, "laptop-1"));
+    let err = v.unlock(&prompter(&[PASSPHRASE])).unwrap_err();
+    assert!(matches!(err, UnlockError::CorruptIdentityFile(_)), "{err}");
+    assert_eq!(err.code(), Code::Conflict);
+}
+
+// Go: TestUnlockWithAWellFormedButWrongKindOfFileIsCorruptNotWrongPassphrase:
+// a valid age file wrapped to a public key fails exactly like a bad
+// passphrase inside age, so gage must look at the header to avoid
+// re-prompting forever for a passphrase that cannot work.
+#[test]
+fn unlock_with_a_well_formed_but_wrong_kind_of_file_is_corrupt_not_wrong_passphrase() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let stranger = age::x25519::Identity::generate().to_public().to_string();
+    let ct = crypt::encrypt(
+        b"a valid age file wrapped to a public key, not a passphrase",
+        &[Recipient::parse(&stranger).unwrap()],
+    )
+    .unwrap();
+    std::fs::write(m.identity_path(&v.id, "laptop-1"), ct).unwrap();
+
+    let p = prompter(&[PASSPHRASE, PASSPHRASE, PASSPHRASE]);
+    let err = v.unlock(&p).unwrap_err();
+    assert!(matches!(err, UnlockError::CorruptIdentityFile(_)), "{err}");
+    assert_eq!(p.unlock_requests().len(), 1);
+}
+
+// A file that decrypts but holds no key line is corrupt too (Go's
+// parseIdentityFile's last branch), and so is one whose key line doesn't
+// parse.
+#[test]
+fn unlock_of_a_file_without_a_usable_key_line_is_corrupt() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    for (what, plaintext) in [
+        (
+            "no key line",
+            "# created: 2026-01-01T00:00:00Z\n# just comments\n".to_string(),
+        ),
+        ("bad key line", format!("{SECRET_KEY_PREFIX}NOTBECH32\n")),
+    ] {
+        let wrapped =
+            crypt::encrypt(plaintext.as_bytes(), &[Recipient::passphrase(PASSPHRASE)]).unwrap();
+        std::fs::write(m.identity_path(&v.id, "laptop-1"), wrapped).unwrap();
+        let err = v.unlock(&prompter(&[PASSPHRASE])).unwrap_err();
+        assert!(
+            matches!(err, UnlockError::CorruptIdentityFile(_)),
+            "{what}: {err}"
+        );
+    }
+}
+
+// Go: TestUnlockRejectsAnEmptyPassphrase: refused outright, not retried,
+// since an empty answer means the prompter has nothing to give.
+#[test]
+fn unlock_rejects_an_empty_passphrase() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let p = prompter(&[""]);
+    let err = v.unlock(&p).unwrap_err();
+    assert!(matches!(err, UnlockError::EmptyPassphrase), "{err}");
+    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(p.unlock_requests().len(), 1);
+}
+
+fn assert_no_local_identity(err: UnlockError) {
+    assert!(matches!(err, UnlockError::NoLocalIdentity(_)), "{err:?}");
+    assert_eq!(err.code(), Code::LockedOrAuth);
+}
+
+// Go: TestUnlockWithNoLocalIdentityIsDistinguishable
+#[test]
+fn unlock_with_no_local_identity_is_distinguishable() {
+    // No identity file.
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    m.register("personal", &id, "laptop-1", vault::METHOD_PASSPHRASE);
+    assert_no_local_identity(
+        m.vault("personal", &id)
+            .unlock(&prompter(&[PASSPHRASE]))
+            .unwrap_err(),
+    );
+
+    // The vault isn't registered on this machine.
+    let other = vaultconfig::new_id();
+    assert_no_local_identity(
+        m.vault("some-other-vault", &other)
+            .unlock(&prompter(&[PASSPHRASE]))
+            .unwrap_err(),
+    );
+
+    // No global config at all.
+    let bare = Machine::new();
+    assert_no_local_identity(
+        bare.vault("personal", &id)
+            .unlock(&prompter(&[PASSPHRASE]))
+            .unwrap_err(),
+    );
+}
+
+// Go: TestUnlockDispatchesOnTheLocalMethodNotTheVaultDefault
+// (Q-METHOD-SCOPE): the vault's [method].default is a suggestion for
+// devices joining it; this device's own record decides.
+#[test]
+fn unlock_dispatches_on_the_local_method_not_the_vault_default() {
+    let m = Machine::new();
+    let root = tempfile::tempdir().unwrap();
+    let spec = CreateSpec {
+        name: "personal".into(),
+        id: vaultconfig::new_id(),
+        path: root.path().join("personal"),
+        vault_type: vault::TYPE_GIT.into(),
+        method: vault::METHOD_PASSPHRASE.into(),
+        device: "laptop-1".into(),
+        recipients: vec![age::x25519::Identity::generate().to_public().to_string()],
+        remote: None,
+    };
+    let v = Vault::create(&m.dirs, &spec).unwrap();
+    m.register("personal", &spec.id, "laptop-1", "yubikey");
+
+    let p = FakePrompter::new();
+    let err = v.unlock(&p).unwrap_err();
+
+    assert!(
+        matches!(&err, UnlockError::UnsupportedMethod { method, .. } if method == "yubikey"),
+        "{err}"
+    );
+    assert!(err.to_string().contains("yubikey"), "{err}");
+    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert!(
+        p.unlock_requests().is_empty(),
+        "prompted despite the method not being passphrase"
+    );
+}
+
+// Go: TestUnlockNeverBuildsAPathFromAnUnvalidatedDeviceName (Q-DEVICE-NAME).
+// The assertion is the refusal variant, not merely failure: with
+// validation removed, the traversed path wouldn't exist and the unlock
+// would fail as NoLocalIdentity, so a weaker test would pass while gage
+// opened a path outside identities/.
+#[test]
+fn unlock_never_builds_a_path_from_an_unvalidated_device_name() {
+    for device in unsafe_device_names() {
+        let m = Machine::new();
+        let id = vaultconfig::new_id();
+        m.register("personal", &id, &device, vault::METHOD_PASSPHRASE);
+
+        let err = m
+            .vault("personal", &id)
+            .unlock(&prompter(&[PASSPHRASE]))
+            .unwrap_err();
+
+        assert!(
+            matches!(&err, UnlockError::UnsafePath(paths::Error::InvalidDeviceName(d)) if *d == device),
+            "{device:?}: {err:?}"
+        );
+        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert!(
+            !m.identities_root().exists(),
+            "{device:?}: unlock created something under identities/"
+        );
+    }
+}
+
+// Go: TestUnlockWithNoRecordedDeviceIsAMissingIdentityNotAnUnsafeName: an
+// empty device never reaches the path builder.
+#[test]
+fn unlock_with_no_recorded_device_is_a_missing_identity_not_an_unsafe_name() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    m.register("personal", &id, "", vault::METHOD_PASSPHRASE);
+    assert_no_local_identity(
+        m.vault("personal", &id)
+            .unlock(&prompter(&[PASSPHRASE]))
+            .unwrap_err(),
+    );
+}
+
+// Go: TestWarningsDoNotDoubleGagesOwnPrefix, M2's half (P4's push warnings
+// add theirs): a frontend shows a warning as it is (the terminal prompter
+// prints it verbatim), so each one names gage itself, exactly once.
+#[test]
+fn warnings_do_not_double_gages_own_prefix() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let vault_id = v.id.clone();
+    let p = prompter(&[PASSPHRASE, PASSPHRASE]);
+    let _id = v
+        .with_locker(CountingLocker::failing("mlock: cannot allocate memory"))
+        .unlock(&p)
+        .unwrap();
+    // The reuse warning: create finds this device's file already there.
+    identityfile::create(&m.dirs, &vault_id, "personal", "laptop-1", &p).unwrap();
+
+    let warnings = p.warnings();
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    for w in &warnings {
+        assert!(w.starts_with("gage: "), "does not name gage: {w}");
+        assert_eq!(w.matches("gage: ").count(), 1, "names gage twice: {w}");
+    }
+}

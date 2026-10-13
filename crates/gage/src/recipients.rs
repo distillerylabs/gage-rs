@@ -66,8 +66,7 @@ mod tests {
 
     // The format age's recipients-file reader accepts: one recipient per
     // line, each line terminated, nothing else. The age crate's own
-    // round-trip waits for M2, which adds it as a dependency (see the M1
-    // doc).
+    // round trip is the next test.
     #[test]
     fn write_has_no_framing_one_per_line() {
         let dir = tempfile::tempdir().unwrap();
@@ -79,6 +78,33 @@ mod tests {
             std::fs::read_to_string(&path).unwrap(),
             format!("{KEY_1}\n{KEY_2}\n{KEY_1}\n")
         );
+    }
+
+    // The round trip M1 deferred to M2: every non-blank, non-comment line of
+    // a written file parses with age's X25519 recipient parser, the one
+    // stock `age -R` uses for those lines. age's own file reader needs its
+    // `cli-common` feature, a frontend dependency the library doesn't take.
+    #[test]
+    fn written_file_parses_with_ages_own_recipient_parser() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".age-recipients");
+        let keys: Vec<String> = (0..3)
+            .map(|_| age::x25519::Identity::generate().to_public().to_string())
+            .collect();
+        write(&path, &keys).unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        let parsed: Vec<String> = text
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(|l| {
+                l.parse::<age::x25519::Recipient>()
+                    .unwrap_or_else(|e| panic!("{l:?}: {e}"))
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(parsed, keys);
     }
 
     #[test]

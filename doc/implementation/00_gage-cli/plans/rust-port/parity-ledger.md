@@ -72,12 +72,12 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `386c57e` | #38 | `init --remote` solicits an HTTPS token inline | P4 · M8a | `[ ]` |
 | `a0920b0`, `0a1beeb` | #39 | `vault remove` orphaned-identity cleanup (later revised by E0: compare public keys, `Confirm`, default keep) | P6 · M12 | `[ ]` |
 | `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | P1 · M0b (a separate binary, never a `gage` subcommand; needs `xdgpaths`) | `[x]` |
-| `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[x]` errors; warnings end to end with `Prompter::warn` (P2 · M2) |
+| `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[x]` errors (M0b); `[~]` warnings: M2's (page lock, identity reuse) name gage once through `Prompter::warn`, pending CI; P4's push warnings add theirs |
 | `a1572d5` | — | `ls` shows title and `updated_by` | P2 · M4 | `[ ]` |
 | `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 | `[ ]` |
-| `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[ ]` |
-| `e52828a` | — | Scrypt work-factor test hook and its guard tests | P2 · M2 | `[ ]` |
-| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders; M1: `[vault].id`, format 2 with the directional refusal, the registration-vs-vault id check |
+| `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[~]` `memlock::LockedBuf` gives each key its own pages; `alloc_gives_each_buffer_its_own_page`, `unlocking_one_buffer_leaves_another_locked`; pending CI |
+| `e52828a` | — | Scrypt work-factor test hook and its guard tests | P2 · M2 | `[~]` identity-file halves (Q-SCRYPT-HOOK), pending CI; the enrollment halves are P7's |
+| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders; M1: `[vault].id`, format 2 with the directional refusal, the registration-vs-vault id check; M2: identity files filed under the committed id, the `vault-name.txt` marker, `init`'s rollback (pending CI) |
 | `3fd784c`, `fbc887f` | #46 | E1a unconditional re-encrypt + recipient regression fixes | Folded: P5 · M9 | `[ ]` |
 | `045bf24`, `9d72384` | #48 | E1b shared recipient write + fixes | P7 · E1b | `[ ]` |
 | `798ed47` | — | E2 sealed request | P7 · E2 | `[ ]` |
@@ -98,7 +98,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 |---|---|---|---|
 | `gage-cli-design/` | M0 | P1 · M0a + M0b | `[x]` |
 | | M1 | P1 · M1 (+ E0) | `[x]` |
-| | M2 | P2 · M2 (+ E0 identity paths) | `[ ]` planned ([#12](https://github.com/distillerylabs/gage-rs/issues/12)) |
+| | M2 | P2 · M2 (+ E0 identity paths) | `[~]` implemented ([#13](https://github.com/distillerylabs/gage-rs/issues/13)); CI and the Opus test review pending |
 | | M3, M4 | P2 · M3, M4 | `[ ]` planned ([#12](https://github.com/distillerylabs/gage-rs/issues/12)) |
 | | M5, M6, M7, M13 | P3 | `[ ]` |
 | | M8a, M8b | P4 | `[ ]` |

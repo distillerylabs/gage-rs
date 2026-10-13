@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use gage::config::{self, Global, VaultEntry};
 use gage::exitcode::Code;
-use gage::prompter::FakePrompter;
+use gage::prompter::{FakePrompter, Prompter};
 use gage::vaultconfig;
 use gage::xdgpaths::Dirs;
 use gage::{gitrepo, paths, recipients};
@@ -19,27 +19,30 @@ use crate::error::ERROR_PREFIX;
 use crate::{BuildInfo, Io};
 
 const RECIPIENT_1: &str = "age1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0savhh7m";
+/// What every [`Env::run`] answers a passphrase request with.
+pub(crate) const PASSPHRASE: &str = "correct horse battery staple";
 const RECIPIENT_2: &str = "age1yubikey1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9hkmc0";
 
 /// The hostname every [`Env`] reports unless a test sets another.
 const HOSTNAME: &str = "Test-Host.local";
 
-struct CliResult {
-    code: Code,
-    stdout: String,
-    stderr: String,
+pub(crate) struct CliResult {
+    pub(crate) code: Code,
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
 }
 
 /// One isolated machine: its own config, data and state roots (Go's
 /// `isolateXDG`) and hostname.
-struct Env {
-    root: tempfile::TempDir,
-    dirs: Dirs,
-    hostname: String,
+pub(crate) struct Env {
+    pub(crate) root: tempfile::TempDir,
+    pub(crate) dirs: Dirs,
+    pub(crate) hostname: String,
 }
 
 impl Env {
-    fn new() -> Env {
+    pub(crate) fn new() -> Env {
+        gage::testsupport::fast_scrypt();
         let root = tempfile::tempdir().unwrap();
         let dirs = Dirs {
             config: root.path().join("config").join("gage"),
@@ -53,7 +56,14 @@ impl Env {
         }
     }
 
-    fn run(&self, args: &[&str]) -> CliResult {
+    /// Runs `args` with a prompter that answers one passphrase request
+    /// (init's) with [`PASSPHRASE`]; anything else it is asked fails the
+    /// test.
+    pub(crate) fn run(&self, args: &[&str]) -> CliResult {
+        self.run_with(args, &FakePrompter::new().with_passphrase(PASSPHRASE))
+    }
+
+    pub(crate) fn run_with(&self, args: &[&str], prompter: &dyn Prompter) -> CliResult {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
         let dirs = self.dirs.clone();
@@ -67,7 +77,7 @@ impl Env {
             dirs: &move || Ok(dirs.clone()),
             hostname: &move || Ok(hostname.clone()),
         };
-        let code = crate::run(&args, &mut io, &FakePrompter::new());
+        let code = crate::run(&args, &mut io, prompter);
         CliResult {
             code,
             stdout: String::from_utf8(stdout).unwrap(),
@@ -76,30 +86,29 @@ impl Env {
     }
 
     /// Runs `args` and requires success.
-    fn ok(&self, args: &[&str]) -> CliResult {
+    pub(crate) fn ok(&self, args: &[&str]) -> CliResult {
         let r = self.run(args);
         assert_eq!(r.code, Code::Success, "{args:?} failed:\n{}", r.stderr);
         r
     }
 
-    /// `gage init <name> --recipient RECIPIENT_1 <extra...>`; returns the
-    /// registered path.
-    fn init(&self, name: &str, extra: &[&str]) -> PathBuf {
-        let mut args = vec!["init", name, "--recipient", RECIPIENT_1];
+    /// `gage init <name> <extra...>`; returns the registered path.
+    pub(crate) fn init(&self, name: &str, extra: &[&str]) -> PathBuf {
+        let mut args = vec!["init", name];
         args.extend_from_slice(extra);
         self.ok(&args);
         self.entry(name).path
     }
 
-    fn global(&self) -> Global {
+    pub(crate) fn global(&self) -> Global {
         config::load(&paths::global_config_file(&self.dirs)).unwrap()
     }
 
-    fn save_global(&self, global: &Global) {
+    pub(crate) fn save_global(&self, global: &Global) {
         config::save(&paths::global_config_file(&self.dirs), global).unwrap();
     }
 
-    fn entry(&self, name: &str) -> VaultEntry {
+    pub(crate) fn entry(&self, name: &str) -> VaultEntry {
         self.global()
             .vaults
             .get(name)
@@ -109,17 +118,17 @@ impl Env {
 
     /// The registered vault's committed config: the file init wrote, not
     /// the global registry.
-    fn vault_config(&self, name: &str) -> vaultconfig::File {
+    pub(crate) fn vault_config(&self, name: &str) -> vaultconfig::File {
         vaultconfig::read(&config_file(&self.entry(name).path)).unwrap()
     }
 
-    fn default_vault_path(&self, name: &str) -> PathBuf {
+    pub(crate) fn default_vault_path(&self, name: &str) -> PathBuf {
         paths::vaults_dir(&self.dirs).join(name)
     }
 
     /// Every path under the data and state roots, so a test can assert a
     /// command created, moved or removed nothing there.
-    fn tree(&self) -> Vec<PathBuf> {
+    pub(crate) fn tree(&self) -> Vec<PathBuf> {
         let mut found = Vec::new();
         for root in [&self.dirs.data, &self.dirs.state] {
             walk(root, &mut found);
@@ -142,7 +151,7 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn config_file(vault: &Path) -> PathBuf {
+pub(crate) fn config_file(vault: &Path) -> PathBuf {
     vault.join(".gage").join("config.toml")
 }
 
@@ -215,7 +224,7 @@ fn init_with_an_unusable_hostname_fails_before_creating_files() {
     let mut env = Env::new();
     env.hostname = "!!!".into();
 
-    let r = env.run(&["init", "personal", "--recipient", RECIPIENT_1]);
+    let r = env.run_with(&["init", "personal"], &FakePrompter::new());
 
     assert_eq!(r.code, Code::Usage);
     assert!(r.stderr.contains("--device"), "{}", r.stderr);
@@ -241,7 +250,7 @@ fn init_defaults_the_device_to_the_normalized_hostname() {
 fn init_creates_full_skeleton_and_registers() {
     let env = Env::new();
 
-    let r = env.ok(&["init", "personal", "--recipient", RECIPIENT_1]);
+    let r = env.ok(&["init", "personal"]);
 
     let entry = env.entry("personal");
     for rel in [
@@ -295,14 +304,7 @@ fn init_into_non_empty_non_gage_directory_fails_without_touching_files() {
     std::fs::create_dir(&dir).unwrap();
     std::fs::write(dir.join("keep.txt"), "mine").unwrap();
 
-    let r = env.run(&[
-        "init",
-        "personal",
-        "--dir",
-        dir.to_str().unwrap(),
-        "--recipient",
-        RECIPIENT_1,
-    ]);
+    let r = env.run(&["init", "personal", "--dir", dir.to_str().unwrap()]);
 
     assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
     let names: Vec<_> = std::fs::read_dir(&dir)
@@ -323,8 +325,12 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
     let env = Env::new();
     let path = env.init("personal", &[]);
     let before = env.global();
+    let keys_before = recipients::read(&path.join(".age-recipients")).unwrap();
 
-    let r = env.run(&["init", "personal", "--recipient", RECIPIENT_2]);
+    let r = env.run_with(
+        &["init", "personal", "--recipient", RECIPIENT_2],
+        &FakePrompter::new(),
+    );
 
     assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
     assert!(
@@ -334,7 +340,7 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
     );
     assert_eq!(env.global(), before);
     let keys = recipients::read(&path.join(".age-recipients")).unwrap();
-    assert_eq!(keys, [RECIPIENT_1]);
+    assert_eq!(keys, keys_before);
 }
 
 // Go: TestInitDefaultsLandInVaultConfigAndGlobalConfig
@@ -358,7 +364,8 @@ fn init_defaults_land_in_vault_config_and_global_config() {
 }
 
 // Go: TestInitExplicitTypeAndMethodEquivalentToDefault. Equivalent, not
-// merely accepted: the files must match bar the name, id and date.
+// merely accepted: the files must match bar the name, id, date and this
+// device's key, which every vault generates afresh.
 #[test]
 fn init_explicit_type_and_method_equivalent_to_default() {
     let env = Env::new();
@@ -375,6 +382,9 @@ fn init_explicit_type_and_method_equivalent_to_default() {
         file.vault.name.clear();
         file.vault.id.clear();
         file.vault.created.clear();
+        for r in &mut file.recipients {
+            r.pubkey.clear();
+        }
     }
     assert_eq!(implicit, explicit);
 
@@ -386,14 +396,7 @@ fn init_explicit_type_and_method_equivalent_to_default() {
 #[test]
 fn init_unknown_type_fails_with_usage_and_lists_git() {
     let env = Env::new();
-    let r = env.run(&[
-        "init",
-        "personal",
-        "--type",
-        "s3",
-        "--recipient",
-        RECIPIENT_1,
-    ]);
+    let r = env.run_with(&["init", "personal", "--type", "s3"], &FakePrompter::new());
     assert_eq!(r.code, Code::Usage);
     assert!(r.stderr.contains("git"), "{}", r.stderr);
     assert!(!env.default_vault_path("personal").exists());
@@ -413,14 +416,7 @@ fn init_unknown_method_fails_with_usage() {
     ] {
         let name = format!("personal-{}", method.replace(':', "-"));
 
-        let r = env.run(&[
-            "init",
-            &name,
-            "--method",
-            method,
-            "--recipient",
-            RECIPIENT_1,
-        ]);
+        let r = env.run_with(&["init", &name, "--method", method], &FakePrompter::new());
 
         assert_eq!(r.code, Code::Usage, "{method}");
         assert!(r.stderr.contains("passphrase"), "{}", r.stderr);
@@ -444,29 +440,44 @@ fn init_malformed_recipient_fails_before_creating_files() {
     ] {
         let mut args = vec!["init", "personal"];
         args.extend_from_slice(keys);
-        let r = env.run(&args);
+        let r = env.run_with(&args, &FakePrompter::new());
         assert_eq!(r.code, Code::Usage, "{keys:?}");
         assert!(!env.default_vault_path("personal").exists());
         assert!(env.global().vaults.is_empty());
     }
 }
 
-// Go: TestInitRepeatedRecipientWritesAll. In the order given, the first
-// labelled as this device and the rest by position.
+// Go: TestInitRepeatedRecipientWritesAll. This device's key first, then
+// every --recipient in the order given (repeats included), labelled by
+// position.
 #[test]
 fn init_repeated_recipient_writes_all() {
     let env = Env::new();
-    let path = env.init("personal", &["--recipient", RECIPIENT_2]);
+    let path = env.init(
+        "personal",
+        &[
+            "--recipient",
+            RECIPIENT_1,
+            "--recipient",
+            RECIPIENT_2,
+            "--recipient",
+            RECIPIENT_1,
+        ],
+    );
 
     let keys = recipients::read(&path.join(".age-recipients")).unwrap();
-    assert_eq!(keys, [RECIPIENT_1, RECIPIENT_2]);
+    assert_eq!(keys[0], env.entry("personal").pubkey);
+    assert_eq!(keys[1..], [RECIPIENT_1, RECIPIENT_2, RECIPIENT_1]);
     let labels: Vec<String> = env
         .vault_config("personal")
         .recipients
         .into_iter()
         .map(|r| r.device)
         .collect();
-    assert_eq!(labels, ["test-host", "recipient-2"]);
+    assert_eq!(
+        labels,
+        ["test-host", "recipient-2", "recipient-3", "recipient-4"]
+    );
 }
 
 // Go: TestInitDeviceFlagOverridesHostnameDefault
@@ -481,14 +492,10 @@ fn init_device_flag_overrides_hostname_default() {
 #[test]
 fn init_device_flag_failing_allowlist_rejected_before_creating_files() {
     let env = Env::new();
-    let r = env.run(&[
-        "init",
-        "personal",
-        "--device",
-        "../../../etc/x",
-        "--recipient",
-        RECIPIENT_1,
-    ]);
+    let r = env.run_with(
+        &["init", "personal", "--device", "../../../etc/x"],
+        &FakePrompter::new(),
+    );
     assert_eq!(r.code, Code::Usage);
     assert!(env.tree().is_empty(), "{:?}", env.tree());
     assert!(env.global().vaults.is_empty());
@@ -506,47 +513,83 @@ fn init_records_this_devices_device_and_method() {
     assert_eq!(entry.method, "passphrase");
 }
 
-// Go: TestInitDeviceFlagAgreesEverywhere, the global-config and
-// [[recipients]] halves. The identity-file half moves to P2 · M2.
+// Go: TestInitDeviceFlagAgreesEverywhere: global config, [[recipients]]
+// and the identity file's name.
 #[test]
 fn init_device_flag_agrees_everywhere() {
     let env = Env::new();
     env.init("personal", &["--device", "workstation-7"]);
-    assert_eq!(env.entry("personal").device, "workstation-7");
+    let entry = env.entry("personal");
+    assert_eq!(entry.device, "workstation-7");
     assert_eq!(
         env.vault_config("personal").recipients[0].device,
         "workstation-7"
     );
+    let identity = env
+        .dirs
+        .data
+        .join("identities")
+        .join(&entry.id)
+        .join("workstation-7.age");
+    assert!(
+        identity.is_file(),
+        "no identity file at {}",
+        identity.display()
+    );
 }
 
-// Go: TestReinitAfterVaultRemoveIsAnOrdinaryRetry, the registration half:
-// re-init under a removed name succeeds and mints a new id. The
-// identity-file halves move to P2 · M2.
+// Go: TestReinitAfterVaultRemoveIsAnOrdinaryRetry: re-init under a
+// removed name succeeds, mints a new id, and files a new identity under it,
+// leaving the removed vault's leftover identity file untouched.
 #[test]
 fn reinit_after_vault_remove_is_an_ordinary_retry() {
     let env = Env::new();
     let path = env.init("vault-test-newinit", &["--device", "laptop-1"]);
     let old_id = env.entry("vault-test-newinit").id;
+    let old_identity = paths::identity_file_path(&env.dirs, &old_id, "laptop-1").unwrap();
+    let old_bytes = std::fs::read(&old_identity).unwrap();
     std::fs::remove_dir_all(&path).unwrap();
     env.ok(&["vault", "remove", "vault-test-newinit"]);
+    assert!(
+        old_identity.is_file(),
+        "vault remove took the identity file"
+    );
 
     env.init("vault-test-newinit", &["--device", "laptop-1"]);
 
     let entry = env.entry("vault-test-newinit");
     assert_ne!(entry.id, old_id, "a new vault gets a new id");
     assert_eq!(env.vault_config("vault-test-newinit").vault.id, entry.id);
+    let new_identity = paths::identity_file_path(&env.dirs, &entry.id, "laptop-1").unwrap();
+    assert_ne!(new_identity, old_identity);
+    assert!(new_identity.is_file(), "the re-init wrote no identity file");
+    assert_eq!(
+        std::fs::read(&old_identity).unwrap(),
+        old_bytes,
+        "the leftover was disturbed"
+    );
 }
 
-// Interim, Go M1's own bullet (no Go row survives it): with no identity to
-// generate, init needs --recipient and says so. M2 rewrites this test.
+// Go: TestInitWithNoRecipientGeneratesThisDevicesIdentity. Replaces M1's
+// interim "init requires --recipient" (Q-INIT-INTERIM, closed by M2).
 #[test]
-fn init_without_recipient_fails_with_usage_naming_the_flag() {
+fn init_with_no_recipient_generates_this_devices_identity() {
     let env = Env::new();
-    let r = env.run(&["init", "personal"]);
-    assert_eq!(r.code, Code::Usage);
-    assert!(r.stderr.contains("--recipient"), "{}", r.stderr);
-    assert!(env.tree().is_empty(), "{:?}", env.tree());
-    assert!(env.global().vaults.is_empty());
+    env.ok(&["init", "personal"]);
+
+    let entry = env.entry("personal");
+    let file = env.vault_config("personal");
+    assert_eq!(
+        file.recipients.len(),
+        1,
+        "want exactly this device's own key"
+    );
+    let pubkey = &file.recipients[0].pubkey;
+    gage::agekey::validate_recipient(pubkey).unwrap();
+    assert_eq!(file.recipients[0].device, entry.device);
+    // The same key, in both recipient-defining files.
+    let keys = recipients::read(&entry.path.join(".age-recipients")).unwrap();
+    assert_eq!(keys, std::slice::from_ref(pubkey));
 }
 
 // Go: TestInitMintsADistinctUUIDv4PerVault
@@ -579,8 +622,8 @@ fn init_writes_format_version_two() {
     assert_eq!(env.vault_config("personal").vault.format_version, 2);
 }
 
-// init's help describes what M1 ships (Q-INIT-INTERIM): --recipient, and
-// no --remote or recovery-key flags yet.
+// init's help describes what M2 ships: the identity it generates and an
+// additive --recipient, and no --remote or recovery-key flags yet.
 #[test]
 fn init_help_describes_this_milestone() {
     let env = Env::new();
@@ -593,11 +636,15 @@ fn init_help_describes_this_milestone() {
         "--dir",
         "--type",
         "--method",
-        "required for now",
+        "Generates this device's identity",
+        "passphrase\nyou choose",
+        "never committed or synced",
+        "--recipient is additive",
+        "this device's own key is always included",
     ] {
         assert!(help.contains(want), "{want:?} missing:\n{help}");
     }
-    for absent in ["--remote", "recovery", "passphrase you choose"] {
+    for absent in ["--remote", "recovery", "required for now"] {
         assert!(!help.contains(absent), "{absent:?} present:\n{help}");
     }
     assert_eq!(env.ok(&["help", "init"]).stdout, help);
@@ -620,13 +667,15 @@ fn vault_list_includes_freshly_inited_vault() {
     assert_eq!(r.stdout, "* personal\n  work\n");
 }
 
-// Go: TestVaultInfoByNameReportsExpectedFields. Two recipients: in M1 the
-// --recipient keys are the whole list (Go's three include the device key
-// M2 generates).
+// Go: TestVaultInfoByNameReportsExpectedFields. Three: this device's own
+// generated key plus the two --recipient keys, which are additive to it.
 #[test]
 fn vault_info_by_name_reports_expected_fields() {
     let env = Env::new();
-    env.init("personal", &["--recipient", RECIPIENT_2]);
+    env.init(
+        "personal",
+        &["--recipient", RECIPIENT_1, "--recipient", RECIPIENT_2],
+    );
     env.init("work", &[]);
 
     let r = env.ok(&["vault", "info", "personal"]);
@@ -635,7 +684,7 @@ fn vault_info_by_name_reports_expected_fields() {
     assert_eq!(
         r.stdout,
         format!(
-            "name: personal\nid: {id}\ntype: git\nmethod: passphrase\nrecipients: 2\nremote: (none)\nstatus: clean\n"
+            "name: personal\nid: {id}\ntype: git\nmethod: passphrase\nrecipients: 3\nremote: (none)\nstatus: clean\n"
         )
     );
 }
@@ -945,24 +994,11 @@ fn git_set_remote_on_an_unregistered_name_is_not_found() {
 fn no_vault_command_doubles_gages_own_prefix() {
     let doubled = format!("{ERROR_PREFIX}{ERROR_PREFIX}");
     let cases: &[(&str, &[&str])] = &[
-        ("init without --recipient", &["init", "a"]),
-        (
-            "init bad device",
-            &["init", "a", "--device", "../x", "--recipient", RECIPIENT_1],
-        ),
-        (
-            "init bad type",
-            &["init", "a", "--type", "s3", "--recipient", RECIPIENT_1],
-        ),
-        (
-            "init bad method",
-            &["init", "a", "--method", "ssh", "--recipient", RECIPIENT_1],
-        ),
+        ("init bad device", &["init", "a", "--device", "../x"]),
+        ("init bad type", &["init", "a", "--type", "s3"]),
+        ("init bad method", &["init", "a", "--method", "ssh"]),
         ("init bad recipient", &["init", "a", "--recipient", "nope"]),
-        (
-            "init registered name",
-            &["init", "personal", "--recipient", RECIPIENT_1],
-        ),
+        ("init registered name", &["init", "personal"]),
         ("init missing name", &["init"]),
         ("vault info unknown", &["vault", "info", "nope"]),
         ("vault info mismatched", &["vault", "info", "mismatched"]),
