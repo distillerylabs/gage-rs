@@ -486,7 +486,12 @@ for the tmpfs check.**
   tmpfs; elsewhere `std::env::temp_dir()`. The file is created
   exclusively with an unpredictable name (`tempfile`), 0600 on Unix, and
   on every exit path overwritten with zeros at its length and unlinked,
-  both best-effort, as Go.
+  both best-effort, as Go. Beyond Go, on Unix the handle the file was
+  written through stays open across the editor and is zeroed as well, so
+  an editor that saves by renaming a new file over the path can't leave
+  the original inode un-zeroed; Windows closes it before the editor runs,
+  since editors there may refuse a file another process holds (P3 · M5,
+  second review).
 - Tests fake the editor by re-executing the test binary, the pattern the
   vault-lock, core-dump and commit-author tests already use, rather than
   adding an editor seam. The action is in a config file named on the

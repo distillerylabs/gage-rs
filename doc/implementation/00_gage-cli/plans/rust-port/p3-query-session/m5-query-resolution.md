@@ -129,7 +129,12 @@ one, the bullet says so (**Changed in implementation**).
   `tempfile::Builder` (exclusive, unpredictable name `gage-edit-*.yaml`),
   mode 0600 on Unix. On every exit path (editor exit 0, non-zero exit,
   parse failure, unchanged) the file is overwritten with zeros at its
-  current length, then unlinked; both best-effort.
+  current length, then unlinked; both best-effort. **Added in review:**
+  on Unix the handle gage wrote the file through stays open across the
+  editor and is zeroed too, so an editor that saves by renaming a new
+  file over the path doesn't leave the original inode un-zeroed (Windows
+  closes it before the editor runs, as editors there may refuse a shared
+  file).
 - **`insert -e`** seeds a template with `title` and `--description`
   pre-filled and empty `value`/`fields`; aborts with no entry and no
   commit if the file comes back unchanged, or with `value` and `fields`
@@ -221,6 +226,10 @@ Tests first, at task granularity.
       only: `TestScratchDirPrefersTmpfsOnLinux`,
       `TestIsTmpfsRejectsANonExistentDirectory`; elsewhere:
       `TestScratchDirIsTheOSTempDirOffLinux`.
+- [x] From the second review (not Go rows): the rename-over-the-path
+      editor, `/proc/self/mounts` as an independent tmpfs oracle,
+      `$XDG_RUNTIME_DIR` verified and ordered, scratch file gone after
+      every command-level abort. See the review below.
 
 ### 5. `show`, `edit`, `rename` — `show` (8 of 9), `edit` (5), `rename` (3)
 
@@ -334,8 +343,58 @@ Two gaps found and closed with tests that aren't Go rows:
 that must stay empty, not by a record the fake editor would never have
 written anyway (Go's check can't fail for the unset case).
 
-Two exposures the tests can't close, both shared with Go and left as they
-are, recorded here for P9's review:
+### Second review pass
+
+A second, independent Opus pass found the first one's fixes sound and
+closed these:
+
+- **A broken `is_tmpfs` could not fail any test.** `TestScratchDirPrefersTmpfsOnLinux`
+  decided whether to skip by calling `is_tmpfs` itself, and nothing
+  checked a positive answer, so an `is_tmpfs` that always said no sent
+  plaintext to a disk-backed `/tmp` with the suite green. The Linux tests
+  now take tmpfs-ness from `/proc/self/mounts` (`mount_fstype`), and
+  `is_tmpfs_agrees_with_proc_mounts` checks `is_tmpfs` against it both
+  ways on every candidate the host has.
+- **"Verified, not assumed" was untested.** On a CI host whose
+  `$XDG_RUNTIME_DIR` is tmpfs or unset, trusting the variable passed.
+  `scratch_dir` now delegates to `pick_scratch_dir(xdg)`, so tests pass
+  the value without `set_var`:
+  `pick_scratch_dir_passes_over_an_xdg_dir_that_is_not_tmpfs` (a
+  disk-backed or missing directory is passed over) and
+  `pick_scratch_dir_prefers_xdg_over_dev_shm` (order; unset and empty
+  fall through).
+- **Skips that hid failures.** The Linux precondition skips now fail when
+  `CI` is set (`skip_unless_ci`): GitHub's Linux runners have a tmpfs
+  `/dev/shm` and a disk-backed root, so a skip there means a broken check.
+  The two hard-link witness tests fail rather than skip when the link
+  fails, since every CI platform has hard links in its temp dir (Go
+  skips; a test policy, not behavior).
+- **Editors that save by rename** (write a new file, rename it over the
+  path; vim with some `backupcopy` settings, among others) unlink the
+  original inode themselves, so zeroing the path reached only the
+  replacement and the original plaintext was freed un-zeroed. Closed on
+  Unix by keeping gage's own handle open across the editor and zeroing
+  through it in `Drop` (Q-EDITOR).
+  `edit_yaml_zeroes_the_original_when_the_editor_replaces_the_file`
+  (the fake editor's `Replace` mode) was confirmed to fail with the
+  handle's zeroing removed. `replace` also joined the every-exit-path
+  test.
+- **Command-level aborts didn't check the file was gone.** Cleanup is
+  structural today (the guard dies inside `edit_yaml_in`, before `edit`
+  or `insert -e` decide anything), but M6's session mode could extend its
+  lifetime. `FakeEditor::assert_scratch_gone` now runs after `edit`
+  succeeding and failing to parse, and after `insert -e` aborting for an
+  unchanged file, nothing to save, and a duplicate title.
+- **One exit path was missing from the list above:** spawning `$EDITOR`
+  failing after `which` found it. It isn't honestly reachable in a test:
+  an executable file of garbage comes back as exit 126 (the non-zero
+  branch, already covered), so only a race between `which` and the spawn
+  takes the error branch. The guard exists before the spawn, so it's
+  covered structurally.
+
+### Exposures left open
+
+Shared with Go unless noted, recorded here for P9's review:
 
 - A signal that kills gage while the editor runs (Ctrl-C reaches the whole
   foreground process group; most editors ignore it, gage doesn't) skips
@@ -343,6 +402,8 @@ are, recorded here for P9's review:
   means ignoring SIGINT for the editor's lifetime.
 - Editor side files (vim's `.swp`, `~` backups) are written next to the
   scratch file and are the editor's to clean up, not gage's.
+- On Windows, a rename-saving editor still leaves the original un-zeroed:
+  the handle is closed before the editor runs (closed on Unix, above).
 
 ## Definition of done
 

@@ -325,10 +325,11 @@ fn edit_changes_value_and_leaves_other_fields_untouched() {
         "old-value",
         &["ProtonMail", "--description", "personal email"],
     );
-    let _editor = FakeEditor::new(Action::Set(&[Set::Value("new-value")]));
-    env.set_editor(&_editor);
+    let fake = FakeEditor::new(Action::Set(&[Set::Value("new-value")]));
+    env.set_editor(&fake);
 
     let r = env.cmd_ok(&["edit", "ProtonMail"]);
+    fake.assert_scratch_gone();
 
     assert_eq!(
         r.stdout,
@@ -400,10 +401,11 @@ fn edit_unparseable_yaml_aborts_with_no_commit_and_original_unchanged() {
     env.insert_ok("original-value", &["ProtonMail"]);
     let before = env.entries("personal");
     let commits = env.commits("personal");
-    let _editor = FakeEditor::new(Action::InvalidYaml);
-    env.set_editor(&_editor);
+    let fake = FakeEditor::new(Action::InvalidYaml);
+    env.set_editor(&fake);
 
     let r = env.cmd(&["edit", "ProtonMail"]);
+    fake.assert_scratch_gone();
 
     assert_ne!(r.code, Code::Success);
     assert!(r.stderr.starts_with("gage: "), "{}", r.stderr);
@@ -633,11 +635,12 @@ fn insert_edit_sets_fields_at_creation() {
 fn insert_edit_aborts_with_no_entry_written_and_no_commit_if_unchanged() {
     let env = env_with_vault();
     let commits = env.commits("personal");
-    let _editor = FakeEditor::new(Action::Noop);
-    env.set_editor(&_editor);
+    let fake = FakeEditor::new(Action::Noop);
+    env.set_editor(&fake);
 
     let r = env.cmd(&["insert", "ProtonMail", "-e"]);
 
+    fake.assert_scratch_gone();
     assert_eq!(r.code, Code::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("nothing to save"), "{}", r.stderr);
     assert_eq!(env.commits("personal"), commits);
@@ -650,10 +653,11 @@ fn insert_edit_aborts_with_no_entry_written_and_no_commit_if_unchanged() {
 fn insert_edit_aborts_if_value_and_fields_both_still_empty() {
     let env = env_with_vault();
     let commits = env.commits("personal");
-    let _editor = FakeEditor::new(Action::Set(&[Set::Description("changed")]));
-    env.set_editor(&_editor);
+    let fake = FakeEditor::new(Action::Set(&[Set::Description("changed")]));
+    env.set_editor(&fake);
 
     let r = env.cmd(&["insert", "ProtonMail", "-e"]);
+    fake.assert_scratch_gone();
 
     assert_eq!(r.code, Code::Usage, "{}", r.stderr);
     assert_eq!(env.commits("personal"), commits);
@@ -665,10 +669,11 @@ fn insert_edit_aborts_if_value_and_fields_both_still_empty() {
 fn insert_edit_changed_title_used_for_saved_entry_and_duplicate_check() {
     let env = env_with_vault();
     env.insert_ok("existing", &["EditedTitle"]);
-    let _editor = FakeEditor::new(Action::Set(&[Set::Title("EditedTitle"), Set::Value("v")]));
-    env.set_editor(&_editor);
+    let fake = FakeEditor::new(Action::Set(&[Set::Title("EditedTitle"), Set::Value("v")]));
+    env.set_editor(&fake);
 
     let dup = env.cmd(&["insert", "OriginalTitle", "-e"]);
+    fake.assert_scratch_gone();
     assert_eq!(dup.code, Code::Conflict, "{}", dup.stderr);
     assert_eq!(env.cmd(&["cat", "OriginalTitle"]).code, Code::NotFound);
 

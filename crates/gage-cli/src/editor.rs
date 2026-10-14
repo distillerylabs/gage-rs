@@ -8,10 +8,13 @@
 //! `$EDITOR` is resolved before any file exists; the file is created
 //! exclusively, with an unpredictable name, 0600 on Unix, in a tmpfs
 //! directory where Linux can verify one; and on every way out once it
-//! exists, its bytes are overwritten with zeros and it is unlinked.
+//! exists, its bytes are overwritten with zeros and it is unlinked. On Unix
+//! gage keeps the file it created open across the editor, so the original
+//! is zeroed even when the editor saves by writing a new file and renaming
+//! it over the path.
 
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -93,6 +96,11 @@ fn resolve_editor(editor: Option<&str>) -> Result<(PathBuf, Vec<String>), CliErr
 /// dropped.
 struct Scratch {
     path: PathBuf,
+    /// The file as gage wrote it, held open while the editor runs. An
+    /// editor that saves by rename unlinks this inode without zeroing it;
+    /// the handle still reaches it. `None` on Windows, where editors may
+    /// refuse a file another process has open.
+    original: Option<File>,
 }
 
 impl Scratch {
@@ -106,24 +114,36 @@ impl Scratch {
         builder.prefix("gage-edit-").suffix(".yaml");
         #[cfg(unix)]
         builder.permissions(std::os::unix::fs::PermissionsExt::from_mode(0o600));
-        let (mut file, path) = builder
+        let (file, path) = builder
             .tempfile_in(dir)
             .map_err(creating)?
             .keep()
             .map_err(|e| creating(e.error))?;
-        let scratch = Scratch { path };
-        file.write_all(data).map_err(|e| {
-            CliError::new(Code::Internal, format!("gage: writing scratch file: {e}"))
-        })?;
+        let mut scratch = Scratch {
+            path,
+            original: Some(file),
+        };
+        if let Some(file) = &mut scratch.original {
+            file.write_all(data).map_err(|e| {
+                CliError::new(Code::Internal, format!("gage: writing scratch file: {e}"))
+            })?;
+        }
         // Closed before the editor opens it: Windows won't share it
         // otherwise.
-        drop(file);
+        if cfg!(windows) {
+            scratch.original = None;
+        }
         Ok(scratch)
     }
 }
 
 impl Drop for Scratch {
     fn drop(&mut self) {
+        // The original first: if the editor replaced the path, it is no
+        // longer reachable any other way.
+        if let Some(original) = &mut self.original {
+            let _ = zero(original);
+        }
         let _ = overwrite_then_remove(&self.path);
     }
 }
@@ -133,8 +153,13 @@ impl Drop for Scratch {
 /// erase: a copy-on-write or log-structured filesystem may keep the old
 /// blocks anyway, which is why Linux prefers a tmpfs scratch directory.
 fn overwrite_file(path: &Path) -> std::io::Result<()> {
-    let len = fs::metadata(path)?.len();
-    let mut f = OpenOptions::new().write(true).open(path)?;
+    zero(&mut OpenOptions::new().write(true).open(path)?)
+}
+
+/// Overwrites an open file with zeros from its start to its current length.
+fn zero(f: &mut File) -> std::io::Result<()> {
+    let len = f.metadata()?.len();
+    f.seek(SeekFrom::Start(0))?;
     let zeros = [0u8; 4096];
     let mut left = len;
     while left > 0 {
@@ -164,7 +189,14 @@ const TMPFS_MAGIC: i64 = 0x0102_1994;
 /// directory only when neither verifies.
 #[cfg(target_os = "linux")]
 pub(crate) fn scratch_dir() -> PathBuf {
-    let candidates = std::env::var_os("XDG_RUNTIME_DIR")
+    pick_scratch_dir(std::env::var_os("XDG_RUNTIME_DIR"))
+}
+
+/// [`scratch_dir`] with `$XDG_RUNTIME_DIR`'s value passed in, so tests can
+/// choose it without `set_var`.
+#[cfg(target_os = "linux")]
+fn pick_scratch_dir(xdg: Option<std::ffi::OsString>) -> PathBuf {
+    let candidates = xdg
         .filter(|d| !d.is_empty())
         .map(PathBuf::from)
         .into_iter()
@@ -249,6 +281,10 @@ pub(crate) mod fake {
         /// Hard-link it to [`FakeEditor::witness`] and leave it, so what
         /// happens to its inode after the editor exits stays observable.
         LinkWitness,
+        /// Hard-link it to [`FakeEditor::witness`], then save the way
+        /// rename-based editors do: write a new file with `value: replaced`
+        /// and rename it over the path, unlinking the original inode.
+        Replace,
         /// Parse it, apply these, write it back.
         Set(&'a [Set<'a>]),
     }
@@ -282,6 +318,7 @@ pub(crate) mod fake {
                 Action::InvalidYaml => lines.push("mode=invalid-yaml".into()),
                 Action::Delete => lines.push("mode=delete".into()),
                 Action::LinkWitness => lines.push("mode=link-witness".into()),
+                Action::Replace => lines.push("mode=replace".into()),
                 Action::Set(sets) => {
                     lines.push("mode=set".into());
                     for s in sets {
@@ -337,10 +374,18 @@ pub(crate) mod fake {
             text.lines().nth(1).unwrap().to_string()
         }
 
-        /// A second name for the scratch file's inode ([`Action::LinkWitness`]),
-        /// or `None` if hard links aren't available here.
+        /// A second name for the scratch file's original inode
+        /// ([`Action::LinkWitness`], [`Action::Replace`]), or `None` if the
+        /// hard link failed.
         pub(crate) fn witness(&self) -> Option<Vec<u8>> {
             std::fs::read(&self.witness).ok()
+        }
+
+        /// Fails unless the editor ran and the scratch file it was given
+        /// is gone, whatever the command did with the result.
+        pub(crate) fn assert_scratch_gone(&self) {
+            let path = self.scratch_path().expect("the fake editor never ran");
+            assert!(!path.exists(), "{} survived", path.display());
         }
 
         /// The file's contents as the editor first saw them.
@@ -392,6 +437,15 @@ pub(crate) mod fake {
             // "unavailable here".
             "link-witness" => {
                 let _ = std::fs::hard_link(path, cfg["witness"]);
+                0
+            }
+            "replace" => {
+                let _ = std::fs::hard_link(path, cfg["witness"]);
+                let mut e: Entry = entry::unmarshal(&original).unwrap();
+                e.value = "replaced".into();
+                let new = path.with_extension("yaml.replace");
+                std::fs::write(&new, entry::marshal(&e).unwrap()).unwrap();
+                std::fs::rename(&new, path).unwrap();
                 0
             }
             "invalid-yaml" => {
@@ -579,6 +633,7 @@ mod tests {
                 ("fail", Action::Fail),
                 ("invalid-yaml", Action::InvalidYaml),
                 ("delete", Action::Delete),
+                ("replace", Action::Replace),
             ]
         };
         for (name, action) in actions() {
@@ -613,7 +668,9 @@ mod tests {
     // Not a Go row: the real flow, not just the helper, overwrites before
     // it unlinks. The fake editor hard-links the scratch file to a witness
     // that outlives the unlink; a cleanup reduced to a bare remove would
-    // leave the plaintext readable there.
+    // leave the plaintext readable there. Hard links work in the temp dir
+    // on every CI platform, so a failed one fails the test rather than
+    // skipping it (Go skips).
     #[test]
     fn edit_yaml_overwrites_the_scratch_file_before_unlinking_it() {
         let fake = FakeEditor::new(Action::LinkWitness);
@@ -622,13 +679,30 @@ mod tests {
         let (dir, r) = in_private_dir(Some(&fake.command), &seed);
         r.unwrap();
         assert!(is_empty(dir.path()));
-        let Some(witness) = fake.witness() else {
-            eprintln!("skipped: hard links unavailable here");
-            return;
-        };
+        let witness = fake.witness().expect("the fake editor's hard link failed");
         let template = entry::marshal(&seed).unwrap();
         assert_eq!(witness.len(), template.len(), "overwritten in place");
         assert!(witness.iter().all(|b| *b == 0), "the plaintext survived");
+    }
+
+    // Not a Go row: an editor that saves by writing a new file and renaming
+    // it over the path unlinks the original inode itself, so zeroing the
+    // path only reaches the replacement. The handle gage keeps open still
+    // reaches the original. Unix only: on Windows the handle is closed
+    // before the editor runs and this exposure stays (Q-EDITOR).
+    #[cfg(unix)]
+    #[test]
+    fn edit_yaml_zeroes_the_original_when_the_editor_replaces_the_file() {
+        let fake = FakeEditor::new(Action::Replace);
+        let mut seed = seed();
+        seed.value = "correcthorsebatterystaple".into();
+        let (dir, r) = in_private_dir(Some(&fake.command), &seed);
+        assert_eq!(r.unwrap().entry.value, "replaced");
+        assert!(is_empty(dir.path()));
+        let witness = fake.witness().expect("the fake editor's hard link failed");
+        let template = entry::marshal(&seed).unwrap();
+        assert_eq!(witness.len(), template.len(), "overwritten in place");
+        assert!(witness.iter().all(|b| *b == 0), "the original survived");
     }
 
     // Go: TestOverwriteFileZeroesContentsInPlace
@@ -649,7 +723,9 @@ mod tests {
 
     // Go: TestOverwriteThenRemoveOverwritesBeforeUnlinking. A hard link
     // keeps the inode reachable after the unlink, so the order is
-    // observable: zeroed if the overwrite ran first, plaintext if not.
+    // observable: zeroed if the overwrite ran first, plaintext if not. Go
+    // skips where hard links fail; every CI platform has them, so here a
+    // failure fails.
     #[test]
     fn overwrite_then_remove_overwrites_before_unlinking() {
         let dir = tempfile::tempdir().unwrap();
@@ -657,12 +733,7 @@ mod tests {
         let witness = dir.path().join("witness.yaml");
         let secret = "value: correcthorsebatterystaple\n";
         fs::write(&path, secret).unwrap();
-        if let Err(e) = fs::hard_link(&path, &witness) {
-            // As Go: the property holds everywhere, this way of observing
-            // it doesn't.
-            eprintln!("skipped: hard links unavailable here: {e}");
-            return;
-        }
+        fs::hard_link(&path, &witness).unwrap();
 
         overwrite_then_remove(&path).unwrap();
 
@@ -696,20 +767,139 @@ mod tests {
             .unwrap();
     }
 
-    // Go: TestScratchDirPrefersTmpfsOnLinux. Skipped where neither
-    // candidate is tmpfs (some minimal containers have no /dev/shm).
+    /// The filesystem type `/proc/self/mounts` gives for the mount `path`
+    /// is on: an oracle independent of `statfs`, so a broken [`is_tmpfs`]
+    /// can't vouch for itself. `None` if it can't tell.
+    #[cfg(target_os = "linux")]
+    fn mount_fstype(path: &Path) -> Option<String> {
+        let path = fs::canonicalize(path).ok()?;
+        let mounts = fs::read_to_string("/proc/self/mounts").ok()?;
+        let unescape = |s: &str| {
+            s.replace("\\040", " ")
+                .replace("\\011", "\t")
+                .replace("\\012", "\n")
+                .replace("\\134", "\\")
+        };
+        // The longest mount point containing `path`; on a tie the later
+        // line, which is the mount on top.
+        mounts
+            .lines()
+            .filter_map(|line| {
+                let mut words = line.split(' ');
+                let _device = words.next()?;
+                let point = PathBuf::from(unescape(words.next()?));
+                let fstype = words.next()?.to_string();
+                Some((point, fstype))
+            })
+            .filter(|(point, _)| path.starts_with(point))
+            .max_by_key(|(point, _)| point.as_os_str().len())
+            .map(|(_, fstype)| fstype)
+    }
+
+    /// Skips a test whose precondition this host lacks, except on CI
+    /// (`CI` set, as GitHub Actions does), whose Linux runners have every
+    /// precondition these tests need: there a skip would hide a broken
+    /// check behind a green run.
+    #[cfg(target_os = "linux")]
+    fn skip_unless_ci(why: &str) {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "{why}, and CI must not skip this"
+        );
+        eprintln!("skipped: {why}");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn tmpfs_per_mounts(path: &Path) -> bool {
+        mount_fstype(path).as_deref() == Some("tmpfs")
+    }
+
+    // Not a Go row: is_tmpfs agrees with /proc/self/mounts, both ways, on
+    // every candidate this host has. Without a positive case, an is_tmpfs
+    // that always said no would send scratch files to disk with every test
+    // green.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn is_tmpfs_agrees_with_proc_mounts() {
+        let mut candidates = vec![
+            PathBuf::from("/dev/shm"),
+            PathBuf::from("/"),
+            std::env::temp_dir(),
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+        ];
+        candidates.extend(std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from));
+        let mut tmpfs_seen = false;
+        for dir in candidates {
+            let Some(fstype) = mount_fstype(&dir) else {
+                continue;
+            };
+            let want = fstype == "tmpfs";
+            tmpfs_seen |= want;
+            assert_eq!(is_tmpfs(&dir), want, "{} is {fstype}", dir.display());
+        }
+        if !tmpfs_seen {
+            skip_unless_ci("no tmpfs candidate on this host");
+        }
+    }
+
+    // Go: TestScratchDirPrefersTmpfsOnLinux. Availability comes from
+    // /proc/self/mounts, not from is_tmpfs, and is required on CI.
     #[cfg(target_os = "linux")]
     #[test]
     fn scratch_dir_prefers_tmpfs_on_linux() {
         let xdg = std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from);
-        let available = xdg.as_deref().is_some_and(is_tmpfs) || is_tmpfs(Path::new("/dev/shm"));
+        let available =
+            xdg.as_deref().is_some_and(tmpfs_per_mounts) || tmpfs_per_mounts(Path::new("/dev/shm"));
         if !available {
-            eprintln!("skipped: no tmpfs-backed directory on this host");
+            skip_unless_ci("no tmpfs-backed directory on this host");
             return;
         }
         let dir = scratch_dir();
-        assert!(is_tmpfs(&dir), "{} is not tmpfs", dir.display());
-        assert_ne!(dir, std::env::temp_dir());
+        assert!(tmpfs_per_mounts(&dir), "{} is not tmpfs", dir.display());
+    }
+
+    // Not a Go row: $XDG_RUNTIME_DIR is verified, not trusted for being
+    // set. A directory on a disk-backed filesystem is passed over. Not the
+    // temp dir as a candidate: it is also the last-resort answer.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pick_scratch_dir_passes_over_an_xdg_dir_that_is_not_tmpfs() {
+        let on_disk = [
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")),
+            PathBuf::from("/"),
+        ]
+        .into_iter()
+        .find(|d| mount_fstype(d).is_some_and(|t| t != "tmpfs"));
+        let Some(on_disk) = on_disk else {
+            skip_unless_ci("no disk-backed directory on this host");
+            return;
+        };
+        let picked = pick_scratch_dir(Some(on_disk.clone().into_os_string()));
+        assert_ne!(picked, on_disk);
+        let missing = PathBuf::from("/gage-test-this-path-should-never-exist-anywhere");
+        assert_ne!(
+            pick_scratch_dir(Some(missing.clone().into_os_string())),
+            missing
+        );
+    }
+
+    // Not a Go row: $XDG_RUNTIME_DIR comes before /dev/shm when both are
+    // tmpfs, and an unset or empty one falls through to /dev/shm.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn pick_scratch_dir_prefers_xdg_over_dev_shm() {
+        let shm = Path::new("/dev/shm");
+        if !tmpfs_per_mounts(shm) {
+            skip_unless_ci("/dev/shm is not tmpfs on this host");
+            return;
+        }
+        let xdg = tempfile::tempdir_in(shm).unwrap();
+        assert_eq!(
+            pick_scratch_dir(Some(xdg.path().as_os_str().to_owned())),
+            xdg.path()
+        );
+        assert_eq!(pick_scratch_dir(None), shm);
+        assert_eq!(pick_scratch_dir(Some("".into())), shm);
     }
 
     // Go: TestIsTmpfsRejectsANonExistentDirectory
