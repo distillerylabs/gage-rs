@@ -1,0 +1,42 @@
+//! Fixtures shared by this crate's tests and other crates' (gage-cli
+//! enables `test-support` as a dev-dependency; the shipped binary never
+//! does).
+
+use std::sync::Once;
+
+use crate::crypt;
+
+/// What tests wrap and unlock identities at instead of the shipped,
+/// deliberately expensive factor. Still a real scrypt pass, so every test
+/// that unlocks a vault exercises the real wrap/unwrap path, at a cost too
+/// small to notice (Go's `testScryptWorkFactor`).
+pub const TEST_SCRYPT_WORK_FACTOR: u8 = 10;
+
+/// Lowers the live scrypt work factor to [`TEST_SCRYPT_WORK_FACTOR`] for
+/// the rest of the process; idempotent. Rust has no `TestMain`, so every
+/// fixture that creates or unlocks an identity calls this first. A test
+/// that forgets is slow, not wrong. The shipped factor stays guarded by
+/// `crypt`'s own tests, which check the constant and read it back off a
+/// real file written by a process that never called this.
+pub fn fast_scrypt() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        crypt::set_scrypt_work_factor_for_tests(TEST_SCRYPT_WORK_FACTOR);
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Go: TestMain, as the hook it installs: the live factor is lowered,
+    // and calling it again changes nothing.
+    #[test]
+    fn fast_scrypt_lowers_the_live_factor_and_is_idempotent() {
+        fast_scrypt();
+        assert_eq!(crypt::scrypt_work_factor(), TEST_SCRYPT_WORK_FACTOR);
+        fast_scrypt();
+        assert_eq!(crypt::scrypt_work_factor(), TEST_SCRYPT_WORK_FACTOR);
+        const { assert!(TEST_SCRYPT_WORK_FACTOR < crypt::SHIPPED_SCRYPT_WORK_FACTOR) };
+    }
+}

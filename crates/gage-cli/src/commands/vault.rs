@@ -6,7 +6,7 @@ use clap::ArgMatches;
 use gage::config;
 use gage::vault::Vault;
 
-use super::{arg, load_global, out};
+use super::{arg, dirs, load_global, out};
 use crate::Io;
 use crate::error::CliError;
 
@@ -32,7 +32,7 @@ pub fn info(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
     let (_, global) = load_global(io)?;
     let given = matches.get_one::<String>("name").map(String::as_str);
     let name = global.name_or_current(given)?;
-    let vault = Vault::from_registration(name, global.entry(name)?)?;
+    let vault = Vault::from_registration(&dirs(io)?, name, global.entry(name)?)?;
     let info = vault.info()?;
 
     let mut lines = vec![

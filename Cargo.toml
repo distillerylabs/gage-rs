@@ -17,3 +17,20 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
+
+# scrypt is ~50x slower unoptimized: a debug build took 36 s for one pass at
+# the shipped work factor (19) and 0.73 s in release, and every scrypt
+# identity or recipient also runs age's own calibration pass. Optimizing
+# just the KDF's crates keeps `make test` (and the guard test that writes a
+# real factor-19 file) at release speed without slowing the rest of the
+# debug build. Measured in P2 planning; see the P2 plan's resolved decisions.
+[profile.dev.package.scrypt]
+opt-level = 3
+[profile.dev.package.salsa20]
+opt-level = 3
+[profile.dev.package.pbkdf2]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.hmac]
+opt-level = 3

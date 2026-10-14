@@ -200,7 +200,15 @@ mod tests {
         }
         let _restore = Restore(dir.path());
         // Root ignores directory permission bits; there is nothing to prove.
+        // Said out loud, so a suite run as root (a CI container) shows the
+        // test proved nothing rather than reporting a silent pass.
         if fs::write(dir.path().join("probe"), b"").is_ok() {
+            #[allow(clippy::disallowed_macros)]
+            {
+                eprintln!(
+                    "skipping: running as root, which ignores the unwritable directory this test relies on"
+                );
+            }
             return;
         }
 

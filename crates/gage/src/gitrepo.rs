@@ -63,6 +63,40 @@ pub fn init_and_commit(dir: &Path, message: &str) -> Result<String, Error> {
     Ok(id.to_string())
 }
 
+/// Stages every change in the working tree, deletions included, and makes
+/// one commit on HEAD as gage. Returns the commit's id. The message is the
+/// caller's; the author and committer are always gage's own.
+///
+/// An unchanged tree still commits (an empty commit): every write a caller
+/// makes changes something, so "nothing to commit" would be a bug to
+/// surface, not to hide.
+pub fn commit_all(dir: &Path, message: &str) -> Result<String, Error> {
+    let repo = open(dir)?;
+    let mut index = repo.index().map_err(fail("opening the index of", dir))?;
+    // add_all picks up new and modified files; update_all is what notices
+    // a path that is gone.
+    index
+        .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
+        .and_then(|()| index.update_all(["*"], None))
+        .and_then(|()| index.write())
+        .map_err(fail("staging files in", dir))?;
+    let tree_id = index
+        .write_tree()
+        .map_err(fail("writing the tree of", dir))?;
+    let tree = repo
+        .find_tree(tree_id)
+        .map_err(fail("reading the tree of", dir))?;
+    let parent = repo
+        .head()
+        .and_then(|h| h.peel_to_commit())
+        .map_err(fail("reading HEAD of", dir))?;
+    let sig = git2::Signature::now(AUTHOR_NAME, AUTHOR_EMAIL).map_err(fail("signing in", dir))?;
+    let id = repo
+        .commit(Some("HEAD"), &sig, &sig, message, &tree, &[&parent])
+        .map_err(fail("committing in", dir))?;
+    Ok(id.to_string())
+}
+
 /// Points `origin` at `url`, adding the remote if there is none: `git
 /// remote add` or `git remote set-url`, whichever applies.
 pub fn set_remote(dir: &Path, url: &str) -> Result<(), Error> {
@@ -143,6 +177,58 @@ pub fn commit_count(dir: &Path) -> Result<usize, Error> {
         count += 1;
     }
     Ok(count)
+}
+
+/// What a test wants to know about a commit: who made it and what it says.
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitInfo {
+    pub message: String,
+    pub author_name: String,
+    pub author_email: String,
+    pub committer_name: String,
+    pub committer_email: String,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+fn commit_info(c: &git2::Commit<'_>) -> CommitInfo {
+    let text = |r: Result<&str, git2::Error>| r.unwrap_or_default().to_string();
+    CommitInfo {
+        message: text(c.message()),
+        author_name: text(c.author().name()),
+        author_email: text(c.author().email()),
+        committer_name: text(c.committer().name()),
+        committer_email: text(c.committer().email()),
+    }
+}
+
+/// The commit at HEAD. A test fixture helper, never compiled into the
+/// shipped binary.
+#[cfg(any(test, feature = "test-support"))]
+pub fn head_commit(dir: &Path) -> Result<CommitInfo, Error> {
+    let repo = open(dir)?;
+    let head = repo
+        .head()
+        .and_then(|h| h.peel_to_commit())
+        .map_err(fail("reading HEAD of", dir))?;
+    Ok(commit_info(&head))
+}
+
+/// Every commit reachable from HEAD, newest first. A test fixture helper.
+#[cfg(any(test, feature = "test-support"))]
+pub fn commit_log(dir: &Path) -> Result<Vec<CommitInfo>, Error> {
+    let repo = open(dir)?;
+    let mut walk = repo.revwalk().map_err(fail("walking", dir))?;
+    walk.push_head().map_err(fail("reading HEAD of", dir))?;
+    let mut log = Vec::new();
+    for id in walk {
+        let id = id.map_err(fail("walking", dir))?;
+        let commit = repo
+            .find_commit(id)
+            .map_err(fail("reading a commit of", dir))?;
+        log.push(commit_info(&commit));
+    }
+    Ok(log)
 }
 
 fn open(dir: &Path) -> Result<git2::Repository, Error> {
@@ -428,6 +514,41 @@ mod tests {
         std::fs::write(dir.path().join(".gitignore"), ".DS_Store\n").unwrap();
         init_and_commit(dir.path(), "initial commit").unwrap();
         std::fs::write(dir.path().join(".DS_Store"), "finder").unwrap();
+        assert!(is_clean(dir.path()).unwrap());
+    }
+
+    #[test]
+    fn commit_all_stages_additions_modifications_and_deletions() {
+        let dir = committed_repo();
+        std::fs::write(dir.path().join("b.txt"), "new").unwrap();
+        std::fs::write(dir.path().join("a.txt"), "changed").unwrap();
+        let id = commit_all(dir.path(), "first").unwrap();
+        assert!(is_clean(dir.path()).unwrap());
+        assert_eq!(commit_count(dir.path()).unwrap(), 2);
+
+        std::fs::remove_file(dir.path().join("a.txt")).unwrap();
+        let del = commit_all(dir.path(), "second").unwrap();
+        assert_ne!(id, del);
+        assert!(is_clean(dir.path()).unwrap(), "the deletion was committed");
+        assert_eq!(commit_count(dir.path()).unwrap(), 3);
+
+        let repo = git2::Repository::open(dir.path()).unwrap();
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        let tree = head.tree().unwrap();
+        assert!(tree.get_name("a.txt").is_none());
+        assert!(tree.get_name("b.txt").is_some());
+        assert_eq!(head.message().unwrap(), "second");
+        assert_eq!(head.author().name().unwrap(), AUTHOR_NAME);
+        assert_eq!(head.author().email().unwrap(), AUTHOR_EMAIL);
+        assert_eq!(head.committer().email().unwrap(), AUTHOR_EMAIL);
+    }
+
+    #[test]
+    fn commit_all_commits_files_in_subdirectories() {
+        let dir = committed_repo();
+        std::fs::create_dir(dir.path().join("entries")).unwrap();
+        std::fs::write(dir.path().join("entries/x.age"), "x").unwrap();
+        commit_all(dir.path(), "m").unwrap();
         assert!(is_clean(dir.path()).unwrap());
     }
 }

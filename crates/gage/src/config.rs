@@ -424,7 +424,15 @@ mod tests {
         }
         let _restore = Restore(dir.path());
         // Root ignores directory permission bits; there is nothing to prove.
+        // Said out loud, so a suite run as root (a CI container) shows the
+        // test proved nothing rather than reporting a silent pass.
         if std::fs::write(dir.path().join("probe"), b"").is_ok() {
+            #[allow(clippy::disallowed_macros)]
+            {
+                eprintln!(
+                    "skipping: running as root, which ignores the unwritable directory this test relies on"
+                );
+            }
             return;
         }
 
@@ -441,7 +449,10 @@ mod tests {
         assert_eq!(read(&path).unwrap(), one_vault());
     }
 
-    // Go: TestWriteThenModifyLeavesOldValueUntouchedUntilRename
+    // Go: TestWriteThenModifyLeavesOldValueUntouchedUntilRename, ported as
+    // Go's body is: two writes, the second wins. Despite the name, Go's test
+    // doesn't observe the old value surviving until the rename either; that
+    // property is `global_config_write_is_atomic`'s, above.
     #[test]
     fn write_then_modify() {
         let dir = tempfile::tempdir().unwrap();

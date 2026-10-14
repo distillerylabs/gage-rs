@@ -28,6 +28,10 @@ allow = [
     "MIT",
     # The ICU crates git2 reaches through url -> idna (Q-GIT-CRATE).
     "Unicode-3.0",
+    # age's x25519-dalek / curve25519-dalek (Q-AGE-CRATE).
+    "BSD-3-Clause",
+    # foldhash, through hashlink, through saphyr (Q-YAML-CRATE).
+    "Zlib",
 ]
 confidence-threshold = 0.93
 

@@ -6,6 +6,8 @@ extends it. For everything gage will do, see [Go gage's documentation](https://g
 
 - [Vaults](vaults.md): creating, listing, inspecting, re-pointing and
   forgetting vaults.
+- [Entries](entries.md): inserting, reading, listing and deleting secrets
+  and notes.
 - [Configuration and file locations](configuration.md): where gage keeps
   its config and data, and what a vault looks like on disk.
 - [Exit codes](exit-codes.md): what each exit status means.

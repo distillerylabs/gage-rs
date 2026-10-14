@@ -7,17 +7,24 @@
 //! [`Vault::unlock`].
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::agekey;
 use crate::atomicfile;
-use crate::config::VaultEntry;
+use crate::config::{self, VaultEntry};
 use crate::devicename;
 use crate::exitcode::{Code, HasCode};
 use crate::gitrepo;
 use crate::identity::Identity;
+use crate::identityfile;
+use crate::locker::{Locker, MemLocker};
+use crate::paths;
 use crate::prompter::Prompter;
 use crate::recipients;
 use crate::vaultconfig;
+use crate::xdgpaths::Dirs;
+
+pub use crate::identityfile::UnlockError;
 
 /// The git vault type: today's only one.
 pub const TYPE_GIT: &str = "git";
@@ -55,6 +62,47 @@ pub struct Vault {
     /// The vault's committed `[vault].id`, which keys every piece of
     /// per-vault local state (see `paths`).
     pub id: String,
+    /// This device's config, data and state roots: where its registration
+    /// of the vault (device name, unlock method) and its identity file for
+    /// it live. Local state, so it travels with the `Vault` value rather
+    /// than being read from the process.
+    dirs: Dirs,
+    locker: LockerSeam,
+}
+
+/// The page-locking seam: `None` is the real [`MemLocker`], so nothing
+/// outside a test ever sets it (Go's nil `Locker`).
+#[derive(Clone, Default)]
+struct LockerSeam(Option<Arc<dyn Locker>>);
+
+impl LockerSeam {
+    fn get(&self) -> Arc<dyn Locker> {
+        self.0.clone().unwrap_or_else(|| Arc::new(MemLocker))
+    }
+}
+
+// Two vaults are the same vault whichever locker they'd use; an injected
+// one only ever equals itself.
+impl PartialEq for LockerSeam {
+    fn eq(&self, other: &LockerSeam) -> bool {
+        match (&self.0, &other.0) {
+            (None, None) => true,
+            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for LockerSeam {}
+
+impl std::fmt::Debug for LockerSeam {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() {
+            "injected"
+        } else {
+            "memlock"
+        })
+    }
 }
 
 /// Everything [`Vault::create`] needs: no identity and no crypto, only a
@@ -222,20 +270,6 @@ impl HasCode for InfoError {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum UnlockError {
-    /// Unlocking arrives with identities in M2.
-    #[error("unlocking a vault is not implemented yet")]
-    NotImplemented,
-}
-
-impl HasCode for UnlockError {
-    fn code(&self) -> Code {
-        Code::LockedOrAuth
-    }
-}
-
 impl Vault {
     /// Lays out a brand-new vault: the directory, `.gage/config.toml`,
     /// `.age-recipients`, `.gitignore`, `.gitattributes`, an empty
@@ -245,7 +279,7 @@ impl Vault {
     ///
     /// Every field is validated here, before anything is touched, rather
     /// than trusted to a frontend: a GUI may call this directly.
-    pub fn create(spec: &CreateSpec) -> Result<Vault, CreateError> {
+    pub fn create(dirs: &Dirs, spec: &CreateSpec) -> Result<Vault, CreateError> {
         validate(spec)?;
         require_empty_or_absent(&spec.path)?;
         write_skeleton(spec)?;
@@ -257,6 +291,8 @@ impl Vault {
             name: spec.name.clone(),
             path: spec.path.clone(),
             id: spec.id.clone(),
+            dirs: dirs.clone(),
+            locker: LockerSeam::default(),
         })
     }
 
@@ -277,7 +313,11 @@ impl Vault {
     /// and is unusable (wrong `format_version`, invalid id) is reported as
     /// itself: "re-create this vault" is better advice than a failure on
     /// an empty id several steps later.
-    pub fn from_registration(name: &str, entry: &VaultEntry) -> Result<Vault, ResolveError> {
+    pub fn from_registration(
+        dirs: &Dirs,
+        name: &str,
+        entry: &VaultEntry,
+    ) -> Result<Vault, ResolveError> {
         match vaultconfig::read(&config_path(&entry.path)) {
             Ok(file) if file.vault.id != entry.id => {
                 return Err(ResolveError::Mismatch {
@@ -299,6 +339,8 @@ impl Vault {
             name: name.to_string(),
             path: entry.path.clone(),
             id: entry.id.clone(),
+            dirs: dirs.clone(),
+            locker: LockerSeam::default(),
         })
     }
 
@@ -325,9 +367,112 @@ impl Vault {
 
     /// Proves this device can decrypt the vault, asking `prompter` for
     /// whatever its method needs, and returns the unlocked identity. The
-    /// only producer of an [`Identity`].
-    pub fn unlock(&self, _prompter: &dyn Prompter) -> Result<Identity, UnlockError> {
-        Err(UnlockError::NotImplemented)
+    /// only producer of an [`Identity`]; dropping it wipes the key.
+    ///
+    /// Retries re-enter through the prompter: each attempt is a fresh
+    /// request with the next `attempt` number, and the loop ends when the
+    /// prompter stops answering, so how many tries a human gets is the
+    /// frontend's decision. Only a wrong passphrase retries; re-asking can't
+    /// fix a corrupt or missing file.
+    ///
+    /// The key is page-locked once. If the platform refuses, the prompter
+    /// is warned once and the unlock proceeds: a container that won't allow
+    /// `mlock` must not make gage unusable ("Session model").
+    pub fn unlock(&self, prompter: &dyn Prompter) -> Result<Identity, UnlockError> {
+        let (device, method) = self.local_identity_record()?;
+        if method != METHOD_PASSPHRASE {
+            return Err(UnlockError::UnsupportedMethod {
+                vault: self.name.clone(),
+                method,
+            });
+        }
+        let path = paths::identity_file_path(&self.dirs, &self.id, &device)?;
+        let wrapped = identityfile::read(&path)?.ok_or_else(|| {
+            UnlockError::NoLocalIdentity(format!(
+                "expected a wrapped identity at {}",
+                path.display()
+            ))
+        })?;
+        let key = identityfile::open(&self.name, &device, &wrapped, prompter)?;
+
+        // One lock attempt per unlock, so "warn once" is structural rather
+        // than a counter that could drift.
+        let (identity, lock_err) = Identity::new(&device, key, self.locker.get());
+        if let Some(e) = lock_err {
+            prompter.warn(&format!(
+                "gage: could not lock {device}'s key material into memory ({e}); continuing without it, \
+                 so this key may be written to swap. Raise the locked-memory limit (ulimit -l) to remove this warning."
+            ));
+        }
+        Ok(identity)
+    }
+
+    /// This device's name and unlock method for this vault, from its own
+    /// registration in global config.
+    ///
+    /// The method comes from here, never from the vault's committed
+    /// `[method].default`: that is a default for devices joining, not a
+    /// constraint on any of them (Q-METHOD-SCOPE), and keeping it local is
+    /// what makes a second method additive. It also keeps the committed
+    /// config from advertising which recipient is the softest target.
+    fn local_identity_record(&self) -> Result<(String, String), UnlockError> {
+        let global = match config::read(&paths::global_config_file(&self.dirs)) {
+            Ok(global) => global,
+            Err(config::Error::NotFound { .. }) => {
+                return Err(UnlockError::NoLocalIdentity(
+                    "no vault is registered on this machine".into(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        };
+        let entry = global.vaults.get(&self.name).ok_or_else(|| {
+            UnlockError::NoLocalIdentity(format!(
+                "{:?} is not registered on this machine",
+                self.name
+            ))
+        })?;
+        if entry.device.is_empty() || entry.method.is_empty() {
+            return Err(UnlockError::NoLocalIdentity(format!(
+                "{:?}'s registration records no device/method for this machine",
+                self.name
+            )));
+        }
+        Ok((entry.device.clone(), entry.method.clone()))
+    }
+
+    /// A vault value for unlock tests that need no vault on disk (Go's
+    /// `&Vault{Name: ..., ID: ...}` literals).
+    #[cfg(test)]
+    pub(crate) fn for_tests(dirs: &Dirs, name: &str, id: &str) -> Vault {
+        Vault {
+            name: name.to_string(),
+            path: dirs.data.join("vaults").join(name),
+            id: id.to_string(),
+            dirs: dirs.clone(),
+            locker: LockerSeam::default(),
+        }
+    }
+
+    /// The same vault, page-locking through `locker` instead of the real
+    /// one. Tests only (this crate's, and gage-cli's through the
+    /// `test-support` feature): the real one runs everywhere else.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_locker(mut self, locker: Arc<dyn Locker>) -> Vault {
+        self.locker = LockerSeam(Some(locker));
+        self
+    }
+
+    /// The locker this vault's unlocks use.
+    #[cfg(test)]
+    pub(crate) fn locker(&self) -> Arc<dyn Locker> {
+        self.locker.get()
+    }
+
+    /// This vault's write lock file, keyed by its id (so two registrations
+    /// of one repository contend on one lock). Fails on an id that can't
+    /// safely become a path component, before any path is built.
+    pub(crate) fn lock_file_path(&self) -> Result<PathBuf, paths::Error> {
+        paths::lock_file_path(&self.dirs, &self.id)
     }
 
     /// Where this vault's committed config lives.
@@ -340,9 +485,24 @@ fn config_path(vault: &Path) -> PathBuf {
     vault.join(".gage").join("config.toml")
 }
 
+impl CreateSpec {
+    /// Everything [`Vault::create`] checks without touching the disk,
+    /// except that the recipient list is non-empty. What `init` checks
+    /// before it generates (and asks a passphrase for) this device's key,
+    /// which leads that list: a failure knowable from the flags must not
+    /// cost a human two blind passphrase entries first.
+    pub fn validate_without_device_key(&self) -> Result<(), CreateError> {
+        validate_fields(self, false)
+    }
+}
+
 /// Go's order: name, id, type, method, device, recipients, path. Nothing
 /// on disk is consulted.
 fn validate(spec: &CreateSpec) -> Result<(), CreateError> {
+    validate_fields(spec, true)
+}
+
+fn validate_fields(spec: &CreateSpec, require_recipients: bool) -> Result<(), CreateError> {
     if spec.name.is_empty() {
         return Err(CreateError::EmptyName);
     }
@@ -358,7 +518,7 @@ fn validate(spec: &CreateSpec) -> Result<(), CreateError> {
     if !devicename::valid(&spec.device) {
         return Err(CreateError::InvalidDeviceName(spec.device.clone()));
     }
-    if spec.recipients.is_empty() {
+    if require_recipients && spec.recipients.is_empty() {
         return Err(CreateError::NoRecipients);
     }
     for key in &spec.recipients {
@@ -471,7 +631,16 @@ fn utc_date_today() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::prompter::FakePrompter;
+
+    /// Local roots nothing in these tests reads: creating and resolving a
+    /// vault touch only the vault's own directory.
+    fn test_dirs() -> Dirs {
+        Dirs {
+            config: "/nonexistent/config/gage".into(),
+            data: "/nonexistent/data/gage".into(),
+            state: "/nonexistent/state/gage".into(),
+        }
+    }
 
     const RECIPIENT_1: &str = "age1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0savhh7m";
     const RECIPIENT_2: &str =
@@ -492,7 +661,7 @@ mod tests {
     }
 
     fn created(spec: &CreateSpec) -> vaultconfig::File {
-        Vault::create(spec).unwrap();
+        Vault::create(&test_dirs(), spec).unwrap();
         vaultconfig::read(&config_path(&spec.path)).unwrap()
     }
 
@@ -508,7 +677,7 @@ mod tests {
     }
 
     fn assert_rejected(spec: &CreateSpec, code: Code) -> CreateError {
-        let err = Vault::create(spec).unwrap_err();
+        let err = Vault::create(&test_dirs(), spec).unwrap_err();
         assert_eq!(err.code(), code, "{err}");
         assert_nothing_created(spec);
         err
@@ -537,7 +706,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
 
-        let vault = Vault::create(&spec).unwrap();
+        let vault = Vault::create(&test_dirs(), &spec).unwrap();
 
         assert_eq!(
             vault,
@@ -545,6 +714,8 @@ mod tests {
                 name: "myvault".into(),
                 path: spec.path.clone(),
                 id: spec.id.clone(),
+                dirs: test_dirs(),
+                locker: LockerSeam::default(),
             }
         );
         for rel in [
@@ -568,7 +739,7 @@ mod tests {
     fn create_commits_the_skeleton_files() {
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
         assert_eq!(
             committed_files(&spec.path),
             [
@@ -585,7 +756,7 @@ mod tests {
     fn create_commits_as_gage_on_main() {
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
         let repo = git2::Repository::open(&spec.path).unwrap();
         let head = repo.head().unwrap();
         assert_eq!(head.name().unwrap(), "refs/heads/main");
@@ -600,7 +771,7 @@ mod tests {
     fn create_gitattributes_marks_recipient_files_unmergeable() {
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
         let content = std::fs::read_to_string(spec.path.join(".gitattributes")).unwrap();
         for want in [".age-recipients -merge", ".gage/config.toml -merge"] {
             assert!(content.contains(want), "{content:?}");
@@ -628,7 +799,7 @@ mod tests {
     fn create_gitignore_has_only_os_cruft() {
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
         let content = std::fs::read_to_string(spec.path.join(".gitignore")).unwrap();
         let lines: Vec<&str> = content.lines().collect();
         assert_eq!(lines, [".DS_Store", "Thumbs.db"]);
@@ -717,7 +888,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
 
-        let vault = Vault::create(&spec).unwrap();
+        let vault = Vault::create(&test_dirs(), &spec).unwrap();
 
         let file = vaultconfig::read(&vault.config_path()).unwrap();
         assert_eq!(file.vault.id, spec.id);
@@ -755,7 +926,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let mut spec = valid_spec(&root, "myvault");
         spec.path = PathBuf::new();
-        let err = Vault::create(&spec).unwrap_err();
+        let err = Vault::create(&test_dirs(), &spec).unwrap_err();
         assert!(matches!(err, CreateError::EmptyPath), "{err:?}");
         assert_eq!(err.code(), Code::Usage);
     }
@@ -776,7 +947,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let mut spec = valid_spec(&root, "myvault");
         spec.vault_type = "git".into();
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
     }
 
     // Go: TestCreateRejectsUnknownMethod. The future-work methods the
@@ -805,7 +976,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let mut spec = valid_spec(&root, "myvault");
         spec.method = "passphrase".into();
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
     }
 
     // Go: TestCreateRequiresAtLeastOneRecipient
@@ -870,7 +1041,7 @@ mod tests {
         std::fs::create_dir(&spec.path).unwrap();
         std::fs::write(spec.path.join("keep.txt"), "do not touch").unwrap();
 
-        let err = Vault::create(&spec).unwrap_err();
+        let err = Vault::create(&test_dirs(), &spec).unwrap_err();
 
         assert!(matches!(err, CreateError::TargetNotEmpty(_)), "{err:?}");
         assert_eq!(err.code(), Code::Conflict);
@@ -891,7 +1062,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
         std::fs::create_dir(&spec.path).unwrap();
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
         assert_eq!(gitrepo::commit_count(&spec.path).unwrap(), 1);
     }
 
@@ -903,7 +1074,7 @@ mod tests {
         spec.path = root.path().join("not-a-directory");
         std::fs::write(&spec.path, "i am a file").unwrap();
 
-        let err = Vault::create(&spec).unwrap_err();
+        let err = Vault::create(&test_dirs(), &spec).unwrap_err();
 
         assert!(
             matches!(err, CreateError::TargetNotADirectory(_)),
@@ -921,7 +1092,7 @@ mod tests {
         let mut spec = valid_spec(&root, "myvault");
         let remote = "/does/not/need/to/exist/for/set-remote.git";
         spec.remote = Some(remote.into());
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
         assert_eq!(
             gitrepo::remote_url(&spec.path).unwrap().as_deref(),
             Some(remote)
@@ -933,7 +1104,7 @@ mod tests {
     fn create_without_remote_leaves_vault_remoteless() {
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
         assert_eq!(gitrepo::remote_url(&spec.path).unwrap(), None);
     }
 
@@ -946,7 +1117,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
         let mode = |rel: &str| {
             std::fs::metadata(spec.path.join(rel))
                 .unwrap()
@@ -970,7 +1141,7 @@ mod tests {
     /// it.
     fn registered(root: &tempfile::TempDir) -> (CreateSpec, VaultEntry) {
         let spec = valid_spec(root, "personal");
-        Vault::create(&spec).unwrap();
+        Vault::create(&test_dirs(), &spec).unwrap();
         let entry = VaultEntry {
             path: spec.path.clone(),
             id: spec.id.clone(),
@@ -1007,13 +1178,15 @@ mod tests {
     fn from_registration_resolves_a_matching_vault() {
         let root = tempfile::tempdir().unwrap();
         let (spec, entry) = registered(&root);
-        let vault = Vault::from_registration("personal", &entry).unwrap();
+        let vault = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap();
         assert_eq!(
             vault,
             Vault {
                 name: "personal".into(),
                 path: spec.path,
                 id: spec.id,
+                dirs: test_dirs(),
+                locker: LockerSeam::default(),
             }
         );
     }
@@ -1027,7 +1200,7 @@ mod tests {
         let stranger = vaultconfig::new_id();
         entry.id = stranger.clone();
 
-        let err = Vault::from_registration("personal", &entry).unwrap_err();
+        let err = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap_err();
 
         assert_eq!(err.code(), Code::Conflict);
         let msg = err.to_string();
@@ -1042,7 +1215,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let (_, mut entry) = registered(&root);
         entry.id.clear();
-        let err = Vault::from_registration("personal", &entry).unwrap_err();
+        let err = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap_err();
         assert!(matches!(err, ResolveError::Mismatch { .. }), "{err:?}");
         assert!(err.to_string().contains("none recorded"), "{err}");
     }
@@ -1054,7 +1227,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let (spec, entry) = registered(&root);
         std::fs::remove_dir_all(&spec.path).unwrap();
-        let vault = Vault::from_registration("personal", &entry).unwrap();
+        let vault = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap();
         assert_eq!(vault.id, entry.id);
     }
 
@@ -1063,7 +1236,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let (spec, entry) = registered(&root);
         rewrite_config_line(&spec, "format_version", "format_version = 1");
-        let err = Vault::from_registration("personal", &entry).unwrap_err();
+        let err = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap_err();
         assert!(
             matches!(
                 err,
@@ -1080,7 +1253,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let (spec, entry) = registered(&root);
         rewrite_config_line(&spec, "id =", "id = \"../../etc/x\"");
-        let err = Vault::from_registration("personal", &entry).unwrap_err();
+        let err = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap_err();
         assert!(
             matches!(
                 err,
@@ -1095,7 +1268,7 @@ mod tests {
     fn info_reports_the_vaults_own_fields() {
         let root = tempfile::tempdir().unwrap();
         let (spec, entry) = registered(&root);
-        let vault = Vault::from_registration("personal", &entry).unwrap();
+        let vault = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap();
         assert_eq!(
             vault.info().unwrap(),
             Info {
@@ -1118,7 +1291,7 @@ mod tests {
         gitrepo::set_remote(&spec.path, "/somewhere.git").unwrap();
         std::fs::write(spec.path.join("entries/stray.age"), "x").unwrap();
 
-        let info = Vault::from_registration("personal", &entry)
+        let info = Vault::from_registration(&test_dirs(), "personal", &entry)
             .unwrap()
             .info()
             .unwrap();
@@ -1137,7 +1310,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let (spec, entry) = registered(&root);
         rewrite_config_line(&spec, "device", "device = '../../../etc/cron.d/x'");
-        let vault = Vault::from_registration("personal", &entry).unwrap();
+        let vault = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap();
         let err = vault.info().unwrap_err();
         assert!(
             matches!(
@@ -1149,22 +1322,46 @@ mod tests {
         assert_eq!(err.code(), Code::Conflict);
     }
 
-    // The contract M2 fills in: the signature takes any Prompter, and until
-    // then the typed failure maps to LockedOrAuth without asking anything.
+    // What init checks before generating a key: every field, each key it
+    // was handed, and nothing on disk; an empty list is not yet an error.
     #[test]
-    fn unlock_is_typed_and_maps_to_locked_or_auth() {
-        let vault = Vault {
-            name: "personal".into(),
-            path: "/data/vaults/personal".into(),
-            id: "9f3a1c2e-7b41-4d58-a0c6-2e5f81b3d497".into(),
-        };
-        let prompter = FakePrompter::new();
+    fn validate_without_device_key_checks_everything_but_the_lists_length() {
+        let root = tempfile::tempdir().unwrap();
+        let mut spec = valid_spec(&root, "myvault");
+        spec.recipients.clear();
+        spec.validate_without_device_key().unwrap();
+        assert!(matches!(
+            Vault::create(&test_dirs(), &spec),
+            Err(CreateError::NoRecipients)
+        ));
+        assert_nothing_created(&spec);
 
-        let result: Result<Identity, UnlockError> = vault.unlock(&prompter);
-
-        let err = result.unwrap_err();
-        assert!(matches!(err, UnlockError::NotImplemented));
-        assert_eq!(err.code(), Code::LockedOrAuth);
-        assert!(prompter.unlock_requests().is_empty());
+        for (mutate, code) in [
+            (
+                Box::new(|s: &mut CreateSpec| s.vault_type = "s3".into())
+                    as Box<dyn Fn(&mut CreateSpec)>,
+                Code::Usage,
+            ),
+            (
+                Box::new(|s: &mut CreateSpec| s.method = "ssh".into()),
+                Code::Usage,
+            ),
+            (
+                Box::new(|s: &mut CreateSpec| s.device = "../x".into()),
+                Code::Usage,
+            ),
+            (
+                Box::new(|s: &mut CreateSpec| s.recipients = vec!["nope".into()]),
+                Code::Usage,
+            ),
+        ] {
+            let mut bad = valid_spec(&root, "myvault");
+            mutate(&mut bad);
+            assert_eq!(bad.validate_without_device_key().unwrap_err().code(), code);
+        }
+        // A non-empty target is a disk check, left to create.
+        std::fs::create_dir_all(&spec.path).unwrap();
+        std::fs::write(spec.path.join("keep.txt"), "mine").unwrap();
+        spec.validate_without_device_key().unwrap();
     }
 }

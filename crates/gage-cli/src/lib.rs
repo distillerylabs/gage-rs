@@ -19,7 +19,9 @@ use gage::xdgpaths::{self, Dirs};
 mod build_env;
 pub mod cli;
 mod commands;
+pub mod coredump;
 pub mod error;
+pub mod prompter;
 pub mod registry;
 pub mod version;
 
@@ -76,7 +78,7 @@ fn dispatch(
     reg: &Registry,
     args: &[String],
     io: &mut Io,
-    _prompter: &dyn Prompter,
+    prompter: &dyn Prompter,
 ) -> Result<(), CliError> {
     match cli::parse(reg, &io.build, args, io.stdin_is_terminal)? {
         Outcome::Print(text) => print(io, &text),
@@ -106,7 +108,7 @@ fn dispatch(
                     ),
                 ));
             }
-            commands::run(name, &matches, io).unwrap_or_else(|| {
+            commands::run(name, &matches, io, prompter).unwrap_or_else(|| {
                 Err(CliError::new(
                     Code::Internal,
                     format!("{name} is not implemented yet"),
@@ -127,6 +129,10 @@ fn print(io: &mut Io, text: &str) -> Result<(), CliError> {
     Ok(())
 }
 
+#[cfg(test)]
+mod entry_tests;
+#[cfg(test)]
+mod init_identity_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]

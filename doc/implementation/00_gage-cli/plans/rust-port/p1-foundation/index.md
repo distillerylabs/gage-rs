@@ -53,8 +53,8 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 | # | Milestone | Model | Depends on | Inventory rows | Status |
 |---|---|---|---|---|---|
 | M0a | [Toolchain, CI, lint purity](m0a-toolchain.md) ([#5](https://github.com/distillerylabs/gage-rs/issues/5)) | Sonnet | — | 0 | `[x]` |
-| M0b | [Git-crate spike, primitives, registry, help](m0b-primitives.md) ([#6](https://github.com/distillerylabs/gage-rs/issues/6)) | **Opus** for task 1 (spike); Sonnet after; ⚑ Opus review of the tests | M0a | 97 | `[~]` implemented; awaiting 3-OS CI |
-| M1 | [Vault lifecycle and vault-id keying](m1-vault-lifecycle.md) ([#7](https://github.com/distillerylabs/gage-rs/issues/7)) | Sonnet; ⚑ Opus review of the untrusted-input tests | M0b | 89 | `[~]` implemented; awaiting 3-OS CI |
+| M0b | [Git-crate spike, primitives, registry, help](m0b-primitives.md) ([#6](https://github.com/distillerylabs/gage-rs/issues/6)) | **Opus** for task 1 (spike); Sonnet after; ⚑ Opus review of the tests | M0a | 97 | `[x]` |
+| M1 | [Vault lifecycle and vault-id keying](m1-vault-lifecycle.md) ([#7](https://github.com/distillerylabs/gage-rs/issues/7)) | Sonnet; ⚑ Opus review of the untrusted-input tests | M0b | 89 | `[x]` |
 
 `⚑` = run an Opus review pass over that milestone's *tests* before moving on.
 M0b's is for `vaultlock`: a thread-based test passes and proves nothing,
