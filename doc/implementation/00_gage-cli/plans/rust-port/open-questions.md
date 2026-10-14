@@ -407,6 +407,108 @@ of input), `gage init x --type s3` exits `2` (usage) here and `5`
 recovery-key planning refuses a non-terminal run first). With a passphrase
 available the two agree.
 
+## Resolved in P3 planning
+
+Settled in [#21](https://github.com/distillerylabs/gage-rs/issues/21) and
+the [P3 plan](p3-query-session/index.md). The line editor was checked
+against `rustyline`'s source, not its documentation.
+
+### `[x]` Q-LINE-EDITOR — Which line editor for the REPL? {#q-line-editor}
+
+**Resolved: `rustyline` 18.0.1, in `gage-cli` only, behind a
+`LineReader` trait.**
+
+Go uses `chzyer/readline`; M6 needs history that records only chosen
+lines, a history file nobody else can read, a completer fed by live
+session data (M13), and Windows support.
+
+- History is never added automatically (`auto_add_history` defaults to
+  false), so the REPL adds each submitted, non-blank line itself and
+  nothing else: no passphrase, no value.
+- `FileHistory` sets the file to 0600 on Unix (`fix_perm`); gage also
+  creates it 0600 before the first save.
+- `Completer::complete(&self, line, pos, ctx)` returns candidates
+  computed on demand, which M13 needs for vault names and entry titles.
+- MIT. Its dependencies are expected to fall within `deny.toml`'s
+  existing license list (MIT/Apache-2.0); `make audit` confirms when M6
+  adds it, and any new license is recorded here.
+- **The difference from Go that matters**: `rustyline` puts the terminal
+  in raw mode only for the duration of a `readline()` call. Go's library
+  holds the terminal and reads stdin from a goroutine for the life of an
+  instance, which forced Go to send passphrase prompts through the line
+  editor. gage-rs's terminal prompter keeps reading stdin directly
+  between lines.
+
+The REPL reads through a `LineReader` trait: a plain implementation over
+`Io.stdin` for in-process tests and piped input, and a `rustyline` one
+when stdin is a terminal. `reedline` was not taken up: it is built around
+a full-screen-ish painter and has a larger dependency tree, and nothing
+here needs more than line editing, history and completion.
+
+### `[x]` Q-SESSION-SHAPE — How does `Session` hold keys, time and choices? {#q-session-shape}
+
+**Resolved: `Option<Identity>` per vault, borrowed by commands; an
+injected `Instant` clock; `Prompter::choose` for ambiguity.**
+
+- Each vault the session has touched is a `HeldVault` whose identity is
+  `Option<Identity>`; `None` is locked, and the vault stays listed so
+  `status` and the prompt still show it. `lock` and the idle timeout drop
+  the `Identity` through one function, so `Drop` (wipe, unlock pages) is
+  the only teardown.
+- Commands borrow `&Identity` from `&mut Session`. Go holds `*Identity`
+  pointers and needs `ErrIdentityClosed` plus a call-depth counter so
+  that a re-lock can't land under a command still holding a key; in
+  Rust that overlap doesn't compile. The depth rule survives only for
+  *when* the idle timeout is evaluated: once, on entering the outermost
+  call, and once per REPL line through `begin_command`.
+- The clock is `Box<dyn Fn() -> Instant>`, defaulting to `Instant::now`
+  (monotonic, so a wall-clock change can't unlock or re-lock anything).
+  A plain function suffices because the timeout is a "now against last
+  use" check at the start of a call, never a background timer. The CLI
+  injects it too, as Go's `App.Now`, so the tests don't depend on
+  Windows' coarse clock.
+- An ambiguous query in a session goes to `Prompter::choose(&CandidateList)`,
+  the existing seam, which returns an id the session checks was offered.
+
+### `[x]` Q-EDITOR — How does `edit` find `$EDITOR` and where does the plaintext go? {#q-editor}
+
+**Resolved: Go's rules, with the `which` crate for lookup and `statfs`
+for the tmpfs check.**
+
+- `$EDITOR` is trimmed and split on whitespace; the first word is
+  resolved on `PATH` with `which` (in `gage-cli` only; it handles Windows
+  `PATHEXT`, which a hand-written lookup would get wrong) **before** any
+  scratch file is created. Unset, blank or unresolvable is an error with
+  no file written. std has no `LookPath`, and spawning would only find
+  out after the plaintext is on disk.
+- Scratch directory: on Linux the first of `$XDG_RUNTIME_DIR` and
+  `/dev/shm` that `statfs` (via `libc`, already a dependency) reports as
+  tmpfs; elsewhere `std::env::temp_dir()`. The file is created
+  exclusively with an unpredictable name (`tempfile`), 0600 on Unix, and
+  on every exit path overwritten with zeros at its length and unlinked,
+  both best-effort, as Go.
+- Tests fake the editor by re-executing the test binary with an action
+  in an environment variable, the pattern the vault-lock, core-dump and
+  commit-author tests already use, rather than adding an editor seam.
+
+### `[x]` Q-INDEX-ARENA — How does the metadata index hold plaintext? {#q-index-arena}
+
+**Resolved: one `LockedBuf` arena per vault index, page-locked through
+the vault's `Locker`.**
+
+Go packs titles and descriptions into one `memlock.Alloc` arena per vault
+with entries referencing offsets, because Go strings can't be zeroed and
+per-entry allocation wastes up to two pages each. The Rust port keeps the
+shape: a `LockedBuf` (page-aligned, zeroized on drop) holds the packed
+bytes, entries hold spans, and growth allocates a larger buffer, locks
+it, copies the live spans and drops the old one. Locking goes through the
+vault's `Arc<dyn Locker>`, the same as its `Identity`, so the existing
+counting and failing lockers prove the lock, warn-once and
+release-on-discard rules with no new seam. Timestamps and `updated_by`
+(a device name, already public in the vault config) stay in ordinary
+memory, as in Go. The index holds no `value` or `fields` and is never
+written to disk.
+
 ---
 
 ## Withdrawn
