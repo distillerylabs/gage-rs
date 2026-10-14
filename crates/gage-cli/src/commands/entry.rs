@@ -1,16 +1,22 @@
-//! `gage insert`, `cat`, `rm` and `ls`: the one-shot entry commands. Each
-//! one resolves its vault, unlocks it, does one thing and drops the
-//! identity (nothing is cached between invocations). What they do lives in
-//! the library; this is flags, input modes and rendering.
+//! The one-shot entry commands: `insert`, `show`, `cat`, `edit`, `rename`,
+//! `generate`, `rm` and `ls`. Each one resolves its vault, unlocks it, does
+//! one thing and drops the identity (nothing is cached between
+//! invocations). What they do lives in the library; this is flags, input
+//! modes and rendering. Every query goes through the library's one
+//! resolver, and an ambiguous one fails listing its candidates: one-shot
+//! mode has nobody to ask.
 //!
-//! `-e/--edit` (P3 · M5) and `ls -H/--header` (P6 · M12) are not
-//! registered yet.
+//! `-c/--clip` and `-q/--qr` (on `show` and `generate`) and `ls
+//! -H/--header` are P6 · M12's.
 
 use std::collections::BTreeMap;
 
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::entry::{self, CandidateList, ListEntry, NewEntry, ResolveError, WriteError};
+use gage::entry::{
+    self, CandidateList, Entry, ListEntry, NewEntry, ResolveError, Timestamp, WriteError,
+};
 use gage::exitcode::Code;
+use gage::generate::{self, GenerateOptions};
 use gage::identity::Identity;
 use gage::prompter::Prompter;
 use gage::vault::Vault;
@@ -18,6 +24,7 @@ use zeroize::Zeroizing;
 
 use super::{arg, dirs, fail, load_global, out};
 use crate::Io;
+use crate::editor;
 use crate::error::CliError;
 
 pub const LS_LONG_ABOUT: &str = "List entries with their ids, dates, and last writer.
@@ -39,23 +46,43 @@ fn use_flag() -> Arg {
         .help("vault to operate on (default: the current vault)")
 }
 
+fn description_flag() -> Arg {
+    Arg::new("description")
+        .long("description")
+        .value_name("TEXT")
+        .help("optional description")
+}
+
+fn force_flag(help: &'static str) -> Arg {
+    Arg::new("force")
+        .short('f')
+        .long("force")
+        .action(ArgAction::SetTrue)
+        .help(help)
+}
+
 pub fn flags(name: &str) -> Vec<Arg> {
     match name {
         "insert" => vec![
-            Arg::new("description")
-                .long("description")
-                .value_name("TEXT")
-                .help("optional description"),
+            description_flag(),
+            // One of the three ways to supply the value, and the one that
+            // also sets fields, so it excludes the other two and --field.
+            Arg::new("edit")
+                .short('e')
+                .long("edit")
+                .action(ArgAction::SetTrue)
+                .conflicts_with_all(["multiline", "value-stdin", "field"])
+                .help(
+                    "open a template in $EDITOR to fill in value/fields (and optionally title/description)",
+                ),
             Arg::new("field")
                 .long("field")
                 .value_name("NAME=VALUE")
                 .action(ArgAction::Append)
-                .help("set a structured field as NAME=VALUE (repeatable)"),
-            Arg::new("force")
-                .short('f')
-                .long("force")
-                .action(ArgAction::SetTrue)
-                .help("allow inserting a duplicate title"),
+                .help(
+                    "set a structured field as NAME=VALUE (repeatable; mutually exclusive with -e/--edit)",
+                ),
+            force_flag("allow inserting a duplicate title"),
             Arg::new("multiline")
                 .short('m')
                 .long("multiline")
@@ -67,6 +94,33 @@ pub fn flags(name: &str) -> Vec<Arg> {
                 .long("value-stdin")
                 .action(ArgAction::SetTrue)
                 .help("read the value verbatim from stdin (one trailing newline trimmed)"),
+        ],
+        "show" => vec![
+            Arg::new("field")
+                .long("field")
+                .value_name("NAME")
+                .help("print one entry from fields instead of the value"),
+            use_flag(),
+        ],
+        "rename" => vec![force_flag("allow renaming to a duplicate title"), use_flag()],
+        "generate" => vec![
+            description_flag(),
+            force_flag("allow inserting a duplicate title"),
+            Arg::new("length")
+                .short('l')
+                .long("length")
+                .value_name("N")
+                .value_parser(clap::value_parser!(usize))
+                .help(format!(
+                    "length of the generated value (default {}, minimum {})",
+                    generate::DEFAULT_LENGTH,
+                    generate::MIN_LENGTH
+                )),
+            Arg::new("no-symbols")
+                .long("no-symbols")
+                .action(ArgAction::SetTrue)
+                .help("draw from letters and digits only"),
+            use_flag(),
         ],
         _ => vec![use_flag()],
     }
@@ -131,6 +185,9 @@ fn ambiguous(list: &CandidateList) -> CliError {
 
 pub fn insert(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
     let title = arg(matches, "title");
+    if matches.get_flag("edit") {
+        return insert_edit(matches, io, prompter, title);
+    }
     // Everything knowable from the flags fails before any unlock.
     let fields = parse_field_flags(
         &matches
@@ -156,10 +213,66 @@ pub fn insert(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
                         .unwrap_or_default(),
                     value: value.to_string(),
                     fields,
+                    ..NewEntry::default()
                 },
                 matches.get_flag("force"),
             )
             .map_err(write_failure)
+    })?;
+    out(io, &[format!("gage: inserted \"{title}\" ({id})")]);
+    Ok(())
+}
+
+/// `insert -e`: the template (title and description from the command line,
+/// value and fields empty) goes through `$EDITOR`, and what comes back is
+/// inserted, under the edited title for both the entry and the
+/// duplicate-title check. Nothing is written if the file comes back
+/// unchanged, or with value and fields both still empty (git commit's
+/// "empty message aborts" convention; a title or description alone is not
+/// something to save).
+fn insert_edit(
+    matches: &ArgMatches,
+    io: &mut Io,
+    prompter: &dyn Prompter,
+    title: &str,
+) -> Result<(), CliError> {
+    let vault = open_vault(matches, io)?;
+    let editor = io.editor.clone();
+    let (id, title) = with_unlocked(&vault, prompter, |identity| {
+        let now = Timestamp::now();
+        let stub = Entry {
+            title: title.to_string(),
+            description: matches
+                .get_one::<String>("description")
+                .cloned()
+                .unwrap_or_default(),
+            created: Some(now),
+            updated: Some(now),
+            updated_by: identity.device().to_string(),
+            ..Entry::default()
+        };
+        let edited = editor::edit_yaml(editor.as_deref(), &stub)?;
+        let e = edited.entry;
+        if edited.unchanged || (e.value.is_empty() && e.fields.is_empty()) {
+            return Err(fail(
+                Code::Usage,
+                "insert -e aborted: nothing to save (the file was unchanged, or value and fields were both left empty)",
+            ));
+        }
+        let id = vault
+            .insert(
+                identity,
+                NewEntry {
+                    title: e.title.clone(),
+                    description: e.description,
+                    value: e.value,
+                    fields: e.fields,
+                    extra: e.extra,
+                },
+                matches.get_flag("force"),
+            )
+            .map_err(write_failure)?;
+        Ok((id, e.title))
     })?;
     out(io, &[format!("gage: inserted \"{title}\" ({id})")]);
     Ok(())
@@ -246,18 +359,84 @@ pub fn parse_field_flags(raw: &[String]) -> Result<BTreeMap<String, String>, Cli
     Ok(fields)
 }
 
-// --- cat / rm ---------------------------------------------------------------
+// --- show / cat / edit / rename / rm ---------------------------------------
+
+/// The entry's value alone, or with `--field NAME` one of its fields, for
+/// piping. Exactly one trailing newline: none is added to a value that
+/// already ends in one, so a multi-line value prints as stored.
+pub fn show(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
+    let query = arg(matches, "query");
+    let field = matches.get_one::<String>("field");
+    let vault = open_vault(matches, io)?;
+    let value = with_unlocked(&vault, prompter, |identity| {
+        let (_, e) = vault.resolve(identity, query).map_err(resolve_failure)?;
+        let value = match field {
+            Some(name) => e.field(name)?,
+            None => &e.value,
+        };
+        Ok(Zeroizing::new(value.to_string()))
+    })?;
+    let _ = io.stdout.write_all(value.as_bytes());
+    if !value.ends_with('\n') {
+        let _ = io.stdout.write_all(b"\n");
+    }
+    Ok(())
+}
 
 /// The entry's YAML exactly as it is stored inside the ciphertext.
 pub fn cat(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
     let query = arg(matches, "query");
     let vault = open_vault(matches, io)?;
     let yaml = with_unlocked(&vault, prompter, |identity| {
-        let id = vault.resolve(identity, query).map_err(resolve_failure)?;
-        let e = vault.read_entry(id, identity)?;
+        let (_, e) = vault.resolve(identity, query).map_err(resolve_failure)?;
         Ok(entry::marshal(&e)?)
     })?;
     let _ = io.stdout.write_all(&yaml);
+    Ok(())
+}
+
+/// The entry's whole YAML through `$EDITOR`. Commits whenever the file
+/// parses, changed or not (as `git commit --amend` with no new message
+/// still amends), with `created` kept from the original and
+/// `updated`/`updated_by` stamped fresh whatever the file says.
+pub fn edit(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
+    let query = arg(matches, "query");
+    let vault = open_vault(matches, io)?;
+    let editor = io.editor.clone();
+    let (id, title) = with_unlocked(&vault, prompter, |identity| {
+        let (id, original) = vault.resolve(identity, query).map_err(resolve_failure)?;
+        let mut edited = editor::edit_yaml(editor.as_deref(), &original)?.entry;
+        edited.restamp_after_edit(&original, identity);
+        vault.update(id, &edited).map_err(write_failure)?;
+        Ok((id, edited.title))
+    })?;
+    out(
+        io,
+        &[format!(
+            "gage: updated \"{title}\" ({})",
+            short_id(&id.to_string())
+        )],
+    );
+    Ok(())
+}
+
+/// A title-only edit, no `$EDITOR`.
+pub fn rename(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
+    let query = arg(matches, "query");
+    let new_title = arg(matches, "new-title");
+    let vault = open_vault(matches, io)?;
+    let id = with_unlocked(&vault, prompter, |identity| {
+        vault
+            .rename(identity, query, new_title, matches.get_flag("force"))
+            .map_err(write_failure)
+    })?;
+    out(
+        io,
+        &[format!(
+            "gage: renamed to \"{new_title}\" ({})",
+            short_id(&id.to_string())
+        )],
+    );
     Ok(())
 }
 
@@ -268,6 +447,45 @@ pub fn rm(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<
         vault.remove(identity, query).map_err(write_failure)
     })?;
     out(io, &[format!("gage: removed {id}")]);
+    Ok(())
+}
+
+// --- generate ---------------------------------------------------------------
+
+/// Like `insert`, with the value drawn by the library. The confirmation
+/// never includes the value: a fresh secret nobody has read yet is the last
+/// thing that belongs in a scrollback (`-c`/`-q`, the ways to see it at
+/// creation, are P6's).
+pub fn generate(
+    matches: &ArgMatches,
+    io: &mut Io,
+    prompter: &dyn Prompter,
+) -> Result<(), CliError> {
+    let title = arg(matches, "title");
+    // Drawn first, so a too-short length is refused before any unlock.
+    let value = Zeroizing::new(generate::generate_value(GenerateOptions {
+        length: matches.get_one::<usize>("length").copied().unwrap_or(0),
+        no_symbols: matches.get_flag("no-symbols"),
+    })?);
+    let vault = open_vault(matches, io)?;
+    let id = with_unlocked(&vault, prompter, |identity| {
+        vault
+            .insert(
+                identity,
+                NewEntry {
+                    title: title.to_string(),
+                    description: matches
+                        .get_one::<String>("description")
+                        .cloned()
+                        .unwrap_or_default(),
+                    value: value.to_string(),
+                    ..NewEntry::default()
+                },
+                matches.get_flag("force"),
+            )
+            .map_err(write_failure)
+    })?;
+    out(io, &[format!("gage: generated \"{title}\" ({id})")]);
     Ok(())
 }
 

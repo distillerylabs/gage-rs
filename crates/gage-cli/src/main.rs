@@ -40,6 +40,7 @@ fn main() {
         build: BuildInfo::stamped(),
         dirs: &Dirs::from_process,
         hostname: &|| Ok(hostname::get()?.to_string_lossy().into_owned()),
+        editor: std::env::var("EDITOR").ok(),
     };
     let code = gage_cli::run(&args, &mut io, &prompter);
     std::process::exit(code.as_i32());

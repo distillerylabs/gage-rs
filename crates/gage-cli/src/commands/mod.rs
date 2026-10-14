@@ -30,7 +30,9 @@ pub(crate) use init::resolve_device_name;
 pub fn flags(name: &str) -> Vec<Arg> {
     match name {
         "init" => init::flags(),
-        "insert" | "cat" | "rm" | "ls" => entry::flags(name),
+        "insert" | "show" | "cat" | "edit" | "rename" | "generate" | "rm" | "ls" => {
+            entry::flags(name)
+        }
         _ => Vec::new(),
     }
 }
@@ -56,7 +58,11 @@ pub fn run(
     Some(match name {
         "init" => init::run(matches, io, prompter),
         "insert" => entry::insert(matches, io, prompter),
+        "show" => entry::show(matches, io, prompter),
         "cat" => entry::cat(matches, io, prompter),
+        "edit" => entry::edit(matches, io, prompter),
+        "rename" => entry::rename(matches, io, prompter),
+        "generate" => entry::generate(matches, io, prompter),
         "rm" => entry::rm(matches, io, prompter),
         "ls" => entry::ls(matches, io, prompter),
         "vault list" => vault::list(io),

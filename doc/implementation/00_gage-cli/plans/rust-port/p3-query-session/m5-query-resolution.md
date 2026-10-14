@@ -58,7 +58,8 @@ with its candidates, as in M4; the session picker is M6's.
 
 ## Decisions to make first
 
-Recommended answers; confirm them when this plan is reviewed.
+Recommended answers, confirmed in review. Where implementation changed
+one, the bullet says so (**Changed in implementation**).
 
 - **Resolver**: extend M4's `resolve_query` in place by inserting the two
   substring stages, keeping it a pure function over `(id, title)` pairs so
@@ -68,6 +69,9 @@ Recommended answers; confirm them when this plan is reviewed.
   with hyphens and case ignored on both sides, so a query may span a
   hyphen. Exact UUID accepts every spelling `Uuid::parse_str` accepts, as
   M4. A non-UUID query simply matches nothing at the UUID stages.
+  **Changed in implementation:** `Vault::resolve` returns `(Uuid, Entry)`,
+  as Go's `Resolve` does, rather than the id alone: every Go row asserts on
+  the resolved entry, and `show`, `edit` and `rename` all need it.
 - **Typed results**: not-found and ambiguous stay distinct
   `ResolveError` variants with distinct exit codes (`NotFound`,
   `Ambiguous`), as M4 already has them; the one-shot CLI prints the
@@ -82,13 +86,23 @@ Recommended answers; confirm them when this plan is reviewed.
   regardless of what the file says (`TestEditRestampIsAuthoritativeOverTheEditedFile`).
   As Go, `edit` has **no unchanged abort**: it commits every time the
   file parses. Prints `gage: updated "<title>" (<shortid>)`.
+  **Changed in implementation:** the re-stamp is the library's
+  `Entry::restamp_after_edit(&original, &Identity)` rather than three
+  assignments in the CLI (Go does it in `cmd/gage`), so a GUI editor gets
+  the same rule.
 - **`rename <query> <new-title>`**: the same duplicate-title check as
   `insert`, with `-f`; renaming to the entry's own title is always
   allowed. Only `title` and `updated`/`updated_by` change. Prints
   `gage: renamed to "<title>" (<shortid>)`.
 - **`Vault::update(id, &Entry, &Identity)`** is the shared write path for
   `edit` and `rename`: encrypt, write, commit (message = the UUID), under
-  the vault lock, exactly as `insert`.
+  the vault lock, exactly as `insert`. **Changed in implementation:**
+  `Vault::update(id, &Entry)` takes no identity. The entry is encrypted to
+  the recipients, not the writer, and Go's only other use for it is
+  reporting the automatic push, which is P4's; P4 adds it if it needs it.
+  `Vault::rename` does its own resolve, check and write under one lock
+  hold (as `remove` does) rather than going through `update`, so the
+  duplicate check can't race a concurrent write.
 - **`generate`**: Go's constants (default length 24, minimum 8, letters +
   digits + `!@#$%^&*-_=+`, `--no-symbols` drops the symbols). Each
   character is drawn uniformly from the OS CSPRNG: `rand_core` 0.6's
@@ -104,7 +118,11 @@ Recommended answers; confirm them when this plan is reviewed.
   whitespace, resolve the first word with `which::which` (handles
   Windows `PATHEXT`), pass the rest as arguments with the scratch path
   last. Unset or blank, or not found, fails with Go's Internal error
-  **before** any scratch file is created.
+  **before** any scratch file is created. **Changed in implementation:**
+  `main` reads `$EDITOR` into a new `Io::editor` field rather than the
+  helper reading the process environment: in-process tests run in
+  parallel against one environment, and `std::env::set_var` is `unsafe`
+  (denied workspace-wide).
 - **Scratch directory**: on Linux, the first of `$XDG_RUNTIME_DIR` and
   `/dev/shm` that `statfs` reports as tmpfs (`TMPFS_MAGIC`); otherwise,
   and on macOS and Windows, `std::env::temp_dir()`. File created through
@@ -126,7 +144,15 @@ Recommended answers; confirm them when this plan is reviewed.
   the trailing scratch path as one more name filter, which matches
   nothing. If a platform's test-binary path turns out to contain
   whitespace, fall back to a generated one-line launcher script and record
-  it here.
+  it here. **Changed in implementation:** the action comes from a config
+  file named on the editor's command line (`*.gage-fake-editor`, another
+  ignored libtest filter), not an environment variable, for the same
+  shared-environment reason as `Io::editor`. `FakeEditor::new` asserts the
+  command splits into exactly its seven words, so a path with whitespace
+  fails loudly rather than mysteriously.
+- **`insert -e` keeps unknown keys** (added in implementation): Go passes
+  the edited entry's `Extra` through to `Insert`, so `NewEntry` gains an
+  `extra` map.
 
 ## Tasks
 
@@ -134,26 +160,26 @@ Tests first, at task granularity.
 
 ### 1. Resolver — `resolve` (12 rows)
 
-- [ ] `TestResolveExactTitleWinsOverSubstringOfAnotherTitle`,
+- [x] `TestResolveExactTitleWinsOverSubstringOfAnotherTitle`,
       `TestResolveUniqueSubstringMatch`,
       `TestResolveSubstringMatchIsCaseInsensitive`.
-- [ ] `TestResolveByExactUUID`, `TestResolveByNonCanonicalUUIDSpellings`,
+- [x] `TestResolveByExactUUID`, `TestResolveByNonCanonicalUUIDSpellings`,
       `TestResolveByUUIDPrefix`, `TestResolveByUUIDMidStringSubstring`,
       `TestResolveByUUIDSubstringSpanningAHyphen`.
-- [ ] `TestResolveExactTitleWinsOverUUIDMatch` (the regression test for
+- [x] `TestResolveExactTitleWinsOverUUIDMatch` (the regression test for
       Go's original UUID-first order).
-- [ ] `TestResolveAmbiguousSubstringListsCandidatesAsAValue`,
+- [x] `TestResolveAmbiguousSubstringListsCandidatesAsAValue`,
       `TestResolveAmbiguousUUIDSubstringListsCandidates`,
       `TestResolveNotFoundAndAmbiguousAreDistinguishable`.
 
 ### 2. Library writes — `entry_edit` (6 rows) and `generate` library (11 rows)
 
-- [ ] `Vault::update`: `TestUpdateRewritesEntryAndCommits`.
-- [ ] `Vault::rename`: `TestRenameChangesOnlyTitleAndBumpsUpdated`,
+- [x] `Vault::update`: `TestUpdateRewritesEntryAndCommits`.
+- [x] `Vault::rename`: `TestRenameChangesOnlyTitleAndBumpsUpdated`,
       `TestRenameProducesExactlyOneCommit`,
       `TestRenameToExistingTitleRejectedUnlessForced`,
       `TestRenameToOwnTitleAlwaysAllowed`, `TestRenameUnknownQueryFails`.
-- [ ] `generate_value`: `TestGenerateValueLengthAndAlphabet`,
+- [x] `generate_value`: `TestGenerateValueLengthAndAlphabet`,
       `TestGenerateValueHonoursLength`,
       `TestGenerateValueNoSymbolsExcludesSymbols`,
       `TestGenerateValueStillDrawsSymbolsByDefault`,
@@ -162,15 +188,15 @@ Tests first, at task granularity.
       `TestGenerateValueDiffersAcrossCalls`,
       `TestGenerateDrawsFromCryptoRandNotMathRand` (structural: the
       default source is the OS CSPRNG type, not a seeded PRNG).
-- [ ] `random_string`: `TestRandomStringDrawIsStructural`,
+- [x] `random_string`: `TestRandomStringDrawIsStructural`,
       `TestRandomStringPropagatesReaderFailure`,
       `TestRandomStringRejectsNonPositiveLengthAndEmptyAlphabet`.
 
 ### 3. CLI resolution across commands — `resolve_cli` (6 rows)
 
-- [ ] Re-wire `cat` and `rm` (already on `resolve_query`; they pick up
+- [x] Re-wire `cat` and `rm` (already on `resolve_query`; they pick up
       the new stages) and wire `show`, `edit`, `rename`.
-- [ ] `TestShowCatRmResolveIdenticallyAcrossQueryForms`,
+- [x] `TestShowCatRmResolveIdenticallyAcrossQueryForms`,
       `TestCatResolvesByExactTitleEvenWhenQueryIsAlsoAUUIDSubstring`,
       `TestAmbiguousQueryListsCandidatesAndFailsWithoutPromptingForEveryCommand`
       (every query-taking command, with a prompter that panics if asked),
@@ -180,59 +206,59 @@ Tests first, at task granularity.
 
 ### 4. The `$EDITOR` helper ⚑ — `editor` (11 rows), `scratchdir*` (4 rows)
 
-- [ ] Resolution before any file: `TestEditYAMLUnsetEditorFailsBeforeAnyScratchFile`,
+- [x] Resolution before any file: `TestEditYAMLUnsetEditorFailsBeforeAnyScratchFile`,
       `TestEditYAMLUnusableEditorFailsBeforeAnyScratchFile`.
-- [ ] Scratch file: `TestEditYAMLScratchFileCreated0600` (Unix only, as
+- [x] Scratch file: `TestEditYAMLScratchFileCreated0600` (Unix only, as
       Go skips it on Windows), `TestEditYAMLScratchFileLandsInScratchDir`.
-- [ ] Round trip: `TestEditYAMLSetValueReportsChanged`,
+- [x] Round trip: `TestEditYAMLSetValueReportsChanged`,
       `TestEditYAMLUnchangedReportsUnchangedAndParsesBackIdentically`,
       `TestEditYAMLNonZeroExitFails`, `TestEditYAMLInvalidYAMLFailsToParse`.
-- [ ] Cleanup: `TestEditYAMLScratchFileRemovedOnEveryExitPath`,
+- [x] Cleanup: `TestEditYAMLScratchFileRemovedOnEveryExitPath`,
       `TestOverwriteFileZeroesContentsInPlace`,
       `TestOverwriteThenRemoveOverwritesBeforeUnlinking` (through a hard
       link, skipped where hard links are unavailable, as Go).
-- [ ] Scratch directory: `TestScratchDirIsAWritableDirectory`; Linux
+- [x] Scratch directory: `TestScratchDirIsAWritableDirectory`; Linux
       only: `TestScratchDirPrefersTmpfsOnLinux`,
       `TestIsTmpfsRejectsANonExistentDirectory`; elsewhere:
       `TestScratchDirIsTheOSTempDirOffLinux`.
 
 ### 5. `show`, `edit`, `rename` — `show` (8 of 9), `edit` (5), `rename` (3)
 
-- [ ] `show`: `TestShowPrintsOnlyValue`, `TestCatPrintsFullYAMLDistinctFromShow`,
+- [x] `show`: `TestShowPrintsOnlyValue`, `TestCatPrintsFullYAMLDistinctFromShow`,
       `TestShowMultilineValueHasNoExtraTrailingBlankLine`,
       `TestShowUnknownQueryFailsNotFound`,
       `TestShowAmbiguousQueryListsCandidatesAndFails`,
       `TestShowFieldExtractsNamedField`, `TestShowFieldOnEntryWithNoFields`,
       `TestShowUnknownFieldFailsClearly`.
-- [ ] `edit`: `TestEditChangesValueAndLeavesOtherFieldsUntouched`,
+- [x] `edit`: `TestEditChangesValueAndLeavesOtherFieldsUntouched`,
       `TestEditRestampsUpdatedAndUpdatedByAndCommits`,
       `TestEditRestampIsAuthoritativeOverTheEditedFile`,
       `TestEditUnparseableYAMLAbortsWithNoCommitAndOriginalUnchanged`,
       `TestEditAmbiguousQueryListsCandidatesAndFails`.
-- [ ] `rename`: `TestRenameChangesOnlyTitleThroughTheCLI`,
+- [x] `rename`: `TestRenameChangesOnlyTitleThroughTheCLI`,
       `TestRenameToExistingTitleRejectedUnlessForcedThroughTheCLI`,
       `TestRenameAmbiguousQueryListsCandidatesAndFails`.
-- [ ] Register `show`, `edit`, `rename` (one-shot and session) with Go's
+- [x] Register `show`, `edit`, `rename` (one-shot and session) with Go's
       descriptions and the fixture flags, less `show -c`/`-q`; add their
       error paths to the `errorprefix` table.
 - Moved: `TestShowClipCopiesTheNamedFieldNotTheValue` (P6 · M12).
 
 ### 6. `generate` and `insert -e` — `generate` CLI (6 of 9), `insert_edit` (7)
 
-- [ ] `generate`: `TestGenerateInsertsEntryWithRandomValueOfSaneDefaultLength`,
+- [x] `generate`: `TestGenerateInsertsEntryWithRandomValueOfSaneDefaultLength`,
       `TestGenerateProducesDifferentValuesAcrossEntries`,
       `TestGenerateProducesExactlyOneCommitAndSetsTimestamps`,
       `TestGenerateDuplicateTitleRejectedUnlessForced`,
       `TestGenerateRespectsLengthAndNoSymbols`,
       `TestGenerateRejectsAnUnreasonablySmallLength` (before any unlock).
-- [ ] `insert -e`: `TestInsertEditOpensAPreFilledTemplateWithEmptyValueAndFields`,
+- [x] `insert -e`: `TestInsertEditOpensAPreFilledTemplateWithEmptyValueAndFields`,
       `TestInsertEditOpensTemplateAndInsertsEditedValueAndFields`,
       `TestInsertEditSetsFieldsAtCreation`,
       `TestInsertEditAbortsWithNoEntryWrittenAndNoCommitIfUnchanged`,
       `TestInsertEditAbortsIfValueAndFieldsBothStillEmpty`,
       `TestInsertEditChangedTitleUsedForSavedEntryAndDuplicateCheck`,
       `TestInsertEditRejectedAlongsideMultilineOrValueStdinBeforeAnyIO`.
-- [ ] Register `generate` (with `-l`, `--no-symbols`, `--description`,
+- [x] Register `generate` (with `-l`, `--no-symbols`, `--description`,
       `-f`, `-u`; not `-c`/`-q`) and `insert -e`; restore the "mutually
       exclusive with -e/--edit" clause in `--field`'s help.
 - Moved: `TestGenerateClipAndQRAreMutuallyExclusive`,
@@ -241,21 +267,82 @@ Tests first, at task granularity.
 
 ### 7. Rows deferred by P2
 
-- [ ] `insert_field` `TestInsertFieldWithEditFlagRejectedAsMutuallyExclusive`.
-- [ ] The `show --field` halves of `TestInsertFieldRoundTripsThroughShow`
+- [x] `insert_field` `TestInsertFieldWithEditFlagRejectedAsMutuallyExclusive`.
+- [x] The `show --field` halves of `TestInsertFieldRoundTripsThroughShow`
       and `TestInsertMultipleFieldFlagsEachIndependentlyReadable`.
-- [ ] The `show` half of `vaultid_keying`
+- [x] The `show` half of `vaultid_keying`
       `TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath`.
 
 ### 8. User docs and ledger
 
-- [ ] Port Go's `doc/cli/addressing-entries.md`; extend
+- [x] Port Go's `doc/cli/addressing-entries.md`; extend
       `doc/cli/entries.md` with `show` (and `--field`), `edit`,
       `rename`, `generate`, `insert -e`, replacing M4's "substring
       matching arrives with P3" note.
-- [ ] Parity ledger: §2 `a0dcf7c`, `a4b989e` (`show --field` halves);
+- [x] Parity ledger: §2 `a0dcf7c`, `a4b989e` (`show --field` halves);
       §4 `show`, `edit`, `rename`, `generate`; §6 `addressing-entries.md`.
-- [ ] P3 index status column.
+- [x] P3 index status column.
+
+## Where the rows landed
+
+Library rows are in `crates/gage/src/entry/crud.rs` (`resolve`,
+`entry_edit`) and `crates/gage/src/generate.rs`; the `$EDITOR` helper's in
+`crates/gage-cli/src/editor.rs`; every CLI row in
+`crates/gage-cli/src/query_tests.rs`. Each test names its Go row above
+it. Rows ported with a difference:
+
+- `TestGenerateValueRejectsTooShortLength` and
+  `TestRandomStringRejectsNonPositiveLengthAndEmptyAlphabet`: Go's
+  negative lengths have no `usize` spelling. The CLI rejects `-l -5` at
+  parse time (also Usage), which `generate_rejects_an_unreasonably_small_length`
+  checks.
+- `TestGenerateDrawsFromCryptoRandNotMathRand` reads the source as Go's
+  does: the production half of `generate.rs` must call
+  `random_string(&mut OsRng, ...)` and name no seedable or thread-local
+  generator. Go's `rand.Int` check (no modulo bias) is replaced by a
+  behavioral test, `random_string_rejects_bytes_that_would_bias_the_draw`.
+- `TestAmbiguousQueryListsCandidatesAndFailsWithoutPromptingForEveryCommand`:
+  there is no `Prompter::choose` until M6, so "never prompts" is the
+  `FakePrompter` scripted with the unlock alone (any other prompt panics),
+  plus a fake editor that records if it was ever run.
+- `TestInsertEditRejectedAlongsideMultilineOrValueStdinBeforeAnyIO` and
+  `TestInsertFieldWithEditFlagRejectedAsMutuallyExclusive`: clap's
+  conflict message says "cannot be used with" where Go says "mutually
+  exclusive"; wording is not behavior (Q-COMPAT).
+- Help parity: `m5_commands_have_their_go_fixture_flags_and_descriptions`
+  compares each M5 command's description, positionals and flags with its
+  `tests/fixtures/go/help/` file, `-c`/`-q` excepted.
+
+## Opus review of the scratch-file tests ⚑
+
+Done in implementation, against every way out of `edit_yaml_in` once the
+file exists (editor exit 0 unchanged or changed, non-zero exit, parse
+failure, read-back failure) and before it (unset, blank, not on `PATH`).
+Two gaps found and closed with tests that aren't Go rows:
+
+- Nothing proved the *real* flow overwrites before unlinking; Go's
+  hard-link test covers the helper alone, so a `Drop` reduced to a bare
+  unlink passed every test. `edit_yaml_overwrites_the_scratch_file_before_unlinking_it`
+  has the fake editor hard-link the file to a witness and checks the
+  witness is zeros afterwards; it was confirmed to fail against exactly
+  that regression.
+- The read-back failure path (the editor deletes or moves the file) was
+  untested: `edit_yaml_fails_cleanly_when_the_editor_deletes_the_file`,
+  and a `delete` case in the every-exit-path test.
+
+"Fails before any file exists" is checked in a private scratch directory
+that must stay empty, not by a record the fake editor would never have
+written anyway (Go's check can't fail for the unset case).
+
+Two exposures the tests can't close, both shared with Go and left as they
+are, recorded here for P9's review:
+
+- A signal that kills gage while the editor runs (Ctrl-C reaches the whole
+  foreground process group; most editors ignore it, gage doesn't) skips
+  the cleanup and leaves the plaintext scratch file behind. Closing it
+  means ignoring SIGINT for the editor's lifetime.
+- Editor side files (vim's `.swp`, `~` backups) are written next to the
+  scratch file and are the editor's to clean up, not gage's.
 
 ## Definition of done
 

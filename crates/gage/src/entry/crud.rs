@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use uuid::Uuid;
 
-use super::{Entry, Error, Timestamp, new_id};
+use super::{Entry, Error, Extra, Timestamp, new_id};
 use crate::exitcode::{Code, HasCode};
 use crate::identity::Identity;
 use crate::vault::Vault;
@@ -33,6 +33,9 @@ pub struct NewEntry {
     pub description: String,
     pub value: String,
     pub fields: BTreeMap<String, String>,
+    /// Keys this build doesn't recognize, kept as given (`insert -e` lets
+    /// someone type one into the template).
+    pub extra: BTreeMap<String, Extra>,
 }
 
 /// Secrets stay out of logs: the value and field values are redacted.
@@ -43,6 +46,7 @@ impl std::fmt::Debug for NewEntry {
             .field("description", &self.description)
             .field("value", &"<redacted>")
             .field("fields", &self.fields.keys().collect::<Vec<_>>())
+            .field("extra", &self.extra.keys().collect::<Vec<_>>())
             .finish()
     }
 }
@@ -137,29 +141,54 @@ impl HasCode for WriteError {
     }
 }
 
-/// Resolves `query` against `(id, title)` pairs: exact title, then exact
-/// UUID (any spelling `uuid` parses: hyphenated, simple, braced, URN). More
-/// than one match at a stage is [`ResolveError::Ambiguous`]. The title
-/// comes first on purpose (see "Addressing entries" in the design doc): a
-/// title that happens to look like a UUID is still the title.
+/// Resolves `query` against `(id, title)` pairs, in stages: exact title,
+/// then title substring (case-insensitive), then exact UUID (any spelling
+/// `uuid` parses: hyphenated, simple, braced, URN), then UUID substring
+/// (hyphens and case ignored on both sides, so a prefix is one, and a query
+/// may span a hyphen). The first stage with any match decides: one match
+/// is the answer, more than one is [`ResolveError::Ambiguous`] listing that
+/// stage's matches. Every title stage runs before any UUID stage on purpose
+/// (see "Addressing entries" in the design doc): a title that happens to
+/// look like part of another entry's id still names its own entry.
+///
+/// Substring matching is title-only: descriptions and bodies are `search`'s
+/// job, not addressing's. A query that isn't hex simply matches nothing at
+/// the UUID stages.
 ///
 /// A pure function over what is already decrypted, so a cached index can
-/// reuse it. Substring stages slot in as stages two and four.
+/// reuse it.
 pub fn resolve_query(query: &str, entries: &[(Uuid, String)]) -> Result<Uuid, ResolveError> {
-    let exact_title: Vec<&(Uuid, String)> = entries.iter().filter(|(_, t)| t == query).collect();
-    match exact_title.as_slice() {
-        [] => {}
-        [(id, _)] => return Ok(*id),
-        many => return Err(ambiguous(query, many.iter().copied())),
-    }
-    if let Ok(wanted) = Uuid::try_parse(query)
-        && entries.iter().any(|(id, _)| *id == wanted)
-    {
-        return Ok(wanted);
+    let lower_query = query.to_lowercase();
+    let stripped_query = strip_uuid(query);
+    let stages: [Stage; 4] = [
+        &|_, title| title == query,
+        &|_, title| title.to_lowercase().contains(&lower_query),
+        &|id, _| Uuid::try_parse(query).is_ok_and(|wanted| *id == wanted),
+        &|id, _| strip_uuid(&id.to_string()).contains(&stripped_query),
+    ];
+    for matches in stages {
+        let hits: Vec<&(Uuid, String)> = entries.iter().filter(|(id, t)| matches(id, t)).collect();
+        match hits.as_slice() {
+            [] => continue,
+            [(id, _)] => return Ok(*id),
+            many => return Err(ambiguous(query, many.iter().copied())),
+        }
     }
     Err(ResolveError::NotFound {
         query: query.to_string(),
     })
+}
+
+/// One resolution stage: whether an `(id, title)` pair matches.
+type Stage<'a> = &'a dyn Fn(&Uuid, &str) -> bool;
+
+/// A UUID (or a fragment of one) as the substring stage compares it:
+/// hyphens dropped, lowercase.
+fn strip_uuid(s: &str) -> String {
+    s.chars()
+        .filter(|c| *c != '-')
+        .collect::<String>()
+        .to_lowercase()
 }
 
 fn ambiguous<'a>(query: &str, matches: impl Iterator<Item = &'a (Uuid, String)>) -> ResolveError {
@@ -196,11 +225,12 @@ impl Vault {
         Ok(rows)
     }
 
-    /// The one entry `query` names, or a typed reason it names none. Reads
-    /// only, so it takes no lock: a caller that goes on to write resolves
-    /// again under the lock (see [`Vault::remove`]).
-    pub fn resolve(&self, identity: &Identity, query: &str) -> Result<Uuid, ResolveError> {
-        resolve_query(query, &self.titles(identity)?)
+    /// The one entry `query` names, decrypted, or a typed reason it names
+    /// none. Reads only, so it takes no lock: a caller that goes on to
+    /// write resolves again under the lock (see [`Vault::remove`]).
+    pub fn resolve(&self, identity: &Identity, query: &str) -> Result<(Uuid, Entry), ResolveError> {
+        let id = resolve_query(query, &self.titles(identity)?)?;
+        Ok((id, self.read_entry(id, identity)?))
     }
 
     fn titles(&self, identity: &Identity) -> Result<Vec<(Uuid, String)>, Error> {
@@ -244,7 +274,7 @@ impl Vault {
                     id,
                 });
             }
-            let now = Timestamp::new(jiff::Timestamp::now());
+            let now = Timestamp::now();
             let entry = Entry {
                 title: new.title,
                 description: new.description,
@@ -253,7 +283,7 @@ impl Vault {
                 updated_by: identity.device().to_string(),
                 value: new.value,
                 fields: new.fields,
-                ..Entry::default()
+                extra: new.extra,
             };
             let id = new_id();
             self.write_entry(id, &entry)?;
@@ -279,13 +309,65 @@ impl Vault {
         query: &str,
     ) -> Result<Uuid, WriteError> {
         self.with_write_lock(timeout, || {
-            let id = self.resolve(identity, query)?;
+            let id = resolve_query(query, &self.titles(identity)?)?;
             let path = self.entry_path(id);
             std::fs::remove_file(&path).map_err(|source| WriteError::Io {
                 action: "removing",
                 path,
                 source,
             })?;
+            gitrepo::commit_all(&self.path, &id.to_string())?;
+            Ok(id)
+        })
+    }
+
+    /// Rewrites entry `id` as `e` (same id, fresh ciphertext) and commits,
+    /// under the write lock. It stamps nothing itself: the caller hands it
+    /// the final entry (`edit` re-stamps `updated`/`updated_by` and keeps
+    /// the original `created`), so it can rewrite an entry as-is.
+    ///
+    /// Unlike Go's `Update` it takes no identity: the entry is encrypted to
+    /// the vault's recipients, not to the writer, and Go's only other use
+    /// for it, reporting the automatic push, is P4's.
+    pub fn update(&self, id: Uuid, e: &Entry) -> Result<(), WriteError> {
+        self.with_write_lock(WRITE_LOCK_TIMEOUT, || {
+            self.write_entry(id, e)?;
+            gitrepo::commit_all(&self.path, &id.to_string())?;
+            Ok(())
+        })
+    }
+
+    /// Changes only the title of the entry `query` names, re-stamping
+    /// `updated` and `updated_by`; value, fields and `created` stay as they
+    /// were. A title another entry already has is refused unless `force`,
+    /// as on insert; the entry's own current title is always allowed, since
+    /// renaming to it changes nothing. Resolved and checked under the write
+    /// lock, as [`Vault::remove`] is.
+    pub fn rename(
+        &self,
+        identity: &Identity,
+        query: &str,
+        new_title: &str,
+        force: bool,
+    ) -> Result<Uuid, WriteError> {
+        self.with_write_lock(WRITE_LOCK_TIMEOUT, || {
+            let titles = self.titles(identity)?;
+            let id = resolve_query(query, &titles)?;
+            if !force
+                && let Some((other, _)) = titles
+                    .iter()
+                    .find(|(other, t)| *other != id && t == new_title)
+            {
+                return Err(WriteError::DuplicateTitle {
+                    title: new_title.to_string(),
+                    id: *other,
+                });
+            }
+            let mut e = self.read_entry(id, identity)?;
+            e.title = new_title.to_string();
+            e.updated = Some(Timestamp::now());
+            e.updated_by = identity.device().to_string();
+            self.write_entry(id, &e)?;
             gitrepo::commit_all(&self.path, &id.to_string())?;
             Ok(id)
         })
@@ -426,11 +508,13 @@ mod tests {
                     description: "Personal email".into(),
                     value: "correct horse".into(),
                     fields: [("username".to_string(), "me@proton.me".to_string())].into(),
+                    extra: [("x-future".to_string(), Extra::Plain("kept".into()))].into(),
                 },
                 false,
             )
             .unwrap();
         let e = f.vault.read_entry(id, &f.identity()).unwrap();
+        assert_eq!(e.extra["x-future"], Extra::Plain("kept".into()));
         assert_eq!(e.title, "ProtonMail");
         assert_eq!(e.description, "Personal email");
         assert_eq!(e.value, "correct horse");
@@ -583,8 +667,12 @@ mod tests {
         let entries = pairs(&["ProtonMail", "Proton", "other"]);
         assert_eq!(resolve_query("Proton", &entries).unwrap(), entries[1].0);
         assert_eq!(resolve_query("ProtonMail", &entries).unwrap(), entries[0].0);
-        // Exact means exact: no case folding, no trimming.
-        assert!(resolve_query("proton", &entries).is_err());
+        // The exact stage is exact: "proton" only reaches the substring
+        // stage, where it matches both Proton titles.
+        assert!(matches!(
+            resolve_query("proton", &entries),
+            Err(ResolveError::Ambiguous(_))
+        ));
     }
 
     // Go: TestResolveByUUID
@@ -656,13 +744,398 @@ mod tests {
             .vault
             .insert(&f.identity(), new_entry("findme", "v"), false)
             .unwrap();
-        assert_eq!(f.vault.resolve(&f.identity(), "findme").unwrap(), id);
+        let (got, e) = f.vault.resolve(&f.identity(), "findme").unwrap();
+        assert_eq!((got, e.value.as_str()), (id, "v"));
+        let (got, _) = f
+            .vault
+            .resolve(&f.identity(), &id.simple().to_string())
+            .unwrap();
+        assert_eq!(got, id);
+    }
+
+    // --- the full resolution order (M5) ----------------------------------
+
+    impl Fixture {
+        /// Inserts an entry titled `title`, duplicates allowed (Go's
+        /// `insertNamed`).
+        fn insert_named(&self, title: &str) -> Uuid {
+            self.vault
+                .insert(&self.identity(), new_entry(title, "v"), true)
+                .unwrap()
+        }
+
+        /// Writes an entry under a chosen id, so a test can pin which
+        /// substrings its UUID contains.
+        fn write_with_id(&self, id: &str, title: &str, value: &str) -> Uuid {
+            let id = Uuid::parse_str(id).unwrap();
+            let e = Entry {
+                title: title.into(),
+                value: value.into(),
+                ..Entry::default()
+            };
+            self.vault.write_entry(id, &e).unwrap();
+            id
+        }
+
+        fn resolve(&self, query: &str) -> Result<(Uuid, Entry), ResolveError> {
+            self.vault.resolve(&self.identity(), query)
+        }
+    }
+
+    fn candidate_ids(err: ResolveError) -> Vec<Uuid> {
+        match err {
+            ResolveError::Ambiguous(list) => list.candidates.iter().map(|c| c.id).collect(),
+            other => panic!("want Ambiguous, got {other}"),
+        }
+    }
+
+    // Go: TestResolveByExactUUID
+    #[test]
+    fn resolve_by_exact_uuid() {
+        let f = Fixture::new();
+        let id = f.insert_named("ProtonMail");
+        let (got, e) = f.resolve(&id.to_string()).unwrap();
+        assert_eq!(got, id);
+        assert_eq!(e.title, "ProtonMail");
+    }
+
+    // Go: TestResolveByNonCanonicalUUIDSpellings. For a canonical id the
+    // exact-UUID stage is invisible (the substring stage after it matches
+    // the same entry); braced and URN spellings are what only it accepts,
+    // so they are what keeps it from being deleted unnoticed.
+    #[test]
+    fn resolve_by_non_canonical_uuid_spellings() {
+        let f = Fixture::new();
+        let id = f.insert_named("ProtonMail");
+        for q in [id.braced().to_string(), id.urn().to_string()] {
+            let (got, e) = f.resolve(&q).unwrap();
+            assert_eq!(got, id, "{q}");
+            assert_eq!(e.title, "ProtonMail", "{q}");
+        }
+    }
+
+    // Go: TestResolveByUUIDPrefix
+    #[test]
+    fn resolve_by_uuid_prefix() {
+        let f = Fixture::new();
+        let id = f.insert_named("ProtonMail");
+        let (got, e) = f.resolve(&id.to_string()[..8]).unwrap();
+        assert_eq!(got, id);
+        assert_eq!(e.title, "ProtonMail");
+    }
+
+    // Go: TestResolveByUUIDMidStringSubstring. A pinned id, so the
+    // substring sits at a known, non-prefix offset.
+    #[test]
+    fn resolve_by_uuid_mid_string_substring() {
+        let f = Fixture::new();
+        let id = f.write_with_id("11111111-2222-4333-8444-deadbeef0000", "ProtonMail", "v");
+        let (got, e) = f.resolve("deadbeef").unwrap();
+        assert_eq!(got, id);
+        assert_eq!(e.title, "ProtonMail");
+    }
+
+    // Go: TestResolveByUUIDSubstringSpanningAHyphen. Hyphens are ignored on
+    // both sides, so "22223333" spans the first group boundary.
+    #[test]
+    fn resolve_by_uuid_substring_spanning_a_hyphen() {
+        let f = Fixture::new();
+        let id = f.write_with_id("11112222-3333-4444-8555-666677778888", "ProtonMail", "v");
+        assert_eq!(f.resolve("22223333").unwrap().0, id);
+        assert_eq!(f.resolve("2222-3333").unwrap().0, id);
+        assert_eq!(f.resolve("22223333-4444").unwrap().0, id);
+    }
+
+    // Go: TestResolveExactTitleWinsOverSubstringOfAnotherTitle
+    #[test]
+    fn resolve_exact_title_wins_over_substring_of_another_title() {
+        let f = Fixture::new();
+        let aws = f.insert_named("AWS");
+        f.insert_named("AWS root account");
+        let (got, e) = f.resolve("AWS").unwrap();
+        assert_eq!(got, aws);
+        assert_eq!(e.title, "AWS");
+    }
+
+    // Go: TestResolveUniqueSubstringMatch
+    #[test]
+    fn resolve_unique_substring_match() {
+        let f = Fixture::new();
+        let want = f.insert_named("AWS root account");
+        f.insert_named("GitHub");
+        let (got, e) = f.resolve("root").unwrap();
+        assert_eq!(got, want);
+        assert_eq!(e.title, "AWS root account");
+    }
+
+    // Go: TestResolveSubstringMatchIsCaseInsensitive
+    #[test]
+    fn resolve_substring_match_is_case_insensitive() {
+        let f = Fixture::new();
+        let want = f.insert_named("ProtonMail");
+        assert_eq!(f.resolve("protonmail").unwrap().0, want);
+        assert_eq!(f.resolve("TONMA").unwrap().0, want);
+    }
+
+    // Go: TestResolveAmbiguousSubstringListsCandidatesAsAValue
+    #[test]
+    fn resolve_ambiguous_substring_lists_candidates_as_a_value() {
+        let f = Fixture::new();
+        let a = f.insert_named("AWS root account");
+        let b = f.insert_named("AWS IAM backup admin");
+        let err = f.resolve("aws").unwrap_err();
+        assert_eq!(err.code(), Code::Ambiguous);
+        let ResolveError::Ambiguous(list) = err else {
+            panic!("want Ambiguous");
+        };
+        assert_eq!(list.query, "aws");
+        let titles: Vec<&str> = list.candidates.iter().map(|c| c.title.as_str()).collect();
+        assert_eq!(titles, ["AWS IAM backup admin", "AWS root account"]);
+        let ids: Vec<Uuid> = list.candidates.iter().map(|c| c.id).collect();
+        assert_eq!(ids, [b, a]);
+    }
+
+    // Go: TestResolveAmbiguousUUIDSubstringListsCandidates. No title
+    // matches, so the UUID substring stage is what reports the ambiguity.
+    #[test]
+    fn resolve_ambiguous_uuid_substring_lists_candidates() {
+        let f = Fixture::new();
+        let a = f.write_with_id("aaaaaaaa-1111-4111-8111-111111111111", "Something", "1");
+        let b = f.write_with_id("aaaaaaaa-2222-4222-8222-222222222222", "Something", "2");
+        let err = f.resolve("aaaaaaaa").unwrap_err();
+        assert_eq!(err.code(), Code::Ambiguous);
+        assert_eq!(candidate_ids(err), [a, b]);
+    }
+
+    // Go: TestResolveExactTitleWinsOverUUIDMatch, the regression test for
+    // Go's original UUID-first order: "22" is one entry's exact title and
+    // a substring of another's id, and must name the first.
+    #[test]
+    fn resolve_exact_title_wins_over_uuid_match() {
+        let f = Fixture::new();
+        f.write_with_id(
+            "22ed1bfd-4b77-4bba-90be-ff40de0eab87",
+            "Website Password",
+            "correcthorsebattery",
+        );
+        let twenty_two = f.write_with_id(
+            "5ebca883-6a5f-4e96-acab-766f2fceb2d4",
+            "22",
+            "some-other-secret",
+        );
+        let (got, e) = f.resolve("22").unwrap();
+        assert_eq!(got, twenty_two);
+        assert_eq!(
+            (e.title.as_str(), e.value.as_str()),
+            ("22", "some-other-secret")
+        );
+    }
+
+    // Go: TestResolveNotFoundAndAmbiguousAreDistinguishable
+    #[test]
+    fn resolve_not_found_and_ambiguous_are_distinguishable() {
+        let f = Fixture::new();
+        f.insert_named("AWS root account");
+        f.insert_named("AWS IAM backup admin");
+        let not_found = f.resolve("no such thing at all").unwrap_err();
+        let ambiguous = f.resolve("aws").unwrap_err();
+        assert!(
+            matches!(not_found, ResolveError::NotFound { .. }),
+            "{not_found}"
+        );
+        assert!(
+            matches!(ambiguous, ResolveError::Ambiguous(_)),
+            "{ambiguous}"
+        );
+        assert_eq!(not_found.code(), Code::NotFound);
+        assert_eq!(ambiguous.code(), Code::Ambiguous);
+        assert_ne!(not_found.code(), ambiguous.code());
+    }
+
+    // --- update and rename ------------------------------------------------
+
+    /// Rewrites `id`'s timestamps to a day ago, so a later re-stamp is
+    /// observably later even within one wall-clock second.
+    fn backdate(f: &Fixture, id: Uuid) -> Timestamp {
+        let old = Timestamp::new(jiff::Timestamp::now() - jiff::SignedDuration::from_hours(24));
+        let mut e = f.vault.read_entry(id, &f.identity()).unwrap();
+        e.created = Some(old);
+        e.updated = Some(old);
+        f.vault.write_entry(id, &e).unwrap();
+        gitrepo::commit_all(&f.vault.path, "backdate").unwrap();
+        old
+    }
+
+    // Go: TestUpdateRewritesEntryAndCommits
+    #[test]
+    fn update_rewrites_entry_and_commits() {
+        let f = Fixture::new();
+        let id = f.insert_named("ProtonMail");
+        let before = f.commits();
+        let mut e = f.vault.read_entry(id, &f.identity()).unwrap();
+        e.value = "rotated-secret".into();
+
+        f.vault.update(id, &e).unwrap();
+
+        assert_eq!(f.commits(), before + 1);
+        assert_eq!(f.head().message, id.to_string());
+        assert!(gitrepo::is_clean(&f.vault.path).unwrap());
+        assert_eq!(f.vault.read_entry(id, &f.identity()).unwrap(), e);
+    }
+
+    // Go: TestRenameChangesOnlyTitleAndBumpsUpdated
+    #[test]
+    fn rename_changes_only_title_and_bumps_updated() {
+        let f = Fixture::new();
+        let id = f
+            .vault
+            .insert(
+                &f.identity(),
+                NewEntry {
+                    title: "Old Title".into(),
+                    description: "d".into(),
+                    value: "secret".into(),
+                    fields: [("user".to_string(), "me".to_string())].into(),
+                    ..NewEntry::default()
+                },
+                false,
+            )
+            .unwrap();
+        let old = backdate(&f, id);
+        let mut was = f.vault.read_entry(id, &f.identity()).unwrap();
+        was.updated_by = "another-device".into();
+        f.vault.write_entry(id, &was).unwrap();
+
+        let got = f
+            .vault
+            .rename(&f.identity(), "Old Title", "New Title", false)
+            .unwrap();
+
+        assert_eq!(got, id);
+        let e = f.vault.read_entry(id, &f.identity()).unwrap();
+        assert_eq!(e.title, "New Title");
+        assert!(e.updated.unwrap() > old, "updated bumped");
+        assert_eq!(e.updated_by, "test-device", "updated_by re-stamped");
+        assert_eq!(e.created, Some(old), "created untouched");
+        // Everything else is as it was.
+        assert_eq!(
+            Entry {
+                title: was.title.clone(),
+                updated: was.updated,
+                updated_by: was.updated_by.clone(),
+                ..e
+            },
+            was
+        );
+    }
+
+    // Go: TestRenameProducesExactlyOneCommit
+    #[test]
+    fn rename_produces_exactly_one_commit() {
+        let f = Fixture::new();
+        let id = f.insert_named("Old Title");
+        let before = f.commits();
+        f.vault
+            .rename(&f.identity(), "Old Title", "New Title", false)
+            .unwrap();
+        assert_eq!(f.commits(), before + 1);
+        assert_eq!(f.head().message, id.to_string());
+        assert!(gitrepo::is_clean(&f.vault.path).unwrap());
+    }
+
+    // Go: TestRenameToExistingTitleRejectedUnlessForced
+    #[test]
+    fn rename_to_existing_title_rejected_unless_forced() {
+        let f = Fixture::new();
+        let a = f.insert_named("Entry A");
+        let b = f.insert_named("Entry B");
+        let before = f.commits();
+
+        let err = f
+            .vault
+            .rename(&f.identity(), "Entry B", "Entry A", false)
+            .unwrap_err();
+
+        assert!(
+            matches!(&err, WriteError::DuplicateTitle { title, id } if title == "Entry A" && *id == a),
+            "{err}"
+        );
+        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(f.commits(), before);
+        assert_eq!(f.resolve("Entry B").unwrap().0, b, "B is unrenamed");
+
+        f.vault
+            .rename(&f.identity(), "Entry B", "Entry A", true)
+            .unwrap();
+        assert!(matches!(
+            f.resolve("Entry A"),
+            Err(ResolveError::Ambiguous(_))
+        ));
+    }
+
+    // Go: TestRenameToOwnTitleAlwaysAllowed
+    #[test]
+    fn rename_to_own_title_always_allowed() {
+        let f = Fixture::new();
+        let id = f.insert_named("Same");
         assert_eq!(
             f.vault
-                .resolve(&f.identity(), &id.simple().to_string())
+                .rename(&f.identity(), "Same", "Same", false)
                 .unwrap(),
             id
         );
+    }
+
+    // Go: TestRenameUnknownQueryFails
+    #[test]
+    fn rename_unknown_query_fails() {
+        let f = Fixture::new();
+        f.insert_named("keep");
+        let before = f.commits();
+        let err = f
+            .vault
+            .rename(&f.identity(), "no such entry", "New Title", false)
+            .unwrap_err();
+        assert!(
+            matches!(&err, WriteError::Resolve(ResolveError::NotFound { .. })),
+            "{err}"
+        );
+        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(f.commits(), before);
+    }
+
+    // Not a Go row: rename resolves through the full order, and an
+    // ambiguous query renames nothing.
+    #[test]
+    fn an_ambiguous_rename_changes_nothing() {
+        let f = Fixture::new();
+        f.insert_named("AWS root account");
+        f.insert_named("AWS IAM backup admin");
+        let before = f.commits();
+        let err = f
+            .vault
+            .rename(&f.identity(), "aws", "Whatever", false)
+            .unwrap_err();
+        assert_eq!(err.code(), Code::Ambiguous);
+        assert_eq!(f.commits(), before);
+        assert!(f.resolve("Whatever").is_err());
+    }
+
+    // A query that isn't hex matches nothing at the UUID stages rather than
+    // erroring: "zz" is in no title and can't be in any id.
+    #[test]
+    fn a_non_hex_query_falls_through_every_stage_to_not_found() {
+        let entries = pairs(&["alpha", "beta"]);
+        assert!(matches!(
+            resolve_query("zz", &entries),
+            Err(ResolveError::NotFound { .. })
+        ));
+        // And the empty query is a substring of everything: ambiguous with
+        // more than one entry, never a silent pick.
+        assert!(matches!(
+            resolve_query("", &entries),
+            Err(ResolveError::Ambiguous(_))
+        ));
     }
 
     #[test]
@@ -868,7 +1341,7 @@ mod tests {
             f.vault.read_entry(id, &f.identity()).unwrap().title,
             "readable"
         );
-        assert_eq!(f.vault.resolve(&f.identity(), "readable").unwrap(), id);
+        assert_eq!(f.vault.resolve(&f.identity(), "readable").unwrap().0, id);
         assert!(
             start.elapsed() < Duration::from_secs(2),
             "reads waited on the write lock"

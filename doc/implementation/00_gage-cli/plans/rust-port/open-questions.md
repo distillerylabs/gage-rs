@@ -487,9 +487,12 @@ for the tmpfs check.**
   exclusively with an unpredictable name (`tempfile`), 0600 on Unix, and
   on every exit path overwritten with zeros at its length and unlinked,
   both best-effort, as Go.
-- Tests fake the editor by re-executing the test binary with an action
-  in an environment variable, the pattern the vault-lock, core-dump and
-  commit-author tests already use, rather than adding an editor seam.
+- Tests fake the editor by re-executing the test binary, the pattern the
+  vault-lock, core-dump and commit-author tests already use, rather than
+  adding an editor seam. The action is in a config file named on the
+  editor's command line, not an environment variable, and `$EDITOR`
+  itself reaches the CLI through `Io::editor` (set by `main`): in-process
+  tests share one environment, and `set_var` is `unsafe` (P3 · M5).
 
 ### `[x]` Q-INDEX-ARENA — How does the metadata index hold plaintext? {#q-index-arena}
 

@@ -22,11 +22,14 @@ gage = { path = "../gage" }
 # init's default device name; std has no hostname call.
 hostname = "0.4"
 rpassword = "7.5"
+# $EDITOR's PATH lookup before any scratch file exists (Q-EDITOR); handles
+# Windows PATHEXT.
+which = "8"
+tempfile = "3"
 zeroize = "1"
 
 [dev-dependencies]
 assert_cmd = "2"
-tempfile = "3"
 gage = { path = "../gage", features = ["test-support"] }
 thiserror = "2"
 portable-pty = "0.9"

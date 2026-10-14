@@ -14,6 +14,7 @@ pub mod crypt;
 pub mod devicename;
 pub mod entry;
 pub mod exitcode;
+pub mod generate;
 pub mod gitrepo;
 #[cfg(any(test, feature = "test-support"))]
 pub mod gittest;

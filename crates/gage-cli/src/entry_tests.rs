@@ -19,18 +19,18 @@ use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE};
 
 /// The device name `Env` gives every vault it inits (its hostname,
 /// normalized).
-const DEVICE: &str = "test-host";
+pub(crate) const DEVICE: &str = "test-host";
 
 /// A prompter that unlocks once and, optionally, answers one value prompt.
-fn unlocks() -> FakePrompter {
+pub(crate) fn unlocks() -> FakePrompter {
     FakePrompter::new().with_passphrase(PASSPHRASE)
 }
 
-fn with_value(value: &str) -> FakePrompter {
+pub(crate) fn with_value(value: &str) -> FakePrompter {
     unlocks().with_value(value)
 }
 
-fn env_with_vault() -> Env {
+pub(crate) fn env_with_vault() -> Env {
     let env = Env::new();
     env.init("personal", &[]);
     env
@@ -39,7 +39,7 @@ fn env_with_vault() -> Env {
 impl Env {
     /// `gage insert <args>` answering the value prompt with `value`, and
     /// requiring success.
-    fn insert_ok(&self, value: &str, args: &[&str]) -> Uuid {
+    pub(crate) fn insert_ok(&self, value: &str, args: &[&str]) -> Uuid {
         let mut full = vec!["insert"];
         full.extend_from_slice(args);
         let r = self.run_with(&full, &with_value(value));
@@ -47,22 +47,22 @@ impl Env {
         inserted_id(&r)
     }
 
-    fn cmd(&self, args: &[&str]) -> CliResult {
+    pub(crate) fn cmd(&self, args: &[&str]) -> CliResult {
         self.run_with(args, &unlocks())
     }
 
-    fn cmd_ok(&self, args: &[&str]) -> CliResult {
+    pub(crate) fn cmd_ok(&self, args: &[&str]) -> CliResult {
         let r = self.cmd(args);
         assert_eq!(r.code, Code::Success, "{args:?} failed:\n{}", r.stderr);
         r
     }
 
-    fn vault(&self, name: &str) -> Vault {
+    pub(crate) fn vault(&self, name: &str) -> Vault {
         Vault::from_registration(&self.dirs, name, &self.entry(name)).unwrap()
     }
 
     /// Every entry in `name`, decrypted with the vault's real identity.
-    fn entries(&self, name: &str) -> Vec<(Uuid, Entry)> {
+    pub(crate) fn entries(&self, name: &str) -> Vec<(Uuid, Entry)> {
         let vault = self.vault(name);
         let identity = vault.unlock(&unlocks()).unwrap();
         vault
@@ -73,13 +73,13 @@ impl Env {
             .collect()
     }
 
-    fn only_entry(&self, name: &str) -> (Uuid, Entry) {
+    pub(crate) fn only_entry(&self, name: &str) -> (Uuid, Entry) {
         let mut all = self.entries(name);
         assert_eq!(all.len(), 1, "want exactly one entry");
         all.remove(0)
     }
 
-    fn commits(&self, name: &str) -> usize {
+    pub(crate) fn commits(&self, name: &str) -> usize {
         gitrepo::commit_count(&self.entry(name).path).unwrap()
     }
 }
@@ -142,6 +142,11 @@ fn use_unregistered_vault_fails_before_prompting_for_a_passphrase() {
         &["cat", "x", "--use", "ghost"],
         &["rm", "x", "--use", "ghost"],
         &["insert", "x", "--use", "ghost"],
+        &["show", "x", "--use", "ghost"],
+        &["edit", "x", "--use", "ghost"],
+        &["rename", "x", "y", "--use", "ghost"],
+        &["generate", "x", "--use", "ghost"],
+        &["insert", "x", "-e", "--use", "ghost"],
     ] {
         let prompter = FakePrompter::new();
         let r = env.run_with(args, &prompter);
@@ -362,7 +367,7 @@ fn insert_mutually_exclusive_value_flags_rejected_before_any_io() {
 }
 
 /// Stdin that fails the test if anything reads it.
-struct ExplodingReader;
+pub(crate) struct ExplodingReader;
 
 impl std::io::Read for ExplodingReader {
     fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
@@ -586,8 +591,8 @@ fn cat_unknown_fails_with_not_found() {
     assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
     assert_eq!(r.stdout, "");
     assert!(r.stderr.contains("nope"), "{}", r.stderr);
-    // Exact match only until substring resolution (P3): a prefix misses.
-    assert_eq!(env.cmd(&["cat", "exis"]).code, Code::NotFound);
+    // A title substring resolves since P3 · M5; this one is in no title.
+    assert_eq!(env.cmd(&["cat", "exis"]).code, Code::Success);
 }
 
 // Go: TestRmDeletesFileAndCommitsThenCatAndLsNoLongerShowIt
@@ -861,9 +866,8 @@ fn insert_field_without_value_mode_still_prompts_once_and_stores_fields() {
 }
 
 // Go: TestInsertFieldRoundTripsThroughShow and
-// TestInsertMultipleFieldFlagsEachIndependentlyReadable. `show --field`
-// arrives with P3 · M5, so each is checked through the stored entry
-// (`Entry::field`, which `show --field` calls) and through `cat`.
+// TestInsertMultipleFieldFlagsEachIndependentlyReadable, through the stored
+// entry and `cat`; the `show --field` halves are in query_tests.
 #[test]
 fn insert_fields_round_trip_and_are_each_independently_readable() {
     let env = env_with_vault();
@@ -964,7 +968,7 @@ fn no_entry_command_doubles_gages_own_prefix() {
 // --- rows moved from P1 ------------------------------------------------------
 
 // The insert half of Go's TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath
-// (the `show` half is P3 · M5, `identity list` is P5): a registration with
+// (the `show` half is in query_tests, `identity list` is P5): a registration with
 // an empty id fails `insert` before any path is built from it.
 #[test]
 fn a_registration_without_an_id_fails_insert_before_any_path_is_built() {

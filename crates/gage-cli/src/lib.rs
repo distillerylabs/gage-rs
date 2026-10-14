@@ -20,6 +20,7 @@ mod build_env;
 pub mod cli;
 mod commands;
 pub mod coredump;
+mod editor;
 pub mod error;
 pub mod prompter;
 pub mod registry;
@@ -47,6 +48,9 @@ pub struct Io<'a> {
     pub dirs: &'a dyn Fn() -> Result<Dirs, xdgpaths::Error>,
     /// This machine's hostname: `init`'s default device name.
     pub hostname: &'a dyn Fn() -> std::io::Result<String>,
+    /// `$EDITOR`, for `edit` and `insert -e`. `main` reads the variable;
+    /// in-process tests, which share one process environment, set it here.
+    pub editor: Option<String>,
 }
 
 /// Runs one invocation (`args` without the program name) and returns its
@@ -135,5 +139,7 @@ mod entry_tests;
 mod init_identity_tests;
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod query_tests;
 #[cfg(test)]
 mod tests;
