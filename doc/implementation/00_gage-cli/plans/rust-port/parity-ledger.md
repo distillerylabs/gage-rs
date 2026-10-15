@@ -102,7 +102,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M3 | P2 · M3 | `[x]` ([#14](https://github.com/distillerylabs/gage-rs/issues/14)) |
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
 | | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[x]` |
-| | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[ ]` |
+| | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[~]` M8a1 ([#33](https://github.com/distillerylabs/gage-rs/issues/33)) |
 | | M9 (+ A19), M10, M11 | P5 | `[ ]` |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
 | | "Post-plan changes" section | Rows in §2 | — |
@@ -127,7 +127,8 @@ to match Cobra's layout.
 | `insert`, `cat`, `rm`, `ls` | P2 · M4 `[x]` (name, group, arguments and the flags that exist match; `insert -e` P3 · M5 `[x]`; `ls -H` and `cat` formatting are P6 · M12) |
 | `show`, `edit`, `rename`, `generate` | P3 · M5 `[x]` (all fixture flags but `-c`/`-q` on `show` and `generate`, which are P6 · M12; checked by `m5_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `search`, `reindex` | P3 · M7 `[x]` (name, alias `grep`, group, arguments and `-u/--use` match; checked by `m7_commands_have_their_go_fixture_flags_and_descriptions`) |
-| `clone`, `sync`, `pull`, `push`, `auth`, `auth_login`, `auth_status`, `auth_logout` | P4: `auth*` in M8a1; `clone`, `sync`, `pull`, `push` and `init --remote` in M8a2; `sync`'s resolving half in M8b (`clone`'s enrollment offer is P7's; `sync --yes` arrives with P5 · M10) |
+| `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 · M8a1 `[x]` (name, group Git-specific, both modes, `--host`, `login`'s long help; checked by `p4_auth_commands_have_their_go_fixture_flags_and_descriptions`) |
+| `clone`, `sync`, `pull`, `push` | P4: `clone`, `sync`, `pull`, `push` and `init --remote` in M8a2; `sync`'s resolving half in M8b (`clone`'s enrollment offer is P7's; `sync --yes` arrives with P5 · M10) |
 | `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5 |
 | `log`, `history` (and the output flags `--clip`, `--qr`, `--script`; `show --field` itself is P3 · M5) | P6 |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |

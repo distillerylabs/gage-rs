@@ -163,6 +163,9 @@ config, so none of them is vacuous.
 | HTTPS compiled in, no system libraries | `Version::https()` true, `ssh()` false, `vendored()` true. An `https://` remote fails as a connection error, not an unsupported scheme. Backends: OpenSSL (vendored, static) on Linux, Security.framework on macOS, WinHTTP on Windows. Linux `ldd` shows only libc, libgcc_s and **libz**, so P4 adds `libz-sys/static`. |
 | local transport on Windows | Works with plain `C:\...` paths for the remote URL. |
 
+*M8a1:* the isolation landed in P4 · M8a1 (`gitrepo::isolate`), not in
+M1; see [Q-GIT-ISOLATION](#q-git-isolation).
+
 *P4 planning amendments:* the "No `ssh`" decision is reversed by
 [Q-SSH](#q-ssh): git2's `ssh` feature is added for best-effort ssh-agent.
 The isolation step below was assigned to M1 but did not land there. It
@@ -559,13 +562,25 @@ user chose parity over refusing SSH outright. What follows from that:
   real reason, pointing at the HTTPS spelling and `gage auth login`.
   libssh2 doesn't read `~/.ssh/config` either, so the alias would
   otherwise fail as a confusing connection error.
-- **Host keys.** M8a1 settles from libgit2's source whether libgit2 1.9
-  with libssh2 checks `~/.ssh/known_hosts` itself, or whether gage must
-  supply `certificate_check`. The answer is recorded here.
+- **Host keys.** Settled in M8a1 from libgit2 1.9.7's
+  `transports/ssh_libssh2.c` (`check_certificate`): libgit2 loads
+  `~/.ssh/known_hosts` itself (through its home directory, which the
+  config isolation doesn't touch) and checks the host key against it.
+  With no `certificate_check` callback, a host that is unknown or whose
+  key doesn't match fails closed with `ErrorCode::Certificate`. gage
+  therefore installs no `certificate_check`, which matches go-git's
+  known_hosts default. libgit2-sys compiles only the libssh2 backend
+  (`GIT_SSH_LIBSSH2`), so the exec backend is never built.
 - **Build cost.** libssh2-sys is a second vendored C library on three
-  operating systems, built with vendored OpenSSL. Its license (BSD-3-Clause)
-  and its RustSec advisories come under `deny.toml` and `make audit`.
-  M8a1 checks the cold CI build time before writing any further code.
+  operating systems. It is always built from its bundled source (unless
+  `LIBSSH2_SYS_USE_PKG_CONFIG` is set, or vcpkg finds one on MSVC), links
+  OpenSSL on Unix and WinCNG on Windows. `crates/gage` names it directly
+  on Unix with `vendored-openssl`, so its OpenSSL is vendored without
+  relying on libgit2-sys's feature wiring. M8a1: the crate is
+  `MIT OR Apache-2.0`, the bundled C libssh2 BSD-3-Clause, both already
+  allowed; `make audit` passed with no advisories. A local incremental
+  build took 8s; the cold three-OS CI build time is checked on the
+  milestone's first CI run.
 - **Tests.** No network and no agent can be assumed. As in Go, the test
   pins *which path* resolving the method took: an agent credential, or an
   error naming ssh-agent. It never pins the outcome.
@@ -589,6 +604,17 @@ user's `url.<base>.insteadOf` would redirect a vault.
   - It first asserts that libgit2 can see that config, so the test is not
     vacuous.
   - It then asserts that neither setting has any effect.
+
+*M8a1:* the search path is set to an empty string rather than an empty
+directory. libgit2's `git_sysdir_set` stores it as-is, which leaves each
+level with no directory to search
+(`isolation_empties_every_config_search_path`). gage opens repositories
+with `Repository::open`, never "from env", so `GIT_CONFIG_GLOBAL`,
+`GIT_CONFIG_SYSTEM` and `GIT_CONFIG_NOSYSTEM` are never read either. The
+child-process test (`hostile_git_config_is_ignored`) first shows an
+unisolated libgit2 seeing the hostile config and rewriting the URL; then
+clone, push, fetch and fast-forward go through gage and land in the real
+remote with LF line endings intact. Removing the isolation turns it red.
 
 ### `[x]` Q-SYNC-CLASSIFY — How are fetch and push failures classified? {#q-sync-classify}
 
@@ -622,6 +648,35 @@ The classified error carries a message with the credentials stripped
 out. It never carries a raw `git2::Error` whose text might contain a URL
 with a token in it.
 
+*What M8a1 observed (libgit2 1.9.7), and where it departs from the table
+above.* The full table is the doc comment on `syncerr`; each row is
+triggered for real by `syncerr_tests` and `gitrepo::remote_tests`.
+
+- A refused loopback port and a `.invalid` host are class `Net`
+  (expected `Os` under WinHTTP), `GenericError`: unreachable.
+- A 401 is the only typed HTTP status (`Http`, `ErrorCode::Auth`). Both
+  libgit2 HTTP backends report every other non-200 status as class `Http`,
+  `GenericError`, with the number only in the message. Since the message
+  is never read, the whole `Http` class is auth. That puts 403 and 404
+  where the table wants them, and also a 5xx or a URL that isn't a git
+  repository; the message gage shows still names the real status.
+- A token the remote rejects, and a credentials request from a host the
+  token wasn't stored for, are refused by gage's own `credentials`
+  callback; gage records the refusal and classifies it as auth without
+  reading libgit2's error. Its deadline abort works the same way, as
+  unreachable.
+- A local path that doesn't exist is unreachable, not auth as in Go:
+  libgit2 takes a remote for a local path only when the path exists, and
+  otherwise reports "unsupported URL protocol" (`Net`). For a vault on an
+  unmounted drive, "retry later" is the honest answer; gage names the
+  path in the message. A path that exists but isn't a repository is class
+  `Repository`, and is auth, as in Go.
+- A non-fast-forward push is `Reference`, `ErrorCode::NotFastForward`,
+  raised client-side before anything is sent. A ref the server refuses
+  (proven with a locked ref on the remote) arrives as a
+  `push_update_reference` status while `push()` returns `Ok`; `push`
+  reports it as diverged.
+
 ### `[x]` Q-REMOTE-TIMEOUT — How is a network operation bounded without `context`? {#q-remote-timeout}
 
 **Resolved: `REMOTE_OP_TIMEOUT` = 30s, public, enforced in two layers.**
@@ -634,6 +689,13 @@ with a token in it.
   pack-progress and sideband callbacks. Returning `false` aborts the
   operation, and the abort classifies as unreachable. Tests use a
   deadline of zero, never real time.
+
+*M8a1:* git2's pack-builder and push-transfer progress callbacks return
+nothing, so they can't abort. The deadline is checked in transfer progress
+and sideband progress (fetch), in push negotiation (push, before the pack
+is sent), and in the credentials callback. Tests prove a zero deadline
+aborts a fetch with something to transfer and a push with something to
+send, each as unreachable with nothing fetched or sent.
 
 There is no cancellation token. Go's `context.Canceled` exists because Go
 already has a `context`. No gage-rs frontend cancels a sync today, and
@@ -695,6 +757,14 @@ against a loopback HTTP recorder.**
 - **No retry loop.** libgit2 calls the callback again after a 401. A
   second call within one operation fails, which then classifies as auth
   with the host-naming hint.
+- *M8a1, redirects observed:* with `follow_redirects(Initial)`, libgit2
+  follows a 302 on the first request to another host name and sends no
+  `Authorization` there. If that host then challenges, the callback
+  refuses: the token is offered only to the host it was stored for. That
+  holds both when the redirect comes before the token is offered and when
+  the origin accepted the token first and then redirected
+  (`a_token_is_not_offered_to_a_host_it_was_not_stored_for`,
+  `a_redirect_after_the_token_does_not_carry_it_to_another_host`).
 - **No token stored** means an anonymous attempt, not an error, as in Go.
 - **The test hook.** libgit2 hands credentials only to its built-in HTTP
   transport, so Go's `gagetest://` recording transport has no equivalent.

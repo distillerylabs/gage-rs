@@ -27,13 +27,20 @@ pub enum Error {
     InvalidVaultId(String),
     #[error("device name {0:?} is invalid: unsafe path component")]
     InvalidDeviceName(String),
+    #[error("host {host:?} cannot be used as a path component: {reason}")]
+    InvalidHost { host: String, reason: &'static str },
 }
 
 impl HasCode for Error {
-    // Go's code for a refused path component: the vault can't be unlocked
-    // on this device as configured.
     fn code(&self) -> Code {
-        Code::LockedOrAuth
+        match self {
+            // Go's code for a refused path component: the vault can't be
+            // unlocked on this device as configured.
+            Error::InvalidVaultId(_) | Error::InvalidDeviceName(_) => Code::LockedOrAuth,
+            // A host arrives from a remote URL or `--host`: the command
+            // line or the config was wrong, as in Go's checkHost.
+            Error::InvalidHost { .. } => Code::Usage,
+        }
     }
 }
 
@@ -76,6 +83,44 @@ pub fn lock_file_path(dirs: &Dirs, vault_id: &str) -> Result<PathBuf, Error> {
 pub fn trust_cache_dir(dirs: &Dirs, vault_id: &str) -> Result<PathBuf, Error> {
     check_vault_id(vault_id)?;
     Ok(dirs.state.join(vault_id))
+}
+
+/// `$GAGE_STATE/tokens`: per-host HTTPS tokens (see `remoteauth`). Under
+/// the state root because a token is disposable and machine-local:
+/// re-acquirable by logging in again, unlike an identity file.
+pub fn tokens_dir(dirs: &Dirs) -> PathBuf {
+    dirs.state.join("tokens")
+}
+
+/// `$GAGE_STATE/tokens/<host>`. The host comes from a remote URL, which is
+/// committed, git-editable config, or from `--host`, so it is validated as
+/// a single path component before the path is built: `github.com/../../etc`
+/// is refused, not resolved (the rule Q-DEVICE-NAME applies to devices).
+pub fn token_file_path(dirs: &Dirs, host: &str) -> Result<PathBuf, Error> {
+    check_host(host)?;
+    Ok(tokens_dir(dirs).join(host))
+}
+
+fn check_host(host: &str) -> Result<(), Error> {
+    let reason = if host.is_empty() {
+        "it is empty"
+    } else if host == "." || host == ".." {
+        "it is a relative path element"
+    } else if host.contains(['/', '\\']) {
+        "it contains a path separator"
+    } else if host.contains('\0') {
+        "it contains a NUL byte"
+    } else if host.contains(':') {
+        "it contains a colon"
+    } else if host.trim() != host {
+        "it has surrounding whitespace"
+    } else {
+        return Ok(());
+    };
+    Err(Error::InvalidHost {
+        host: host.to_string(),
+        reason,
+    })
 }
 
 fn check_vault_id(id: &str) -> Result<(), Error> {
@@ -192,6 +237,35 @@ mod tests {
             let err = identity_file_path(&dirs(), ID, device).unwrap_err();
             assert_eq!(err, Error::InvalidDeviceName(device.to_string()));
             assert_eq!(err.code(), Code::LockedOrAuth);
+        }
+    }
+
+    #[test]
+    fn token_file_path_shape() {
+        assert_eq!(
+            token_file_path(&dirs(), "github.com").unwrap(),
+            dirs().state.join("tokens").join("github.com")
+        );
+    }
+
+    // Go: TestHostCannotEscapeTheTokensDirectory, at the construction
+    // site; remoteauth's copy goes through store/load.
+    #[test]
+    fn token_file_path_refuses_a_host_that_is_not_one_component() {
+        for host in [
+            "../../etc/cron.d/x",
+            "..",
+            "",
+            "a/b",
+            ".",
+            r"a\b",
+            "c:",
+            "a\0b",
+            " github.com",
+        ] {
+            let err = token_file_path(&dirs(), host).unwrap_err();
+            assert!(matches!(err, Error::InvalidHost { .. }), "{host:?}");
+            assert_eq!(err.code(), Code::Usage);
         }
     }
 

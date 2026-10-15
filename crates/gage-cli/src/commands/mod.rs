@@ -16,6 +16,7 @@ use gage::xdgpaths::Dirs;
 use crate::Io;
 use crate::error::CliError;
 
+mod auth;
 mod entry;
 mod git;
 mod init;
@@ -33,6 +34,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
         "init" => init::flags(),
         "insert" | "show" | "cat" | "edit" | "rename" | "generate" | "rm" | "ls" | "search"
         | "reindex" => entry::flags(name),
+        "auth login" | "auth status" | "auth logout" => auth::flags(),
         _ => Vec::new(),
     }
 }
@@ -43,6 +45,7 @@ pub fn long_about(name: &str) -> Option<&'static str> {
     match name {
         "init" => Some(init::LONG_ABOUT),
         "ls" => Some(entry::LS_LONG_ABOUT),
+        "auth login" => Some(auth::LOGIN_LONG_ABOUT),
         _ => None,
     }
 }
@@ -97,6 +100,9 @@ pub fn run(
         "vault remove" => vault::remove(matches, io),
         "vault set-default" => vault::set_default(matches, io),
         "git set-remote" => git::set_remote(matches, io),
+        "auth login" => auth::login(matches, io, keys),
+        "auth status" => auth::status(matches, io),
+        "auth logout" => auth::logout(matches, io),
         _ => return None,
     })
 }

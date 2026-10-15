@@ -1,12 +1,24 @@
-//! The small slice of git a vault's lifecycle needs: init plus the first
-//! commit, reading and setting the `origin` remote, and clean/dirty state.
-//! Everything goes through the git crate in-process (Q-GIT-CRATE); gage
-//! never shells out to a `git` binary and has no generic passthrough. See
-//! "Git-specific commands" in the design doc.
+//! The small slice of git a vault needs: init plus the first commit, the
+//! `origin` remote, clean/dirty state, and (from P4) fetch, push, compare,
+//! fast-forward, file-level merge, reset and clone. Everything goes through
+//! the git crate in-process (Q-GIT-CRATE); gage never shells out to a `git`
+//! binary and has no generic passthrough. See "Git-specific commands" in
+//! the design doc.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
+use std::sync::Once;
 
 use crate::exitcode::{Code, HasCode};
+use crate::{remoteauth, syncerr};
+
+mod merge;
+mod remote;
+
+pub use merge::{MergeResult, PendingMerge, merge_remote, prepare_merge};
+pub use remote::{
+    REMOTE_OP_TIMEOUT, RemoteOptions, RemoteState, ahead_count, clone, compare, fast_forward,
+    fetch, push,
+};
 
 /// The one remote name a git-type vault uses.
 pub const ORIGIN: &str = "origin";
@@ -22,24 +34,152 @@ pub const INITIAL_BRANCH: &str = "main";
 pub const AUTHOR_NAME: &str = "gage";
 pub const AUTHOR_EMAIL: &str = "gage@localhost";
 
+/// How many paths a dirty-tree refusal names. A vault mid-restore can have
+/// thousands, and an error message is a sentence, not a report.
+pub const MAX_NAMED_DIRTY_PATHS: usize = 5;
+
+/// What went wrong, as variants a caller can match: the layer above turns
+/// a dirty tree or a classified remote failure into its own exit code and
+/// message, and everything else into an internal fault.
 #[derive(Debug, thiserror::Error)]
-#[error("gitrepo: {op} {path}: {source}")]
-pub struct Error {
-    pub op: &'static str,
-    pub path: PathBuf,
-    pub source: git2::Error,
+#[non_exhaustive]
+pub enum Error {
+    /// A libgit2 call failed for a reason in none of the variants below.
+    #[error("gitrepo: {op} {path}: {source}")]
+    Git {
+        op: &'static str,
+        path: PathBuf,
+        source: git2::Error,
+    },
+    /// The working tree has uncommitted changes, so an operation that would
+    /// move it declined. One variant for fast-forward and merge alike, so
+    /// the layer above matches it in one place.
+    ///
+    /// gage commits every write immediately, so a dirty tree means
+    /// something outside gage is mid-edit. A fast-forward's hard reset
+    /// would discard that work; a merge's commit would publish it under a
+    /// message nobody wrote it for. Neither is gage's call to make.
+    #[error(
+        "gitrepo: the working tree has uncommitted changes ({}), so gage is not {remedy}; commit or discard them first",
+        name_paths(paths)
+    )]
+    DirtyWorkTree {
+        paths: Vec<String>,
+        remedy: &'static str,
+    },
+    /// A fetch or push failed as unreachable, auth or diverged.
+    #[error(transparent)]
+    Sync(#[from] syncerr::Error),
+    /// The remote's auth method couldn't be resolved (an `~/.ssh/config`
+    /// alias, no ssh-agent, a token file others can read).
+    #[error(transparent)]
+    RemoteAuth(#[from] remoteauth::Error),
+    /// A path from a git tree would land outside the vault. Tree paths come
+    /// from whoever can push to the remote.
+    #[error("gitrepo: refusing a remote path that escapes the vault: {0:?}")]
+    UnsafePath(String),
+    /// A remote to clone has no branches: an empty repository, not a vault.
+    #[error("gitrepo: {url} has no branches; it is an empty repository, not a vault")]
+    NoBranches { url: String },
+    /// A remote to clone has several branches and neither `main` nor
+    /// `master` among them.
+    #[error(
+        "gitrepo: {url} has several branches ({}) and none is main or master; gage cannot tell which one holds the vault",
+        branches.join(", ")
+    )]
+    AmbiguousBranch { url: String, branches: Vec<String> },
+    /// A merge was asked for with nothing fetched to merge.
+    #[error("gitrepo: {} has nothing fetched to merge", path.display())]
+    NothingFetched { path: PathBuf },
+    /// A merge commit was asked for while paths still conflict.
+    #[error(
+        "gitrepo: refusing to merge with {0} unanswered: every conflicting path needs a choice"
+    )]
+    Unanswered(String),
+    /// A filesystem step of a merge or reset failed.
+    #[error("gitrepo: {op} {path}: {source}")]
+    Io {
+        op: &'static str,
+        path: String,
+        source: std::io::Error,
+    },
+    /// A merge failed partway and rolling it back failed too.
+    #[error("{cause} (and rolling the partial merge back failed: {rollback})")]
+    RollbackFailed {
+        cause: Box<Error>,
+        rollback: Box<Error>,
+    },
 }
 
 impl HasCode for Error {
     fn code(&self) -> Code {
-        Code::Internal
+        match self {
+            Error::DirtyWorkTree { .. } => Code::Conflict,
+            Error::Sync(e) => e.code(),
+            Error::RemoteAuth(e) => e.code(),
+            Error::RollbackFailed { cause, .. } => cause.code(),
+            Error::Git { .. }
+            | Error::UnsafePath(_)
+            | Error::NoBranches { .. }
+            | Error::AmbiguousBranch { .. }
+            | Error::NothingFetched { .. }
+            | Error::Unanswered(_)
+            | Error::Io { .. } => Code::Internal,
+        }
     }
+}
+
+/// The first [`MAX_NAMED_DIRTY_PATHS`] paths, and how many more.
+fn name_paths(paths: &[String]) -> String {
+    let named = paths[..paths.len().min(MAX_NAMED_DIRTY_PATHS)].join(", ");
+    match paths.len().saturating_sub(MAX_NAMED_DIRTY_PATHS) {
+        0 => named,
+        more => format!("{named} and {more} more"),
+    }
+}
+
+/// Process-wide libgit2 setup, run before every repository open
+/// (Q-GIT-ISOLATION, Q-REMOTE-TIMEOUT). Idempotent and cheap after the
+/// first call.
+///
+/// libgit2 reads the user's global config (and the system's, and XDG's,
+/// and ProgramData's) and honors `url.<base>.insteadOf` from it, so
+/// without this a user's config could redirect a vault's push. An empty
+/// search path at every level hides them all. gage opens repositories with
+/// `Repository::open`, never "from env", so `GIT_CONFIG_*` are never read
+/// either. The server timeouts bound a blackholed connect and a stalled
+/// read; the per-operation deadline is `RemoteOptions`'.
+pub fn isolate() {
+    static ONCE: Once = Once::new();
+    ONCE.call_once(|| {
+        let timeout_ms = i32::try_from(REMOTE_OP_TIMEOUT.as_millis()).unwrap_or(i32::MAX);
+        #[allow(unsafe_code)]
+        // SAFETY: these set process-global libgit2 options. The `Once`
+        // runs them exactly once, before any repository this process opens
+        // through gage, and nothing else in gage writes them.
+        let result = unsafe {
+            [
+                git2::ConfigLevel::System,
+                git2::ConfigLevel::XDG,
+                git2::ConfigLevel::Global,
+                git2::ConfigLevel::ProgramData,
+            ]
+            .into_iter()
+            .try_for_each(|level| git2::opts::set_search_path(level, ""))
+            .and_then(|()| git2::opts::set_server_connect_timeout_in_milliseconds(timeout_ms))
+            .and_then(|()| git2::opts::set_server_timeout_in_milliseconds(timeout_ms))
+        };
+        // These fail only on allocation failure or an invalid level; a
+        // vault that silently ran unisolated would be worse than stopping.
+        result.expect("gitrepo: isolating libgit2 from the user's git config");
+    });
 }
 
 /// Initializes a repository at `dir` (already holding the files to
 /// commit) and makes one commit of every file in the working tree, on
 /// [`INITIAL_BRANCH`], as gage. Returns the commit's id.
 pub fn init_and_commit(dir: &Path, message: &str) -> Result<String, Error> {
+    isolate();
     let repo = git2::Repository::init_opts(
         dir,
         git2::RepositoryInitOptions::new().initial_head(INITIAL_BRANCH),
@@ -143,6 +283,7 @@ fn origin_url(repo: &git2::Repository, dir: &Path) -> Result<Option<String>, Err
 /// here to sync" is the honest answer for a vault whose files are missing,
 /// and the caller's own command produces the clearer failure.
 pub fn has_remote(dir: &Path) -> Result<bool, Error> {
+    isolate();
     let repo = match git2::Repository::open(dir) {
         Ok(repo) => repo,
         Err(e) if e.code() == git2::ErrorCode::NotFound => return Ok(false),
@@ -164,6 +305,120 @@ pub fn is_clean(dir: &Path) -> Result<bool, Error> {
         ))
         .map_err(fail("reading the status of", dir))?;
     Ok(statuses.is_empty())
+}
+
+/// The vault-relative paths with staged, unstaged or untracked changes,
+/// sorted. Empty means the tree is clean.
+pub fn dirty_paths(dir: &Path) -> Result<Vec<String>, Error> {
+    let repo = open(dir)?;
+    Ok(status_paths(&repo, dir)?
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect())
+}
+
+/// Every changed path and whether it is untracked, sorted by path.
+fn status_paths(repo: &git2::Repository, dir: &Path) -> Result<Vec<(String, bool)>, Error> {
+    let statuses = repo
+        .statuses(Some(
+            git2::StatusOptions::new()
+                .include_untracked(true)
+                .recurse_untracked_dirs(true)
+                .include_ignored(false),
+        ))
+        .map_err(fail("reading the status of", dir))?;
+    let mut paths: Vec<(String, bool)> = statuses
+        .iter()
+        .map(|e| {
+            let path = String::from_utf8_lossy(e.path_bytes()).into_owned();
+            (path, e.status() == git2::Status::WT_NEW)
+        })
+        .collect();
+    paths.sort();
+    Ok(paths)
+}
+
+/// The guard both tree-moving operations open with. `remedy` completes
+/// "..., so gage is not <remedy>".
+pub(crate) fn require_clean_work_tree(dir: &Path, remedy: &'static str) -> Result<(), Error> {
+    let paths = dirty_paths(dir)?;
+    if paths.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::DirtyWorkTree { paths, remedy })
+    }
+}
+
+/// Discards every uncommitted change, returning the vault-relative paths
+/// it discarded, sorted. A clean tree discards nothing.
+///
+/// Untracked files are removed explicitly: a hard reset, in libgit2 as in
+/// `git`, leaves them alone, and the shape that matters is an interrupted
+/// `insert`'s uncommitted `entries/<uuid>.age`, which must not be folded
+/// into the next write's commit. HEAD never moves: the reset discards
+/// uncommitted work, never a commit.
+pub fn reset_hard(dir: &Path) -> Result<Vec<String>, Error> {
+    let repo = open(dir)?;
+    let changed = status_paths(&repo, dir)?;
+    if changed.is_empty() {
+        return Ok(Vec::new());
+    }
+    for (path, _) in changed.iter().filter(|(_, untracked)| *untracked) {
+        remove_if_present(&safe_join(dir, path)?, path)?;
+    }
+    let head = repo
+        .head()
+        .and_then(|h| h.peel_to_commit())
+        .map_err(fail("reading HEAD of", dir))?;
+    repo.reset(head.as_object(), git2::ResetType::Hard, None)
+        .map_err(fail("resetting to HEAD in", dir))?;
+    Ok(changed.into_iter().map(|(path, _)| path).collect())
+}
+
+/// Removes a file, treating "already gone" as done.
+fn remove_if_present(full: &Path, path: &str) -> Result<(), Error> {
+    match std::fs::remove_file(full) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(Error::Io {
+            op: "removing",
+            path: path.to_string(),
+            source: e,
+        }),
+        _ => Ok(()),
+    }
+}
+
+/// Resolves a slash-separated path from a git tree against the vault
+/// directory, refusing anything that could land outside it: an empty
+/// path, a NUL, an absolute path or drive prefix, or any `..`. Tree paths
+/// come from whoever can push to the remote, so
+/// `entries/../../../etc/cron.d/x` is refused rather than resolved. Real
+/// git refuses such trees too; this doesn't depend on that.
+pub(crate) fn safe_join(dir: &Path, path: &str) -> Result<PathBuf, Error> {
+    let refuse = || Error::UnsafePath(path.to_string());
+    if path.is_empty() || path.contains('\0') {
+        return Err(refuse());
+    }
+    let mut joined = dir.to_path_buf();
+    for part in path.split('/') {
+        // A leading or doubled slash: an absolute path, or a tree no git
+        // writes.
+        if part.is_empty() {
+            return Err(refuse());
+        }
+        for component in Path::new(part).components() {
+            match component {
+                Component::Normal(c) => joined.push(c),
+                Component::CurDir => {}
+                Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                    return Err(refuse());
+                }
+            }
+        }
+    }
+    if joined == dir {
+        return Err(refuse());
+    }
+    Ok(joined)
 }
 
 /// The number of commits reachable from HEAD.
@@ -232,6 +487,7 @@ pub fn commit_log(dir: &Path) -> Result<Vec<CommitInfo>, Error> {
 }
 
 fn open(dir: &Path) -> Result<git2::Repository, Error> {
+    isolate();
     // open, not discover: a vault's path is its repository's root, and a
     // vault directory inside some other repository must not be mistaken
     // for that repository.
@@ -240,12 +496,21 @@ fn open(dir: &Path) -> Result<git2::Repository, Error> {
 
 fn fail(op: &'static str, dir: &Path) -> impl Fn(git2::Error) -> Error + use<> {
     let path = dir.to_path_buf();
-    move |source| Error {
+    move |source| Error::Git {
         op,
         path: path.clone(),
         source,
     }
 }
+
+#[cfg(test)]
+mod isolation_tests;
+#[cfg(test)]
+mod merge_tests;
+#[cfg(test)]
+mod remote_tests;
+#[cfg(test)]
+mod worktree_tests;
 
 #[cfg(test)]
 #[allow(clippy::disallowed_macros)]

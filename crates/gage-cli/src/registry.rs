@@ -227,6 +227,27 @@ pub fn registry() -> Registry {
                 GROUP_GIT,
                 Both,
             ),
+            command(
+                "auth login",
+                "",
+                "Store a token for a git host",
+                GROUP_GIT,
+                Both,
+            ),
+            command(
+                "auth status",
+                "",
+                "Show which git hosts have a token",
+                GROUP_GIT,
+                Both,
+            ),
+            command(
+                "auth logout",
+                "",
+                "Forget a git host's token",
+                GROUP_GIT,
+                Both,
+            ),
         ],
         parents: vec![
             ParentInfo {
@@ -236,6 +257,10 @@ pub fn registry() -> Registry {
             ParentInfo {
                 name: "git",
                 short: "Git-specific vault operations",
+            },
+            ParentInfo {
+                name: "auth",
+                short: "Manage tokens for git hosts",
             },
         ],
     }

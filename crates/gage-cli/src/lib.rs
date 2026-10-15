@@ -145,6 +145,8 @@ fn print(io: &mut Io, text: &str) -> Result<(), CliError> {
 }
 
 #[cfg(test)]
+mod auth_tests;
+#[cfg(test)]
 mod complete_tests;
 #[cfg(test)]
 mod entry_tests;
