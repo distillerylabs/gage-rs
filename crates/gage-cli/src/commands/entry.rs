@@ -1,10 +1,11 @@
-//! The one-shot entry commands: `insert`, `show`, `cat`, `edit`, `rename`,
-//! `generate`, `rm` and `ls`. Each one resolves its vault, unlocks it, does
-//! one thing and drops the identity (nothing is cached between
-//! invocations). What they do lives in the library; this is flags, input
-//! modes and rendering. Every query goes through the library's one
-//! resolver, and an ambiguous one fails listing its candidates: one-shot
-//! mode has nobody to ask.
+//! The entry commands: `insert`, `show`, `cat`, `edit`, `rename`,
+//! `generate`, `rm` and `ls`. One-shot, each resolves its vault, unlocks
+//! it, does one thing and drops the identity; in a session it borrows the
+//! key the session holds instead (see [`Keys`]). What they do lives in the
+//! library; this is flags, input modes and rendering. Every query goes
+//! through the library's one resolver. An ambiguous one fails listing its
+//! candidates one-shot, where there is nobody to ask, and goes to the
+//! session's picker in a session.
 //!
 //! `-c/--clip` and `-q/--qr` (on `show` and `generate`) and `ls
 //! -H/--header` are P6 · M12's.
@@ -19,10 +20,12 @@ use gage::exitcode::Code;
 use gage::generate::{self, GenerateOptions};
 use gage::identity::Identity;
 use gage::prompter::Prompter;
+use gage::session::SessionError;
 use gage::vault::Vault;
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use super::{arg, dirs, fail, load_global, out};
+use super::{Keys, arg, dirs, fail, load_global, out};
 use crate::Io;
 use crate::editor;
 use crate::error::CliError;
@@ -126,7 +129,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
     }
 }
 
-// --- the one-shot handler ---------------------------------------------------
+// --- the handler: both modes ------------------------------------------------
 
 /// The vault `--use` names, or the current one. An unregistered name (or no
 /// current vault) fails here, before anything is prompted for.
@@ -141,6 +144,12 @@ fn open_vault(matches: &ArgMatches, io: &Io) -> Result<Vault, CliError> {
     )?)
 }
 
+/// `--use`, if given: in a session, the vault a command uses without
+/// changing which one is current.
+fn use_name(matches: &ArgMatches) -> Option<&str> {
+    matches.get_one::<String>("use").map(String::as_str)
+}
+
 /// Unlocks `vault`, runs `f` with the identity, and drops it. The identity
 /// zeroizes and releases its page lock in `Drop`, so every way out of `f`
 /// (including an error) closes it: there is no `close` to forget.
@@ -151,6 +160,69 @@ pub(crate) fn with_unlocked<T>(
 ) -> Result<T, CliError> {
     let identity = vault.unlock(prompter)?;
     f(&identity)
+}
+
+impl Keys<'_, '_> {
+    /// Runs `f` with the vault `--use` names (or the current one) and its
+    /// identity: unlocked for this command and dropped after it one-shot,
+    /// borrowed from the session (unlocking there once, if needed) in one.
+    fn with_vault<T>(
+        &mut self,
+        matches: &ArgMatches,
+        io: &mut Io,
+        f: impl FnOnce(&mut Io, &Vault, &Identity) -> Result<T, CliError>,
+    ) -> Result<T, CliError> {
+        match self {
+            Keys::OneShot(prompter) => {
+                let vault = open_vault(matches, io)?;
+                with_unlocked(&vault, *prompter, |identity| f(io, &vault, identity))
+            }
+            Keys::Session(session) => {
+                let (vault, identity) =
+                    session.vault(use_name(matches)).map_err(session_failure)?;
+                f(io, vault, identity)
+            }
+        }
+    }
+
+    /// Runs `f` with the entry `query` names, decrypted. An ambiguous
+    /// query fails listing its candidates one-shot, and asks which was
+    /// meant in a session.
+    fn with_resolved<T>(
+        &mut self,
+        matches: &ArgMatches,
+        io: &mut Io,
+        query: &str,
+        f: impl FnOnce(&mut Io, &Vault, &Identity, Uuid, Entry) -> Result<T, CliError>,
+    ) -> Result<T, CliError> {
+        if let Keys::Session(session) = self {
+            let name = use_name(matches);
+            let (id, e) = session.resolve(name, query).map_err(session_failure)?;
+            let (vault, identity) = session.vault(name).map_err(session_failure)?;
+            return f(io, vault, identity, id, e);
+        }
+        self.with_vault(matches, io, |io, vault, identity| {
+            let (id, e) = vault.resolve(identity, query).map_err(resolve_failure)?;
+            f(io, vault, identity, id, e)
+        })
+    }
+
+    /// What `rm` and `rename` hand the library, which resolves it again
+    /// under the write lock. One-shot, the query as typed. In a session,
+    /// the id the query resolved to, after asking on ambiguity: the
+    /// library's exact-id stage can then only match the entry chosen, so
+    /// these two prompt like every other command instead of failing.
+    fn mutation_query(&mut self, matches: &ArgMatches, query: &str) -> Result<String, CliError> {
+        match self {
+            Keys::OneShot(_) => Ok(query.to_string()),
+            Keys::Session(session) => {
+                let (id, _) = session
+                    .resolve(use_name(matches), query)
+                    .map_err(session_failure)?;
+                Ok(id.to_string())
+            }
+        }
+    }
 }
 
 /// An unresolvable query as an error. An ambiguous one lists the
@@ -169,6 +241,15 @@ fn write_failure(err: WriteError) -> CliError {
     }
 }
 
+/// A session call's failure. A candidate list comes back only when the
+/// human declined to pick, and renders as one-shot's does.
+pub(crate) fn session_failure(err: SessionError) -> CliError {
+    match err {
+        SessionError::Resolve(e) => resolve_failure(e),
+        other => other.into(),
+    }
+}
+
 fn ambiguous(list: &CandidateList) -> CliError {
     let mut msg = format!(
         "{:?} matches {} entries; name one by its id:",
@@ -183,10 +264,19 @@ fn ambiguous(list: &CandidateList) -> CliError {
 
 // --- insert -----------------------------------------------------------------
 
-pub fn insert(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
+pub fn insert(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let title = arg(matches, "title");
+    // Both read stdin to EOF, and in a session stdin is the session's own
+    // input: they would swallow the rest of it and end the session as a
+    // side effect of one insert.
+    if keys.in_session() && (matches.get_flag("multiline") || matches.get_flag("value-stdin")) {
+        return Err(fail(
+            Code::Usage,
+            "-m/--multiline and --value-stdin read stdin to EOF, which is this session's own input; use -e/--edit here, or run `gage insert` from your shell",
+        ));
+    }
     if matches.get_flag("edit") {
-        return insert_edit(matches, io, prompter, title);
+        return insert_edit(matches, io, keys, title);
     }
     // Everything knowable from the flags fails before any unlock.
     let fields = parse_field_flags(
@@ -197,10 +287,10 @@ pub fn insert(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
             .cloned()
             .collect::<Vec<_>>(),
     )?;
-    let vault = open_vault(matches, io)?;
+    let prompter = keys.prompter();
     // Unlock first, then ask for the value: a wrong passphrase must not
     // make anyone type a secret for nothing.
-    let id = with_unlocked(&vault, prompter, |identity| {
+    let id = keys.with_vault(matches, io, |io, vault, identity| {
         let value = read_value(matches, io, prompter, title)?;
         vault
             .insert(
@@ -233,12 +323,10 @@ pub fn insert(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
 fn insert_edit(
     matches: &ArgMatches,
     io: &mut Io,
-    prompter: &dyn Prompter,
+    keys: &mut Keys,
     title: &str,
 ) -> Result<(), CliError> {
-    let vault = open_vault(matches, io)?;
-    let editor = io.editor.clone();
-    let (id, title) = with_unlocked(&vault, prompter, |identity| {
+    let (id, title) = keys.with_vault(matches, io, |io, vault, identity| {
         let now = Timestamp::now();
         let stub = Entry {
             title: title.to_string(),
@@ -251,7 +339,7 @@ fn insert_edit(
             updated_by: identity.device().to_string(),
             ..Entry::default()
         };
-        let edited = editor::edit_yaml(editor.as_deref(), &stub)?;
+        let edited = editor::edit_yaml(io.editor.as_deref(), &stub)?;
         let e = edited.entry;
         if edited.unchanged || (e.value.is_empty() && e.fields.is_empty()) {
             return Err(fail(
@@ -364,12 +452,10 @@ pub fn parse_field_flags(raw: &[String]) -> Result<BTreeMap<String, String>, Cli
 /// The entry's value alone, or with `--field NAME` one of its fields, for
 /// piping. Exactly one trailing newline: none is added to a value that
 /// already ends in one, so a multi-line value prints as stored.
-pub fn show(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
+pub fn show(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = arg(matches, "query");
     let field = matches.get_one::<String>("field");
-    let vault = open_vault(matches, io)?;
-    let value = with_unlocked(&vault, prompter, |identity| {
-        let (_, e) = vault.resolve(identity, query).map_err(resolve_failure)?;
+    let value = keys.with_resolved(matches, io, query, |_, _, _, _, e| {
         let value = match field {
             Some(name) => e.field(name)?,
             None => &e.value,
@@ -384,13 +470,9 @@ pub fn show(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Resul
 }
 
 /// The entry's YAML exactly as it is stored inside the ciphertext.
-pub fn cat(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
+pub fn cat(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = arg(matches, "query");
-    let vault = open_vault(matches, io)?;
-    let yaml = with_unlocked(&vault, prompter, |identity| {
-        let (_, e) = vault.resolve(identity, query).map_err(resolve_failure)?;
-        Ok(entry::marshal(&e)?)
-    })?;
+    let yaml = keys.with_resolved(matches, io, query, |_, _, _, _, e| Ok(entry::marshal(&e)?))?;
     let _ = io.stdout.write_all(&yaml);
     Ok(())
 }
@@ -399,17 +481,15 @@ pub fn cat(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
 /// parses, changed or not (as `git commit --amend` with no new message
 /// still amends), with `created` kept from the original and
 /// `updated`/`updated_by` stamped fresh whatever the file says.
-pub fn edit(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
+pub fn edit(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = arg(matches, "query");
-    let vault = open_vault(matches, io)?;
-    let editor = io.editor.clone();
-    let (id, title) = with_unlocked(&vault, prompter, |identity| {
-        let (id, original) = vault.resolve(identity, query).map_err(resolve_failure)?;
-        let mut edited = editor::edit_yaml(editor.as_deref(), &original)?.entry;
-        edited.restamp_after_edit(&original, identity);
-        vault.update(id, &edited).map_err(write_failure)?;
-        Ok((id, edited.title))
-    })?;
+    let (id, title) =
+        keys.with_resolved(matches, io, query, |io, vault, identity, id, original| {
+            let mut edited = editor::edit_yaml(io.editor.as_deref(), &original)?.entry;
+            edited.restamp_after_edit(&original, identity);
+            vault.update(id, &edited).map_err(write_failure)?;
+            Ok((id, edited.title))
+        })?;
     out(
         io,
         &[format!(
@@ -421,13 +501,12 @@ pub fn edit(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Resul
 }
 
 /// A title-only edit, no `$EDITOR`.
-pub fn rename(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
-    let query = arg(matches, "query");
+pub fn rename(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    let query = keys.mutation_query(matches, arg(matches, "query"))?;
     let new_title = arg(matches, "new-title");
-    let vault = open_vault(matches, io)?;
-    let id = with_unlocked(&vault, prompter, |identity| {
+    let id = keys.with_vault(matches, io, |_, vault, identity| {
         vault
-            .rename(identity, query, new_title, matches.get_flag("force"))
+            .rename(identity, &query, new_title, matches.get_flag("force"))
             .map_err(write_failure)
     })?;
     out(
@@ -440,11 +519,10 @@ pub fn rename(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
     Ok(())
 }
 
-pub fn rm(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
-    let query = arg(matches, "query");
-    let vault = open_vault(matches, io)?;
-    let id = with_unlocked(&vault, prompter, |identity| {
-        vault.remove(identity, query).map_err(write_failure)
+pub fn rm(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    let query = keys.mutation_query(matches, arg(matches, "query"))?;
+    let id = keys.with_vault(matches, io, |_, vault, identity| {
+        vault.remove(identity, &query).map_err(write_failure)
     })?;
     out(io, &[format!("gage: removed {id}")]);
     Ok(())
@@ -456,19 +534,14 @@ pub fn rm(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<
 /// never includes the value: a fresh secret nobody has read yet is the last
 /// thing that belongs in a scrollback (`-c`/`-q`, the ways to see it at
 /// creation, are P6's).
-pub fn generate(
-    matches: &ArgMatches,
-    io: &mut Io,
-    prompter: &dyn Prompter,
-) -> Result<(), CliError> {
+pub fn generate(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let title = arg(matches, "title");
     // Drawn first, so a too-short length is refused before any unlock.
     let value = Zeroizing::new(generate::generate_value(GenerateOptions {
         length: matches.get_one::<usize>("length").copied().unwrap_or(0),
         no_symbols: matches.get_flag("no-symbols"),
     })?);
-    let vault = open_vault(matches, io)?;
-    let id = with_unlocked(&vault, prompter, |identity| {
+    let id = keys.with_vault(matches, io, |_, vault, identity| {
         vault
             .insert(
                 identity,
@@ -491,9 +564,8 @@ pub fn generate(
 
 // --- ls ---------------------------------------------------------------------
 
-pub fn ls(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
-    let vault = open_vault(matches, io)?;
-    let rows = with_unlocked(&vault, prompter, |identity| Ok(vault.list(identity)?))?;
+pub fn ls(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    let rows = keys.with_vault(matches, io, |_, vault, identity| Ok(vault.list(identity)?))?;
     out(io, &render_ls(&rows));
     Ok(())
 }

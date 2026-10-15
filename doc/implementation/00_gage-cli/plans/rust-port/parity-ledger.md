@@ -68,7 +68,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | Go commit | Old ref | Item | Port to | Status |
 |---|---|---|---|---|
 | `4604dc5`…`4c23f99` | — | Milestones M0–M12 as planned | See §3 | — |
-| `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[x]` (session half: P3 · M6) |
+| `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[x]` (session half: P3 · M6 `[x]` `session_wrong_arg_count_shows_command_usage`, through the interactive session; the `--stdin` spelling is P6 · M12's) |
 | `386c57e` | #38 | `init --remote` solicits an HTTPS token inline | P4 · M8a | `[ ]` |
 | `a0920b0`, `0a1beeb` | #39 | `vault remove` orphaned-identity cleanup (later revised by E0: compare public keys, `Confirm`, default keep) | P6 · M12 | `[ ]` |
 | `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | P1 · M0b (a separate binary, never a `gage` subcommand; needs `xdgpaths`) | `[x]` |
@@ -101,7 +101,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M2 | P2 · M2 (+ E0 identity paths) | `[x]` ([#13](https://github.com/distillerylabs/gage-rs/issues/13)) |
 | | M3 | P2 · M3 | `[x]` ([#14](https://github.com/distillerylabs/gage-rs/issues/14)) |
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
-| | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[~]` M5 |
+| | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[~]` M5, M6 |
 | | M8a, M8b | P4 | `[ ]` |
 | | M9 (+ A19), M10, M11 | P5 | `[ ]` |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
@@ -132,7 +132,7 @@ to match Cobra's layout.
 | `log`, `history` (and the output flags `--clip`, `--qr`, `--script`; `show --field` itself is P3 · M5) | P6 |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |
 | `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8 |
-| Session-mode `help` and session-only commands | P3 — tested against the registry, not captured |
+| Session-mode `help` and session-only commands | P3 · M6 `[x]` — tested against the registry, not captured (`repl_tests`: `session_help_matches_registry_exactly`, `both_help_surfaces_render_the_same_registry` and the rest of Go's `sessionhelp` rows) |
 
 ## 5. Test inventory (`tests/fixtures/go/test-inventory.tsv`)
 
@@ -194,8 +194,8 @@ behavior; each phase's last milestone updates the pages for its surface.
 |---|---|
 | `vaults.md`, `configuration.md`, `exit-codes.md` | P1 · M1: `doc/cli/` |
 | `entries.md` | P2 · M4: `doc/cli/entries.md` `[x]` for the shipped surface; P3 · M5 `[x]` `show`, `edit`, `rename`, `generate`, `insert -e`, addressing; P6 for `cat`/`ls` display |
-| `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot (+ M6 for the session picker, M7 for the index; enrollment ids are P7's) |
-| `session-mode.md` | P3 |
+| `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker (M7 for the index; enrollment ids are P7's) |
+| `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 (index) and M13 (completion, abbreviation) extend it; `--script`/`--stdin` and `GAGE_PASSPHRASE` are P6 · M12's, enrollment's session behavior P7's |
 | `sync.md`, `git-and-auth.md` | P4 |
 | `identities-and-recipients.md`, `sharing.md` | P5 (+ P8 for the recovery sections) |
 | `enrollment.md` | P7 |

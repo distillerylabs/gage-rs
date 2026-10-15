@@ -37,10 +37,12 @@ fn main() {
         stdout: &mut std::io::stdout().lock(),
         stderr: &mut std::io::stderr(),
         stdin_is_terminal,
+        line_editor: stdin_is_terminal,
         build: BuildInfo::stamped(),
         dirs: &Dirs::from_process,
         hostname: &|| Ok(hostname::get()?.to_string_lossy().into_owned()),
         editor: std::env::var("EDITOR").ok(),
+        now: &std::time::Instant::now,
     };
     let code = gage_cli::run(&args, &mut io, &prompter);
     std::process::exit(code.as_i32());

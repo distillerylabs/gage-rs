@@ -6,9 +6,8 @@ path to type the way there is with `pass`. Instead `show`, `cat`, `edit`,
 and the entries' ids. (`insert` and `generate` take a plain `<title>`:
 they create an entry rather than address one.)
 
-> **Status.** One-shot commands only. Sessions, which turn an ambiguous
-> query into a picker, and the in-session metadata index arrive later in
-> phase 3 of the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md);
+> **Status.** The in-session metadata index arrives later in phase 3 of
+> the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md);
 > `mv` and `cp` in a later phase.
 
 ## Resolution order
@@ -56,6 +55,11 @@ Candidates are sorted by title, then id. Pass one of the ids (or enough of
 it to be unique) to pick. Not found and ambiguous are different exit
 codes (see [Exit codes](exit-codes.md)), so a script can tell "no such
 entry" from "be more specific".
+
+In a [session](session-mode.md) there is someone to ask, so the same
+candidate list becomes a numbered picker, and the entry you pick is the
+one the command uses. Same list, same order: the two modes differ only in
+what they do with it.
 
 ## Why addressing needs an unlock
 

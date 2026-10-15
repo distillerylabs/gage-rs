@@ -28,11 +28,13 @@ fn run_reg(reg: &Registry, args: &[&str], stdin_is_terminal: bool) -> CliResult 
         stdout: &mut stdout,
         stderr: &mut stderr,
         stdin_is_terminal,
+        line_editor: false,
         build: version::resolve_build_info(Some("v1.2.3"), Some("abcdef1")),
         // Nothing here reaches a command that reads them.
         dirs: &|| panic!("a parsing test resolved gage's directories"),
         hostname: &|| panic!("a parsing test read the hostname"),
         editor: None,
+        now: &std::time::Instant::now,
     };
     let code = run_with(reg, &args, &mut io, &FakePrompter::new());
     CliResult {
@@ -467,8 +469,7 @@ fn unknown_command_shows_full_help_listing() {
 
 // Go: TestCodedApplicationErrorsDoNotGrowUsageText. Only parse rejections
 // get usage appended; an error a command chose keeps its own message.
-// (Go's TestSessionWrongArgCountShowsCommandUsage moves to P3 · M6: there
-// is no session yet.)
+// (Go's TestSessionWrongArgCountShowsCommandUsage is in repl_tests.)
 #[test]
 fn coded_application_errors_do_not_grow_usage_text() {
     // Both are Usage: a session-only command in one-shot mode (Go's
@@ -494,7 +495,6 @@ fn no_command_doubles_gages_own_prefix() {
         ("wrong argument count", &["use"], false),
         ("session-only command in one-shot mode", &["status"], false),
         ("unknown help topic", &["help", "nope"], false),
-        ("bare gage on a terminal", &[], true),
     ];
     for (name, args, tty) in cases {
         let r = run_reg(&registry(), args, *tty);
@@ -536,18 +536,12 @@ fn capital_v_is_not_a_version_flag() {
     assert_eq!(r.stdout, "");
 }
 
-// Bare `gage` on a terminal goes to the session entry point, which fails
-// until P3 · M6.
-#[test]
-fn bare_gage_on_a_terminal_dispatches_to_the_session() {
-    let r = run_reg(&registry(), &[], true);
-    assert_eq!(r.code, Code::Internal);
-    assert_eq!(r.stderr, "gage: session mode is not implemented yet\n");
-    assert_eq!(r.stdout, "");
-}
+// Bare `gage` on a terminal enters the session: repl_tests'
+// bare_gage_on_tty_enters_session_mode.
 
-// Bare `gage` with stdin redirected prints the root help, since --stdin is
-// the explicit spelling for reading session commands from stdin.
+// Go: TestBareGageWithPipedStdinPrintsHelp. Bare `gage` with stdin
+// redirected prints the root help, since --stdin is the explicit spelling
+// for reading session commands from stdin.
 #[test]
 fn bare_gage_with_redirected_stdin_prints_root_help() {
     let r = run_reg(&registry(), &[], false);

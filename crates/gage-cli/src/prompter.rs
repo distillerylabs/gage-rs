@@ -11,8 +11,12 @@
 use std::cell::RefCell;
 use std::io::{Read, Write};
 
+use gage::entry::CandidateList;
 use gage::prompter::{Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse};
+use uuid::Uuid;
 use zeroize::Zeroizing;
+
+use crate::commands::short_id;
 
 /// gage's wrong-passphrase retry policy, which lives here rather than in
 /// the library on purpose: the library re-asks for as long as its prompter
@@ -22,6 +26,11 @@ use zeroize::Zeroizing;
 /// file is on disk and an attacker with it can ignore gage entirely, so
 /// the number is about ergonomics; slowing an attack is scrypt's job.
 pub const MAX_PASSPHRASE_ATTEMPTS: u32 = 3;
+
+/// How many times the candidate picker re-asks a mistyped number before
+/// giving up. Same shape and reason as the passphrase policy: the library
+/// hands over a list and has no opinion on how often a human may answer.
+pub const MAX_CHOOSE_ATTEMPTS: u32 = 3;
 
 /// Where masked secrets come from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,6 +211,33 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
         self.read_secret(&format!("Value for {title:?}: "))
     }
 
+    /// The design doc's numbered picker. One-shot mode prints the same
+    /// list and fails; this is a session asking instead.
+    fn choose(&self, list: &CandidateList) -> Result<Uuid, PromptError> {
+        if list.candidates.is_empty() {
+            return Err(PromptError::EmptyCandidates);
+        }
+        let mut text = format!("Multiple entries match {:?}:\n", list.query);
+        for (i, c) in list.candidates.iter().enumerate() {
+            text.push_str(&format!(
+                "  {}. {} ({})\n",
+                i + 1,
+                c.title,
+                short_id(&c.id.to_string())
+            ));
+        }
+        self.say(&text);
+        let n = list.candidates.len();
+        for _ in 0..MAX_CHOOSE_ATTEMPTS {
+            let answer = self.ask(&format!("Which one? [1-{n}]: "))?;
+            match answer.trim().parse::<usize>() {
+                Ok(pick @ 1..) if pick <= n => return Ok(list.candidates[pick - 1].id),
+                _ => self.say(&format!("gage: enter a number between 1 and {n}.\n")),
+            }
+        }
+        Err(PromptError::NoChoice(MAX_CHOOSE_ATTEMPTS))
+    }
+
     fn warn(&self, msg: &str) {
         self.say(&format!("{msg}\n"));
     }
@@ -211,6 +247,7 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
 mod tests {
     use std::rc::Rc;
 
+    use gage::entry::Candidate;
     use gage::exitcode::{Code, HasCode};
 
     use super::*;
@@ -474,6 +511,76 @@ mod tests {
             out.text(),
             "gage: could not lock key material into memory\n"
         );
+    }
+
+    fn mail_candidates() -> CandidateList {
+        let id = |s: &str| uuid::Uuid::try_parse(s).unwrap();
+        CandidateList {
+            query: "mail".into(),
+            candidates: vec![
+                Candidate {
+                    id: id("11111111-1111-4111-8111-111111111111"),
+                    title: "Personal mail".into(),
+                },
+                Candidate {
+                    id: id("22222222-2222-4222-8222-222222222222"),
+                    title: "Work mail".into(),
+                },
+            ],
+        }
+    }
+
+    // Go: TestChooseOnAnEmptyCandidateListIsInternal
+    #[test]
+    fn choose_on_an_empty_candidate_list_is_internal() {
+        let (p, _) = prompter("1\n");
+        let err = p
+            .choose(&CandidateList {
+                query: "anything".into(),
+                candidates: Vec::new(),
+            })
+            .unwrap_err();
+        assert!(matches!(err, PromptError::EmptyCandidates), "{err}");
+        assert_eq!(err.code(), Code::Internal);
+    }
+
+    // Go: TestChooseRetriesThenGivesUp. A number outside the list and a
+    // non-number are both re-asked with the range spelled out, and running
+    // out of attempts is Ambiguous, never a pick made on the human's
+    // behalf: that would hand them a different secret than they meant.
+    #[test]
+    fn choose_retries_then_gives_up() {
+        let list = mail_candidates();
+
+        let (p, out) = prompter("9\nnot-a-number\n2\n");
+        assert_eq!(p.choose(&list).unwrap(), list.candidates[1].id);
+        let text = out.text();
+        assert!(text.contains("Multiple entries match \"mail\":"), "{text}");
+        assert!(text.contains("  1. Personal mail (11111111)"), "{text}");
+        assert!(text.contains("  2. Work mail (22222222)"), "{text}");
+        assert!(text.contains("Which one? [1-2]: "), "{text}");
+        assert_eq!(
+            text.matches("enter a number between 1 and 2").count(),
+            2,
+            "once per bad answer:\n{text}"
+        );
+
+        let (p, _) = prompter(&"0\n".repeat(MAX_CHOOSE_ATTEMPTS as usize));
+        let err = p.choose(&list).unwrap_err();
+        assert!(
+            matches!(err, PromptError::NoChoice(MAX_CHOOSE_ATTEMPTS)),
+            "{err}"
+        );
+        assert_eq!(err.code(), Code::Ambiguous);
+    }
+
+    // End of input at the picker is the human declining to pick, which
+    // the session turns back into the candidate list.
+    #[test]
+    fn choose_past_end_of_input_is_cancelled() {
+        let (p, _) = prompter("");
+        let err = p.choose(&mail_candidates()).unwrap_err();
+        assert!(matches!(err, PromptError::Cancelled), "{err}");
     }
 
     // Go: TestRealPrompterReadsAPassphraseWithoutEchoing. One of the few

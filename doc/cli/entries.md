@@ -6,9 +6,10 @@ in the vault, encrypted to every recipient the vault lists, and every
 write is one git commit.
 
 > **Status.** gage-rs can `insert`, `generate`, `show`, `cat`, `edit`,
-> `rename`, `rm` and `ls` entries. Each command unlocks the vault, does one
-> thing and forgets the key: nothing is cached between commands. `search`
-> and sessions arrive later in phase 3 of the
+> `rename`, `rm` and `ls` entries. Run one-shot, each command unlocks the
+> vault, does one thing and forgets the key; in a
+> [session](session-mode.md) they all reuse the key the session holds.
+> `search` arrives later in phase 3 of the
 > [port plan](../implementation/00_gage-cli/plans/rust-port/index.md), sync
 > with phase 4; `show`/`generate`'s `-c`/`--clip` and `-q`/`--qr`, and `ls
 > --header`, with phase 6.

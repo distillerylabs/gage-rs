@@ -9,8 +9,10 @@
 //! among ambiguous candidates, a recipient-change warning) is added as a
 //! method by the milestone that first asks it.
 
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
+use crate::entry::CandidateList;
 use crate::exitcode::{Code, HasCode};
 
 /// The identity method an [`UnlockRequest`] is asking about. Unlocking is
@@ -117,6 +119,13 @@ pub enum PromptError {
     /// The frontend can't satisfy this kind of unlock request.
     #[error("this build cannot satisfy a {0:?} unlock request")]
     UnsupportedKind(String),
+    /// The frontend's retry policy ended a candidate pick without one.
+    #[error("gage: no entry chosen after {0} attempts")]
+    NoChoice(u32),
+    /// Asked to choose from nothing: a caller bug, since an ambiguous
+    /// query always has at least two candidates.
+    #[error("gage: asked to choose from an empty candidate list")]
+    EmptyCandidates,
     #[error("prompt failed: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -130,7 +139,10 @@ impl HasCode for PromptError {
             PromptError::Cancelled
             | PromptError::TooManyAttempts
             | PromptError::NoMatchingPassphrase(_) => Code::LockedOrAuth,
-            PromptError::UnsupportedKind(_) | PromptError::Io(_) => Code::Internal,
+            PromptError::NoChoice(_) => Code::Ambiguous,
+            PromptError::UnsupportedKind(_) | PromptError::EmptyCandidates | PromptError::Io(_) => {
+                Code::Internal
+            }
         }
     }
 }
@@ -150,6 +162,14 @@ pub trait Prompter {
     /// answers with free text the library never checks, and a GUI shows a
     /// text field where an unlock shows a passphrase box.
     fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError>;
+
+    /// Asks which of an ambiguous query's candidates was meant, and
+    /// returns its id. Only a session asks: one-shot mode has nobody to
+    /// ask and fails with the list instead. `Cancelled` means the human
+    /// declined to pick, and the caller then treats the query as
+    /// unresolved, as one-shot does. An id outside the list is refused by
+    /// the caller, not trusted.
+    fn choose(&self, list: &CandidateList) -> Result<Uuid, PromptError>;
 
     /// Delivers a non-fatal advisory to surface once: today, that
     /// page-locking key material failed and the unlock is proceeding
@@ -182,10 +202,24 @@ mod fake {
         unlocks: Mutex<VecDeque<Result<UnlockResponse, PromptError>>>,
         confirms: Mutex<VecDeque<bool>>,
         values: Mutex<VecDeque<Result<String, PromptError>>>,
+        choices: Mutex<VecDeque<Choice>>,
         asked_unlock: Mutex<Vec<UnlockRequest>>,
         asked_confirm: Mutex<Vec<String>>,
         asked_value: Mutex<Vec<String>>,
+        asked_choose: Mutex<Vec<CandidateList>>,
         warnings: Mutex<Vec<String>>,
+    }
+
+    /// One scripted answer to [`Prompter::choose`].
+    #[derive(Debug)]
+    enum Choice {
+        /// The candidate at this position in the list offered, as a human
+        /// typing its number would pick it.
+        Index(usize),
+        /// This id, whether or not it was offered: what a buggy frontend
+        /// looks like from the library's side.
+        Id(Uuid),
+        Err(PromptError),
     }
 
     impl FakePrompter {
@@ -226,6 +260,28 @@ mod fake {
         pub fn with_value_error(self, err: PromptError) -> FakePrompter {
             self.values.lock().unwrap().push_back(Err(err));
             self
+        }
+
+        /// Picks the candidate at `index` (from 0) of the next list offered.
+        pub fn with_choice(self, index: usize) -> FakePrompter {
+            self.choices.lock().unwrap().push_back(Choice::Index(index));
+            self
+        }
+
+        /// Answers the next pick with `id`, offered or not.
+        pub fn with_chosen_id(self, id: Uuid) -> FakePrompter {
+            self.choices.lock().unwrap().push_back(Choice::Id(id));
+            self
+        }
+
+        pub fn with_choose_error(self, err: PromptError) -> FakePrompter {
+            self.choices.lock().unwrap().push_back(Choice::Err(err));
+            self
+        }
+
+        /// Every candidate list offered, in order.
+        pub fn choose_lists(&self) -> Vec<CandidateList> {
+            self.asked_choose.lock().unwrap().clone()
         }
 
         /// The title of every entry whose value was asked for.
@@ -277,6 +333,25 @@ mod fake {
                 .map(Zeroizing::new)
         }
 
+        fn choose(&self, list: &CandidateList) -> Result<Uuid, PromptError> {
+            self.asked_choose.lock().unwrap().push(list.clone());
+            let answer = self
+                .choices
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| panic!("FakePrompter: unscripted choose over {list:?}"));
+            match answer {
+                Choice::Index(i) => Ok(list
+                    .candidates
+                    .get(i)
+                    .unwrap_or_else(|| panic!("FakePrompter: no candidate {i} in {list:?}"))
+                    .id),
+                Choice::Id(id) => Ok(id),
+                Choice::Err(e) => Err(e),
+            }
+        }
+
         fn warn(&self, msg: &str) {
             self.warnings.lock().unwrap().push(msg.to_string());
         }
@@ -325,6 +400,8 @@ mod tests {
                 PromptError::UnsupportedKind("yubikey".into()),
                 Code::Internal,
             ),
+            (PromptError::NoChoice(3), Code::Ambiguous),
+            (PromptError::EmptyCandidates, Code::Internal),
             (
                 PromptError::Io(std::io::Error::other("tty gone")),
                 Code::Internal,

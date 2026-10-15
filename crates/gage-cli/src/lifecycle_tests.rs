@@ -97,10 +97,12 @@ impl Env {
             stdout: &mut stdout,
             stderr: &mut stderr,
             stdin_is_terminal: false,
+            line_editor: false,
             build: BuildInfo::stamped(),
             dirs: &move || Ok(dirs.clone()),
             hostname: &move || Ok(hostname.clone()),
             editor: self.editor.lock().unwrap().clone(),
+            now: &std::time::Instant::now,
         };
         let code = crate::run(&args, &mut io, prompter);
         CliResult {

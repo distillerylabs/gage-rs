@@ -425,13 +425,21 @@ session data (M13), and Windows support.
 - History is never added automatically (`auto_add_history` defaults to
   false), so the REPL adds each submitted, non-blank line itself and
   nothing else: no passphrase, no value.
-- `FileHistory` sets the file to 0600 on Unix (`fix_perm`); gage also
-  creates it 0600 before the first save.
+- ~~`FileHistory` sets the file to 0600 on Unix (`fix_perm`); gage also
+  creates it 0600 before the first save.~~ Amended in M6: gage owns the
+  history file as Go's `history.go` does (created or tightened to 0600,
+  append-only), and `rustyline` is built without default features, so
+  its history is the in-memory recall list only, preloaded from the
+  file. `FileHistory::save` rewrites the whole file, and a session must
+  start even when the file can't be read.
 - `Completer::complete(&self, line, pos, ctx)` returns candidates
   computed on demand, which M13 needs for vault names and entry titles.
 - MIT. Its dependencies are expected to fall within `deny.toml`'s
   existing license list (MIT/Apache-2.0); `make audit` confirms when M6
-  adds it, and any new license is recorded here.
+  adds it, and any new license is recorded here. **Recorded in M6:** on
+  Windows it depends on `clipboard-win` and `error-code`, both BSL-1.0
+  (Boost: permissive, OSI-approved, Apache-2.0 compatible), now in
+  `deny.toml`'s allow list. Neither reaches `crates/gage`.
 - **The difference from Go that matters**: `rustyline` puts the terminal
   in raw mode only for the duration of a `readline()` call. Go's library
   holds the terminal and reads stdin from a goroutine for the life of an

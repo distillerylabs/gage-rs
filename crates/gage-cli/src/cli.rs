@@ -199,6 +199,27 @@ pub fn render_root_help(reg: &Registry) -> String {
     lines.join("\n") + "\n"
 }
 
+/// In-session `help`: the same grouped listing from the same registry,
+/// filtered to what a session can run (its own verbs and every command
+/// available in both modes). Vault selection shows as `use <vault>`, not
+/// the `-u/--use` flag, which per-command help documents
+/// (Q-HELP-SURFACES).
+pub fn render_session_help(reg: &Registry) -> String {
+    let mut lines = vec!["gage session commands".to_string(), String::new()];
+    for group in crate::registry::group_commands(&reg.session()) {
+        lines.push(format!("{}:", group.group));
+        lines.extend(
+            group
+                .commands
+                .iter()
+                .map(|c| format!("  {}", command_list_line(c))),
+        );
+        lines.push(String::new());
+    }
+    lines.push(r#"Type "help <command>" for more information about a command."#.into());
+    lines.join("\n") + "\n"
+}
+
 /// One command's line in a grouped listing: its name with argument syntax,
 /// aliases beside it, then the description. The two-space gap is kept for
 /// any name length, so the name field always has a clear boundary.
@@ -277,7 +298,7 @@ pub fn command_help(root: &Command, reg: &Registry, path: &[String]) -> String {
 
 /// Follows `args` through the tree by subcommand names and aliases,
 /// skipping flags, and returns the canonical path it reached.
-fn reached_path(root: &Command, args: &[String]) -> Vec<String> {
+pub fn reached_path(root: &Command, args: &[String]) -> Vec<String> {
     let mut cmd = root;
     let mut path = Vec::new();
     for arg in args.iter().filter(|a| !a.starts_with('-')) {

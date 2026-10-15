@@ -25,6 +25,9 @@ pub mod memlock;
 pub mod paths;
 pub mod prompter;
 pub mod recipients;
+pub mod session;
+#[cfg(test)]
+mod session_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testsupport;
 pub mod vault;
