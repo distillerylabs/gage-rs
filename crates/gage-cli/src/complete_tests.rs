@@ -2,8 +2,8 @@
 //! candidate functions are plain and typed, so everything about *which*
 //! candidates are right at a position is tested here, in-process. Ports
 //! Go's `complete_test.go`; each test names its Go row. The one adapter
-//! test is in `lineread`'s tests and the real-terminal one in
-//! `tests/session_pty.rs`.
+//! test is the last one here; the real-terminal one is
+//! `tests/complete_pty.rs`.
 //!
 //! One substitution, to be undone when P5 registers `identity`: Go's
 //! `identity` has `add`/`enroll`/`list` children and is the abbreviation
@@ -45,7 +45,9 @@ fn root(reg: &Registry) -> Command {
     cli::build(reg, &BuildInfo::stamped())
 }
 
-/// A session over `env`'s registered vaults that answers one passphrase.
+/// A session over `env`'s registered vaults, built the way `run_session`
+/// builds one (as Go's `newSessionApp` does): global config's current
+/// vault is current from the start, named but still locked.
 fn session<'a>(env: &'a Env, prompter: &'a FakePrompter) -> Session<'a> {
     let dirs = env.dirs.clone();
     Session::new(SessionConfig {
@@ -55,9 +57,21 @@ fn session<'a>(env: &'a Env, prompter: &'a FakePrompter) -> Session<'a> {
         }),
         prompter,
         idle_timeout: None,
-        current: None,
+        current: Some(env.global().current),
         now: None,
     })
+}
+
+/// A session with `personal` current and unlocked, holding the titles
+/// `AWS` and `ProtonMail`: anything that wrongly offers titles or vault
+/// names at a position has some to offer.
+fn unlocked_personal<'a>(env: &'a Env, prompter: &'a FakePrompter) -> Session<'a> {
+    env.init("personal", &[]);
+    env.add("personal", "ProtonMail", "hunter2");
+    env.add("personal", "AWS", "secret");
+    let mut s = session(env, prompter);
+    s.use_vault("personal").unwrap();
+    s
 }
 
 fn one_passphrase() -> FakePrompter {
@@ -336,16 +350,20 @@ fn entry_title_candidates_with_no_session_is_empty() {
 
 // Go: TestLeafPositionalCandidatesOffersNothingForACommandWithNoQuery.
 // Only use/lock and the entry-query commands have a first positional
-// worth completing; Go's `sync` joins the list in P4.
+// worth completing; Go's `sync` joins the list in P4. Against a
+// registered vault and an unlocked one with titles, so a command routed
+// to either source by mistake would have something to offer.
 #[test]
 fn leaf_positional_candidates_offers_nothing_for_a_command_with_no_query() {
     let env = Env::new();
+    let p = one_passphrase();
+    let mut s = unlocked_personal(&env, &p);
     let reg = registry();
     let root = root(&reg);
     for name in ["ls", "init", "reindex", "status"] {
         let target = root.find_subcommand(name).unwrap();
         assert!(
-            leaf_positional_candidates(target, &[], &env.dirs, None).is_empty(),
+            leaf_positional_candidates(target, &[], &env.dirs, Some(&mut s)).is_empty(),
             "{name}"
         );
     }
@@ -357,14 +375,19 @@ fn leaf_positional_candidates_offers_nothing_for_a_command_with_no_query() {
 #[test]
 fn leaf_positional_candidates_stop_after_the_first_argument() {
     let env = Env::new();
-    env.init("personal", &[]);
+    let p = one_passphrase();
+    let mut s = unlocked_personal(&env, &p);
     let reg = registry();
     let root = root(&reg);
     for name in ["rename", "use", "lock", "show"] {
         let target = root.find_subcommand(name).unwrap();
+        assert!(
+            !leaf_positional_candidates(target, &[], &env.dirs, Some(&mut s)).is_empty(),
+            "{name} offers nothing even at its first argument"
+        );
         let typed = strs(&["already-typed"]);
         assert!(
-            leaf_positional_candidates(target, &typed, &env.dirs, None).is_empty(),
+            leaf_positional_candidates(target, &typed, &env.dirs, Some(&mut s)).is_empty(),
             "{name}"
         );
     }
@@ -372,11 +395,14 @@ fn leaf_positional_candidates_stop_after_the_first_argument() {
 
 // --- completion_candidates ------------------------------------------------------------------
 
-// Go: TestCompletingTopLevelListsSessionVisibleNames
+// Go: TestCompletingTopLevelListsSessionVisibleNames. The whole set, even
+// with `us` typed: narrowing to the partial word is the caller's
+// `prefix_matches`, not this function's.
 #[test]
 fn completing_top_level_lists_session_visible_names() {
     let (reg, env) = (registry(), Env::new());
-    let got = complete_at(&reg, &env, None, "");
+    let got = complete_at(&reg, &env, None, "us");
+    assert!(got.contains(&"status".to_string()), "{got:?}");
     assert!(got.contains(&"use".to_string()), "{got:?}");
     for bad in ["init", "clone"] {
         assert!(!got.contains(&bad.to_string()), "{bad}: {got:?}");
@@ -474,13 +500,17 @@ fn completing_an_entry_query_lists_current_vault_titles() {
 }
 
 // Go: TestCompletingAnEntryQueryWhenLockedNeverUnlocks, with a prompter
-// that answers nothing: an unlock would fail the test.
+// that answers nothing: an unlock would fail the test. `personal` is
+// current (from global config) but locked, so this is the locked path,
+// not the no-current-vault one.
 #[test]
 fn completing_an_entry_query_when_locked_never_unlocks() {
     let (reg, env) = (registry(), Env::new());
     env.init("personal", &[]);
+    env.add("personal", "AWS", "secret");
     let p = panics_if_asked();
     let mut s = session(&env, &p);
+    assert_eq!(s.current(), Some("personal"));
     let got = complete_at(&reg, &env, Some(&mut s), "show ");
     assert!(got.is_empty(), "{got:?}");
     assert!(p.unlock_requests().is_empty(), "completion asked to unlock");
@@ -502,6 +532,54 @@ fn completing_query_after_a_use_flag_still_offers_entry_titles() {
     assert_eq!(
         complete_at(&reg, &env, Some(&mut s), "show --use work "),
         ["ProtonMail"]
+    );
+}
+
+// Not Go rows: the other spellings of `--use`. `-u` takes a vault name
+// like `--use` does, and both step over their value, attached or not,
+// when counting positionals.
+#[test]
+fn completing_the_use_flags_other_spellings() {
+    let (reg, env) = (registry(), Env::new());
+    let p = one_passphrase();
+    let mut s = unlocked_personal(&env, &p);
+    env.init("work", &[]);
+    let at = |s: &mut Session, line| complete_at(&reg, &env, Some(s), line);
+    assert_eq!(at(&mut s, "show -u "), ["personal", "work"]);
+    for line in ["show -u work ", "show --use=work ", "show -u=work "] {
+        assert_eq!(at(&mut s, line), ["AWS", "ProtonMail"], "{line:?}");
+    }
+    // An attached value is not followed by one: `AWS` is the first
+    // positional, so `rename`'s second (the new title) offers nothing.
+    assert!(at(&mut s, "rename --use=work AWS ").is_empty());
+}
+
+// Not a Go row: a first word that names no command has no position to
+// complete, so nothing is offered rather than some other command's set.
+#[test]
+fn completing_after_an_unknown_command_offers_nothing() {
+    let (reg, env) = (registry(), Env::new());
+    let p = one_passphrase();
+    let mut s = unlocked_personal(&env, &p);
+    assert!(complete_at(&reg, &env, Some(&mut s), "nope ").is_empty());
+}
+
+// Not a Go row: the registry's session filter one level down. A child the
+// registry marks one-shot-only is left out, as session help leaves it out.
+#[test]
+fn subcommand_candidates_skip_children_not_available_in_a_session() {
+    let mut reg = registry();
+    let info = reg
+        .commands
+        .iter_mut()
+        .find(|c| c.name == "vault info")
+        .unwrap();
+    info.availability = crate::registry::Availability::OneShotOnly;
+    let root = root(&reg);
+    let vault = root.find_subcommand("vault").unwrap();
+    assert_eq!(
+        sorted(subcommand_candidates(&reg, vault)),
+        ["list", "remove", "set-default"]
     );
 }
 
@@ -543,6 +621,20 @@ fn run_session_command_dispatches_an_unambiguous_abbreviation() {
         out.contains("no vaults have been unlocked"),
         "`stat` didn't run `status`:\n{out}"
     );
+}
+
+// Not a Go row: `status` above is a session verb, handled before clap;
+// this is the other path, where the expanded word goes on to clap with
+// the rest of the line. `vau list` runs `vault list`.
+#[test]
+fn run_session_command_dispatches_an_abbreviation_through_clap() {
+    let env = Env::new();
+    env.init("personal", &[]);
+    let p = panics_if_asked();
+    let mut s = session(&env, &p);
+    let (res, out) = run_line(&env, &mut s, "vau list");
+    assert!(!res.unwrap());
+    assert!(out.contains("personal"), "`vau list` didn't list:\n{out}");
 }
 
 // Go: TestRunSessionCommandRejectsAnAmbiguousAbbreviation. Candidates

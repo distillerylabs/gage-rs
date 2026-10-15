@@ -1,5 +1,5 @@
 //! `Session` against real vaults, real identity files and real scrypt (at
-//! the test work factor). Ports Go's `internal/gage/session_test.go`, less
+//! the test work factor). Ports Go's `internal/gage/session_test.go`;
 //! each test names its Go row.
 //!
 //! Every vault's page locks go through a [`PageLedger`], a `Locker` that
@@ -945,12 +945,30 @@ fn entry_title_candidates_builds_index_once() {
     s.use_vault("personal").unwrap();
 
     let base = d.vaults["personal"].decrypt_count();
-    s.entry_title_candidates();
+    assert_eq!(s.entry_title_candidates(), ["AWS", "GitHub"]);
     assert_eq!(d.vaults["personal"].decrypt_count() - base, 2, "one pass");
-    s.entry_title_candidates();
+    assert_eq!(s.entry_title_candidates(), ["AWS", "GitHub"]);
     assert_eq!(
         d.vaults["personal"].decrypt_count() - base,
         2,
         "the second call reused the index"
     );
+}
+
+// Not a Go row: the idle timeout applies here like any session call, so
+// a vault that aged out while a line was being typed offers no titles,
+// and asking for them doesn't re-prompt.
+#[test]
+fn entry_title_candidates_empty_once_the_idle_timeout_relocks() {
+    let d = Device::new(&["personal"]);
+    d.seed("personal", &["AWS"]);
+    let p = unlocks(1);
+    let clock = Clock::new();
+    let mut s = d.session(&p, timed(&clock, Duration::from_secs(60)));
+    s.use_vault("personal").unwrap();
+    assert_eq!(s.entry_title_candidates(), ["AWS"]);
+
+    clock.advance(Duration::from_secs(120));
+    assert!(s.entry_title_candidates().is_empty());
+    assert_eq!(unlock_count(&p, "personal"), 1);
 }

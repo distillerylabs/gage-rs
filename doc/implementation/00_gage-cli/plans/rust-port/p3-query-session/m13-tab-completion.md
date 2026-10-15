@@ -202,8 +202,21 @@ code differs from Go:
 - **Claimed rows**: 46 ported (4 library, 41 `complete_tests`, 1 pty);
   Go's `TestSubcommandCandidatesListsIdentityChildren` and
   `TestCompletingSubcommandListsIdentityChildren` are the `vault`
-  versions. `complete_tests` adds `vault_name_candidates_with_no_config_is_empty`,
-  not a Go row.
+  versions. The pty test types `stat` where Go types `u` (Go's `use`
+  needs an argument and would prompt). Rows that aren't Go's:
+  `complete_tests` adds `vault_name_candidates_with_no_config_is_empty`,
+  `completing_the_use_flags_other_spellings` (`-u`, `--use=`),
+  `completing_after_an_unknown_command_offers_nothing`,
+  `subcommand_candidates_skip_children_not_available_in_a_session` and
+  `run_session_command_dispatches_an_abbreviation_through_clap`;
+  `session_tests` adds `entry_title_candidates_empty_once_the_idle_timeout_relocks`.
+- **Test review**: the completion tests' session is built like
+  `run_session`'s (global config's current vault, as Go's
+  `newSessionApp`), so the locked-vault completion test runs the locked
+  path rather than the no-current-vault one; the leaf-positional tests
+  run against an unlocked vault with titles, so a misrouted command has
+  something to wrongly offer. Each was checked by mutating the code it
+  guards.
 
 ## Definition of done
 
