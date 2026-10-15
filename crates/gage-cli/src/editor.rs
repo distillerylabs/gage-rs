@@ -368,7 +368,8 @@ pub(crate) mod fake {
         }
 
         /// The scratch file's Unix permission bits as the editor saw them
-        /// (`"600"`), or `"?"` elsewhere.
+        /// (`"600"`). Unix only, as the one test that reads them.
+        #[cfg(unix)]
         pub(crate) fn scratch_mode(&self) -> String {
             let text = std::fs::read_to_string(&self.record).unwrap();
             text.lines().nth(1).unwrap().to_string()
