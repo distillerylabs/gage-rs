@@ -4,11 +4,11 @@
 shared agent: each is one process holding its own unlocked keys in its
 own memory for as long as it runs.
 
-> **Status.** The interactive session and its metadata index ship. Tab
-> completion and command abbreviation arrive later in phase 3 of the
-> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
-> Scripted sessions (`--script`, `--stdin`) arrive with phase 6, and sync
-> (which `use` will also trigger) with phase 4.
+> **Status.** The interactive session, its metadata index, Tab completion
+> and command abbreviation ship. Scripted sessions (`--script`, `--stdin`)
+> arrive with phase 6 of the
+> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md), and
+> sync (which `use` will also trigger) with phase 4.
 
 ## One-shot mode
 

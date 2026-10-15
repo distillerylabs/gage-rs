@@ -86,7 +86,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `a4b989e` | #58 / #59 | `insert --field NAME=VALUE` | P2 · M4 | `[x]` `parse_field_flags` (M4); the `show --field` halves and `--field`/`-e` exclusivity in P3 · M5 |
 | `f0e17db`, `f1e391f` | #55 / #60, #61 | `cat`: display-only short id, column-aligned labels, flush-left multi-line values | P6 · M12 | `[ ]` |
 | `fb2f1e9` | #54 / #62 | `ls -H/--header` labelled `\|`-delimited table | P6 · M12 | `[ ]` |
-| `0aa325c` | #25 / #63 | M13 session Tab completion and command abbreviation | P3 · M13 ([plan](p3-query-session/m13-tab-completion.md)) | `[~]` local `make lint`/`make test` green; awaiting CI |
+| `0aa325c` | #25 / #63 | M13 session Tab completion and command abbreviation | P3 · M13 ([plan](p3-query-session/m13-tab-completion.md)) | `[x]` |
 | `bbb24ba` | #64 / #65 | Coverage and vulnerability reporting | M0a | `[ ]` |
 | `30b21df` | #66 / #67 | Apache-2.0 license; fixture-data cleanup | Bootstrap (`LICENSE`) | `[~]` |
 | `df3c0fe` | #4, #5 | Enrollment-design issues resolved in the TDD | Covered by the copied TDD; P7 | `[ ]` |
@@ -101,7 +101,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M2 | P2 · M2 (+ E0 identity paths) | `[x]` ([#13](https://github.com/distillerylabs/gage-rs/issues/13)) |
 | | M3 | P2 · M3 | `[x]` ([#14](https://github.com/distillerylabs/gage-rs/issues/14)) |
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
-| | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[~]` M5, M6, M7, M13 |
+| | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[x]` |
 | | M8a, M8b | P4 | `[ ]` |
 | | M9 (+ A19), M10, M11 | P5 | `[ ]` |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
@@ -194,8 +194,8 @@ behavior; each phase's last milestone updates the pages for its surface.
 |---|---|
 | `vaults.md`, `configuration.md`, `exit-codes.md` | P1 · M1: `doc/cli/` |
 | `entries.md` | P2 · M4: `doc/cli/entries.md` `[x]` for the shipped surface; P3 · M5 `[x]` `show`, `edit`, `rename`, `generate`, `insert -e`, addressing; P3 · M7 `[x]` `search`/`grep`, `reindex`; P6 for `cat`/`ls` display |
-| `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker; M7 `[x]` the index; M13 `[~]` the title completion source (enrollment ids are P7's) |
-| `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 `[x]` the metadata index and `reindex`; M13 `[~]` completion and abbreviation; `--script`/`--stdin` and `GAGE_PASSPHRASE` are P6 · M12's, enrollment's session behavior P7's |
+| `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker; M7 `[x]` the index; M13 `[x]` the title completion source (enrollment ids are P7's) |
+| `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 `[x]` the metadata index and `reindex`; M13 `[x]` completion and abbreviation; `--script`/`--stdin` and `GAGE_PASSPHRASE` are P6 · M12's, enrollment's session behavior P7's |
 | `sync.md`, `git-and-auth.md` | P4 |
 | `identities-and-recipients.md`, `sharing.md` | P5 (+ P8 for the recovery sections) |
 | `enrollment.md` | P7 |
