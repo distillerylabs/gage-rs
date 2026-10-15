@@ -64,7 +64,7 @@ line up.
 | P1 Foundation ([plan](p1-foundation/index.md), [#4](https://github.com/distillerylabs/gage-rs/issues/4)) | M0a toolchain, CI, lint purity · M0b git-crate spike + primitives · M1 vault lifecycle | `[x]` | Sonnet; **Opus** for M0b's git-crate spike and an Opus review of M0b's tests ⚑ | — |
 | P2 Crypto & entries ([plan](p2-crypto-entries/index.md), [#12](https://github.com/distillerylabs/gage-rs/issues/12)) | M2 identity + memlock · M3 entry format · M4 CRUD | `[x]` | **Opus** for M2 ⚑; Sonnet for M3/M4 (⚑ Opus review of M4's lock tests) | P1 |
 | P3 Query & session ([plan](p3-query-session/index.md), [#21](https://github.com/distillerylabs/gage-rs/issues/21)) | M5 resolver · M6 session/REPL · M7 metadata index · M13 completion | `[x]` | Sonnet; Sonnet* for M6/M13 (⚑ Opus review of M5's scratch-file and M7's index tests) | P2 |
-| P4 Sync | M8a transport & detection · M8b conflict resolution | `[ ]` | **Opus** | P3 |
+| P4 Sync ([plan](p4-sync/index.md), [#32](https://github.com/distillerylabs/gage-rs/issues/32)) | M8a1 remote primitives & auth · M8a2 sync wiring · M8b conflict resolution | `[~]` | **Opus** | P3 |
 | P5 Recipients & trust | M9 recipients · M10 trust cache · M11 cross-vault | `[ ]` | **Opus** for M9; Sonnet* for M10/M11 | P4 |
 | P6 Polish | M12 output modes, `log`/`history`, `--script` | `[ ]` | Sonnet | P5 |
 | P7 Enrollment | E1b · E2 · E3 · E4 | `[ ]` | **Opus** | P5 |
@@ -100,7 +100,7 @@ cover commands from every earlier phase.
 | M6 Session mode | P3 · M6 | |
 | M7 Metadata index | P3 · M7 | |
 | M13 Tab completion | P3 · M13 | Depends only on M0/M6/M7 in Go; placed with them. |
-| M8a Sync transport | P4 · M8a | Includes `init --remote` inline token (#38). |
+| M8a Sync transport | P4 · M8a1 + M8a2 | Split by layer: library primitives and `auth` (M8a1), then wiring into unlock, writes, the sync verbs, `clone` and `init --remote` with the inline token (#38) (M8a2). |
 | M8b Sync conflicts | P4 · M8b | |
 | M9 Recipients | P5 · M9 | A19/E1a folded in: no `--reencrypt` on `add`, `RequireFullAccess`. |
 | M10 Trust cache | P5 · M10 | Vault-id-keyed path from the start. |
@@ -148,7 +148,7 @@ planning settles what that phase uses. "First used" names the milestone that int
 | TOML | `toml` + `serde` (no custom emitter) | decided ([Q-COMPAT](open-questions.md#q-compat)) | M0b | pelletier/go-toml v2 |
 | Typed errors | `thiserror` (library), `anyhow` (CLI only) | decided | M0b | — |
 | Advisory file lock | `std::fs::File::lock` (Rust ≥ 1.89) | decided ([Q-FILE-LOCK](open-questions.md#q-file-lock)) | M0b | x/sys flock/LockFileEx |
-| Git | `git2` (vendored libgit2 + OpenSSL, `https`, no `ssh`) | decided ([Q-GIT-CRATE](open-questions.md#q-git-crate)) | M0b | go-git |
+| Git | `git2` (vendored libgit2 + OpenSSL, `https`; `ssh` with vendored libssh2 from M8a1) | decided ([Q-GIT-CRATE](open-questions.md#q-git-crate), [Q-SSH](open-questions.md#q-ssh)) | M0b | go-git |
 | Encryption | `age` 0.12 (rage), default features | decided ([Q-AGE-CRATE](open-questions.md#q-age-crate)); M1 kept Go's shape-only `agekey` check instead | M2 | filippo.io/age |
 | Memory locking, core dumps | `libc`/`windows-sys` directly | decided ([Q-PLATFORM-CRATES](open-questions.md#q-platform-crates)) | M2 | x/sys mlock/VirtualLock, setrlimit |
 | Secret hygiene | `zeroize` (`secrecy` arrives through `age`) | decided ([Q-IDENTITY-SECRET](open-questions.md#q-identity-secret)) | M2 | manual zeroing |
@@ -236,7 +236,7 @@ Adapted from the Go plan's table. Milestone IDs are the Rust ones.
 | M0b | Atomic file write (temp + rename) | Global config, `.gage/config.toml`, `known-config.toml` (M10) |
 | M0b | Exit-code taxonomy (Go's codes; no reason to differ) | Every command; M9's `verify` 0/1 contract |
 | M0b | Command registry — name, aliases, description, group, one-shot/session availability | Every milestone that adds a command registers it; one-shot help (clap) and M6's session help render from it |
-| M0b | `gittest::new_bare_remote` | M1's `set-remote` tests; M8a's sync harness |
+| M0b | `gittest::new_bare_remote` | M1's `set-remote` tests; M8a1's sync harness |
 | M1 | `.gage/config.toml` schema with `format_version = 2` and `[vault].id`; unknown versions rejected with a directional message | Every later reader |
 | M1 | Global config schema, incl. per-vault `device`, `method`, `id`, `pubkey` | M2 populates; M4's `updated_by`; `unlock` dispatches on `method`; M12's orphan cleanup reads `pubkey` |
 | M1 | `.gitattributes` marking `.age-recipients`/`config.toml` `-merge` | M8a, M10 |
@@ -246,7 +246,9 @@ Adapted from the Go plan's table. Milestone IDs are the Rust ones.
 | M4 | Commit-per-write, under the vault lock | M8a's auto-push; M9's single-commit re-encrypt |
 | M5 | Resolver returns a resolved entry *or* a candidate list, as a value | M6 prompts with it; one-shot fails with it |
 | M6 | `Session` owns all "how long does this stay unlocked" bookkeeping | M7's index lives there too |
-| M7 | Session-scoped metadata index | M8a invalidates after a pull; M8b after each resolution; M11 updates both vaults |
+| M7 | Session-scoped metadata index | M8a2 invalidates after a pull; M8b after each resolution; M11 updates both vaults |
+| M8a1 | `syncerr` buckets (unreachable 7 / auth 5 / diverged 1) and the file-level `prepare_merge` + `PendingMerge::commit` | M8a2's sync verbs; M8b's resolution; M9's push after re-encrypt |
+| M8a2 | `RemoteSyncer` seam; pull on unlock (try-lock) and push inside the write lock; the push-failure warning wording | Every later write path (M9, M11, E-phase, R-phase) |
 | M9 | Recipient list changes touch `.age-recipients` and `config.toml` together, in one commit, via one `commit_recipient_list` primitive | M10 diffs that pair; E4 and R3 build on the primitive |
 | M10 | `RecipientChangeWarning` typed value + cache regeneration rules | M11 (destination vault), E4, R4 |
 

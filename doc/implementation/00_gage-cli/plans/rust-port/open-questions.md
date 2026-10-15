@@ -163,6 +163,13 @@ config, so none of them is vacuous.
 | HTTPS compiled in, no system libraries | `Version::https()` true, `ssh()` false, `vendored()` true. An `https://` remote fails as a connection error, not an unsupported scheme. Backends: OpenSSL (vendored, static) on Linux, Security.framework on macOS, WinHTTP on Windows. Linux `ldd` shows only libc, libgcc_s and **libz**, so P4 adds `libz-sys/static`. |
 | local transport on Windows | Works with plain `C:\...` paths for the remote URL. |
 
+*P4 planning amendments:* the "No `ssh`" decision is reversed by
+[Q-SSH](#q-ssh): git2's `ssh` feature is added for best-effort ssh-agent.
+The isolation step below was assigned to M1 but did not land there. It
+lands in P4 · M8a1 ([Q-GIT-ISOLATION](#q-git-isolation)). The
+merge-commit row above proves only the commit shape. Merges stay
+file-level and never use `merge_trees` ([Q-FILE-MERGE](#q-file-merge)).
+
 **Consequences carried into the milestones that use it:**
 
 - **Isolate libgit2 from the user's and system git config.** libgit2
@@ -524,6 +531,199 @@ release-on-discard rules with no new seam. Timestamps and `updated_by`
 (a device name, already public in the vault config) stay in ordinary
 memory, as in Go. The index holds no `value` or `fields` and is never
 written to disk.
+
+## Resolved in P4 planning
+
+Settled in [#32](https://github.com/distillerylabs/gage-rs/issues/32) and
+the [P4 plan](p4-sync/index.md). Where libgit2's behavior matters, each
+entry names what the milestone has to pin with a test. These entries are
+not a guess at libgit2's error values.
+
+### `[x]` Q-SSH — Does gage-rs support SSH remotes? {#q-ssh}
+
+**Resolved: yes, at Go's best-effort level, using git2's `ssh` feature
+(vendored libssh2) and ssh-agent only.** This amends
+[Q-GIT-CRATE](#q-git-crate)'s "No `ssh`".
+
+Go authenticates SSH remotes through ssh-agent and never reads
+`~/.ssh/config`. Two of Go's `remoteauth` tests pin that behavior. The
+user chose parity over refusing SSH outright. What follows from that:
+
+- **Credentials.** They come only from `Cred::ssh_key_from_agent`. gage
+  reads no key files and asks for no passphrase.
+- **No exec backend.** libgit2's exec-based SSH backend (`GIT_SSH_EXEC`)
+  is never selected. It would shell out to `ssh`, which CLAUDE.md rules
+  out.
+- **Host aliases.** Go's heuristic is ported: an SSH host with no dot is
+  treated as a `~/.ssh/config` alias. Such a remote is refused with the
+  real reason, pointing at the HTTPS spelling and `gage auth login`.
+  libssh2 doesn't read `~/.ssh/config` either, so the alias would
+  otherwise fail as a confusing connection error.
+- **Host keys.** M8a1 settles from libgit2's source whether libgit2 1.9
+  with libssh2 checks `~/.ssh/known_hosts` itself, or whether gage must
+  supply `certificate_check`. The answer is recorded here.
+- **Build cost.** libssh2-sys is a second vendored C library on three
+  operating systems, built with vendored OpenSSL. Its license (BSD-3-Clause)
+  and its RustSec advisories come under `deny.toml` and `make audit`.
+  M8a1 checks the cold CI build time before writing any further code.
+- **Tests.** No network and no agent can be assumed. As in Go, the test
+  pins *which path* resolving the method took: an agent credential, or an
+  error naming ssh-agent. It never pins the outcome.
+
+### `[x]` Q-GIT-ISOLATION — Where does libgit2's config isolation land? {#q-git-isolation}
+
+**Resolved: in P4 · M8a1, before the first network operation.**
+[Q-GIT-CRATE](#q-git-crate) assigned the isolation to M1. M1 shipped
+explicit signatures, an explicit initial branch and the git-defaults
+test, but not the `set_search_path` call. That gap was harmless while
+gage-rs never contacted a remote. From the first fetch or push onward, a
+user's `url.<base>.insteadOf` would redirect a vault.
+
+- One `#[allow(unsafe_code)]` `std::sync::Once` in `gitrepo`. It points
+  System, XDG, Global and ProgramData at an empty directory, and it also
+  sets the server timeouts ([Q-REMOTE-TIMEOUT](#q-remote-timeout)). It
+  runs before every repository open, including the opens in `gittest`.
+- A child-process test runs with a hostile global config:
+  `url.<x>.insteadOf` pointing at a decoy bare repository, and
+  `core.autocrlf=true`.
+  - It first asserts that libgit2 can see that config, so the test is not
+    vacuous.
+  - It then asserts that neither setting has any effect.
+
+### `[x]` Q-SYNC-CLASSIFY — How are fetch and push failures classified? {#q-sync-classify}
+
+**Resolved: Go's three buckets and exit codes, decided from
+`git2::Error` class and code and never from the message text.
+Divergence is detected positively, with elimination as the fallback.**
+
+| Bucket | Exit code | Detected by |
+|---|---|---|
+| Unreachable | `Unreachable` (7) | Network, OS, TLS-connect and SSH-connect failures; gage's own deadline abort |
+| Auth | `LockedOrAuth` (5) | `ErrorCode::Auth`; HTTP 401, 403 and 404 (a missing repository is treated as an access problem, as in Go) |
+| Diverged | `Conflict` (1) | Push: `ErrorCode::NotFastForward`, or a status reported through `push_update_reference`. Any other push failure lands here by elimination, as in Go |
+| Internal | `Internal` (6) | Fetch only: a failure in none of the buckets above passes through. A fetch is never rejected for divergence |
+
+Go classifies divergence by elimination only because go-git's `Push`
+doesn't wrap its sentinel error. libgit2 types the rejection, as the
+P1 spike observed. One libgit2 behavior matters here: a ref the server
+refuses arrives through the `push_update_reference` callback, while
+`push()` itself can return `Ok`. A push therefore treats any status
+reported there as diverged.
+
+M8a1 triggers every row for real and records the class and code libgit2
+1.9 actually produced:
+
+- a loopback port that refuses connections
+- a `.invalid` host
+- a recorder answering 401, 403 and 404
+- a real non-fast-forward push
+
+The classified error carries a message with the credentials stripped
+out. It never carries a raw `git2::Error` whose text might contain a URL
+with a token in it.
+
+### `[x]` Q-REMOTE-TIMEOUT — How is a network operation bounded without `context`? {#q-remote-timeout}
+
+**Resolved: `REMOTE_OP_TIMEOUT` = 30s, public, enforced in two layers.**
+
+- **libgit2's server timeouts.** The connect and read timeouts
+  (`set_server_connect_timeout_in_milliseconds`,
+  `set_server_timeout_in_milliseconds`) are set once inside the isolation
+  `Once`. They bound a blackholed connect and a stalled read.
+- **A per-operation deadline.** It is checked in the transfer-progress,
+  pack-progress and sideband callbacks. Returning `false` aborts the
+  operation, and the abort classifies as unreachable. Tests use a
+  deadline of zero, never real time.
+
+There is no cancellation token. Go's `context.Canceled` exists because Go
+already has a `context`. No gage-rs frontend cancels a sync today, and
+one can be added if the GUI needs it.
+
+As in Go, every automatic operation and every manual verb starts its own
+deadline. The push after an M8b resolution gets a fresh one, because a
+human deciding between two versions of a password is not network time.
+
+### `[x]` Q-FILE-MERGE — How does gage merge two histories? {#q-file-merge}
+
+**Resolved: gage's own file-level three-way merge, as in Go. Never
+`git2::merge_trees`.**
+
+The P1 spike showed that `merge_trees` can produce the merge commit M8b
+needs. It also merges text files line by line. `.age-recipients` is text,
+so two devices that each add a recipient would merge into a union that
+neither device wrote. Only the committed `.gitattributes` (`-merge`)
+would stop that. Go's guarantee does not depend on that file, and the
+design keeps it that way: the file binds a human running stock `git`
+inside the vault, not gage.
+
+- The merge is computed from the merge base and the tree diffs base→ours
+  and base→theirs.
+  - A path changed on only one side takes that side's version.
+  - A path changed on both sides is a conflict, unless both sides hold
+    the same blob.
+  - A deletion on both sides is taken.
+  - A deletion on one side with a modification on the other is a
+    delete/modify conflict.
+- Nothing is written to the working tree until commit. A conflict writes
+  nothing at all.
+- A partial failure rolls back: it removes the files the merge created,
+  skips paths that aren't there, and always reaches the hard reset.
+- Tree paths come from whoever can push to the remote. They go through
+  `safe_join` before any filesystem write.
+- `merge_remote` is `prepare_merge` followed by `PendingMerge::commit`
+  with no choices, from M8a1 onward. M8b exposes the choices, `content`
+  and the files to add. It doesn't split a function that M8a1 shipped
+  whole, so the two paths can't drift apart
+  (`TestMergeRemoteAndPrepareMergeCannotDrift`).
+
+### `[x]` Q-REMOTE-AUTH — How does a stored token reach libgit2, and how is that tested? {#q-remote-auth}
+
+**Resolved: through the `credentials` callback, tested on the wire
+against a loopback HTTP recorder.**
+
+- **Storage.** Tokens live at `$GAGE_STATE/tokens/<host>`, mode 0600,
+  written through `atomicfile`.
+  - `load` refuses a file others can read, on Unix.
+  - The host is validated as a single path component before any path is
+    built from it.
+  - Two vaults on the same host share one token.
+- **The callback, not `custom_headers`.** A header set with
+  `custom_headers` is sent on every request, including one that a
+  redirect sends to another host. The `credentials` callback is given the
+  URL, so it offers the token only to the host it was stored for.
+  `follow_redirects(Initial)` is also set explicitly.
+- **No retry loop.** libgit2 calls the callback again after a 401. A
+  second call within one operation fails, which then classifies as auth
+  with the host-naming hint.
+- **No token stored** means an anonymous attempt, not an error, as in Go.
+- **The test hook.** libgit2 hands credentials only to its built-in HTTP
+  transport, so Go's `gagetest://` recording transport has no equivalent.
+  `gittest` gets a loopback HTTP recorder built on `std::net`, with no
+  new dependency. It answers 401 with `WWW-Authenticate: Basic`, records
+  the `Authorization` header of the retry, and then fails. It can also
+  answer 403 or 404 for the classification tests. This observes the token
+  on the wire, which is a stronger check than Go's recorder.
+
+### `[x]` Q-CONFLICT-PROMPTER — How does a frontend opt in to resolving conflicts? {#q-conflict-prompter}
+
+**Resolved: a default method,
+`Prompter::resolve_conflict(&EntryConflict) -> Result<Resolution, PromptError>`,
+that returns a new `PromptError::NotInteractive`.**
+
+Go makes `ConflictPrompter` a separate optional interface. A frontend with
+nobody to ask simply doesn't implement it, so the refusal is structural,
+and Go's existing prompters didn't have to change. A default trait method
+gives Rust the same two properties:
+
+- an implementation that says nothing refuses
+- existing `Prompter` implementations compile unchanged
+
+That is simpler than an `as_conflict_prompter()` downcast.
+`TerminalPrompter` overrides the method, and still refuses when it is
+not interactive. That is the path `--script`, `--stdin` and CI take.
+
+Go's `TestNilPrompterRefusesRatherThanPanicking` is excused: a
+`&dyn Prompter` cannot be null.
 
 ---
 
