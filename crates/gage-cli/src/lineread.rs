@@ -14,6 +14,7 @@ use std::io::Read;
 use rustyline::error::ReadlineError;
 
 use crate::Io;
+use crate::complete::SessionHelper;
 
 /// What one read produced.
 #[derive(Debug, PartialEq, Eq)]
@@ -79,19 +80,28 @@ const HISTORY_LIMIT: usize = 1000;
 
 /// The real terminal: `rustyline`'s line editing, recall and Ctrl-C/Ctrl-D
 /// handling, on Windows as well as Unix.
-pub struct RustylineReader {
-    editor: rustyline::DefaultEditor,
+pub struct RustylineReader<'a> {
+    editor: rustyline::Editor<SessionHelper<'a>, rustyline::history::DefaultHistory>,
 }
 
-impl RustylineReader {
+impl<'a> RustylineReader<'a> {
     /// An editor whose recall starts from `previous` (the history file's
-    /// lines). It never saves: the history file is gage's to write.
-    pub fn new(previous: &[String]) -> rustyline::Result<RustylineReader> {
+    /// lines), and whose Tab completes through `helper`. It never saves:
+    /// the history file is gage's to write, and only submitted lines reach
+    /// it, so completing never records anything.
+    pub fn new(
+        previous: &[String],
+        helper: SessionHelper<'a>,
+    ) -> rustyline::Result<RustylineReader<'a>> {
         let config = rustyline::Config::builder()
             .max_history_size(HISTORY_LIMIT)?
             .auto_add_history(false)
+            // List the candidates on an ambiguous Tab (after filling their
+            // common prefix) rather than cycling through them.
+            .completion_type(rustyline::CompletionType::List)
             .build();
-        let mut editor = rustyline::DefaultEditor::with_config(config)?;
+        let mut editor = rustyline::Editor::with_config(config)?;
+        editor.set_helper(Some(helper));
         for line in previous {
             editor.add_history_entry(line.as_str())?;
         }
@@ -99,7 +109,7 @@ impl RustylineReader {
     }
 }
 
-impl LineReader for RustylineReader {
+impl LineReader for RustylineReader<'_> {
     fn read_line(&mut self, io: &mut Io, prompt: &str) -> std::io::Result<ReadOutcome> {
         let outcome = map_readline(self.editor.readline(prompt));
         if let Ok(ReadOutcome::Eof) = outcome {

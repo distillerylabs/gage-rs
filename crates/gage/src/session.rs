@@ -395,6 +395,36 @@ impl<'a> Session<'a> {
         }
     }
 
+    /// The current vault's entry titles, sorted, for tab completion of an
+    /// entry query. Never unlocks and never prompts: no current vault, or
+    /// one this session doesn't hold unlocked, offers nothing (completion
+    /// has no way to ask a human, and must not turn a keystroke into a
+    /// passphrase prompt). An unlocked vault without an index gets it
+    /// built, once. Only the *current* vault: never one named by `--use`
+    /// elsewhere on the line, and never another unlocked vault's titles.
+    /// A failure to build the index offers nothing too; the command itself
+    /// reports it when it runs.
+    pub fn entry_title_candidates(&mut self) -> Vec<String> {
+        self.enter();
+        let prompter = self.prompter;
+        let Some(held) = self
+            .current
+            .as_deref()
+            .and_then(|name| self.vaults.get_mut(name))
+            .filter(|h| h.identity.is_some())
+        else {
+            return Vec::new();
+        };
+        if held.index.is_none() && build_index(held, prompter).is_err() {
+            return Vec::new();
+        }
+        let index = held.index.as_ref().expect("built above");
+        let mut titles: Vec<String> = index.titles().into_iter().map(|(_, t)| t).collect();
+        titles.sort();
+        titles.dedup();
+        titles
+    }
+
     /// Whether `name` currently has an index.
     #[cfg(test)]
     pub(crate) fn has_index(&self, name: &str) -> bool {
@@ -496,14 +526,7 @@ impl<'a> Session<'a> {
         if held.index.is_some() {
             return Ok((name, None));
         }
-        let identity = held.identity.as_ref().expect("vault() unlocked it");
-        let entries = held.vault.decrypt_all(identity)?;
-        let mut index = Index::new(held.vault.locker(), identity.page_locked());
-        for (id, e) in &entries {
-            index.put(*id, e);
-        }
-        held.index = Some(index);
-        warn_index_lock_once(held, prompter);
+        let entries = build_index(held, prompter)?;
         Ok((name, Some(entries)))
     }
 
@@ -563,6 +586,20 @@ fn lock_held(held: &mut HeldVault) {
 fn discard_index(held: &mut HeldVault) {
     held.index = None;
     held.index_warned = false;
+}
+
+/// Builds `held`'s index from one decrypt pass over its (unlocked) vault,
+/// and returns the entries decrypted to do it.
+fn build_index(held: &mut HeldVault, prompter: &dyn Prompter) -> Result<Decrypted, SessionError> {
+    let identity = held.identity.as_ref().expect("callers unlocked it");
+    let entries = held.vault.decrypt_all(identity)?;
+    let mut index = Index::new(held.vault.locker(), identity.page_locked());
+    for (id, e) in &entries {
+        index.put(*id, e);
+    }
+    held.index = Some(index);
+    warn_index_lock_once(held, prompter);
+    Ok(entries)
 }
 
 /// Reports, once per index, that its arena couldn't be page-locked. Never

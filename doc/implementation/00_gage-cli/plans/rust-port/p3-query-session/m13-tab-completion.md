@@ -93,18 +93,18 @@ Tests first, at task granularity.
 
 ### 1. Library — 4 `session_test` rows
 
-- [ ] `TestEntryTitleCandidatesListsCurrentVaultTitlesOnly`,
+- [x] `TestEntryTitleCandidatesListsCurrentVaultTitlesOnly`,
       `TestEntryTitleCandidatesEmptyWhenLockedNeverPrompts`,
       `TestEntryTitleCandidatesEmptyWithNoCurrentVault`,
       `TestEntryTitleCandidatesBuildsIndexOnce`.
 
 ### 2. The prefix primitive and abbreviation — 14 `complete` rows
 
-- [ ] `TestPrefixMatchesReturnsEveryPrefixHit`,
+- [x] `TestPrefixMatchesReturnsEveryPrefixHit`,
       `TestPrefixMatchesRejectsSubstring`, `TestPrefixMatchesDedupesAndSorts`.
-- [ ] `TestTopLevelSessionNamesIncludesGroupsAndAliases`,
+- [x] `TestTopLevelSessionNamesIncludesGroupsAndAliases`,
       `TestTopLevelSessionNamesExcludesInitAndClone`.
-- [ ] `TestResolveSessionCommandNameExactNameUnchanged`,
+- [x] `TestResolveSessionCommandNameExactNameUnchanged`,
       `TestResolveSessionCommandNameExactAliasUnchanged`,
       `TestResolveSessionCommandNameUnambiguousAbbreviation`,
       `TestResolveSessionCommandNameAmbiguousAbbreviationReportsCandidates`,
@@ -112,61 +112,98 @@ Tests first, at task granularity.
       `TestResolveSessionCommandNameNeverReachesInitOrClone`,
       `TestResolveSessionCommandNameUnknownWordUnchanged`,
       `TestResolveSessionCommandNameOnAnEmptyWord`.
-- [ ] `TestAbbreviationDoesNotReachSubcommands`.
+- [x] `TestAbbreviationDoesNotReachSubcommands`.
 
 ### 3. Candidate sources — 12 `complete` rows
 
-- [ ] Word splitting: `TestCompletionWordsOnNothingTyped`,
+- [x] Word splitting: `TestCompletionWordsOnNothingTyped`,
       `TestCompletionWordsMidWord`, `TestCompletionWordsAfterASpace`,
       `TestCompletionWordsMultipleWordsPartialLast`.
-- [ ] Flags: `TestFlagCandidatesMatchesTheRealCobraCommand` (against the
+- [x] Flags: `TestFlagCandidatesMatchesTheRealCobraCommand` (against the
       real clap `Command`), `TestFlagCandidatesSkipsHiddenFlags`.
-- [ ] Subcommands: `TestSubcommandCandidatesListsIdentityChildren`,
+- [x] Subcommands: `TestSubcommandCandidatesListsIdentityChildren`,
       `TestSubcommandCandidatesSkipsHiddenChildren`. **`identity` has no
       children until P5**: written against the registry's `vault` parent
       now, with the `identity` form added when P5 registers it; the
       substitution is recorded here when made.
-- [ ] Vaults and entries: `TestVaultNameCandidatesListsRegisteredVaults`,
+- [x] Vaults and entries: `TestVaultNameCandidatesListsRegisteredVaults`,
       `TestEntryTitleCandidatesNoSessionIsNil`.
-- [ ] Positionals: `TestLeafPositionalCandidatesOffersNothingForACommandWithNoQuery`,
+- [x] Positionals: `TestLeafPositionalCandidatesOffersNothingForACommandWithNoQuery`,
       `TestLeafPositionalCandidatesStopAfterTheFirstArgument`.
 
 ### 4. Composed completion and dispatch — 14 `complete` rows
 
-- [ ] `TestCompletingTopLevelListsSessionVisibleNames`,
+- [x] `TestCompletingTopLevelListsSessionVisibleNames`,
       `TestCompletingPartialSessionCommandsMatchesExactly`,
       `TestCompletingABareDashAtTheTopLevelOffersRootFlags`,
       `TestCompletingFlagPositionListsCommandFlags`,
       `TestCompletingSubcommandListsIdentityChildren` (same `vault`
       substitution as task 3).
-- [ ] `TestCompletingUseArgumentListsVaultNames`,
+- [x] `TestCompletingUseArgumentListsVaultNames`,
       `TestCompletingLockArgumentListsVaultNames`,
       `TestCompletingUseFlagValueListsVaultNames`,
       `TestCompletingUseArgumentIsIndependentOfUnlockState`.
-- [ ] `TestCompletingAnEntryQueryListsCurrentVaultTitles`,
+- [x] `TestCompletingAnEntryQueryListsCurrentVaultTitles`,
       `TestCompletingAnEntryQueryWhenLockedNeverUnlocks` (a prompter that
       panics if asked), `TestCompletingQueryAfterAUseFlagStillOffersEntryTitles`.
-- [ ] `TestRunSessionCommandDispatchesAnUnambiguousAbbreviation`,
+- [x] `TestRunSessionCommandDispatchesAnUnambiguousAbbreviation`,
       `TestRunSessionCommandRejectsAnAmbiguousAbbreviation`.
 
 ### 5. `rustyline` wiring and the real terminal — 1 `complete` row, `complete_pty` (1)
 
-- [ ] `TestSessionCompleterDoWiresCandidatesIntoReadlinesContract`: the
+- [x] `TestSessionCompleterDoWiresCandidatesIntoReadlinesContract`: the
       `Completer::complete` adapter returns the right start position and
       candidates (one thin test; the logic is tested in tasks 2–4).
-- [ ] `complete_pty` `TestTabCompletionAtThePromptExpandsAPartialCommand`
+- [x] `complete_pty` `TestTabCompletionAtThePromptExpandsAPartialCommand`
       (Unix only, `portable-pty`): a literal Tab expands `stat` to
       `status`.
-- [ ] History is untouched by completion: a Tab-only interaction writes
+- [x] History is untouched by completion: a Tab-only interaction writes
       nothing to the history file (re-asserting M6's rule on this path).
 
 ### 6. User docs and ledger
 
-- [ ] Extend `doc/cli/session-mode.md` with a transcript showing Tab
+- [x] Extend `doc/cli/session-mode.md` with a transcript showing Tab
       completion and abbreviation.
-- [ ] Parity ledger: §2 `0aa325c`; §3 "M5, M6, M7, M13" row; §6
+- [x] Parity ledger: §2 `0aa325c`; §3 "M5, M6, M7, M13" row; §6
       `addressing-entries.md`, `session-mode.md`; §5 P3 summary.
-- [ ] P3 index status column and the port plan's phase table.
+- [x] P3 index status column and the port plan's phase table.
+
+## Outcome and deviations
+
+Written as planned; the choices the plan left open, and the places the
+code differs from Go:
+
+- **`identity` substitution** (tasks 2–4): `identity` isn't registered
+  until P5, so the tests use the `vault` parent (`list`/`info`/`remove`/
+  `set-default`) and the abbreviation `vau`. Go's `l` is ambiguous across
+  `lock`, `log`, `ls`; here it is `lock`, `ls` (`log` is P4's). Both
+  swap back when those commands are registered; `complete_tests.rs` says
+  so in its module doc. `sync` in the no-query test is `reindex`/`status`
+  for the same reason.
+- **`mv`/`cp`** aren't registered, so they aren't in
+  `ENTRY_QUERY_COMMANDS` and `--to-vault` isn't a vault-name flag; each
+  joins when its command does.
+- **Session sharing**: `Repl.session` is now `&RefCell<Session>`
+  (`run_session` holds an `Rc<RefCell<…>>`), because the editor's
+  completer reads the session while a line is typed. The loop borrows it
+  mutably only while a command runs, and the completer uses
+  `try_borrow_mut`. This is the one place the plan's "switch to Opus if
+  awkward" note could have applied; it wasn't.
+- **Library**: `Session::entry_title_candidates` returns a plain
+  `Vec<String>` (empty on a failed index build) rather than Go's
+  `([]string, error)`: completion has nowhere to report an error. It
+  applies the idle timeout like any call, so an aged-out vault offers
+  nothing.
+- **Additions Go doesn't have**: a title containing whitespace is
+  completed *quoted* (`"AWS root account"`), so it parses back as one
+  argument; Go inserts it bare. `CompletionType::List` makes an
+  ambiguous Tab fill the common prefix and list, like Go's readline. A
+  partial word that itself opens a quote isn't completed (as Go).
+- **Claimed rows**: 46 ported (4 library, 41 `complete_tests`, 1 pty);
+  Go's `TestSubcommandCandidatesListsIdentityChildren` and
+  `TestCompletingSubcommandListsIdentityChildren` are the `vault`
+  versions. `complete_tests` adds `vault_name_candidates_with_no_config_is_empty`,
+  not a Go row.
 
 ## Definition of done
 

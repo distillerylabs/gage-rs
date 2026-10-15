@@ -20,6 +20,7 @@ use gage::xdgpaths::{self, Dirs};
 mod build_env;
 pub mod cli;
 mod commands;
+mod complete;
 pub mod coredump;
 mod editor;
 pub mod error;
@@ -143,6 +144,8 @@ fn print(io: &mut Io, text: &str) -> Result<(), CliError> {
     Ok(())
 }
 
+#[cfg(test)]
+mod complete_tests;
 #[cfg(test)]
 mod entry_tests;
 #[cfg(test)]

@@ -696,11 +696,12 @@ fn declining_the_picker_lists_the_candidates() {
 
 fn run_repl(
     env: &Env,
-    session: &mut Session,
+    session: Session,
     reader: &mut dyn LineReader,
     stdin: &str,
 ) -> (Result<(), crate::error::CliError>, String) {
     let reg = registry();
+    let session = std::cell::RefCell::new(session);
     let mut history = History::open(None).unwrap();
     let settings = ShellSettings {
         prompt: shell::DEFAULT_PROMPT.into(),
@@ -710,7 +711,7 @@ fn run_repl(
     with_io(env, stdin, |io| {
         Repl {
             reg: &reg,
-            session,
+            session: &session,
             reader,
             history: &mut history,
             settings: &settings,
@@ -732,7 +733,7 @@ fn repl_closes_every_held_identity_on_exit() {
     s.vault(Some("personal")).unwrap();
     assert_eq!(tally.held(), 1);
 
-    let (result, _) = run_repl(&env, &mut s, &mut PlainLineReader, "exit\n");
+    let (result, _) = run_repl(&env, s, &mut PlainLineReader, "exit\n");
     result.unwrap();
     assert_eq!(tally.held(), 0, "exited still holding a key");
 }
@@ -748,7 +749,7 @@ fn repl_eof_terminates_like_exit() {
     let mut s = direct_session(&env, &p, tally.clone());
     s.vault(Some("personal")).unwrap();
 
-    let (result, _) = run_repl(&env, &mut s, &mut PlainLineReader, "");
+    let (result, _) = run_repl(&env, s, &mut PlainLineReader, "");
     result.unwrap();
     assert_eq!(tally.held(), 0);
 }
@@ -776,7 +777,7 @@ fn ctrl_c_abandons_the_line_not_the_session() {
     let mut s = direct_session(&env, &p, tally.clone());
     s.vault(Some("personal")).unwrap();
 
-    let (result, out) = run_repl(&env, &mut s, &mut InterruptOnce(false), "status\nexit\n");
+    let (result, out) = run_repl(&env, s, &mut InterruptOnce(false), "status\nexit\n");
     result.unwrap();
     assert!(
         out.contains("personal") && out.contains("unlocked"),

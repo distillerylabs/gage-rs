@@ -9,6 +9,9 @@
 //! a fresh unlock. Only the session's own verbs (`use`, `lock`, `status`,
 //! `exit`, `help`) are handled here, before clap.
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use gage::config;
 use gage::exitcode::Code;
 use gage::paths;
@@ -19,6 +22,7 @@ use gage::xdgpaths::Dirs;
 use crate::Io;
 use crate::cli::{self, Outcome};
 use crate::commands::{self, Keys};
+use crate::complete::{SessionHelper, resolve_session_command_name};
 use crate::error::{CliError, prefix_once};
 use crate::history::History;
 use crate::lineread::{LineReader, PlainLineReader, ReadOutcome, RustylineReader};
@@ -34,7 +38,10 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
 
     let now = io.now;
     let open_dirs = dirs.clone();
-    let mut session = Session::new(SessionConfig {
+    // Shared with the line editor's completer, which reads the session
+    // while a line is being typed; the loop holds it mutably only while a
+    // command runs, so the two never overlap.
+    let session = Rc::new(RefCell::new(Session::new(SessionConfig {
         // The same lookup one-shot `--use` resolves through, so both
         // modes agree on what a vault name means.
         open: Box::new(move |name| commands::open_registered(&open_dirs, name)),
@@ -44,7 +51,7 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
         // `show foo` works before any `use`. Naming it doesn't unlock it.
         current: Some(global.current),
         now: Some(Box::new(now)),
-    });
+    })));
 
     let mut history = History::open(Some(&settings.history_file)).unwrap_or_else(|e| {
         // Losing recall is no reason to refuse a session: say so once.
@@ -56,8 +63,14 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
         );
         History::open(None).expect("a disabled history always opens")
     });
-    let mut reader: Box<dyn LineReader> = if io.line_editor {
-        Box::new(RustylineReader::new(&history.lines()).map_err(|e| {
+    let mut reader: Box<dyn LineReader + '_> = if io.line_editor {
+        let helper = SessionHelper::new(
+            reg.clone(),
+            cli::build(reg, &io.build),
+            dirs.clone(),
+            Rc::clone(&session),
+        );
+        Box::new(RustylineReader::new(&history.lines(), helper).map_err(|e| {
             CliError::new(
                 Code::Internal,
                 format!("gage: starting the line editor: {e}"),
@@ -69,7 +82,7 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
 
     Repl {
         reg,
-        session: &mut session,
+        session: &session,
         reader: reader.as_mut(),
         history: &mut history,
         settings: &settings,
@@ -83,7 +96,7 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
 /// key is dropped on the way out" is checked at this level.
 pub struct Repl<'r, 'a> {
     pub reg: &'r Registry,
-    pub session: &'r mut Session<'a>,
+    pub session: &'r RefCell<Session<'a>>,
     pub reader: &'r mut dyn LineReader,
     pub history: &'r mut History,
     pub settings: &'r ShellSettings,
@@ -96,7 +109,7 @@ impl Repl<'_, '_> {
     /// an error included.
     pub fn run(&mut self, io: &mut Io) -> Result<(), CliError> {
         let result = self.run_lines(io);
-        self.session.close();
+        self.session.borrow_mut().close();
         result
     }
 
@@ -126,7 +139,12 @@ impl Repl<'_, '_> {
             self.reader.add_history(&line);
             // One line is one command: the idle timeout runs once before
             // it, never between its parts.
-            let result = exec_line(self.reg, &mut self.session.begin_command(), io, &line);
+            let result = exec_line(
+                self.reg,
+                &mut self.session.borrow_mut().begin_command(),
+                io,
+                &line,
+            );
             match result {
                 Ok(true) => return Ok(()),
                 Ok(false) => {}
@@ -140,11 +158,11 @@ impl Repl<'_, '_> {
     /// which applies the idle timeout first: what lets the prompt drop to
     /// locked on its own.
     fn prompt_state(&mut self) -> PromptState {
-        let Some(vault) = self.session.current().map(str::to_string) else {
+        let mut session = self.session.borrow_mut();
+        let Some(vault) = session.current().map(str::to_string) else {
             return PromptState::default();
         };
-        let unlocked = self
-            .session
+        let unlocked = session
             .status()
             .iter()
             .any(|st| st.name == vault && st.unlocked);
@@ -169,10 +187,14 @@ pub fn exec_line(
     io: &mut Io,
     line: &str,
 ) -> Result<bool, CliError> {
-    let args = split_line(line)?;
+    let mut args = split_line(line)?;
     let Some(first) = args.first() else {
         return Ok(false);
     };
+    // An unambiguous abbreviation of a top-level command runs it; the
+    // first token only, so subcommands and flags are never abbreviated.
+    args[0] = resolve_session_command_name(reg, first)?;
+    let first = &args[0];
     let rest = &args[1..];
     match reg.find(first).map(|c| c.name) {
         Some("exit") => return Ok(true),

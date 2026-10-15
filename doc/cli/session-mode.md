@@ -70,6 +70,42 @@ A mistake doesn't end the session. An unknown command, a wrong number of
 arguments, a failed command: each is reported on stderr, and the prompt
 comes back with every key still held.
 
+### Tab completion and abbreviation
+
+Tab completes what can be typed at the cursor: command and subcommand
+names (and aliases), flags (after a `-`), vault names (`use`, `lock`, and
+the value of `-u/--use`), and entry titles for a command's query. A single
+match is filled in; several fill their common prefix and are listed.
+Matching is by prefix, so `enti` never completes `identity`. `init` and
+`clone` are never offered: they only run one-shot.
+
+Entry titles come from the *current* vault, only while it is unlocked.
+Completion never asks for a passphrase and never offers another vault's
+titles, even after `--use`. A title containing spaces is filled in quoted.
+
+```
+personal🔓 gage> show <Tab>
+AWS root account  GitHub  ProtonMail
+personal🔓 gage> show Pr<Tab>        (becomes: show ProtonMail)
+```
+
+Without Tab, the first word of a line may be an unambiguous prefix of a
+top-level command: `stat` runs `status`. If several commands start with
+it, nothing runs and the candidates are named; the session carries on.
+Only that first word is expanded, never a subcommand or a flag, so
+`vault inf` is an error rather than `vault info`.
+
+```
+gage> l
+gage: "l" matches more than one command: lock, ls
+gage> stat
+no vaults have been unlocked in this session yet.
+```
+
+Completion is for the interactive prompt only; there are no shell
+completion scripts. A passphrase or value typed at a prompt is never
+completed, and completing records nothing in the history.
+
 ### Session-only commands
 
 These exist only inside a session. Run one-shot, they say so and exit `2`

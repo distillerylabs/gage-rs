@@ -71,7 +71,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 | M5 | [Query resolution and the entry commands](m5-query-resolution.md) ([#22](https://github.com/distillerylabs/gage-rs/issues/22)) | Sonnet; ⚑ Opus review of the scratch-file tests | P2 | 79 + 3 from P2 | `[~]` local `make lint`/`make test` green; awaiting CI on Linux, macOS, Windows |
 | M6 | [Session mode](m6-session-mode.md) ([#23](https://github.com/distillerylabs/gage-rs/issues/23)) | Sonnet* | M5 | 70 + 2 from P2 + 1 from P1 | `[~]` local `make lint`/`make test`/`make audit` green; awaiting CI on Linux, macOS, Windows |
 | M7 | [Metadata index](m7-metadata-index.md) ([#24](https://github.com/distillerylabs/gage-rs/issues/24)) | Sonnet; ⚑ Opus review of the index tests | M6 | 26 + 2 from P2 | `[~]` local `make lint`/`make test` green; awaiting CI on Linux, macOS, Windows |
-| M13 | [Tab completion & abbreviation](m13-tab-completion.md) ([#25](https://github.com/distillerylabs/gage-rs/issues/25)) | Sonnet* | M7 | 46 | `[ ]` |
+| M13 | [Tab completion & abbreviation](m13-tab-completion.md) ([#25](https://github.com/distillerylabs/gage-rs/issues/25)) | Sonnet* | M7 | 46 | `[~]` local `make lint`/`make test` green; awaiting CI on Linux, macOS, Windows |
 
 `⚑` = run an Opus review pass over that milestone's *tests* before moving
 on. M5's covers the `$EDITOR` scratch file, the one place P3 puts a

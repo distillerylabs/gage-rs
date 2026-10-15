@@ -1,6 +1,6 @@
 //! `Session` against real vaults, real identity files and real scrypt (at
 //! the test work factor). Ports Go's `internal/gage/session_test.go`, less
-//! the four `EntryTitleCandidates` rows (M13); each test names its Go row.
+//! each test names its Go row.
 //!
 //! Every vault's page locks go through a [`PageLedger`], a `Locker` that
 //! keeps the set of locked pages the way the OS does (no reference counts:
@@ -881,4 +881,76 @@ fn concurrently_held_identities_do_not_share_pages() {
         "dropping personal released work's page lock"
     );
     assert!(personal.is_disjoint(&d.ledger.live()));
+}
+
+// --- completion's title source (M13) --------------------------------------------
+
+// Go: TestEntryTitleCandidatesEmptyWithNoCurrentVault. Nothing selected
+// yet is no titles, not an error.
+#[test]
+fn entry_title_candidates_empty_with_no_current_vault() {
+    let d = Device::new(&["personal"]);
+    let p = unlocks(0);
+    let mut s = d.session(&p, Cfg::default());
+
+    assert!(s.entry_title_candidates().is_empty());
+    assert_eq!(unlock_count(&p, "personal"), 0);
+}
+
+// Go: TestEntryTitleCandidatesEmptyWhenLockedNeverPrompts. A current
+// vault that was never unlocked, or has since been locked, offers no
+// titles and never asks for a passphrase to get them. `unlocks(1)` pays
+// for the one `use`; a second unlock would fail the test.
+#[test]
+fn entry_title_candidates_empty_when_locked_never_prompts() {
+    let d = Device::new(&["personal"]);
+    d.seed("personal", &["AWS"]);
+    let p = unlocks(1);
+    let mut s = d.session(&p, current_personal());
+
+    assert!(s.entry_title_candidates().is_empty(), "never unlocked");
+    assert_eq!(unlock_count(&p, "personal"), 0);
+
+    s.use_vault("personal").unwrap();
+    s.lock(Some("personal")).unwrap();
+    assert!(s.entry_title_candidates().is_empty(), "locked again");
+    assert_eq!(unlock_count(&p, "personal"), 1, "only the earlier use");
+}
+
+// Go: TestEntryTitleCandidatesListsCurrentVaultTitlesOnly. A second
+// vault the session also holds unlocked never leaks its titles in.
+#[test]
+fn entry_title_candidates_lists_current_vault_titles_only() {
+    let d = Device::new(&["personal", "work"]);
+    d.seed("personal", &["ProtonMail", "AWS"]);
+    d.seed("work", &["GitHub"]);
+    let p = unlocks(2);
+    let mut s = d.session(&p, Cfg::default());
+
+    s.use_vault("work").unwrap();
+    s.use_vault("personal").unwrap();
+
+    assert_eq!(s.entry_title_candidates(), ["AWS", "ProtonMail"]);
+}
+
+// Go: TestEntryTitleCandidatesBuildsIndexOnce. Completing against an
+// unlocked, unindexed vault costs one decrypt pass, never one per
+// keystroke.
+#[test]
+fn entry_title_candidates_builds_index_once() {
+    let d = Device::new(&["personal"]);
+    d.seed("personal", &["AWS", "GitHub"]);
+    let p = unlocks(1);
+    let mut s = d.session(&p, current_personal());
+    s.use_vault("personal").unwrap();
+
+    let base = d.vaults["personal"].decrypt_count();
+    s.entry_title_candidates();
+    assert_eq!(d.vaults["personal"].decrypt_count() - base, 2, "one pass");
+    s.entry_title_candidates();
+    assert_eq!(
+        d.vaults["personal"].decrypt_count() - base,
+        2,
+        "the second call reused the index"
+    );
 }
