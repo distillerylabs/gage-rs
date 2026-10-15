@@ -68,13 +68,13 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | Go commit | Old ref | Item | Port to | Status |
 |---|---|---|---|---|
 | `4604dc5`…`4c23f99` | — | Milestones M0–M12 as planned | See §3 | — |
-| `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[x]` (session half: P3 · M6) |
+| `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[x]` (session half: P3 · M6 `[x]` `session_wrong_arg_count_shows_command_usage`, through the interactive session; the `--stdin` spelling is P6 · M12's) |
 | `386c57e` | #38 | `init --remote` solicits an HTTPS token inline | P4 · M8a | `[ ]` |
 | `a0920b0`, `0a1beeb` | #39 | `vault remove` orphaned-identity cleanup (later revised by E0: compare public keys, `Confirm`, default keep) | P6 · M12 | `[ ]` |
 | `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | P1 · M0b (a separate binary, never a `gage` subcommand; needs `xdgpaths`) | `[x]` |
 | `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[x]` errors (M0b); `[~]` warnings: M2's (page lock, identity reuse) name gage once through `Prompter::warn`; P4's push warnings add theirs |
 | `a1572d5` | — | `ls` shows title and `updated_by` | P2 · M4 | `[x]` `render_ls` prints title, short id, created, updated, `updated_by` |
-| `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 | `[ ]` |
+| `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 ([plan](p3-query-session/m5-query-resolution.md)) | `[x]` `resolve_query` runs both title stages before either UUID stage; `resolve_exact_title_wins_over_uuid_match`, `cat_resolves_by_exact_title_even_when_query_is_also_a_uuid_substring` |
 | `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[x]` `memlock::LockedBuf` gives each key its own pages; `alloc_gives_each_buffer_its_own_page`, `unlocking_one_buffer_leaves_another_locked` |
 | `e52828a` | — | Scrypt work-factor test hook and its guard tests | P2 · M2 | `[~]` identity-file halves done (Q-SCRYPT-HOOK); the enrollment halves are P7's |
 | `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders; M1: `[vault].id`, format 2 with the directional refusal, the registration-vs-vault id check; M2: identity files filed under the committed id, the `vault-name.txt` marker, `init`'s rollback |
@@ -83,10 +83,10 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `798ed47` | — | E2 sealed request | P7 · E2 | `[ ]` |
 | `c86ad4c` | — | E3 joining side | P7 · E3 | `[ ]` |
 | `f800af6`, `187c810`, `faf49b9` | #52 | E4 approving side (commit titled "Milestone 4") + fixes, docs | P7 · E4 | `[ ]` |
-| `a4b989e` | #58 / #59 | `insert --field NAME=VALUE` | P2 · M4 | `[~]` `parse_field_flags`; the `show --field` halves wait for P3 · M5 |
+| `a4b989e` | #58 / #59 | `insert --field NAME=VALUE` | P2 · M4 | `[x]` `parse_field_flags` (M4); the `show --field` halves and `--field`/`-e` exclusivity in P3 · M5 |
 | `f0e17db`, `f1e391f` | #55 / #60, #61 | `cat`: display-only short id, column-aligned labels, flush-left multi-line values | P6 · M12 | `[ ]` |
 | `fb2f1e9` | #54 / #62 | `ls -H/--header` labelled `\|`-delimited table | P6 · M12 | `[ ]` |
-| `0aa325c` | #25 / #63 | M13 session Tab completion and command abbreviation | P3 · M13 | `[ ]` |
+| `0aa325c` | #25 / #63 | M13 session Tab completion and command abbreviation | P3 · M13 ([plan](p3-query-session/m13-tab-completion.md)) | `[x]` |
 | `bbb24ba` | #64 / #65 | Coverage and vulnerability reporting | M0a | `[ ]` |
 | `30b21df` | #66 / #67 | Apache-2.0 license; fixture-data cleanup | Bootstrap (`LICENSE`) | `[~]` |
 | `df3c0fe` | #4, #5 | Enrollment-design issues resolved in the TDD | Covered by the copied TDD; P7 | `[ ]` |
@@ -101,7 +101,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M2 | P2 · M2 (+ E0 identity paths) | `[x]` ([#13](https://github.com/distillerylabs/gage-rs/issues/13)) |
 | | M3 | P2 · M3 | `[x]` ([#14](https://github.com/distillerylabs/gage-rs/issues/14)) |
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
-| | M5, M6, M7, M13 | P3 | `[ ]` |
+| | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[x]` |
 | | M8a, M8b | P4 | `[ ]` |
 | | M9 (+ A19), M10, M11 | P5 | `[ ]` |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
@@ -124,14 +124,15 @@ to match Cobra's layout.
 | Fixtures | Port to |
 |---|---|
 | `root`, `vault`, `vault_list`, `vault_info`, `vault_remove`, `vault_set-default`, `init`, `git`, `git_set-remote` | P1 (`init` flags grow through P2, P4 and P8 — see [Q-INIT-INTERIM](open-questions.md#q-init-interim) and [Q-RECOVERY-INTERIM](open-questions.md#q-recovery-interim); `vault remove` cleanup in P6) |
-| `insert`, `cat`, `rm`, `ls` | P2 · M4 `[x]` (name, group, arguments and the flags that exist match; `insert -e` is P3 · M5, `ls -H` and `cat` formatting are P6 · M12) |
-| `show`, `edit`, `rename`, `generate`, `search`, `reindex` | P3 |
+| `insert`, `cat`, `rm`, `ls` | P2 · M4 `[x]` (name, group, arguments and the flags that exist match; `insert -e` P3 · M5 `[x]`; `ls -H` and `cat` formatting are P6 · M12) |
+| `show`, `edit`, `rename`, `generate` | P3 · M5 `[x]` (all fixture flags but `-c`/`-q` on `show` and `generate`, which are P6 · M12; checked by `m5_commands_have_their_go_fixture_flags_and_descriptions`) |
+| `search`, `reindex` | P3 · M7 `[x]` (name, alias `grep`, group, arguments and `-u/--use` match; checked by `m7_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `clone`, `sync`, `pull`, `push`, `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 |
 | `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5 |
-| `log`, `history` (and global output flags `--clip`, `--qr`, `--field`, `--script`) | P6 |
+| `log`, `history` (and the output flags `--clip`, `--qr`, `--script`; `show --field` itself is P3 · M5) | P6 |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |
 | `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8 |
-| Session-mode `help` and session-only commands | P3 — tested against the registry, not captured |
+| Session-mode `help` and session-only commands | P3 · M6 `[x]` — tested against the registry, not captured (`repl_tests`: `session_help_matches_registry_exactly`, `both_help_surfaces_render_the_same_registry` and the rest of Go's `sessionhelp` rows) |
 
 ## 5. Test inventory (`tests/fixtures/go/test-inventory.tsv`)
 
@@ -178,6 +179,12 @@ Resolved in P2 planning: `entry_edit`, `insert_edit`, `editor` and
 phases' questions, are listed with their destination in the
 [P2 plan](p2-crypto-entries/index.md#inventory-accounting).
 
+Resolved in P3 planning: no re-tags. Four P3 rows (`generate` clip/QR
+×3, `show --clip`) and the `--stdin` half of
+`TestSessionCommandArgumentCountsAreChecked` move to P6 · M12, and the
+4 `TestEntryTitleCandidates*` rows of the library `session_test.go` are
+M13's; see the [P3 plan](p3-query-session/index.md#inventory-accounting).
+
 ## 6. User docs (Go `doc/cli/`)
 
 gage-rs ports these as the behavior lands, so docs describe shipped
@@ -186,8 +193,9 @@ behavior; each phase's last milestone updates the pages for its surface.
 | Go page | Port to |
 |---|---|
 | `vaults.md`, `configuration.md`, `exit-codes.md` | P1 · M1: `doc/cli/` |
-| `entries.md` | P2 · M4: `doc/cli/entries.md` `[x]` for the shipped surface (+ P3 for addressing, `show`, `edit`; P6 for `cat`/`ls` display) |
-| `addressing-entries.md`, `session-mode.md` | P3 |
+| `entries.md` | P2 · M4: `doc/cli/entries.md` `[x]` for the shipped surface; P3 · M5 `[x]` `show`, `edit`, `rename`, `generate`, `insert -e`, addressing; P3 · M7 `[x]` `search`/`grep`, `reindex`; P6 for `cat`/`ls` display |
+| `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker; M7 `[x]` the index; M13 `[x]` the title completion source (enrollment ids are P7's) |
+| `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 `[x]` the metadata index and `reindex`; M13 `[x]` completion and abbreviation; `--script`/`--stdin` and `GAGE_PASSPHRASE` are P6 · M12's, enrollment's session behavior P7's |
 | `sync.md`, `git-and-auth.md` | P4 |
 | `identities-and-recipients.md`, `sharing.md` | P5 (+ P8 for the recovery sections) |
 | `enrollment.md` | P7 |

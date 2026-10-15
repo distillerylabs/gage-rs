@@ -14,16 +14,24 @@ pub mod crypt;
 pub mod devicename;
 pub mod entry;
 pub mod exitcode;
+pub mod generate;
 pub mod gitrepo;
 #[cfg(any(test, feature = "test-support"))]
 pub mod gittest;
 pub mod identity;
 pub mod identityfile;
+mod index;
+#[cfg(test)]
+mod index_tests;
 pub mod locker;
 pub mod memlock;
 pub mod paths;
 pub mod prompter;
 pub mod recipients;
+pub mod search;
+pub mod session;
+#[cfg(test)]
+mod session_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testsupport;
 pub mod vault;

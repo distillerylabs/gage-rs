@@ -52,7 +52,9 @@ state. `gage` compares this copy with the vault's own before using a vault,
 and refuses if they differ (see [Vaults](vaults.md#when-vault-info-refuses)).
 
 Later phases add `pubkey` (the public key this device holds for the vault)
-to each vault, and a `[shell]` table of session preferences.
+to each vault. An optional `[shell]` table holds this device's session
+preferences: the prompt, the idle timeout and the history file (see
+[Session mode](session-mode.md#shell-settings)).
 
 This file is small, plaintext, and safe to keep under your own dotfiles
 management (`chezmoi`, `yadm`, and so on), which is why it holds nothing
@@ -69,6 +71,8 @@ secret and lives apart from the data below.
 - **`$GAGE_STATE/locks/<vault-id>.lock`**: the per-vault write lock, held
   only while a write runs and released by the OS if the process dies. Not
   created yet: the first writes that take it arrive with entries.
+- **`$GAGE_STATE/history`**: the command lines typed in sessions, mode
+  `0600`, unless `[shell].history_file` names another path.
 - **`$GAGE_STATE/<vault-id>/`**: the trust cache, in a later phase.
 
 ## Inside a vault

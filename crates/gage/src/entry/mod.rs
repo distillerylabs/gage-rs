@@ -19,7 +19,9 @@ use uuid::Uuid;
 
 use crate::crypt;
 use crate::exitcode::{Code, HasCode};
+use crate::identity::Identity;
 
+pub(crate) use crud::sort_list;
 pub use crud::{
     Candidate, CandidateList, ListEntry, NewEntry, ResolveError, WRITE_LOCK_TIMEOUT, WriteError,
     resolve_query,
@@ -59,6 +61,11 @@ impl Timestamp {
     /// range.
     pub fn from_unix(seconds: i64) -> Option<Timestamp> {
         jiff::Timestamp::from_second(seconds).ok().map(Timestamp)
+    }
+
+    /// The clock, as an entry stamp.
+    pub fn now() -> Timestamp {
+        Timestamp::new(jiff::Timestamp::now())
     }
 
     pub fn as_unix(self) -> i64 {
@@ -196,6 +203,17 @@ impl fmt::Debug for Entry {
 }
 
 impl Entry {
+    /// Applies the stamps gage owns to `self`, an edited copy of
+    /// `original`: `created` is the original's (set once, at insert, and
+    /// never touched again), `updated` is now, and `updated_by` is the
+    /// editing device. Whatever the edited text said for the three is
+    /// overruled: they record what happened, not what someone typed.
+    pub fn restamp_after_edit(&mut self, original: &Entry, identity: &Identity) {
+        self.created = original.created;
+        self.updated = Some(Timestamp::now());
+        self.updated_by = identity.device().to_string();
+    }
+
     /// One entry from `fields`: what `show --field NAME` prints instead of
     /// `value`.
     ///
@@ -409,6 +427,34 @@ mod tests {
             assert_eq!(id.get_variant(), uuid::Variant::RFC4122);
             assert!(seen.insert(id), "duplicate id {id}");
         }
+    }
+
+    // Not a Go row (Go stamps in `gage edit` itself): the three stamps come
+    // from the original, the clock and the identity, never the edit.
+    #[test]
+    fn restamp_after_edit_overrules_the_edited_stamps() {
+        let original = Entry {
+            created: Timestamp::from_unix(1_000_000_000),
+            updated: Timestamp::from_unix(1_000_000_000),
+            updated_by: "laptop-1".into(),
+            ..Entry::default()
+        };
+        let mut edited = Entry {
+            title: "edited".into(),
+            created: Timestamp::from_unix(915_148_800),
+            updated: Timestamp::from_unix(915_148_800),
+            updated_by: "some-other-device".into(),
+            ..Entry::default()
+        };
+        let before = Timestamp::now();
+        edited.restamp_after_edit(
+            &original,
+            &Identity::for_tests(&age::x25519::Identity::generate()),
+        );
+        assert_eq!(edited.created, original.created);
+        assert!(edited.updated.unwrap() >= before);
+        assert_eq!(edited.updated_by, "test-device");
+        assert_eq!(edited.title, "edited", "the content is the edit's");
     }
 
     // Go: TestEntryFieldExtractsNamedField

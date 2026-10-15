@@ -32,6 +32,8 @@ zeroize = "1"
 saphyr = { version = "0.2", default-features = false }
 jiff = { version = "0.2", default-features = false, features = ["std"] }
 saphyr-parser = "0.2"
+# `generate`'s OS CSPRNG (OsRng). The same rand_core age already pulls in.
+rand_core = { version = "0.6", features = ["getrandom"] }
 
 [dev-dependencies]
 serde_json = "1"

@@ -68,6 +68,39 @@ pub struct Vault {
     /// than being read from the process.
     dirs: Dirs,
     locker: LockerSeam,
+    pub(crate) decrypts: DecryptCounter,
+}
+
+/// How many entries this vault (and its clones) has decrypted: what the
+/// index tests count to prove "one pass, not two" (Go's `onDecrypt`). It
+/// observes the one real decrypt path; nothing can be faked through it.
+/// Zero-sized, and a no-op, outside tests.
+#[derive(Clone, Default)]
+pub(crate) struct DecryptCounter(
+    #[cfg(any(test, feature = "test-support"))] Arc<std::sync::atomic::AtomicUsize>,
+);
+
+impl DecryptCounter {
+    pub(crate) fn bump(&self) {
+        #[cfg(any(test, feature = "test-support"))]
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+// Counting is observation, not identity: two vaults are the same vault
+// whatever they've decrypted.
+impl PartialEq for DecryptCounter {
+    fn eq(&self, _: &DecryptCounter) -> bool {
+        true
+    }
+}
+
+impl Eq for DecryptCounter {}
+
+impl std::fmt::Debug for DecryptCounter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("DecryptCounter")
+    }
 }
 
 /// The page-locking seam: `None` is the real [`MemLocker`], so nothing
@@ -293,6 +326,7 @@ impl Vault {
             id: spec.id.clone(),
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
+            decrypts: DecryptCounter::default(),
         })
     }
 
@@ -341,6 +375,7 @@ impl Vault {
             id: entry.id.clone(),
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
+            decrypts: DecryptCounter::default(),
         })
     }
 
@@ -450,6 +485,7 @@ impl Vault {
             id: id.to_string(),
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
+            decrypts: DecryptCounter::default(),
         }
     }
 
@@ -462,10 +498,16 @@ impl Vault {
         self
     }
 
-    /// The locker this vault's unlocks use.
-    #[cfg(test)]
+    /// The locker this vault's unlocks use, which its session index's
+    /// arena locks through too.
     pub(crate) fn locker(&self) -> Arc<dyn Locker> {
         self.locker.get()
+    }
+
+    /// Entries this vault and its clones have decrypted so far.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn decrypt_count(&self) -> usize {
+        self.decrypts.0.load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// This vault's write lock file, keyed by its id (so two registrations
@@ -716,6 +758,7 @@ mod tests {
                 id: spec.id.clone(),
                 dirs: test_dirs(),
                 locker: LockerSeam::default(),
+                decrypts: DecryptCounter::default(),
             }
         );
         for rel in [
@@ -1187,6 +1230,7 @@ mod tests {
                 id: spec.id,
                 dirs: test_dirs(),
                 locker: LockerSeam::default(),
+                decrypts: DecryptCounter::default(),
             }
         );
     }

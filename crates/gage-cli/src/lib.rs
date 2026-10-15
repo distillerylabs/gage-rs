@@ -8,6 +8,7 @@
 //! streams or exits.
 
 use std::io::{Read, Write};
+use std::time::Instant;
 
 use gage::exitcode::Code;
 use gage::prompter::Prompter;
@@ -19,13 +20,20 @@ use gage::xdgpaths::{self, Dirs};
 mod build_env;
 pub mod cli;
 mod commands;
+mod complete;
 pub mod coredump;
+mod editor;
 pub mod error;
+mod history;
+mod lineread;
 pub mod prompter;
 pub mod registry;
+mod repl;
+mod shell;
 pub mod version;
 
 use cli::Outcome;
+use commands::Keys;
 use error::{CliError, prefix_once};
 use registry::{Availability, Registry};
 pub use version::BuildInfo;
@@ -38,6 +46,10 @@ pub struct Io<'a> {
     /// Whether stdin is a terminal: bare `gage` starts a session on one
     /// and prints help otherwise.
     pub stdin_is_terminal: bool,
+    /// Whether a session reads its command lines through the terminal
+    /// line editor. `main` sets it when stdin is a terminal; in-process
+    /// tests leave it off, so the session reads `stdin` instead.
+    pub line_editor: bool,
     /// What `--version` reports. `main` passes [`BuildInfo::stamped`].
     pub build: BuildInfo,
     /// gage's config, data and state roots. `main` passes
@@ -47,6 +59,12 @@ pub struct Io<'a> {
     pub dirs: &'a dyn Fn() -> Result<Dirs, xdgpaths::Error>,
     /// This machine's hostname: `init`'s default device name.
     pub hostname: &'a dyn Fn() -> std::io::Result<String>,
+    /// `$EDITOR`, for `edit` and `insert -e`. `main` reads the variable;
+    /// in-process tests, which share one process environment, set it here.
+    pub editor: Option<String>,
+    /// The clock a session's idle timeout reads. `main` passes
+    /// `Instant::now`; tests step it instead of waiting.
+    pub now: &'a dyn Fn() -> Instant,
 }
 
 /// Runs one invocation (`args` without the program name) and returns its
@@ -82,10 +100,7 @@ fn dispatch(
 ) -> Result<(), CliError> {
     match cli::parse(reg, &io.build, args, io.stdin_is_terminal)? {
         Outcome::Print(text) => print(io, &text),
-        Outcome::Session => Err(CliError::new(
-            Code::Internal,
-            "session mode is not implemented yet",
-        )),
+        Outcome::Session => repl::run_session(reg, io, prompter),
         Outcome::Command("help", matches) => {
             let topic: Vec<String> = matches
                 .get_many::<String>("command")
@@ -108,7 +123,7 @@ fn dispatch(
                     ),
                 ));
             }
-            commands::run(name, &matches, io, prompter).unwrap_or_else(|| {
+            commands::run(name, &matches, io, &mut Keys::OneShot(prompter)).unwrap_or_else(|| {
                 Err(CliError::new(
                     Code::Internal,
                     format!("{name} is not implemented yet"),
@@ -130,10 +145,18 @@ fn print(io: &mut Io, text: &str) -> Result<(), CliError> {
 }
 
 #[cfg(test)]
+mod complete_tests;
+#[cfg(test)]
 mod entry_tests;
 #[cfg(test)]
 mod init_identity_tests;
 #[cfg(test)]
 mod lifecycle_tests;
+#[cfg(test)]
+mod query_tests;
+#[cfg(test)]
+mod repl_tests;
+#[cfg(test)]
+mod search_tests;
 #[cfg(test)]
 mod tests;
