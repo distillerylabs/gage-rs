@@ -221,7 +221,8 @@ Tests first, at task granularity.
 - [x] Cleanup: `TestEditYAMLScratchFileRemovedOnEveryExitPath`,
       `TestOverwriteFileZeroesContentsInPlace`,
       `TestOverwriteThenRemoveOverwritesBeforeUnlinking` (through a hard
-      link, skipped where hard links are unavailable, as Go).
+      link; Go skips where hard links are unavailable, here a failed link
+      fails the test, see the second review pass below).
 - [x] Scratch directory: `TestScratchDirIsAWritableDirectory`; Linux
       only: `TestScratchDirPrefersTmpfsOnLinux`,
       `TestIsTmpfsRejectsANonExistentDirectory`; elsewhere:

@@ -361,12 +361,92 @@ fn session_calls_the_same_vault_methods_as_one_shot() {
     assert_eq!(got.value, "correct horse");
 }
 
-// Go: TestSessionAddsNoDuplicateVaultMethods. Go parses the package for
-// a Session method named like a Vault CRUD verb. Here a method of the same
-// name on Vault twice can't compile, so what's left is that session.rs
-// re-implements none of them and adds nothing to Vault; the fn-pointer
-// bindings prove each verb really is a Vault method, so the scan isn't
-// checking names that no longer exist.
+/// Every non-test `.rs` file under `dir`, with its source.
+fn production_sources(dir: &std::path::Path, out: &mut Vec<(std::path::PathBuf, String)>) {
+    for item in std::fs::read_dir(dir).unwrap() {
+        let path = item.unwrap().path();
+        if path.is_dir() {
+            production_sources(&path, out);
+        } else if path.extension().is_some_and(|e| e == "rs")
+            && !path.to_string_lossy().ends_with("_tests.rs")
+        {
+            let source = std::fs::read_to_string(&path).unwrap();
+            out.push((path, source));
+        }
+    }
+}
+
+/// The bodies of every inherent `impl` block for `ty` in `source`
+/// (`impl Session {`, `impl<'a> Session<'a> {`), not trait impls.
+fn inherent_impl_bodies<'s>(source: &'s str, ty: &str) -> Vec<&'s str> {
+    /// Skips a balanced `<...>` at the start of `s`, if there is one.
+    fn skip_generics(s: &str) -> &str {
+        let s = s.trim_start();
+        if !s.starts_with('<') {
+            return s;
+        }
+        let mut depth = 0;
+        for (i, c) in s.char_indices() {
+            match c {
+                '<' => depth += 1,
+                '>' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return s[i + 1..].trim_start();
+                    }
+                }
+                _ => {}
+            }
+        }
+        ""
+    }
+    let mut bodies = Vec::new();
+    for (at, _) in source.match_indices("impl") {
+        let preceded_by_ident = source[..at]
+            .chars()
+            .next_back()
+            .is_some_and(|c| c.is_alphanumeric() || c == '_');
+        if preceded_by_ident {
+            continue;
+        }
+        // The implemented type's path, up to its generics or the body:
+        // `Session`, or `crate::session::Session`, by its last segment.
+        let after = skip_generics(&source[at + "impl".len()..]);
+        let path_len = after
+            .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == ':'))
+            .unwrap_or(after.len());
+        let (path, rest) = after.split_at(path_len);
+        if path.rsplit("::").next() != Some(ty) {
+            continue; // Another type, `SessionError`, or a trait impl.
+        }
+        let Some(body) = skip_generics(rest).strip_prefix('{') else {
+            continue; // `impl Session for ...` can't happen; anything else isn't inherent.
+        };
+        let mut depth = 1;
+        let end = body
+            .char_indices()
+            .find_map(|(i, c)| {
+                match c {
+                    '{' => depth += 1,
+                    '}' => depth -= 1,
+                    _ => {}
+                }
+                (depth == 0).then_some(i)
+            })
+            .expect("an unbalanced impl block");
+        bodies.push(&body[..end]);
+    }
+    bodies
+}
+
+// Go: TestSessionAddsNoDuplicateVaultMethods. Go parses every non-test file
+// in the package for a Session method named like a Vault CRUD verb; this
+// scans every non-test file in the crate for an inherent impl of Session,
+// or of Command (the in-command guard, which derefs to Session), declaring
+// one. A method of the same name on Vault twice can't compile, so Go's
+// other half is the compiler's; the fn-pointer bindings prove each verb
+// really is a Vault method, so the scan isn't checking names that no
+// longer exist.
 #[test]
 fn session_adds_no_duplicate_vault_methods() {
     let _ = (
@@ -379,32 +459,67 @@ fn session_adds_no_duplicate_vault_methods() {
         Vault::entry_ids,
         Vault::unlock,
     );
-    let source = include_str!("session.rs");
+    let mut sources = Vec::new();
+    production_sources(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+        &mut sources,
+    );
+    let session_impls: usize = sources
+        .iter()
+        .map(|(_, s)| inherent_impl_bodies(s, "Session").len())
+        .sum();
     assert!(
-        source.contains("pub struct Session"),
-        "scanning the wrong file"
+        session_impls >= 1,
+        "found no `impl Session` anywhere: the scan is looking in the wrong place"
     );
     assert!(
-        !source.contains("impl Vault"),
+        !include_str!("session.rs").contains("impl Vault"),
         "session.rs adds methods to Vault"
     );
-    for verb in [
-        "insert",
-        "read_entry",
-        "write_entry",
-        "remove",
-        "rename",
-        "update",
-        "entry_ids",
-        "unlock",
-    ] {
-        for decl in [format!("fn {verb}("), format!("fn {verb}<")] {
-            assert!(
-                !source.contains(&decl),
-                "session.rs declares `{decl}`: session mode must route to Vault's, not re-implement it"
-            );
+
+    for (path, source) in &sources {
+        for ty in ["Session", "Command"] {
+            for body in inherent_impl_bodies(source, ty) {
+                for verb in [
+                    "insert",
+                    "read_entry",
+                    "write_entry",
+                    "remove",
+                    "rename",
+                    "update",
+                    "entry_ids",
+                    "unlock",
+                ] {
+                    for decl in [format!("fn {verb}("), format!("fn {verb}<")] {
+                        assert!(
+                            !body.contains(&decl),
+                            "{}: {ty} declares `{decl}`: session mode must route to Vault's, not re-implement it",
+                            path.display()
+                        );
+                    }
+                }
+            }
         }
     }
+}
+
+// The scanner above finds the impl forms it must, and skips the ones it
+// must not, so a passing scan isn't one that never looked.
+#[test]
+fn inherent_impl_scan_finds_what_it_should() {
+    let src = "
+        impl Session { fn insert(&self) {} }
+        impl<'a> Session<'a> { fn a(&self) { if x { y } } }
+        impl HasCode for Session { fn code(&self) {} }
+        impl SessionError { fn insert(&self) {} }
+        fn simple_impl() {}
+        impl<'a> crate::session::Session<'a> { fn remove(&self) {} }
+    ";
+    let bodies = inherent_impl_bodies(src, "Session");
+    assert_eq!(bodies.len(), 3, "{bodies:?}");
+    assert!(bodies[2].contains("fn remove("), "a path-qualified impl");
+    assert!(bodies[0].contains("fn insert("));
+    assert!(bodies[1].contains("if x { y }"), "nested braces kept");
 }
 
 // --- lock and status --------------------------------------------------------
