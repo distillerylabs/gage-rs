@@ -205,6 +205,21 @@ pub fn registry() -> Registry {
                 GROUP_ENTRY,
                 Both,
             ),
+            CommandInfo {
+                name: "search",
+                aliases: &["grep"],
+                short: "Find entries by title, description, or body text",
+                group: GROUP_ENTRY,
+                usage: "<pattern>",
+                availability: Both,
+            },
+            command(
+                "reindex",
+                "",
+                "Force a session's cached metadata index to rebuild",
+                GROUP_ENTRY,
+                Both,
+            ),
             command(
                 "git set-remote",
                 "<name> <url>",

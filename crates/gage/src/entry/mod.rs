@@ -21,6 +21,7 @@ use crate::crypt;
 use crate::exitcode::{Code, HasCode};
 use crate::identity::Identity;
 
+pub(crate) use crud::sort_list;
 pub use crud::{
     Candidate, CandidateList, ListEntry, NewEntry, ResolveError, WRITE_LOCK_TIMEOUT, WriteError,
     resolve_query,

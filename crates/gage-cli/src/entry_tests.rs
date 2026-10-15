@@ -664,7 +664,8 @@ fn ls_lists_inserted_title_alongside_partial_uuid() {
 }
 
 // Go: TestLsEmptyVaultNoOutput, and the ls half of
-// TestLsAndSearchPrintNothingWhenThereIsNothing (search is P3 · M7).
+// TestLsAndSearchPrintNothingWhenThereIsNothing (the search half is in
+// search_tests).
 #[test]
 fn ls_empty_vault_no_output() {
     let env = env_with_vault();

@@ -1,11 +1,13 @@
 //! The entry commands: `insert`, `show`, `cat`, `edit`, `rename`,
-//! `generate`, `rm` and `ls`. One-shot, each resolves its vault, unlocks
+//! `generate`, `rm`, `ls`, `search` and `reindex`. One-shot, each resolves its vault, unlocks
 //! it, does one thing and drops the identity; in a session it borrows the
 //! key the session holds instead (see [`Keys`]). What they do lives in the
 //! library; this is flags, input modes and rendering. Every query goes
 //! through the library's one resolver. An ambiguous one fails listing its
 //! candidates one-shot, where there is nobody to ask, and goes to the
-//! session's picker in a session.
+//! session's picker in a session. In a session, reads that need every
+//! entry's metadata (`ls`, resolution, `search`'s title half) come from its
+//! metadata index, and every write tells the index what changed.
 //!
 //! `-c/--clip` and `-q/--qr` (on `show` and `generate`) and `ls
 //! -H/--header` are P6 · M12's.
@@ -225,6 +227,30 @@ impl Keys<'_, '_> {
     }
 }
 
+impl Keys<'_, '_> {
+    /// Tells a session's index about an entry a write produced, reading it
+    /// back by id. A no-op one-shot, and for a vault with no index.
+    fn refresh(&mut self, matches: &ArgMatches, id: Uuid) {
+        if let Keys::Session(session) = self {
+            session.refresh_entry(use_name(matches), id);
+        }
+    }
+
+    /// Tells a session's index about an entry a write has in hand.
+    fn note(&mut self, matches: &ArgMatches, id: Uuid, e: &Entry) {
+        if let Keys::Session(session) = self {
+            session.note_entry(use_name(matches), id, e);
+        }
+    }
+
+    /// Tells a session's index an entry is gone.
+    fn forget(&mut self, matches: &ArgMatches, id: Uuid) {
+        if let Keys::Session(session) = self {
+            session.forget_entry(use_name(matches), id);
+        }
+    }
+}
+
 /// An unresolvable query as an error. An ambiguous one lists the
 /// candidates, with full ids so the next attempt can name one exactly.
 fn resolve_failure(err: ResolveError) -> CliError {
@@ -309,6 +335,7 @@ pub fn insert(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
             )
             .map_err(write_failure)
     })?;
+    keys.refresh(matches, id);
     out(io, &[format!("gage: inserted \"{title}\" ({id})")]);
     Ok(())
 }
@@ -362,6 +389,7 @@ fn insert_edit(
             .map_err(write_failure)?;
         Ok((id, e.title))
     })?;
+    keys.refresh(matches, id);
     out(io, &[format!("gage: inserted \"{title}\" ({id})")]);
     Ok(())
 }
@@ -483,17 +511,19 @@ pub fn cat(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cli
 /// `updated`/`updated_by` stamped fresh whatever the file says.
 pub fn edit(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = arg(matches, "query");
-    let (id, title) =
+    let (id, edited) =
         keys.with_resolved(matches, io, query, |io, vault, identity, id, original| {
             let mut edited = editor::edit_yaml(io.editor.as_deref(), &original)?.entry;
             edited.restamp_after_edit(&original, identity);
             vault.update(id, &edited).map_err(write_failure)?;
-            Ok((id, edited.title))
+            Ok((id, edited))
         })?;
+    keys.note(matches, id, &edited);
     out(
         io,
         &[format!(
-            "gage: updated \"{title}\" ({})",
+            "gage: updated \"{}\" ({})",
+            edited.title,
             short_id(&id.to_string())
         )],
     );
@@ -509,6 +539,7 @@ pub fn rename(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
             .rename(identity, &query, new_title, matches.get_flag("force"))
             .map_err(write_failure)
     })?;
+    keys.refresh(matches, id);
     out(
         io,
         &[format!(
@@ -524,6 +555,7 @@ pub fn rm(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliE
     let id = keys.with_vault(matches, io, |_, vault, identity| {
         vault.remove(identity, &query).map_err(write_failure)
     })?;
+    keys.forget(matches, id);
     out(io, &[format!("gage: removed {id}")]);
     Ok(())
 }
@@ -558,15 +590,67 @@ pub fn generate(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<()
             )
             .map_err(write_failure)
     })?;
+    keys.refresh(matches, id);
     out(io, &[format!("gage: generated \"{title}\" ({id})")]);
     Ok(())
 }
 
 // --- ls ---------------------------------------------------------------------
 
+/// One-shot, a fresh decrypt of the vault; in a session, its index. The
+/// rows are the same either way, through one renderer.
 pub fn ls(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
-    let rows = keys.with_vault(matches, io, |_, vault, identity| Ok(vault.list(identity)?))?;
+    let rows = match keys {
+        Keys::Session(session) => session.list(use_name(matches)).map_err(session_failure)?,
+        Keys::OneShot(_) => {
+            keys.with_vault(matches, io, |_, vault, identity| Ok(vault.list(identity)?))?
+        }
+    };
     out(io, &render_ls(&rows));
+    Ok(())
+}
+
+// --- search / reindex -------------------------------------------------------
+
+/// `title  shortid` per match, sorted, and nothing at all for no matches
+/// (so `| wc -l` counts them). Never the matched text: a body match is
+/// where a secret matched.
+pub fn search(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    let pattern = arg(matches, "pattern");
+    let results = match keys {
+        Keys::Session(session) => session
+            .search(use_name(matches), pattern)
+            .map_err(session_failure)?,
+        Keys::OneShot(_) => keys.with_vault(matches, io, |_, vault, identity| {
+            Ok(vault.search(identity, pattern)?)
+        })?,
+    };
+    let lines: Vec<String> = results
+        .iter()
+        .map(|r| format!("{}  {}", r.title, short_id(&r.id.to_string())))
+        .collect();
+    out(io, &lines);
+    Ok(())
+}
+
+/// Rebuilds a session's index from a full decrypt. One-shot there is no
+/// cache: it checks the vault resolves (without unlocking) and says so.
+pub fn reindex(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    match keys {
+        Keys::Session(session) => {
+            session
+                .reindex(use_name(matches))
+                .map_err(session_failure)?;
+            out(io, &["gage: index rebuilt".to_string()]);
+        }
+        Keys::OneShot(_) => {
+            open_vault(matches, io)?;
+            out(
+                io,
+                &["gage: one-shot mode does not cache metadata; nothing to reindex".to_string()],
+            );
+        }
+    }
     Ok(())
 }
 

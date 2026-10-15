@@ -104,63 +104,129 @@ Recommended answers; confirm them when this plan is reviewed.
   the vault is reachable and says there is no cache to rebuild
   (`TestReindexOneShotHasNothingToRebuild`).
 
+### Settled at the start of implementation
+
+- **Orphaned spans are zeroed at once, and growth copies only live
+  spans.** Go leaves a removed or renamed entry's old title in the arena
+  until discard, and its growth copies dead bytes too. The plan above
+  already chose the stronger rule; this records that it is a deliberate
+  difference from Go, not a port of it.
+- **Arena sizing**: Go's 4096-byte minimum, doubled until the new bytes
+  fit. The arena is one `LockedBuf`; its page-rounded slack is wiped on
+  drop with the rest.
+- **The decrypt counter** is a `DecryptCounter` field on `Vault`: an
+  `Arc<AtomicUsize>` under `cfg(any(test, feature = "test-support"))`,
+  shared by a vault's clones (a session's opener hands out clones), and
+  a zero-sized no-op otherwise. Bumped in `read_entry`, the one decrypt
+  path.
+- **Index updates after a write.** `edit` has the entry it wrote and
+  calls `Session::note_entry`. `insert`, `generate` and `rename` get only
+  an id back from the library, so they call `Session::refresh_entry(vault,
+  id)`, which reads that one entry only if the vault is indexed: no
+  decrypt otherwise, and the cached dates are the ones written, not a
+  guess. `rm` calls `forget_entry`. All are no-ops one-shot.
+- **Test access to internals**: `Session` gets `#[cfg(test)]` accessors
+  for whether a vault has an index and a copy of its arena bytes; the M6
+  test fixture (`Device`) becomes `pub(crate)` so the index tests share
+  it. Visibility only: no M6 test changes.
+
 ## Tasks
 
 Tests first, at task granularity.
 
 ### 1. The index and its arena ⚑ — 9 `index` rows
 
-- [ ] `TestIndexArenaNeverHoldsASecretValue` (a sentinel value appears
+- [x] `TestIndexArenaNeverHoldsASecretValue` (a sentinel value appears
       nowhere in the arena after `ls`, `show` and `search`).
-- [ ] `TestIndexArenaLocksThroughTheSameLockerAsTheIdentity`,
+- [x] `TestIndexArenaLocksThroughTheSameLockerAsTheIdentity`,
       `TestIndexPageLockFailureWarnsOnceAndProceeds`,
       `TestIndexDoesNotWarnAgainWhenUnlockAlreadyWarned`.
-- [ ] `TestIndexArenaGrowthPreservesEveryEntryAndItsPageLocks`.
-- [ ] `TestIndexDiscardZeroesArenaAndIsIdempotent`, `TestLockDiscardsIndex`,
+- [x] `TestIndexArenaGrowthPreservesEveryEntryAndItsPageLocks`.
+- [x] `TestIndexDiscardZeroesArenaAndIsIdempotent`, `TestLockDiscardsIndex`,
       `TestIdleTimeoutDiscardsIndexLikeAnExplicitLock`.
-- [ ] `TestIndexNeverWrittenToDisk` (no new file under the config, data
+- [x] `TestIndexNeverWrittenToDisk` (no new file under the config, data
       and state roots or the vault during a session that builds one).
+- [x] Beyond Go's rows: growth compacts away removed entries; orphaned
+      spans are zeroed at once; an index whose identity failed to lock
+      never tries; a growth between a title and its description keeps the
+      title (a bug the growth row caught in the compaction this port added,
+      pinned and mutation-checked); the warning resets with the index;
+      closing a session releases every index.
 
 ### 2. Session integration ⚑ — 11 `index` rows
 
-- [ ] Build once: `TestFirstListBuildsIndexWithOneDecryptPass`,
+- [x] Build once: `TestFirstListBuildsIndexWithOneDecryptPass`,
       `TestSearchFirstCallBuildsIndexWithoutADoubleDecrypt`.
-- [ ] Incremental: `TestNoteEntryUpdatesIndexWithoutFullRebuild`,
+- [x] Incremental: `TestNoteEntryUpdatesIndexWithoutFullRebuild`,
       `TestForgetEntryRemovesFromIndex`,
       `TestSessionResolveSeesARenameAfterNoteEntry`.
-- [ ] `TestMultiVaultSessionsHaveSeparateIndexes`,
+- [x] `TestMultiVaultSessionsHaveSeparateIndexes`,
       `TestReindexForcesFullRebuildAndPicksUpOutOfBandChanges`.
-- [ ] Agreement with one-shot: `TestListAgreesBetweenOneShotAndSession`,
+- [x] Agreement with one-shot: `TestListAgreesBetweenOneShotAndSession`,
       `TestSearchAgreesBetweenOneShotAndSession`.
-- [ ] Search: `TestSearchMatchesTitleDescriptionAndBody`,
+- [x] Search: `TestSearchMatchesTitleDescriptionAndBody`,
       `TestSearchBodyHalfRedecryptsButTitleHalfDoesNot`.
+- [x] Beyond Go's rows: a first resolve builds the index and writes
+      don't; `refresh_entry` reads one entry only when indexed, and drops
+      the index rather than keep it stale when it can't.
+
+### ⚑ Opus review of the index tests
+
+Done (this milestone ran on Opus). The properties the plan names, and
+what proves each:
+
+- **No secret value in the arena**: `index_arena_never_holds_a_secret_value`
+  after `ls`, `show` and `search`, value and field both; the arena's
+  orphaned-span and compaction tests cover a renamed or removed title.
+- **Zeroed on discard**: the arena unit test asserts the unlock is handed
+  only zeros (the arena is now zeroed *before* its lock comes off, as
+  `Identity` does). The review added `every_page_a_session_releases_was_zeroed_first`,
+  the same property through a session for the key and the arena alike.
+  Mutation-checked: removing the zeroing fails both.
+- **Locks preserved across growth**: the growth unit test counts locks
+  and unlocks. The review added `growth_through_a_session_keeps_the_arena_locked`,
+  which checks the grown arena's pages are locked and the old arena's
+  released on the OS-like ledger, rather than counting calls.
+- Out of scope, as in Go: transient copies handed to callers (`ListEntry`,
+  candidate lists, search results) are ordinary strings.
 
 ### 3. `search` library and CLI — 2 + 4 rows
 
-- [ ] Library: `TestSearchMatchesFieldValueAndReportsMatchedBody`,
+- [x] Library: `TestSearchMatchesFieldValueAndReportsMatchedBody`,
       `TestSortSearchResultsTiesByID`.
-- [ ] CLI: `TestSearchOneShotMatchesTitleDescriptionAndBody`,
+- [x] CLI: `TestSearchOneShotMatchesTitleDescriptionAndBody`,
       `TestReindexOneShotHasNothingToRebuild`,
       `TestSessionLsSearchReindexSeeInsertRenameAndRm`,
       `TestSessionEditUpdatesIndexWithoutReindex`.
-- [ ] Register `search` (alias `grep`) and `reindex` (one-shot and
-      session) with Go's descriptions and the fixture flags; add their
-      error paths to the `errorprefix` table.
+- [x] Register `search` (alias `grep`) and `reindex` (one-shot and
+      session) with Go's descriptions and the fixture flags
+      (`m7_commands_have_their_go_fixture_flags_and_descriptions`); add
+      their error paths to the `errorprefix` table
+      (`no_search_or_reindex_failure_doubles_gages_own_prefix`).
+- [x] Beyond Go's rows: `generate` and `--use` keep their indexes
+      current in a session; `search` renders identically in both modes
+      through the CLI.
 
 ### 4. Rows deferred by P2
 
-- [ ] `entry` (CLI) `TestLsRendersIdenticallyInBothModes`.
-- [ ] The `search` half of `TestLsAndSearchPrintNothingWhenThereIsNothing`.
+- [x] `entry` (CLI) `TestLsRendersIdenticallyInBothModes`.
+- [x] The `search` half of `TestLsAndSearchPrintNothingWhenThereIsNothing`.
 
 ### 5. Unmodified earlier tests, docs and ledger
 
-- [ ] M5's and M6's tests pass with no edits beyond what this milestone's
+- [x] M5's and M6's tests pass with no edits beyond what this milestone's
       new `Session` methods require of their setup; any edit is listed
-      here with its reason.
-- [ ] Extend `doc/cli/session-mode.md` (the index, `reindex`) and
+      here with its reason. No assertion changed. Setup edits only:
+      `session_tests`' fixture (`Device`, `Cfg`, `Clock`, helpers) and
+      `repl_tests`' session harness became `pub(crate)` so the M7 tests
+      share them; the harness passes `Env`'s `$EDITOR` setting into the
+      session (`None` unless a test sets one, so no M6 test sees a
+      change); `query_tests`' `set_editor` became `pub(crate)`; one P2
+      comment in `entry_tests` points at the search half's new home.
+- [x] Extend `doc/cli/session-mode.md` (the index, `reindex`) and
       `doc/cli/entries.md` (`search`/`grep`).
-- [ ] Parity ledger: §3 M7; §4 `search`, `reindex`.
-- [ ] P3 index status column.
+- [x] Parity ledger: §3 M7; §4 `search`, `reindex`.
+- [x] P3 index status column.
 
 ## Definition of done
 

@@ -205,24 +205,39 @@ fn ambiguous<'a>(query: &str, matches: impl Iterator<Item = &'a (Uuid, String)>)
     })
 }
 
+/// `ls` order: title, then id, so entries sharing a title (`-f` allows
+/// it) come out the same way in both modes.
+pub(crate) fn sort_list(rows: &mut [ListEntry]) {
+    rows.sort_by(|a, b| a.title.cmp(&b.title).then(a.id.cmp(&b.id)));
+}
+
 impl Vault {
     /// Every entry's listing row, sorted by title then id. It decrypts
     /// every entry, so it needs the identity; it takes no lock.
     pub fn list(&self, identity: &Identity) -> Result<Vec<ListEntry>, Error> {
-        let mut rows = Vec::new();
-        for id in self.entry_ids()? {
-            let e = self.read_entry(id, identity)?;
-            rows.push(ListEntry {
+        let mut rows: Vec<ListEntry> = self
+            .decrypt_all(identity)?
+            .into_iter()
+            .map(|(id, e)| ListEntry {
                 id,
                 title: e.title,
                 description: e.description,
                 created: e.created,
                 updated: e.updated,
                 updated_by: e.updated_by,
-            });
-        }
-        rows.sort_by(|a, b| a.title.cmp(&b.title).then(a.id.cmp(&b.id)));
+            })
+            .collect();
+        sort_list(&mut rows);
         Ok(rows)
+    }
+
+    /// Every entry, decrypted: one pass over the vault. Callers drop what
+    /// they don't keep (a listing keeps no value or field).
+    pub(crate) fn decrypt_all(&self, identity: &Identity) -> Result<Vec<(Uuid, Entry)>, Error> {
+        self.entry_ids()?
+            .into_iter()
+            .map(|id| Ok((id, self.read_entry(id, identity)?)))
+            .collect()
     }
 
     /// The one entry `query` names, decrypted, or a typed reason it names

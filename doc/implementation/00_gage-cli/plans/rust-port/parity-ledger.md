@@ -101,7 +101,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M2 | P2 · M2 (+ E0 identity paths) | `[x]` ([#13](https://github.com/distillerylabs/gage-rs/issues/13)) |
 | | M3 | P2 · M3 | `[x]` ([#14](https://github.com/distillerylabs/gage-rs/issues/14)) |
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
-| | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[~]` M5, M6 |
+| | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[~]` M5, M6, M7 |
 | | M8a, M8b | P4 | `[ ]` |
 | | M9 (+ A19), M10, M11 | P5 | `[ ]` |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
@@ -126,7 +126,7 @@ to match Cobra's layout.
 | `root`, `vault`, `vault_list`, `vault_info`, `vault_remove`, `vault_set-default`, `init`, `git`, `git_set-remote` | P1 (`init` flags grow through P2, P4 and P8 — see [Q-INIT-INTERIM](open-questions.md#q-init-interim) and [Q-RECOVERY-INTERIM](open-questions.md#q-recovery-interim); `vault remove` cleanup in P6) |
 | `insert`, `cat`, `rm`, `ls` | P2 · M4 `[x]` (name, group, arguments and the flags that exist match; `insert -e` P3 · M5 `[x]`; `ls -H` and `cat` formatting are P6 · M12) |
 | `show`, `edit`, `rename`, `generate` | P3 · M5 `[x]` (all fixture flags but `-c`/`-q` on `show` and `generate`, which are P6 · M12; checked by `m5_commands_have_their_go_fixture_flags_and_descriptions`) |
-| `search`, `reindex` | P3 · M7 |
+| `search`, `reindex` | P3 · M7 `[x]` (name, alias `grep`, group, arguments and `-u/--use` match; checked by `m7_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `clone`, `sync`, `pull`, `push`, `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 |
 | `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5 |
 | `log`, `history` (and the output flags `--clip`, `--qr`, `--script`; `show --field` itself is P3 · M5) | P6 |
@@ -193,9 +193,9 @@ behavior; each phase's last milestone updates the pages for its surface.
 | Go page | Port to |
 |---|---|
 | `vaults.md`, `configuration.md`, `exit-codes.md` | P1 · M1: `doc/cli/` |
-| `entries.md` | P2 · M4: `doc/cli/entries.md` `[x]` for the shipped surface; P3 · M5 `[x]` `show`, `edit`, `rename`, `generate`, `insert -e`, addressing; P6 for `cat`/`ls` display |
-| `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker (M7 for the index; enrollment ids are P7's) |
-| `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 (index) and M13 (completion, abbreviation) extend it; `--script`/`--stdin` and `GAGE_PASSPHRASE` are P6 · M12's, enrollment's session behavior P7's |
+| `entries.md` | P2 · M4: `doc/cli/entries.md` `[x]` for the shipped surface; P3 · M5 `[x]` `show`, `edit`, `rename`, `generate`, `insert -e`, addressing; P3 · M7 `[x]` `search`/`grep`, `reindex`; P6 for `cat`/`ls` display |
+| `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker; M7 `[x]` the index (enrollment ids are P7's) |
+| `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 `[x]` the metadata index and `reindex`; M13 (completion, abbreviation) extends it; `--script`/`--stdin` and `GAGE_PASSPHRASE` are P6 · M12's, enrollment's session behavior P7's |
 | `sync.md`, `git-and-auth.md` | P4 |
 | `identities-and-recipients.md`, `sharing.md` | P5 (+ P8 for the recovery sections) |
 | `enrollment.md` | P7 |

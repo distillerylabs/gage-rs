@@ -154,4 +154,6 @@ mod query_tests;
 #[cfg(test)]
 mod repl_tests;
 #[cfg(test)]
+mod search_tests;
+#[cfg(test)]
 mod tests;

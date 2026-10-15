@@ -17,18 +17,23 @@
 //! What survives of Go's call-depth rule is *when* the idle timeout runs:
 //! on entering a call, never between the calls of one command.
 //!
-//! No metadata index yet: a session still decrypts on demand (M7).
+//! Each vault a session has unlocked can also carry a metadata index
+//! (title, description, dates; never a value or a field), built by the
+//! first `list`, `resolve` or `search` against it and dropped with its
+//! key. See `index` and "Addressing entries & the metadata index".
 
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
-use crate::entry::{self, Entry, ResolveError};
+use crate::entry::{self, Entry, ListEntry, ResolveError, resolve_query};
 use crate::exitcode::{Code, HasCode};
 use crate::identity::Identity;
 use crate::identityfile::UnlockError;
+use crate::index::Index;
 use crate::prompter::{PromptError, Prompter};
+use crate::search::{SearchResult, matches_body, sort_results};
 use crate::vault::Vault;
 
 /// Why the session's opener couldn't produce a vault: whatever the
@@ -146,6 +151,9 @@ pub struct SessionConfig<'a> {
     pub now: Option<Box<dyn Fn() -> Instant + 'a>>,
 }
 
+/// Every entry of a vault, decrypted in one pass.
+type Decrypted = Vec<(Uuid, Entry)>;
+
 /// One row of [`Session::status`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VaultState {
@@ -165,6 +173,13 @@ struct HeldVault {
     /// `None` is locked.
     identity: Option<Identity>,
     last_used: Option<Instant>,
+    /// The metadata index: `None` until a list, resolve or search needs
+    /// one, and again whenever the identity is dropped.
+    index: Option<Index>,
+    /// Whether this index's page-lock failure has been reported, so a
+    /// growing arena doesn't repeat it. Reset with the index: a rebuild
+    /// may meet a different limit.
+    index_warned: bool,
 }
 
 pub struct Session<'a> {
@@ -248,10 +263,14 @@ impl<'a> Session<'a> {
         query: &str,
     ) -> Result<(Uuid, Entry), SessionError> {
         let prompter = self.prompter;
-        let (vault, identity) = self.vault(name)?;
-        let list = match vault.resolve(identity, query) {
+        let (name, _) = self.ensure_index(name)?;
+        let held = &self.vaults[&name];
+        let index = held.index.as_ref().expect("ensure_index built it");
+        let identity = held.identity.as_ref().expect("ensure_index unlocked it");
+        let list = match resolve_query(query, &index.titles()) {
+            Ok(id) => return Ok((id, held.vault.read_entry(id, identity)?)),
             Err(ResolveError::Ambiguous(list)) => list,
-            other => return Ok(other?),
+            Err(e) => return Err(e.into()),
         };
         let chosen = match prompter.choose(&list) {
             Ok(id) => id,
@@ -261,7 +280,135 @@ impl<'a> Session<'a> {
         if !list.candidates.iter().any(|c| c.id == chosen) {
             return Err(SessionError::NotACandidate(chosen));
         }
-        Ok((chosen, vault.read_entry(chosen, identity)?))
+        Ok((chosen, held.vault.read_entry(chosen, identity)?))
+    }
+
+    /// A vault's `ls` rows (`None` is the current one), from its index:
+    /// the same rows, in the same order, as `Vault::list`.
+    pub fn list(&mut self, name: Option<&str>) -> Result<Vec<ListEntry>, SessionError> {
+        let (name, _) = self.ensure_index(name)?;
+        Ok(self.vaults[&name]
+            .index
+            .as_ref()
+            .expect("ensure_index built it")
+            .list())
+    }
+
+    /// `search` in a vault: title and description from the index, body
+    /// text decrypted fresh and never cached, so a matched secret lives in
+    /// memory no longer than a `show` keeps it. A first search builds the
+    /// index from the same pass its body check uses. A title or
+    /// description match wins over a body match, as in `Vault::search`.
+    pub fn search(
+        &mut self,
+        name: Option<&str>,
+        pattern: &str,
+    ) -> Result<Vec<SearchResult>, SessionError> {
+        let (name, built) = self.ensure_index(name)?;
+        let held = &self.vaults[&name];
+        let lower = pattern.to_lowercase();
+        let mut matched = held
+            .index
+            .as_ref()
+            .expect("ensure_index built it")
+            .match_text(&lower);
+        let bodies = match built {
+            Some(entries) => entries,
+            None => held
+                .vault
+                .decrypt_all(held.identity.as_ref().expect("ensure_index unlocked it"))?,
+        };
+        for (id, e) in bodies {
+            if !matched.contains_key(&id) && matches_body(&e, &lower) {
+                matched.insert(
+                    id,
+                    SearchResult {
+                        id,
+                        title: e.title.clone(),
+                        description: e.description.clone(),
+                        matched_body: true,
+                    },
+                );
+            }
+        }
+        let mut results: Vec<SearchResult> = matched.into_values().collect();
+        sort_results(&mut results);
+        Ok(results)
+    }
+
+    /// Discards a vault's index and builds it again from a full decrypt
+    /// pass: for when `entries/` changed outside this session (a manual
+    /// `git pull`), or the cache is merely suspect.
+    pub fn reindex(&mut self, name: Option<&str>) -> Result<(), SessionError> {
+        self.vault(name)?;
+        let target = self.target(name)?;
+        if let Some(held) = self.vaults.get_mut(&target) {
+            discard_index(held);
+        }
+        self.ensure_index(Some(&target))?;
+        Ok(())
+    }
+
+    /// Updates a vault's index with `e` after a write that has it in hand
+    /// (`edit`). Cache bookkeeping only: the write itself was the
+    /// `Vault` method's. A no-op for a vault with no index, whose eventual
+    /// build will read the written state anyway.
+    pub fn note_entry(&mut self, name: Option<&str>, id: Uuid, e: &Entry) {
+        self.enter();
+        let prompter = self.prompter;
+        if let Some(held) = self.indexed(name) {
+            held.index.as_mut().expect("indexed").put(id, e);
+            warn_index_lock_once(held, prompter);
+        }
+    }
+
+    /// Like [`Session::note_entry`] for a write that returned only an id
+    /// (`insert`, `generate`, `rename`): reads that one entry, and only if
+    /// the vault is indexed, so the cached dates are exactly the stored
+    /// ones. It can't fail the write it follows: if the entry can't be
+    /// read back, the index is dropped, and the next list rebuilds it and
+    /// reports whatever is wrong.
+    pub fn refresh_entry(&mut self, name: Option<&str>, id: Uuid) {
+        self.enter();
+        let prompter = self.prompter;
+        let Some(held) = self.indexed(name) else {
+            return;
+        };
+        let read = match &held.identity {
+            Some(identity) => held.vault.read_entry(id, identity).ok(),
+            None => None,
+        };
+        match read {
+            Some(e) => {
+                held.index.as_mut().expect("indexed").put(id, &e);
+                warn_index_lock_once(held, prompter);
+            }
+            None => discard_index(held),
+        }
+    }
+
+    /// Drops `id` from a vault's index after `rm`. A no-op with no index.
+    pub fn forget_entry(&mut self, name: Option<&str>, id: Uuid) {
+        self.enter();
+        if let Some(held) = self.indexed(name) {
+            held.index.as_mut().expect("indexed").remove(id);
+        }
+    }
+
+    /// Whether `name` currently has an index.
+    #[cfg(test)]
+    pub(crate) fn has_index(&self, name: &str) -> bool {
+        self.vaults.get(name).is_some_and(|h| h.index.is_some())
+    }
+
+    /// A copy of `name`'s arena bytes, empty with no index.
+    #[cfg(test)]
+    pub(crate) fn index_arena(&self, name: &str) -> Vec<u8> {
+        self.vaults
+            .get(name)
+            .and_then(|h| h.index.as_ref())
+            .map(Index::arena_bytes)
+            .unwrap_or_default()
     }
 
     /// Drops the key for `name`, or for every vault this session holds
@@ -335,6 +482,38 @@ impl<'a> Session<'a> {
         }
     }
 
+    /// Unlocks a vault if needed and builds its index if it has none,
+    /// returning its name and, when this call built the index, the
+    /// entries decrypted to build it (so a first search reuses the pass).
+    fn ensure_index(
+        &mut self,
+        name: Option<&str>,
+    ) -> Result<(String, Option<Decrypted>), SessionError> {
+        self.vault(name)?;
+        let name = self.target(name)?;
+        let prompter = self.prompter;
+        let held = self.vaults.get_mut(&name).expect("vault() held it");
+        if held.index.is_some() {
+            return Ok((name, None));
+        }
+        let identity = held.identity.as_ref().expect("vault() unlocked it");
+        let entries = held.vault.decrypt_all(identity)?;
+        let mut index = Index::new(held.vault.locker(), identity.page_locked());
+        for (id, e) in &entries {
+            index.put(*id, e);
+        }
+        held.index = Some(index);
+        warn_index_lock_once(held, prompter);
+        Ok((name, Some(entries)))
+    }
+
+    /// The held vault `name` names (`None` is current), if it has an index.
+    /// Never opens or unlocks anything.
+    fn indexed(&mut self, name: Option<&str>) -> Option<&mut HeldVault> {
+        let name = self.target(name).ok()?;
+        self.vaults.get_mut(&name).filter(|h| h.index.is_some())
+    }
+
     /// The vault a call operates on: the one named, else the current one.
     fn target(&self, name: Option<&str>) -> Result<String, SessionError> {
         name.filter(|n| !n.is_empty())
@@ -356,6 +535,8 @@ impl<'a> Session<'a> {
                     vault,
                     identity: None,
                     last_used: None,
+                    index: None,
+                    index_warned: false,
                 },
             );
         }
@@ -370,9 +551,33 @@ impl<'a> Session<'a> {
 /// The one place a held vault's key is dropped, so an idle timeout, an
 /// explicit lock and closing the session are the same code path. Dropping
 /// the `Identity` is the whole teardown: its `Drop` wipes the key and
-/// releases its page lock.
+/// releases its page lock. The index goes first and with it: decrypted
+/// metadata must not outlive the key that produced it.
 fn lock_held(held: &mut HeldVault) {
+    discard_index(held);
     held.identity = None;
+}
+
+/// Drops a vault's index (zeroed, its pages released). The one place that
+/// happens, so locking and reindexing (and P4's pull) can't drift apart.
+fn discard_index(held: &mut HeldVault) {
+    held.index = None;
+    held.index_warned = false;
+}
+
+/// Reports, once per index, that its arena couldn't be page-locked. Never
+/// when the vault's own key couldn't be either: the unlock already said
+/// so (see `Index::lock_ok`).
+fn warn_index_lock_once(held: &mut HeldVault, prompter: &dyn Prompter) {
+    let failed = held.index.as_ref().is_some_and(|i| !i.lock_ok());
+    if failed && !held.index_warned {
+        held.index_warned = true;
+        prompter.warn(&format!(
+            "gage: could not lock {}'s metadata index into memory; continuing without it, \
+             so cached titles/descriptions may be written to swap.",
+            held.vault.name
+        ));
+    }
 }
 
 /// One command in flight; see [`Session::begin_command`].

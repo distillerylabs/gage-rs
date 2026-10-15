@@ -6,9 +6,8 @@ path to type the way there is with `pass`. Instead `show`, `cat`, `edit`,
 and the entries' ids. (`insert` and `generate` take a plain `<title>`:
 they create an entry rather than address one.)
 
-> **Status.** The in-session metadata index arrives later in phase 3 of
-> the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md);
-> `mv` and `cp` in a later phase.
+> **Status.** `mv` and `cp` arrive in a later phase of the
+> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
 
 ## Resolution order
 
@@ -65,4 +64,6 @@ what they do with it.
 
 Titles live inside the encrypted entries, so resolving a query, even
 listing entries, decrypts every one of them. A one-shot command pays that
-cost each time it runs.
+cost each time it runs. A session pays it once per vault and resolves
+from its [metadata index](session-mode.md#the-metadata-index) after that,
+decrypting only the entry a query lands on.

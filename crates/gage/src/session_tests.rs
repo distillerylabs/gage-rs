@@ -29,12 +29,12 @@ use crate::vault::{self, CreateSpec, Vault};
 use crate::xdgpaths::Dirs;
 use crate::{identityfile, vaultconfig};
 
-const PASSPHRASE: &str = "correct horse battery staple";
-const DEVICE: &str = "laptop-1";
+pub(crate) const PASSPHRASE: &str = "correct horse battery staple";
+pub(crate) const DEVICE: &str = "laptop-1";
 
 /// The set of pages currently locked, and every lock call's pages in order.
 #[derive(Default)]
-struct PageLedger {
+pub(crate) struct PageLedger {
     live: Mutex<BTreeSet<usize>>,
     locks: Mutex<Vec<BTreeSet<usize>>>,
 }
@@ -47,11 +47,11 @@ fn pages(buf: &[u8]) -> BTreeSet<usize> {
 }
 
 impl PageLedger {
-    fn live(&self) -> BTreeSet<usize> {
+    pub(crate) fn live(&self) -> BTreeSet<usize> {
         self.live.lock().unwrap().clone()
     }
 
-    fn locks(&self) -> Vec<BTreeSet<usize>> {
+    pub(crate) fn locks(&self) -> Vec<BTreeSet<usize>> {
         self.locks.lock().unwrap().clone()
     }
 }
@@ -76,14 +76,14 @@ impl Locker for PageLedger {
 /// One simulated machine holding several real vaults (Go's
 /// `newSessionDevice`): one set of roots, one identity per vault, and a
 /// global-config registration for each.
-struct Device {
-    _root: tempfile::TempDir,
-    vaults: BTreeMap<String, Vault>,
-    ledger: Arc<PageLedger>,
+pub(crate) struct Device {
+    pub(crate) _root: tempfile::TempDir,
+    pub(crate) vaults: BTreeMap<String, Vault>,
+    pub(crate) ledger: Arc<PageLedger>,
 }
 
 impl Device {
-    fn new(names: &[&str]) -> Device {
+    pub(crate) fn new(names: &[&str]) -> Device {
         fast_scrypt();
         let root = tempfile::tempdir().unwrap();
         let dirs = Dirs {
@@ -144,14 +144,14 @@ impl Device {
         }
     }
 
-    fn open(&self, name: &str) -> Result<Vault, OpenError> {
+    pub(crate) fn open(&self, name: &str) -> Result<Vault, OpenError> {
         self.vaults
             .get(name)
             .cloned()
             .ok_or_else(|| OpenError::new(RegistryError::NotRegistered(name.to_string())))
     }
 
-    fn session<'a>(&'a self, prompter: &'a FakePrompter, cfg: Cfg) -> Session<'a> {
+    pub(crate) fn session<'a>(&'a self, prompter: &'a FakePrompter, cfg: Cfg) -> Session<'a> {
         Session::new(SessionConfig {
             open: Box::new(move |name| self.open(name)),
             prompter,
@@ -166,18 +166,18 @@ impl Device {
 
 /// The parts of a `SessionConfig` a test varies.
 #[derive(Default)]
-struct Cfg {
-    idle_timeout: Option<Duration>,
-    current: Option<&'static str>,
-    clock: Option<Clock>,
+pub(crate) struct Cfg {
+    pub(crate) idle_timeout: Option<Duration>,
+    pub(crate) current: Option<&'static str>,
+    pub(crate) clock: Option<Clock>,
 }
 
 /// A clock a test moves by hand instead of waiting for.
 #[derive(Clone)]
-struct Clock(Rc<Cell<Instant>>);
+pub(crate) struct Clock(Rc<Cell<Instant>>);
 
 impl Clock {
-    fn new() -> Clock {
+    pub(crate) fn new() -> Clock {
         Clock(Rc::new(Cell::new(Instant::now())))
     }
 
@@ -185,18 +185,18 @@ impl Clock {
         self.0.get()
     }
 
-    fn advance(&self, d: Duration) {
+    pub(crate) fn advance(&self, d: Duration) {
         self.0.set(self.0.get() + d);
     }
 }
 
 /// A prompter answering `n` unlocks; a further one fails the test.
-fn unlocks(n: usize) -> FakePrompter {
+pub(crate) fn unlocks(n: usize) -> FakePrompter {
     FakePrompter::new().with_passphrases(&vec![PASSPHRASE; n])
 }
 
 /// How many times `p` was asked to unlock `vault`.
-fn unlock_count(p: &FakePrompter, vault: &str) -> usize {
+pub(crate) fn unlock_count(p: &FakePrompter, vault: &str) -> usize {
     p.unlock_requests()
         .iter()
         .filter(|r| r.vault == vault)
@@ -206,7 +206,7 @@ fn unlock_count(p: &FakePrompter, vault: &str) -> usize {
 impl Device {
     /// Inserts one entry per title into `vault` through a one-shot unlock,
     /// before any session exists, and returns their ids in order.
-    fn seed(&self, vault: &str, titles: &[&str]) -> Vec<uuid::Uuid> {
+    pub(crate) fn seed(&self, vault: &str, titles: &[&str]) -> Vec<uuid::Uuid> {
         let v = self.open(vault).unwrap();
         let ident = v.unlock(&unlocks(1)).unwrap();
         titles
@@ -227,7 +227,7 @@ impl Device {
     }
 }
 
-fn current_personal() -> Cfg {
+pub(crate) fn current_personal() -> Cfg {
     Cfg {
         current: Some("personal"),
         ..Cfg::default()

@@ -16,7 +16,7 @@ use crate::lifecycle_tests::{CliResult, Env};
 impl Env {
     /// Makes `fake` the `$EDITOR` every later command sees. The caller
     /// keeps `fake` alive while they run: its config lives in its temp dir.
-    fn set_editor(&self, fake: &FakeEditor) {
+    pub(crate) fn set_editor(&self, fake: &FakeEditor) {
         *self.editor.lock().unwrap() = Some(fake.command.clone());
     }
 

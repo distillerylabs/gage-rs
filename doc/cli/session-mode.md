@@ -4,12 +4,11 @@
 shared agent: each is one process holding its own unlocked keys in its
 own memory for as long as it runs.
 
-> **Status.** The interactive session ships. A session still decrypts
-> entries on demand; the in-session metadata index arrives later in phase
-> 3 of the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md),
-> along with Tab completion and command abbreviation. Scripted sessions
-> (`--script`, `--stdin`) arrive with phase 6, and sync (which `use`
-> will also trigger) with phase 4.
+> **Status.** The interactive session and its metadata index ship. Tab
+> completion and command abbreviation arrive later in phase 3 of the
+> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
+> Scripted sessions (`--script`, `--stdin`) arrive with phase 6, and sync
+> (which `use` will also trigger) with phase 4.
 
 ## One-shot mode
 
@@ -119,6 +118,38 @@ Three things differ:
 - **`init` is one-shot only.** It creates a vault rather than operating on
   one, which leaves "should the new vault become current?" unanswered, so
   in a session it says so instead of running.
+
+### The metadata index
+
+Titles live inside the encrypted entries, so one-shot `ls`, `search` or
+any query decrypts the whole vault every time. A session decrypts each
+vault's metadata once instead: the first `ls`, query or `search` against
+a vault builds an index of every entry's title, description, dates and
+last writer, and later commands read it. `insert`, `generate`, `edit`,
+`rename` and `rm` update it as they go, so it stays current with no
+rebuild. A vault you only write to never gets one.
+
+The index holds no secrets: never a value and never a field. It lives in
+memory only (page-locked where the OS allows, with a one-time warning if
+it can't be), is never written to disk, and is wiped the moment its vault
+is locked, by `lock`, the idle timeout or the session ending. Each vault
+has its own.
+
+`search` matches titles and descriptions from the index, but body text
+(values and fields) is decrypted fresh for each search and dropped
+straight after, so a matched secret is in memory no longer than a `show`
+puts it there.
+
+If a vault's entries change behind the session's back (a `git pull` run
+by hand, another device's push), the index doesn't notice. `reindex`
+rebuilds it from a fresh decrypt:
+
+```
+personal🔓 gage> reindex
+gage: index rebuilt
+```
+
+One-shot, `gage reindex` has nothing to rebuild and says so.
 
 ### Idle timeout
 

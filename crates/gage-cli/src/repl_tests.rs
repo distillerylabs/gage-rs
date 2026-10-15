@@ -61,12 +61,12 @@ impl Write for SharedOutput {
 }
 
 /// `lines` as stdin content, so tests read as transcripts.
-fn script(lines: &[&str]) -> String {
+pub(crate) fn script(lines: &[&str]) -> String {
     lines.iter().map(|l| format!("{l}\n")).collect()
 }
 
 /// How many times a transcript asked for a passphrase.
-fn passphrase_prompts(r: &CliResult) -> usize {
+pub(crate) fn passphrase_prompts(r: &CliResult) -> usize {
     format!("{}{}", r.stdout, r.stderr)
         .matches("Enter passphrase for vault")
         .count()
@@ -86,11 +86,11 @@ fn step_clock(step: Duration) -> impl Fn() -> Instant {
 impl Env {
     /// Bare `gage` on a "terminal", fed `script` through the real
     /// terminal prompter (Go's `runSessionScript`).
-    fn session(&self, script: &str) -> CliResult {
+    pub(crate) fn session(&self, script: &str) -> CliResult {
         self.session_with_clock(script, &Instant::now)
     }
 
-    fn session_with_clock(&self, script: &str, now: &dyn Fn() -> Instant) -> CliResult {
+    pub(crate) fn session_with_clock(&self, script: &str, now: &dyn Fn() -> Instant) -> CliResult {
         let input = SharedInput(Rc::new(RefCell::new(Cursor::new(
             script.as_bytes().to_vec(),
         ))));
@@ -111,7 +111,7 @@ impl Env {
                 build: BuildInfo::stamped(),
                 dirs: &move || Ok(dirs.clone()),
                 hostname: &move || Ok(hostname.clone()),
-                editor: None,
+                editor: self.editor.lock().unwrap().clone(),
                 now,
             };
             crate::run(&[], &mut io, &prompter)
@@ -124,7 +124,7 @@ impl Env {
     }
 
     /// A session that must end cleanly.
-    fn session_ok(&self, lines: &[&str]) -> CliResult {
+    pub(crate) fn session_ok(&self, lines: &[&str]) -> CliResult {
         let r = self.session(&script(lines));
         assert_eq!(r.code, Code::Success, "session failed:\n{}", r.stderr);
         r
@@ -132,7 +132,7 @@ impl Env {
 
     /// `name` gets an entry `title` holding `value`, through one-shot
     /// `insert`.
-    fn add(&self, name: &str, title: &str, value: &str) {
+    pub(crate) fn add(&self, name: &str, title: &str, value: &str) {
         self.insert_ok(value, &["--use", name, title]);
     }
 

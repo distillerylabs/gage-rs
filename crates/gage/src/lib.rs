@@ -20,11 +20,15 @@ pub mod gitrepo;
 pub mod gittest;
 pub mod identity;
 pub mod identityfile;
+mod index;
+#[cfg(test)]
+mod index_tests;
 pub mod locker;
 pub mod memlock;
 pub mod paths;
 pub mod prompter;
 pub mod recipients;
+pub mod search;
 pub mod session;
 #[cfg(test)]
 mod session_tests;

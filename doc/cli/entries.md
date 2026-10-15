@@ -6,13 +6,15 @@ in the vault, encrypted to every recipient the vault lists, and every
 write is one git commit.
 
 > **Status.** gage-rs can `insert`, `generate`, `show`, `cat`, `edit`,
-> `rename`, `rm` and `ls` entries. Run one-shot, each command unlocks the
-> vault, does one thing and forgets the key; in a
-> [session](session-mode.md) they all reuse the key the session holds.
-> `search` arrives later in phase 3 of the
-> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md), sync
-> with phase 4; `show`/`generate`'s `-c`/`--clip` and `-q`/`--qr`, and `ls
-> --header`, with phase 6.
+> `rename`, `rm`, `ls` and `search` entries. Run one-shot, each command
+> unlocks the vault, does one thing and forgets the key; in a
+> [session](session-mode.md) they all reuse the key the session holds,
+> and `ls`, queries and `search` read its
+> [metadata index](session-mode.md#the-metadata-index). Sync arrives with
+> phase 4 of the
+> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md);
+> `show`/`generate`'s `-c`/`--clip` and `-q`/`--qr`, and `ls --header`,
+> with phase 6.
 
 Every entry command takes `-u`/`--use NAME` to pick a vault. Without it,
 the current vault is used (see [Vaults](vaults.md)). A name that isn't
@@ -159,6 +161,30 @@ ProtonMail  3f9a1c2e  2026-01-14  2026-03-02  laptop-1
 The columns are title, short id (the first 8 characters), created,
 updated (both UTC, to the day) and `updated_by`. `-` stands in for any
 value an entry doesn't have. An empty vault prints nothing.
+
+## `gage search <pattern>` (alias `grep`)
+
+Finds entries whose title, description, value or any field value contains
+`<pattern>`, ignoring case. Each match prints as its title and short id,
+sorted like `ls`:
+
+```
+$ gage search aws
+AWS root account  4b9d7710
+Cloud creds  9e01c3aa
+```
+
+It never prints what matched: a match in a value or field is a match in a
+secret, and that stays out of scrollback. No match prints nothing at all,
+so `gage search x | wc -l` counts matches. Like `ls`, it decrypts the
+whole vault one-shot; in a session, titles and descriptions come from the
+index and only the body half is decrypted.
+
+## `gage reindex`
+
+Rebuilds a [session's](session-mode.md#the-metadata-index) metadata
+index. One-shot there is no index, so it checks the vault resolves and
+says there is nothing to reindex.
 
 ## Addressing an entry
 

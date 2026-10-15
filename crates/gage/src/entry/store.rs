@@ -83,6 +83,7 @@ impl Vault {
                 });
             }
         };
+        self.decrypts.bump();
         let plaintext = Zeroizing::new(crypt::decrypt(&ciphertext, identity)?);
         unmarshal(&plaintext)
     }
