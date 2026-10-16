@@ -5,11 +5,10 @@
 //! test is the last one here; the real-terminal one is
 //! `tests/complete_pty.rs`.
 //!
-//! One substitution, to be undone when P5 registers `identity`: Go's
-//! `identity` has `add`/`enroll`/`list` children and is the abbreviation
-//! target (`ident`); `identity` doesn't exist yet, so the registry's
-//! `vault` parent (`list`/`info`/`remove`/`set-default`) and the word
-//! `vau` stand in.
+//! One difference from Go, until P7 registers `identity enroll`: Go's
+//! `identity` has `add`/`enroll`/`list` children, and here it has `add` and
+//! `list`. The `vault` parent keeps its own coverage beside the `identity`
+//! form (M13's substitution, undone in P5 · M9a).
 
 use std::sync::Arc;
 
@@ -122,13 +121,21 @@ fn prefix_matches_dedupes_and_sorts() {
 
 // --- top_level_session_names -------------------------------------------------------
 
-// Go: TestTopLevelSessionNamesIncludesGroupsAndAliases. `identity`,
-// `recipient`, `auth` join the list when P4-P5 register them.
+// Go: TestTopLevelSessionNamesIncludesGroupsAndAliases.
 #[test]
 fn top_level_session_names_includes_groups_and_aliases() {
     let names = top_level_session_names(&registry());
     for want in [
-        "vault", "git", "use", "status", "whoami", "search", "grep", "quit",
+        "vault",
+        "git",
+        "identity",
+        "recipient",
+        "use",
+        "status",
+        "whoami",
+        "search",
+        "grep",
+        "quit",
     ] {
         assert!(names.iter().any(|n| n == want), "missing {want}: {names:?}");
     }
@@ -170,10 +177,10 @@ fn resolve_session_command_name_exact_alias_unchanged() {
     assert_eq!(resolved("whoami"), "whoami");
 }
 
-// Go: TestResolveSessionCommandNameUnambiguousAbbreviation (`ident` ->
-// `identity`; see the module doc's substitution).
+// Go: TestResolveSessionCommandNameUnambiguousAbbreviation
 #[test]
 fn resolve_session_command_name_unambiguous_abbreviation() {
+    assert_eq!(resolved("ident"), "identity");
     assert_eq!(resolved("vau"), "vault");
 }
 
@@ -296,8 +303,20 @@ fn flag_candidates_skips_hidden_flags() {
     assert!(!got.contains(&"--secret-debug".to_string()), "{got:?}");
 }
 
-// Go: TestSubcommandCandidatesListsIdentityChildren, on `vault` until P5
-// registers `identity` (module doc).
+// Go: TestSubcommandCandidatesListsIdentityChildren. `enroll` joins in P7.
+#[test]
+fn subcommand_candidates_lists_identity_children() {
+    let reg = registry();
+    let root = root(&reg);
+    let identity = root.find_subcommand("identity").unwrap();
+    assert_eq!(
+        sorted(subcommand_candidates(&reg, identity)),
+        ["add", "list"]
+    );
+}
+
+// The same function on the `vault` parent M13 used before `identity`
+// existed.
 #[test]
 fn subcommand_candidates_lists_the_parents_children() {
     let reg = registry();
@@ -427,7 +446,16 @@ fn completing_flag_position_lists_command_flags() {
     assert!(got.contains(&"--force".to_string()), "{got:?}");
 }
 
-// Go: TestCompletingSubcommandListsIdentityChildren (`vault`; module doc)
+// Go: TestCompletingSubcommandListsIdentityChildren
+#[test]
+fn completing_subcommand_lists_identity_children() {
+    let (reg, env) = (registry(), Env::new());
+    assert_eq!(
+        sorted(complete_at(&reg, &env, None, "identity ")),
+        ["add", "list"]
+    );
+}
+
 #[test]
 fn completing_subcommand_lists_the_parents_children() {
     let (reg, env) = (registry(), Env::new());

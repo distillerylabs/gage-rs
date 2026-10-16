@@ -77,8 +77,8 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 ([plan](p3-query-session/m5-query-resolution.md)) | `[x]` `resolve_query` runs both title stages before either UUID stage; `resolve_exact_title_wins_over_uuid_match`, `cat_resolves_by_exact_title_even_when_query_is_also_a_uuid_substring` |
 | `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[x]` `memlock::LockedBuf` gives each key its own pages; `alloc_gives_each_buffer_its_own_page`, `unlocking_one_buffer_leaves_another_locked` |
 | `e52828a` | — | Scrypt work-factor test hook and its guard tests | P2 · M2 | `[~]` identity-file halves done (Q-SCRYPT-HOOK); the enrollment halves are P7's |
-| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders; M1: `[vault].id`, format 2 with the directional refusal, the registration-vs-vault id check; M2: identity files filed under the committed id, the `vault-name.txt` marker, `init`'s rollback |
-| `3fd784c`, `fbc887f` | #46 | E1a unconditional re-encrypt + recipient regression fixes | Folded: P5 · M9 | `[ ]` |
+| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders; M1: `[vault].id`, format 2 with the directional refusal, the registration-vs-vault id check; M2: identity files filed under the committed id, the `vault-name.txt` marker, `init`'s rollback; M10: the trust cache under `$GAGE_STATE/<vault-id>/`, deleted by `vault remove` from the registration's recorded id (`two_vaults_under_one_local_name_share_neither_directory`) `[x]` |
+| `3fd784c`, `fbc887f` | #46 | E1a unconditional re-encrypt + recipient regression fixes | Folded: P5 · M9b ([#43](https://github.com/distillerylabs/gage-rs/issues/43)): `recipient add` has no `--reencrypt` and always re-encrypts; the `RequireFullAccess` pre-flight with its clean-tree gate | `[x]` |
 | `045bf24`, `9d72384` | #48 | E1b shared recipient write + fixes | P7 · E1b | `[ ]` |
 | `798ed47` | — | E2 sealed request | P7 · E2 | `[ ]` |
 | `c86ad4c` | — | E3 joining side | P7 · E3 | `[ ]` |
@@ -103,7 +103,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
 | | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[x]` |
 | | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[x]` M8a1 ([#33](https://github.com/distillerylabs/gage-rs/issues/33)), M8a2 ([#34](https://github.com/distillerylabs/gage-rs/issues/34)), M8b ([#35](https://github.com/distillerylabs/gage-rs/issues/35)) |
-| | M9 (+ A19), M10, M11 | P5 | `[ ]` |
+| | M9 (+ A19), M10, M11 | P5 ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)): M9 → M9a + M9b, M10, M11 | `[x]` M9a ([#42](https://github.com/distillerylabs/gage-rs/issues/42)) `[x]`; M9b ([#43](https://github.com/distillerylabs/gage-rs/issues/43)) `[x]`; M10 ([#44](https://github.com/distillerylabs/gage-rs/issues/44)) `[x]` (38 rows + 3 inbound, both P4 follow-ups; CI green on all three platforms); M11 ([#45](https://github.com/distillerylabs/gage-rs/issues/45)) `[x]` (20 rows; CI green on all three platforms) |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
 | | "Post-plan changes" section | Rows in §2 | — |
 | `gage-cli-init-design/` | E0, E1a | Folded (see §2) | `[ ]` |
@@ -128,8 +128,8 @@ to match Cobra's layout.
 | `show`, `edit`, `rename`, `generate` | P3 · M5 `[x]` (all fixture flags but `-c`/`-q` on `show` and `generate`, which are P6 · M12; checked by `m5_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `search`, `reindex` | P3 · M7 `[x]` (name, alias `grep`, group, arguments and `-u/--use` match; checked by `m7_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 · M8a1 `[x]` (name, group Git-specific, both modes, `--host`, `login`'s long help; checked by `p4_auth_commands_have_their_go_fixture_flags_and_descriptions`) |
-| `clone`, `sync`, `pull`, `push` | P4 · M8a2 `[x]` `clone` (one-shot, `--name`/`--dir`/`--device`), `sync`/`pull`/`push` (group Sync, both modes, `-u/--use`), `init --remote` (checked by `p4_sync_commands_have_their_go_fixture_flags_and_descriptions`); `sync`'s resolving half: P4 · M8b `[x]` (the `[l/r/b/s/q]` menu, lazy unlock, refusal with nobody to ask; `sync --yes` stays an unknown flag, pinned by `yes_does_not_resolve_conflicts`) (`clone`'s enrollment offer is P7's; `sync --yes` arrives with P5 · M10) |
-| `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5 |
+| `clone`, `sync`, `pull`, `push` | P4 · M8a2 `[x]` `clone` (one-shot, `--name`/`--dir`/`--device`), `sync`/`pull`/`push` (group Sync, both modes, `-u/--use`), `init --remote` (checked by `p4_sync_commands_have_their_go_fixture_flags_and_descriptions`); `sync`'s resolving half: P4 · M8b `[x]` (the `[l/r/b/s/q]` menu, lazy unlock, refusal with nobody to ask; `sync --yes` stays an unknown flag, pinned by `yes_does_not_resolve_conflicts`) (`clone`'s enrollment offer is P7's); `sync --yes`: P5 · M10, the root flag accepted and the conflict still refused (`yes_does_not_resolve_conflicts`, premise updated) `[x]` |
+| `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5: `identity*`, `recipient`, `recipient_list`, `recipient_verify` in M9a `[x]` (CI green on all three platforms, matched by `p5_identity_commands_have_their_go_fixture_flags_and_descriptions`; `verify`'s `--repair` prose is M10's); `recipient_add`, `recipient_remove` in M9b `[x]` (matched by the same test); `recipient verify --repair` (full fixture prose and flag) and the root `--yes` (hidden, as Go's help lists no inherited flag) in M10 `[x]`, matched by the same test; `mv`, `cp` in M11 `[x]` (matched by `p5_mv_and_cp_have_their_go_fixture_flags_and_descriptions`) |
 | `log`, `history` (and the output flags `--clip`, `--qr`, `--script`; `show --field` itself is P3 · M5) | P6 |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |
 | `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8 |
@@ -150,9 +150,9 @@ an equivalent Rust test the milestone doc names) or excused in writing.
 | P2 | 193 | `agekey`, `memlock`, `vault` (`Identity` close and page lock), `crypt`, `unlock`, `identityfile_marker`, `init_identity`, `prompter`(`_pty`), `coredump`, `testsupport`; `entry`, `field`, `entry_crud`, `insert_field`, `insert_multiline_pty` |
 | P3 | 225 | `resolve`(`_cli`), `generate`, `rename`, `edit`, `show`, `session`, `shell`, `repl`, `session_pty`, `sessionhelp`, `index`, `search`, `complete`(`_pty`); `entry_edit`, `insert_edit`, `editor`, `scratchdir*` |
 | P4 | 166 | `gitrepo/*` (less `history`), `remoteauth`, `syncerr`, `remotesync`, `sync_index`, `syncresolve`(`_cli`), `sync_cli`, `clone`, `auth`, `init_remote_auth` |
-| P5 | 136 | `recipients`, `recipient`, `recipient_batch`, `reencrypt`, `recipient_cli`, `identity_add`, `identity_cli`, `trustcache`(`_cli`), `move` |
+| P5 | 121 | `recipients`, `recipient`, `reencrypt`, `recipient_cli`, `identity_add`, `identity_cli`, `trustcache`(`_cli`), `move` |
 | P6 | 87 | `clip`, `qr`, `log`, `history`, `script`, `cat`, `gitrepo/history` |
-| P7 | 186 | `enroll*`, `enrollment`, `approve_cli`, `approve_scope_cli`, `clone_enroll`, `enroll_cli`, `enroll_prompter` |
+| P7 | 201 | `enroll*`, `enrollment`, `approve_cli`, `approve_scope_cli`, `clone_enroll`, `enroll_cli`, `enroll_prompter`, `recipient_batch` (E1b) |
 | P8 | 92 | `recovery_key`, `recovery_enroll`, `recovery`, `init_recoverykey` |
 
 Known coarse spots to resolve when the phase is planned:
@@ -195,6 +195,15 @@ moved from M8a2), with M8b excusing one
 [Q-CONFLICT-PROMPTER](open-questions.md#q-conflict-prompter)). See the
 [P4 plan](p4-sync/index.md#inventory-accounting).
 
+Resolved in P5 planning: `recipient_batch_test.go` (15 rows) was re-tagged
+P7 in the phase map, because it tests E1b's N-recipient write, whose only
+consumer is E4 ([Q-E1B-RETAG](open-questions.md#q-e1b-retag)). The other
+121 are split M9a (26), M9b (37), M10 (38) and M11 (20). P5 also claims
+six rows left by earlier phases: two `vaultid_keying` rows, the
+`identity list` half of a third, M13's `identity` completion form and two
+`prompter` rows. See the
+[P5 plan](p5-recipients-trust/index.md#inventory-accounting).
+
 ## 6. User docs (Go `doc/cli/`)
 
 gage-rs ports these as the behavior lands, so docs describe shipped
@@ -207,7 +216,7 @@ behavior; each phase's last milestone updates the pages for its surface.
 | `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker; M7 `[x]` the index; M13 `[x]` the title completion source (enrollment ids are P7's) |
 | `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 `[x]` the metadata index and `reindex`; M13 `[x]` completion and abbreviation; `--script`/`--stdin` and `GAGE_PASSPHRASE` are P6 · M12's, enrollment's session behavior P7's |
 | `sync.md`, `git-and-auth.md` | P4 · M8b `[x]` (with `exit-codes.md`'s `Unreachable` and sync meanings of 1 and 5, and `configuration.md`'s tokens directory); describes P4 only: the recipient-change confirmation and enrollment exceptions arrive with P5 and P7 |
-| `identities-and-recipients.md`, `sharing.md` | P5 (+ P8 for the recovery sections) |
+| `identities-and-recipients.md`, `sharing.md` | P5 · M11 `[x]` written (identities, recipients, `verify`/`--repair`, the trust cache and `--yes`, `mv`/`cp`); P7 adds enrollment, P8 the recovery sections |
 | `enrollment.md` | P7 |
 | `README.md`, `getting-started.md`, `command-reference.md` | Grown each phase; final pass in P9 |
 

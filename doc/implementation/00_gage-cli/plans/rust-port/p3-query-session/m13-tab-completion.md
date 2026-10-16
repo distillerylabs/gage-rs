@@ -173,8 +173,12 @@ Tests first, at task granularity.
 Written as planned; the choices the plan left open, and the places the
 code differs from Go:
 
-- **`identity` substitution** (tasks 2–4): `identity` isn't registered
-  until P5, so the tests use the `vault` parent (`list`/`info`/`remove`/
+- **`identity` substitution** (tasks 2–4), **undone in P5 · M9a**: the
+  `identity` forms of `TestSubcommandCandidatesListsIdentityChildren`,
+  `TestCompletingSubcommandListsIdentityChildren` and the `ident`
+  abbreviation are now in `complete_tests.rs`, with `enroll` joining in
+  P7. The `vault` versions stay as extra coverage. As written in P3,
+  `identity` wasn't registered until P5, so the tests used the `vault` parent (`list`/`info`/`remove`/
   `set-default`) and the abbreviation `vau`. Go's `l` is ambiguous across
   `lock`, `log`, `ls`; here it is `lock`, `ls` (`log` is P4's). Both
   swap back when those commands are registered; `complete_tests.rs` says

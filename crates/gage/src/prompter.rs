@@ -16,6 +16,7 @@ use zeroize::Zeroizing;
 use crate::entry::CandidateList;
 use crate::exitcode::{Code, HasCode};
 use crate::syncresolve::{EntryConflict, Resolution};
+use crate::trustcache::RecipientChangeWarning;
 
 /// The identity method an [`UnlockRequest`] is asking about. Unlocking is
 /// one method-agnostic exchange rather than a passphrase-specific call, so
@@ -128,11 +129,12 @@ pub enum PromptError {
     /// query always has at least two candidates.
     #[error("gage: asked to choose from an empty candidate list")]
     EmptyCandidates,
-    /// Asked which version of a conflicted entry to keep with nobody to
-    /// ask: a script, a `--stdin` session, CI. gage never picks a side on
-    /// its own; a silent choice is the last-write-wins outcome the sync
-    /// model exists to refuse (Go's `ErrNotInteractive`).
-    #[error("gage: resolving an entry conflict needs someone to ask")]
+    /// A question only a human can answer, with nobody to ask: a script, a
+    /// `--stdin` session, CI. Which version of a conflicted entry to keep
+    /// (gage never picks a side on its own; a silent choice is the
+    /// last-write-wins outcome the sync model exists to refuse), or whether
+    /// to trust a changed recipient list (Go's `ErrNotInteractive`).
+    #[error("gage: this question needs someone to ask, and nobody is at a terminal")]
     NotInteractive,
     /// The frontend's retry policy ended a conflict question without an
     /// answer it recognized.
@@ -198,6 +200,26 @@ pub trait Prompter {
         Err(PromptError::NotInteractive)
     }
 
+    /// Asks whether to trust a recipient list that changed since this
+    /// device last confirmed one, before anything is encrypted to it. The
+    /// warning carries the diff and whether the vault's two recipient
+    /// files agree; a CLI renders the design doc's diff and `[y/N]`, a GUI
+    /// a dialog. `false` refuses the write.
+    ///
+    /// The default refuses with [`PromptError::NotInteractive`], as
+    /// [`Prompter::resolve_conflict`]'s does (Q-RECIPIENT-PROMPT): a
+    /// frontend with nobody to ask can't approve, and an unapproved list is
+    /// exactly what the check won't encrypt to. What confirming *means*
+    /// (regenerate the cache, or only note a mismatch was seen) is decided
+    /// by the library, never by the frontend.
+    fn confirm_recipient_change(
+        &self,
+        warning: &RecipientChangeWarning,
+    ) -> Result<bool, PromptError> {
+        let _ = warning;
+        Err(PromptError::NotInteractive)
+    }
+
     /// Delivers a non-fatal advisory to surface once: today, that
     /// page-locking key material failed and the unlock is proceeding
     /// without it, or that an existing identity file was reused. It
@@ -227,13 +249,17 @@ mod fake {
     #[derive(Debug, Default)]
     pub struct FakePrompter {
         unlocks: Mutex<VecDeque<Result<UnlockResponse, PromptError>>>,
-        confirms: Mutex<VecDeque<bool>>,
+        confirms: Mutex<VecDeque<Result<bool, PromptError>>>,
         values: Mutex<VecDeque<Result<String, PromptError>>>,
         choices: Mutex<VecDeque<Choice>>,
         /// `None` until a resolution is scripted: a fake nobody scripted
         /// answers is a frontend with nobody to ask, and refuses as the
         /// trait's default does.
         resolutions: Mutex<Option<Resolutions>>,
+        /// `None` until an answer is scripted: unscripted, the fake is a
+        /// frontend with nobody to ask, and refuses as the default does.
+        recipient_answers: Mutex<Option<VecDeque<bool>>>,
+        asked_recipient: Mutex<Vec<RecipientChangeWarning>>,
         asked_unlock: Mutex<Vec<UnlockRequest>>,
         asked_confirm: Mutex<Vec<String>>,
         asked_value: Mutex<Vec<String>>,
@@ -290,8 +316,31 @@ mod fake {
         }
 
         pub fn with_confirm(self, answer: bool) -> FakePrompter {
-            self.confirms.lock().unwrap().push_back(answer);
+            self.confirms.lock().unwrap().push_back(Ok(answer));
             self
+        }
+
+        /// Fails the next confirmation with `err`.
+        pub fn with_confirm_error(self, err: PromptError) -> FakePrompter {
+            self.confirms.lock().unwrap().push_back(Err(err));
+            self
+        }
+
+        /// Answers the next recipient-change questions with `answers`, in
+        /// order. Scripting none still marks the fake as a frontend that
+        /// can be asked: a question then fails the test.
+        pub fn with_recipient_answers(self, answers: &[bool]) -> FakePrompter {
+            self.recipient_answers
+                .lock()
+                .unwrap()
+                .get_or_insert_with(VecDeque::new)
+                .extend(answers);
+            self
+        }
+
+        /// Every recipient-change warning handed over, in order.
+        pub fn recipient_changes(&self) -> Vec<RecipientChangeWarning> {
+            self.asked_recipient.lock().unwrap().clone()
         }
 
         pub fn with_value(self, value: &str) -> FakePrompter {
@@ -390,12 +439,11 @@ mod fake {
 
         fn confirm(&self, prompt: &str) -> Result<bool, PromptError> {
             self.asked_confirm.lock().unwrap().push(prompt.to_string());
-            Ok(self
-                .confirms
+            self.confirms
                 .lock()
                 .unwrap()
                 .pop_front()
-                .unwrap_or_else(|| panic!("FakePrompter: unscripted confirm {prompt:?}")))
+                .unwrap_or_else(|| panic!("FakePrompter: unscripted confirm {prompt:?}"))
         }
 
         fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError> {
@@ -429,6 +477,23 @@ mod fake {
 
         fn warn(&self, msg: &str) {
             self.warnings.lock().unwrap().push(msg.to_string());
+        }
+
+        fn confirm_recipient_change(
+            &self,
+            w: &RecipientChangeWarning,
+        ) -> Result<bool, PromptError> {
+            self.asked_recipient.lock().unwrap().push(w.clone());
+            let mut scripted = self.recipient_answers.lock().unwrap();
+            let Some(scripted) = scripted.as_mut() else {
+                return Err(PromptError::NotInteractive);
+            };
+            Ok(scripted.pop_front().unwrap_or_else(|| {
+                panic!(
+                    "FakePrompter: unscripted recipient change for {:?}",
+                    w.vault
+                )
+            }))
         }
 
         fn resolve_conflict(&self, c: &EntryConflict) -> Result<Resolution, PromptError> {

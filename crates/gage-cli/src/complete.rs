@@ -39,7 +39,9 @@ use crate::registry::Registry;
 /// entry but for which existing titles are still worth seeing (to avoid a
 /// duplicate). Go's `mv` and `cp` join when they are registered. One list,
 /// so the decision lives in one place.
-const ENTRY_QUERY_COMMANDS: [&str; 6] = ["show", "cat", "edit", "rename", "generate", "rm"];
+const ENTRY_QUERY_COMMANDS: [&str; 8] = [
+    "show", "cat", "edit", "rename", "generate", "rm", "mv", "cp",
+];
 
 /// Every candidate that starts with `prefix`, deduplicated and sorted.
 pub fn prefix_matches(candidates: &[String], prefix: &str) -> Vec<String> {

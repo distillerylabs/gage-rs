@@ -12,6 +12,11 @@ extends it. For everything gage will do, see [Go gage's documentation](https://g
   and what happens when it finds more than one.
 - [Session mode](session-mode.md): `gage` with no command, which unlocks
   each vault once for many commands.
+- [Identities and recipients](identities-and-recipients.md): who can read a
+  vault, adding and removing recipients, `recipient verify`, the local
+  trust cache and the recipient-change confirmation.
+- [Sharing entries between vaults](sharing.md): `mv` and `cp` with
+  `--to-vault`.
 - [Sync and conflicts](sync.md): the automatic pull and push, `sync`,
   `pull` and `push`, and resolving an entry both devices changed.
 - [Git remotes and authentication](git-and-auth.md): `init --remote`,

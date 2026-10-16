@@ -265,6 +265,32 @@ impl<'a> Session<'a> {
         Ok(&self.hold(&name)?.vault)
     }
 
+    /// A source vault with its unlocked identity, and a second vault to
+    /// write into, for `mv`/`cp`. The destination is held (registered, so
+    /// a later pull still invalidates its index) but never unlocked:
+    /// encrypting to its recipients needs no private key. It is opened
+    /// first, so a destination that isn't registered fails before the
+    /// source asks for a passphrase. One method rather than two
+    /// [`Session::vault`] calls because each borrows the whole session.
+    pub fn vault_and_destination(
+        &mut self,
+        source: Option<&str>,
+        dest: &str,
+    ) -> Result<(&Vault, &Identity, &Vault), SessionError> {
+        if dest.is_empty() {
+            return Err(SessionError::NoCurrentVault {
+                hint: "name the destination vault",
+            });
+        }
+        self.enter();
+        self.hold(dest)?;
+        self.vault(source)?;
+        let source = self.target(source)?;
+        let (src, dst) = (&self.vaults[&source], &self.vaults[dest]);
+        let identity = src.identity.as_ref().expect("unlocked above");
+        Ok((&src.vault, identity, &dst.vault))
+    }
+
     /// `gage sync` with interactive resolution in a vault (`None` is the
     /// current one), through this session's prompter. A conflict reuses
     /// the identity the session already holds, so nobody is asked twice; a

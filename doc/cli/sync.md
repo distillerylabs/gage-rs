@@ -158,10 +158,12 @@ Run it again from a terminal.
 
 - **The recipient files.** A divergence in `.age-recipients` or
   `.gage/config.toml` is refused with the paths named. Those files decide
-  who can read the vault, and they are never offered in this menu. The
-  recipient-change confirmation that resolves them arrives with the
-  recipient commands in a later phase of the
-  [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
+  who can read the vault, and they are never offered in this menu. When
+  the other device's recipient change fast-forwards or merges cleanly,
+  `sync` and `pull` print a one-line warning that the list changed since
+  this device last confirmed it; the question itself is asked before the
+  next write that encrypts something. See
+  [the recipient-change confirmation](identities-and-recipients.md#the-recipient-change-confirmation).
 - **Anything that isn't an entry.** A vault is an ordinary git repository,
   so a file you added yourself can conflict too. gage has no version of it
   to offer, refuses (exit `1`) naming the path, and asks for no

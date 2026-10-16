@@ -18,7 +18,7 @@ impl Vault {
     }
 
     /// `<vault>/entries/<id>.age`.
-    pub(super) fn entry_path(&self, id: Uuid) -> PathBuf {
+    pub(crate) fn entry_path(&self, id: Uuid) -> PathBuf {
         self.entries_dir().join(format!("{id}{ENTRY_FILE_EXT}"))
     }
 
@@ -42,7 +42,20 @@ impl Vault {
     /// The caller holds the vault's write lock and commits; this only
     /// writes the file.
     pub fn write_entry(&self, id: Uuid, e: &Entry) -> Result<(), Error> {
-        let ciphertext = self.encrypt_entry(e)?;
+        self.write_entry_to(id, e, &self.encrypt_recipients()?)
+    }
+
+    /// [`Vault::write_entry`] to an explicit recipient list rather than
+    /// the one on disk: what a re-encryption needs, since it writes every
+    /// entry to the new list *before* the recipient files change (that
+    /// order is its crash safety).
+    pub(crate) fn write_entry_to(
+        &self,
+        id: Uuid,
+        e: &Entry,
+        to: &[crypt::Recipient],
+    ) -> Result<(), Error> {
+        let ciphertext = crypt::encrypt(&marshal(e)?, to)?;
 
         let dir = self.entries_dir();
         std::fs::create_dir_all(&dir).map_err(|source| Error::Io {

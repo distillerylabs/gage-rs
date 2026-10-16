@@ -246,6 +246,9 @@ fn run_command(
             Ok(())
         }
         Outcome::Session => Ok(()),
+        Outcome::Command(_, matches) if crate::assumeyes::given(&matches) => {
+            Err(crate::assumeyes::refused_in_session())
+        }
         Outcome::Command(name, matches) => {
             commands::run(name, &matches, io, &mut Keys::Session(session)).unwrap_or_else(|| {
                 Err(CliError::new(

@@ -6,7 +6,7 @@ in the vault, encrypted to every recipient the vault lists, and every
 write is one git commit.
 
 > **Status.** gage-rs can `insert`, `generate`, `show`, `cat`, `edit`,
-> `rename`, `rm`, `ls` and `search` entries. Run one-shot, each command
+> `rename`, `rm`, `mv`, `cp`, `ls` and `search` entries. Run one-shot, each command
 > unlocks the vault, does one thing and forgets the key; in a
 > [session](session-mode.md) they all reuse the key the session holds,
 > and `ls`, queries and `search` read its
@@ -149,6 +149,13 @@ prints `gage: renamed to "<title>" (<short id>)`.
 
 Deletes the entry and commits the deletion. It prints `gage: removed
 <id>`.
+
+## `gage mv <query> --to-vault <name>` and `gage cp`
+
+Moves (or copies, keeping the original) the entry into another vault,
+re-encrypted to that vault's recipients. The destination is never
+unlocked. It prints `gage: moved "<title>" to <name> (<new id>)`. See
+[Sharing entries between vaults](sharing.md).
 
 ## `gage ls`
 

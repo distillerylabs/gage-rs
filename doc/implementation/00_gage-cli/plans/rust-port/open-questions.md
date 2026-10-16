@@ -852,6 +852,166 @@ Go's `TestNilPrompterRefusesRatherThanPanicking` is excused: a
 
 ---
 
+## Resolved in P5 planning
+
+Settled in [#41](https://github.com/distillerylabs/gage-rs/issues/41) and
+the [P5 plan](p5-recipients-trust/index.md).
+
+### `[x]` Q-E1B-RETAG — Where do `recipient_batch_test.go`'s rows belong? {#q-e1b-retag}
+
+**Resolved: in P7 · E1b, not P5.**
+
+The phase map tagged the file P5 by its name. Its 15 tests cover E1b's
+N-recipient form of `AddRecipient`:
+
+- a slice of recipients under one lock, one trust question, one
+  re-encryption pass and one commit
+- extra paths deleted in that commit
+- a caller-supplied failed-push clause
+
+E1b is a pure refactor with no observable change, and its only consumer
+is E4's batch `recipient approve`. Porting it in P5 would build machinery
+for a caller two phases away. M9b builds the single-recipient write, and
+E1b widens it, as in Go. `phase-map.awk` now tags `recipient_batch` P7,
+which leaves P5 with 121 rows and P7 with 201.
+
+### `[x]` Q-P5-SPLIT — How is Go's M9 split? {#q-p5-split}
+
+**Resolved: M9a (identities and the read side of recipients, on Sonnet)
+and M9b (recipient writes, re-encryption atomicity and the dirty-tree
+reset, on Opus).**
+
+Go's M9 is about 63 rows here. Two kinds of risk share it:
+
+- the read side, which is additive and needs no unlock for `verify`
+- the write side, whose correctness shows only after a crash
+
+Splitting by risk follows P4's split of M8a, and keeps the crash-safety
+work in a milestone of its own.
+
+### `[x]` Q-CRASH-SEAM — How do tests interrupt a re-encryption or a move? {#q-crash-seam}
+
+**Resolved: `#[cfg(test)]` hook fields on `Vault`, matching Go's
+unexported `onReencryptEntry` and `onMoveDestCommitted`.**
+
+Every test that needs one is a library test inside the crate (the
+`*_tests.rs` modules), so `cfg(test)` is enough. No `test-support` feature
+is needed, and the hooks don't exist in any non-test build.
+
+Go's M9 review found that the hook can't reach the window after the
+recipient files are written. The test for that window calls the real
+`write_recipient_files` rather than hand-writing lookalike files.
+
+~~A hook stands in for a crash by returning an error.~~ **Amended at the
+start of M9b:** a hook stands in for a crash by *panicking*, as Go's
+does, and the test catches the unwind (`catch_unwind`) and re-raises any
+other panic. A returned error would run the error-handling path, so a
+cleanup-on-failure added later would make every crash test prove that
+cleanup rather than that an interruption is invisible. Unwinding runs only
+`Drop`s: the lock's releases it, as the OS does for a killed process, and
+the files on disk stay as the crash left them. Nothing in the library
+catches an unwind. The hook is a zero-sized field outside `cfg(test)`
+(the `DecryptCounter` pattern), so `Vault`'s constructors and derives are
+unchanged.
+
+### `[x]` Q-TRUST-HASH — How is `.age-recipients` hashed, and who computes the diff? {#q-trust-hash}
+
+**Resolved: SHA-256 from `sha2`, and gage's own LCS unified diff.**
+
+`sha2` is already in the tree through `age`. M10 adds it as a direct
+dependency at that version, and `cargo tree -d` must show no second copy.
+
+The diff is ported from Go's `unifiedDiff` and
+`longestCommonSubsequence`, with Go's test. It diffs a few short TOML
+files, so a diff crate would add a dependency for about a hundred
+lines.
+
+### `[x]` Q-RECIPIENT-PROMPT — How is a recipient change confirmed, and what is `--yes`? {#q-recipient-prompt}
+
+**Resolved:
+`Prompter::confirm_recipient_change(&RecipientChangeWarning) -> Result<bool, PromptError>`,
+with a default that returns `PromptError::NotInteractive`, as
+[Q-CONFLICT-PROMPTER](#q-conflict-prompter) does. `--yes` is a
+`gage-cli` root flag that wraps the prompter and answers only this
+method.**
+
+Go asks through `ident.frontend()`, the prompter the identity was unlocked
+with. The Rust `Identity` carries no prompter ([Q-IDENTITY-SECRET](#q-identity-secret)).
+Every write already takes `prompter: &dyn Prompter`, and the questions go
+through that parameter: M9b's self-removal `confirm`, M10's trust
+question and `--repair`'s `confirm`.
+
+The library decides cache regeneration from `verify_recipients`, so
+*who* answered can't change whether the cache is regenerated. `--yes`
+never answers `confirm`, so "remove this device's own key?" stays a real
+question in a scripted run.
+
+`--yes` is refused in a session, both on a session line and on the way
+in. A session's writes ask through the prompter the session holds, so a
+`--yes` on one line would do nothing. A `--yes` on the way in would wrap
+that prompter for the session's whole life and silently approve every
+change.
+
+Settled at the start of M10 implementation:
+
+- **The terminal prompter refuses when nobody is at it** (a deliberate
+  deviation). Go's `ConfirmRecipientChange` renders and reads a line
+  regardless, so on piped input it spends whatever line comes next as the
+  answer: `printf 'pass\nvalue' | gage insert x --value-stdin` would
+  answer with the value. gage-rs refuses with `NotInteractive` before
+  drawing or reading anything, as its `resolve_conflict` does. The outcome
+  is Go's bare-Enter outcome (no write, exit Conflict) without consuming
+  input; `--yes` is how a script answers yes.
+- **No script-mode exception yet.** Go lets `--yes` through in a
+  `--script`/`--stdin` session, which is the CI case the flag exists for.
+  gage-rs has no script mode, so every session is a terminal one and both
+  refusals apply unconditionally. Script mode, when it is ported, brings
+  Go's exception with it.
+- **`--yes` is hidden from help.** Go's captured help lists no inherited
+  flag anywhere (`tests/fixtures/go/help/`), so the clap flag is global
+  and hidden to match. It is accepted before or after the command.
+- **The opportunistic sync hook is `sync_resolving`'s**, after its pull,
+  as in Go's code (the M10 plan said `Vault::sync`, which takes no
+  prompter). Re-selecting a held vault in a session does not warn, as
+  Go's `Session.Use` doesn't.
+
+### `[x]` Q-TWO-VAULT-LOCK — How does `mv`/`cp` lock two vaults? {#q-two-vault-lock}
+
+**Resolved: both locks are held for the whole operation, acquired in
+order of vault id. A source and destination with the same id are refused
+before any lock is taken.**
+
+Go's M11 doc orders the locks by name. Go's code after A20 orders them by
+id, because the lock file is keyed by id. Ordering by something that no
+longer names the lock would allow the opposite-order deadlock that the
+fixed order exists to prevent. gage-rs ports the code.
+
+The same-id refusal also matters for a Rust-specific reason. Each
+`vaultlock` lock is an `flock` on its own open file description, so a
+process that locks one vault twice waits out the full timeout and then
+fails. Two registrations of one repository share an id, so they must be
+refused up front, which is Go's
+`TestMoveRejectsTwoRegistrationsOfOneVaultAsSourceAndDestination`.
+
+### `[x]` Q-TRUST-CACHE-PATH — Where does the trust cache live? {#q-trust-cache-path}
+
+**Resolved: `$GAGE_STATE/<vault-id>/`, holding the verbatim
+`known-config.toml` and the hash of `.age-recipients`, written with
+`atomicfile` and never committed. `vault remove` deletes the
+directory.**
+
+Go's M10 doc keys the cache by local name. E0 re-keyed it by id, and the
+port plan keys every per-vault local path by id from the start.
+`paths::trust_cache_dir` has existed since P1, but nothing calls it yet.
+A half-written pair reads as "no record", so it is bootstrapped again
+rather than trusted.
+
+`vault remove` deletes the files the cache owns by name, then the
+directory if it is empty, as Go's `RemoveTrustCache` does: a narrow
+delete needs no argument about what else might live there.
+
+---
+
 ## Withdrawn
 
 Kept as a record; both existed only to serve byte parity.

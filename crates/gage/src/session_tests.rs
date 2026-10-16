@@ -974,3 +974,91 @@ fn entry_title_candidates_empty_once_the_idle_timeout_relocks() {
     assert!(s.entry_title_candidates().is_empty());
     assert_eq!(unlock_count(&p, "personal"), 1);
 }
+
+// Go: TestSessionIndexUpdatesBothVaultsWithoutARebuild. A move through the
+// session drops the entry from the source's index and adds it to the
+// destination's, and neither is decrypted again to list.
+#[test]
+fn a_move_updates_both_indexes_without_a_rebuild() {
+    let d = Device::new(&["personal", "shared"]);
+    d.seed("personal", &["AWS", "GitHub"]);
+    d.seed("shared", &["Wifi"]);
+    let p = unlocks(2);
+    let mut s = d.session(&p, current_personal());
+    s.use_vault("shared").unwrap();
+    s.use_vault("personal").unwrap();
+    assert_eq!(s.list(Some("personal")).unwrap().len(), 2);
+    assert_eq!(s.list(Some("shared")).unwrap().len(), 1);
+
+    let r = {
+        let prompter = s.prompter();
+        let (src, identity, dest) = s.vault_and_destination(None, "shared").unwrap();
+        src.move_to("AWS", dest, identity, prompter).unwrap()
+    };
+    // The baseline is taken here, after the move's own reads and before
+    // the index is told: the update itself must decrypt nothing.
+    let base = (
+        d.vaults["personal"].decrypt_count(),
+        d.vaults["shared"].decrypt_count(),
+    );
+    s.forget_entry(None, r.source_id);
+    s.note_entry(Some("shared"), r.dest_id, &r.entry);
+
+    let personal: Vec<_> = s
+        .list(Some("personal"))
+        .unwrap()
+        .into_iter()
+        .map(|e| e.title)
+        .collect();
+    let shared: Vec<_> = s
+        .list(Some("shared"))
+        .unwrap()
+        .into_iter()
+        .map(|e| e.title)
+        .collect();
+    assert_eq!(personal, ["GitHub"]);
+    assert_eq!(shared, ["AWS", "Wifi"]);
+    let ids: Vec<_> = s
+        .list(Some("shared"))
+        .unwrap()
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    assert!(ids.contains(&r.dest_id));
+    assert!(
+        !s.list(Some("personal"))
+            .unwrap()
+            .iter()
+            .any(|e| e.id == r.source_id)
+    );
+    assert_eq!(
+        (
+            d.vaults["personal"].decrypt_count(),
+            d.vaults["shared"].decrypt_count()
+        ),
+        base,
+        "listing rebuilt an index"
+    );
+}
+
+// Go: TestMoveInASessionNeverUnlocksTheDestination, at the library: the
+// destination is held, not unlocked, so it is never asked for a passphrase.
+#[test]
+fn the_destination_of_a_move_is_held_but_never_unlocked() {
+    let d = Device::new(&["personal", "shared"]);
+    d.seed("personal", &["AWS"]);
+    let p = unlocks(1);
+    let mut s = d.session(&p, current_personal());
+    s.use_vault("personal").unwrap();
+
+    s.vault_and_destination(None, "shared").unwrap();
+
+    assert_eq!(unlock_count(&p, "shared"), 0);
+    let err = s.vault_and_destination(None, "nope").err().unwrap();
+    assert!(matches!(err, SessionError::Open(_)), "{err}");
+    assert_eq!(
+        unlock_count(&p, "personal"),
+        1,
+        "asked again for the source"
+    );
+}

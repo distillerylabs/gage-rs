@@ -497,6 +497,11 @@ fn report_conflicts_says_recipient_files_are_never_merged() {
         "{recipients}"
     );
     assert!(recipients.contains(path.to_str().unwrap()), "{recipients}");
+    // What to do next, since `gage sync` refuses these too (M10's settling
+    // of P4's follow-up).
+    assert!(recipients.contains("reconcile"), "{recipients}");
+    assert!(recipients.contains("gage recipient verify"), "{recipients}");
+    assert!(!recipients.contains("run `gage sync`"), "{recipients}");
 
     let entry = rendered(&["entries/11111111-1111-4111-8111-111111111111.age"]);
     assert!(!entry.contains("never merge them for you"), "{entry}");
@@ -640,18 +645,27 @@ fn sync_without_a_terminal_refuses_rather_than_choosing() {
     assert_eq!(entry_files(&path).len(), 2);
 }
 
-// Go: TestYesDoesNotResolveConflicts. As in Go before M10, `sync --yes` is
-// an unknown flag: pinned here so the test isn't mistaken for more than
-// it is. M10 adds the flag for its trust-cache confirmation; from then on
-// the same run reaches the conflict, and must be refused, not answered.
+// Go: TestYesDoesNotResolveConflicts. Since M10, `--yes` is a real root
+// flag: the run is accepted, reaches the conflict, and must refuse rather
+// than answer it. `--yes` answers the recipient-change question only, and
+// passes the conflict to the prompter underneath, which here has nobody
+// to ask. A `--yes` that answered conflicts itself would move HEAD.
 #[test]
 fn yes_does_not_resolve_conflicts() {
     let env = Env::new();
-    let (path, _, _remote) = conflicting_vault(&env);
+    let (path, alpha, _remote) = conflicting_vault(&env);
     let before = head(&path);
-    let r = env.run(&["sync", "--yes"]);
-    assert_eq!(r.code, Code::Usage, "M10 flips this: {}", r.stderr);
-    assert!(r.stderr.contains("--yes"), "{}", r.stderr);
+    let p = unlocks();
+    let r = env.run_with(&["sync", "--yes"], &p);
+    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert!(!r.stderr.contains("unexpected argument"), "{}", r.stderr);
+    assert!(r.stderr.contains("needs someone to ask"), "{}", r.stderr);
+    assert!(r.stderr.contains(&alpha.to_string()), "{}", r.stderr);
+    assert_eq!(
+        p.conflicts_presented().len(),
+        1,
+        "never reached the conflict"
+    );
     assert_eq!(head(&path), before, "`sync --yes` resolved a conflict");
 }
 

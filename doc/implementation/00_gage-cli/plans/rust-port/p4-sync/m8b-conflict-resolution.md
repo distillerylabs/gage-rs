@@ -297,6 +297,10 @@ Write each task's tests first, at task granularity.
   - `TestSyncWithoutATerminalRefusesRatherThanChoosing`
   - `TestYesDoesNotResolveConflicts`: as in Go before M10, `sync --yes`
     is an unknown flag. Pin that, and leave a note for M10 to flip it.
+    *Flipped in P5 · M10:* `--yes` is a real root flag, so the test's
+    premise is now that the run is accepted, reaches the conflict, and
+    exits Conflict with nobody to ask; HEAD is unchanged. The
+    `--yes`-answers-conflicts mutation fails it.
   - `TestPluralEntries` (`sync_cli_test.go`), moved from M8a2: its only
     caller is the "resolved N entries" line this task adds. Go's
     `pluralEntries` spells "1 entry", not "1 entries".

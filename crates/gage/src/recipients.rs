@@ -123,6 +123,34 @@ mod tests {
         assert_eq!(read(&path).unwrap(), [KEY_1, KEY_2]);
     }
 
+    // Go: TestReadMissingFile. A vault without the file is broken, not
+    // empty: an empty recipient list would mean "nobody", so it is an error.
+    #[test]
+    fn read_of_a_missing_file_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = read(&dir.path().join(".age-recipients")).unwrap_err();
+        assert!(
+            matches!(&err, Error::Read { source, .. } if source.kind() == std::io::ErrorKind::NotFound),
+            "{err:?}"
+        );
+        assert!(err.to_string().starts_with("recipients: reading"), "{err}");
+    }
+
+    // Go: TestReadRejectsALineLongerThanTheScannerCanBuffer, ported as the
+    // behavior it guards: an overlong line is not silently truncated or
+    // dropped. Go fails because bufio.Scanner caps a token at 64 KiB; Rust's
+    // `lines()` has no cap, so the line comes back whole (an invalid key
+    // that every later parse rejects by name). No cap is added: it would be
+    // a limit invented to match an implementation detail.
+    #[test]
+    fn read_returns_an_overlong_line_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".age-recipients");
+        let long = "a".repeat(128 * 1024);
+        std::fs::write(&path, format!("{KEY_1}\n{long}\n")).unwrap();
+        assert_eq!(read(&path).unwrap(), [KEY_1.to_string(), long]);
+    }
+
     #[test]
     fn write_wraps_an_atomicfile_failure() {
         let dir = tempfile::tempdir().unwrap();

@@ -170,6 +170,48 @@ pub fn registry() -> Registry {
                 GROUP_VAULT,
                 Both,
             ),
+            command(
+                "identity add",
+                "",
+                "Register this device's identity and print its public key",
+                GROUP_IDENTITY,
+                Both,
+            ),
+            command(
+                "identity list",
+                "",
+                "List the keys this machine holds for a vault",
+                GROUP_IDENTITY,
+                Both,
+            ),
+            command(
+                "recipient add",
+                "<pubkey>",
+                "Authorize a public key and re-encrypt the vault to include it",
+                GROUP_RECIPIENT,
+                Both,
+            ),
+            command(
+                "recipient remove",
+                "<pubkey-or-name>",
+                "Revoke a recipient and re-encrypt the vault without its key",
+                GROUP_RECIPIENT,
+                Both,
+            ),
+            command(
+                "recipient list",
+                "",
+                "List the keys this vault is encrypted to",
+                GROUP_RECIPIENT,
+                Both,
+            ),
+            command(
+                "recipient verify",
+                "",
+                "Check .age-recipients and config.toml still agree",
+                GROUP_RECIPIENT,
+                Both,
+            ),
             command("insert", "<title>", "Create a new entry", GROUP_ENTRY, Both),
             command(
                 "show",
@@ -207,6 +249,20 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command("rm", "<query>", "Delete an entry", GROUP_ENTRY, Both),
+            command(
+                "mv",
+                "<query>",
+                "Move an entry to another vault — the sharing mechanism",
+                GROUP_ENTRY,
+                Both,
+            ),
+            command(
+                "cp",
+                "<query>",
+                "Copy an entry into another vault, keeping the original",
+                GROUP_ENTRY,
+                Both,
+            ),
             command(
                 "ls",
                 "",
@@ -283,6 +339,14 @@ pub fn registry() -> Registry {
             ParentInfo {
                 name: "vault",
                 short: "Manage registered vaults",
+            },
+            ParentInfo {
+                name: "identity",
+                short: "Manage this device's identities for a vault",
+            },
+            ParentInfo {
+                name: "recipient",
+                short: "Manage who can read this vault",
             },
             ParentInfo {
                 name: "git",

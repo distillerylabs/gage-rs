@@ -19,14 +19,19 @@ pub mod gitrepo;
 #[cfg(any(test, feature = "test-support"))]
 pub mod gittest;
 pub mod identity;
+pub mod identity_add;
 pub mod identityfile;
 mod index;
 #[cfg(test)]
 mod index_tests;
 pub mod locker;
 pub mod memlock;
+pub mod movecopy;
+#[cfg(test)]
+mod movecopy_tests;
 pub mod paths;
 pub mod prompter;
+pub mod recipient;
 pub mod recipients;
 pub mod remoteauth;
 pub mod remotesync;
@@ -38,12 +43,21 @@ pub mod syncerr;
 pub mod syncresolve;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testsupport;
+pub mod trustcache;
 pub mod vault;
 pub mod vaultconfig;
 pub mod vaultlock;
 pub mod xdgpaths;
 
 #[cfg(test)]
+mod recipient_tests;
+#[cfg(test)]
+mod reencrypt_tests;
+#[cfg(test)]
 mod sync_index_tests;
+#[cfg(test)]
+mod trustcache_tests;
+#[cfg(test)]
+mod twodevice_tests;
 #[cfg(test)]
 mod unlock_tests;

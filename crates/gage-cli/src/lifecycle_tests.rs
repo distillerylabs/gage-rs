@@ -8,8 +8,10 @@
 use std::path::{Path, PathBuf};
 
 use gage::config::{self, Global, VaultEntry};
+use gage::entry::CandidateList;
 use gage::exitcode::Code;
-use gage::prompter::{FakePrompter, Prompter};
+use gage::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse};
+use gage::syncresolve::{EntryConflict, Resolution};
 use gage::vaultconfig;
 use gage::xdgpaths::Dirs;
 use gage::{gitrepo, paths, recipients};
@@ -30,6 +32,68 @@ pub(crate) struct CliResult {
     pub(crate) code: Code,
     pub(crate) stdout: String,
     pub(crate) stderr: String,
+}
+
+/// A byte buffer two writers share: the command's stderr, and the
+/// prompter's warnings, interleaved in the order they happened.
+#[derive(Clone, Default)]
+struct SharedBuf(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+
+impl std::io::Write for SharedBuf {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.borrow_mut().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The test's prompter, with every warning also written to stderr, as the
+/// real `TerminalPrompter` writes it. Without this, a library warning is
+/// invisible to every CLI test that reads stderr, and a command could stop
+/// emitting one with nothing going red (Go's M9 review fix). Everything
+/// else is forwarded untouched, so the inner fake still scripts and
+/// records.
+struct EchoingPrompter<'p> {
+    inner: &'p dyn Prompter,
+    stderr: SharedBuf,
+}
+
+impl Prompter for EchoingPrompter<'_> {
+    fn unlock(&self, req: &UnlockRequest) -> Result<UnlockResponse, PromptError> {
+        self.inner.unlock(req)
+    }
+
+    fn confirm(&self, prompt: &str) -> Result<bool, PromptError> {
+        self.inner.confirm(prompt)
+    }
+
+    fn value(&self, title: &str) -> Result<zeroize::Zeroizing<String>, PromptError> {
+        self.inner.value(title)
+    }
+
+    fn choose(&self, list: &CandidateList) -> Result<uuid::Uuid, PromptError> {
+        self.inner.choose(list)
+    }
+
+    fn resolve_conflict(&self, conflict: &EntryConflict) -> Result<Resolution, PromptError> {
+        self.inner.resolve_conflict(conflict)
+    }
+
+    fn confirm_recipient_change(
+        &self,
+        warning: &gage::trustcache::RecipientChangeWarning,
+    ) -> Result<bool, PromptError> {
+        self.inner.confirm_recipient_change(warning)
+    }
+
+    fn warn(&self, msg: &str) {
+        use std::io::Write;
+        let _ = writeln!(self.stderr.clone(), "{msg}");
+        self.inner.warn(msg);
+    }
 }
 
 /// One isolated machine: its own config, data and state roots (Go's
@@ -89,13 +153,18 @@ impl Env {
         stdin: &mut dyn std::io::Read,
     ) -> CliResult {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
-        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let mut stdout = Vec::new();
+        let stderr = SharedBuf::default();
+        let prompter = EchoingPrompter {
+            inner: prompter,
+            stderr: stderr.clone(),
+        };
         let dirs = self.dirs.clone();
         let hostname = self.hostname.clone();
         let mut io = Io {
             stdin,
             stdout: &mut stdout,
-            stderr: &mut stderr,
+            stderr: &mut stderr.clone(),
             stdin_is_terminal: false,
             line_editor: false,
             build: BuildInfo::stamped(),
@@ -104,11 +173,11 @@ impl Env {
             editor: self.editor.lock().unwrap().clone(),
             now: &std::time::Instant::now,
         };
-        let code = crate::run(&args, &mut io, prompter);
+        let code = crate::run(&args, &mut io, &prompter);
         CliResult {
             code,
             stdout: String::from_utf8(stdout).unwrap(),
-            stderr: String::from_utf8(stderr).unwrap(),
+            stderr: String::from_utf8(stderr.0.borrow().clone()).unwrap(),
         }
     }
 

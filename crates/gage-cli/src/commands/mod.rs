@@ -20,7 +20,10 @@ mod auth;
 mod clone;
 mod entry;
 mod git;
+mod identity;
 mod init;
+mod movecopy;
+mod recipient;
 mod sync;
 mod vault;
 
@@ -29,6 +32,8 @@ pub(crate) use entry::{parse_field_flags, render_ls, trim_one_trailing_newline, 
 pub(crate) use entry::{session_failure, short_id};
 #[cfg(test)]
 pub(crate) use init::resolve_device_name;
+#[cfg(test)]
+pub(crate) use recipient::short_hash;
 #[cfg(test)]
 pub(crate) use sync::{report_conflicts, sync_line};
 
@@ -40,7 +45,12 @@ pub fn flags(name: &str) -> Vec<Arg> {
         "sync" | "pull" | "push" => sync::flags(),
         "insert" | "show" | "cat" | "edit" | "rename" | "generate" | "rm" | "ls" | "search"
         | "reindex" => entry::flags(name),
+        "mv" | "cp" => movecopy::flags(),
         "auth login" | "auth status" | "auth logout" => auth::flags(),
+        "identity add" | "identity list" => identity::flags(name),
+        "recipient add" | "recipient remove" | "recipient list" | "recipient verify" => {
+            recipient::flags(name)
+        }
         _ => Vec::new(),
     }
 }
@@ -55,6 +65,10 @@ pub fn long_about(name: &str) -> Option<&'static str> {
         "sync" => Some(sync::SYNC_LONG_ABOUT),
         "ls" => Some(entry::LS_LONG_ABOUT),
         "auth login" => Some(auth::LOGIN_LONG_ABOUT),
+        "identity add" => Some(identity::ADD_LONG_ABOUT),
+        "recipient add" => Some(recipient::ADD_LONG_ABOUT),
+        "recipient remove" => Some(recipient::REMOVE_LONG_ABOUT),
+        "recipient verify" => Some(recipient::VERIFY_LONG_ABOUT),
         _ => None,
     }
 }
@@ -105,6 +119,8 @@ pub fn run(
         "rename" => entry::rename(matches, io, keys),
         "generate" => entry::generate(matches, io, keys),
         "rm" => entry::rm(matches, io, keys),
+        "mv" => movecopy::mv(matches, io, keys),
+        "cp" => movecopy::cp(matches, io, keys),
         "ls" => entry::ls(matches, io, keys),
         "search" => entry::search(matches, io, keys),
         "reindex" => entry::reindex(matches, io, keys),
@@ -116,6 +132,12 @@ pub fn run(
         "auth login" => auth::login(matches, io, keys),
         "auth status" => auth::status(matches, io),
         "auth logout" => auth::logout(matches, io),
+        "identity add" => identity::add(matches, io, keys),
+        "identity list" => identity::list(matches, io, keys),
+        "recipient add" => recipient::add(matches, io, keys),
+        "recipient remove" => recipient::remove(matches, io, keys),
+        "recipient list" => recipient::list(matches, io, keys),
+        "recipient verify" => recipient::verify(matches, io, keys),
         _ => return None,
     })
 }

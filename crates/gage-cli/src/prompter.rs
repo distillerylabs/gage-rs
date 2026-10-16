@@ -14,6 +14,7 @@ use std::io::{Read, Write};
 use gage::entry::CandidateList;
 use gage::prompter::{Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse};
 use gage::syncresolve::{ConflictSide, EntryConflict, Resolution};
+use gage::trustcache::{RecipientChangeWarning, difference_lines};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -59,10 +60,12 @@ pub struct TerminalPrompter<R: Read, W: Write> {
     input: RefCell<R>,
     out: RefCell<W>,
     secrets: SecretInput,
-    /// Whether a human is at the other end of `input`. Only conflict
-    /// resolution consults it: every other prompt has a sensible answer
-    /// from a script (a passphrase can be piped, a confirmation defaults to
-    /// no), while "which version of this secret do you keep" has none.
+    /// Whether a human is at the other end of `input`. Conflict resolution
+    /// and the recipient-change question consult it: every other prompt
+    /// has a sensible answer from a script (a passphrase can be piped, a
+    /// confirmation defaults to no), while "which version of this secret
+    /// do you keep" has none, and "do you trust this recipient list" must
+    /// not spend a line of piped input that belongs to someone else.
     /// Set by `main` from whether stdin is a terminal, not probed per call,
     /// so tests drive both halves without one.
     interactive: bool,
@@ -263,6 +266,17 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
         self.say(&format!("{msg}\n"));
     }
 
+    /// Refused without a human at the other end, before drawing or reading
+    /// anything (Q-RECIPIENT-PROMPT): Go reads a line regardless, which on
+    /// piped input spends a value or a command as the answer. The outcome
+    /// is Go's default-no; a script that means yes says `--yes`.
+    fn confirm_recipient_change(&self, w: &RecipientChangeWarning) -> Result<bool, PromptError> {
+        if !self.interactive {
+            return Err(PromptError::NotInteractive);
+        }
+        self.render_recipient_change(w)
+    }
+
     /// The design doc's `[l/r/b/s/q]` menu ("Resolving an entry
     /// conflict"). Both versions arrive decrypted, but neither value is
     /// printed: the choice is made on provenance, who wrote each and when,
@@ -300,6 +314,58 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
     }
 }
 
+impl<R: Read, W: Write> TerminalPrompter<R, W> {
+    /// The design doc's recipient-change prompt ("Local trust cache"): the
+    /// diff, then whether the two recipient files agree, then the count
+    /// and `[y/N]`. A routine change and a mismatched one read differently
+    /// on purpose: the mismatch is the tampering signature the cache
+    /// exists to surface, and must not read like "someone added a
+    /// device". A bare Enter is no.
+    fn render_recipient_change(&self, w: &RecipientChangeWarning) -> Result<bool, PromptError> {
+        let mut text = format!(
+            "\u{26a0} Recipients for {:?} changed since you last encrypted here:\n\n",
+            w.vault
+        );
+        if !w.diff.is_empty() {
+            text.push_str(&w.diff);
+            text.push('\n');
+        }
+        if w.mismatched() {
+            text.push_str(
+                "gage: .age-recipients and .gage/config.toml DISAGREE (gage recipient verify fails):\n",
+            );
+            text.push_str(&difference_lines(&w.verification));
+            // Said before the question, because it changes what yes means:
+            // this write goes through, and nothing else does.
+            text.push_str(
+                "\ngage: confirming proceeds with this write; it does not clear the mismatch.\n",
+            );
+        } else {
+            text.push_str(
+                "gage: .age-recipients matches .gage/config.toml. (gage recipient verify passes)\n",
+            );
+        }
+        self.say(&text);
+        self.confirm(&format!(
+            "{}. Proceed and trust this recipient list?",
+            recipient_change_count(w)
+        ))
+    }
+}
+
+/// The design doc's "1 recipient added." line.
+pub(crate) fn recipient_change_count(w: &RecipientChangeWarning) -> String {
+    let noun = |n: usize| if n == 1 { "recipient" } else { "recipients" };
+    match (w.added.len(), w.removed.len()) {
+        // config.toml shows no recipient change: the .age-recipients-only
+        // edit, with nothing to count and everything to worry about.
+        (0, 0) => "The recipient list changed".to_string(),
+        (a, 0) => format!("{a} {} added", noun(a)),
+        (0, r) => format!("{r} {} removed", noun(r)),
+        (a, r) => format!("{a} recipient(s) added, {r} removed"),
+    }
+}
+
 /// One side's line of the conflict menu: when and by which device it was
 /// written, or that it deleted the entry.
 fn provenance(side: &ConflictSide) -> String {
@@ -326,6 +392,7 @@ mod tests {
 
     use gage::entry::{Candidate, Entry};
     use gage::exitcode::{Code, HasCode};
+    use gage::recipient::RecipientVerification;
     use gage::syncresolve::{ConflictSide, EntryConflict, Resolution};
 
     use super::*;
@@ -801,6 +868,147 @@ mod tests {
         assert_eq!(out.text(), "", "a refusing prompter rendered a menu");
         // The line it was given is still there for whoever reads next.
         assert_eq!(&*p.value("x").unwrap(), "l");
+    }
+
+    // --- the recipient-change question --------------------------------------
+
+    /// A recipient change as the library hands one over, with the design
+    /// doc's own illustration for its diff.
+    fn sample_change(verification: RecipientVerification) -> RecipientChangeWarning {
+        RecipientChangeWarning {
+            vault: "personal".into(),
+            diff: "--- known-config.toml (last confirmed 2026-08-14)\n\
+                   +++ .gage/config.toml (current)\n\
+                   +[[recipients]]\n\
+                   +device = \"unknown-device\""
+                .into(),
+            verification,
+            added: vec![gage::vaultconfig::Recipient {
+                device: "unknown-device".into(),
+                pubkey: "age1qz8x2".into(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    fn in_sync() -> RecipientVerification {
+        RecipientVerification {
+            in_sync: true,
+            ..Default::default()
+        }
+    }
+
+    // Go: TestTerminalPrompterRendersTheRecipientChangeAsTheDesignDocPrompt.
+    // The library hands over a value; this is the CLI turning it into the
+    // design doc's diff and [y/N]. A mismatch gets its own, more severe
+    // lines; a bare Enter is no.
+    #[test]
+    fn terminal_prompter_renders_the_recipient_change_as_the_design_doc_prompt() {
+        let (p, out) = interactive("y\n");
+        assert!(
+            p.confirm_recipient_change(&sample_change(in_sync()))
+                .unwrap()
+        );
+        let text = out.text();
+        for want in [
+            "Recipients for \"personal\" changed since you last encrypted here",
+            "known-config.toml",
+            "unknown-device",
+            "recipient verify passes",
+            "1 recipient added. Proceed and trust this recipient list? [y/N]",
+        ] {
+            assert!(text.contains(want), "missing {want:?}:\n{text}");
+        }
+
+        let (p, out) = interactive("y\n");
+        let mismatched = RecipientVerification {
+            only_in_recipients_file: vec!["age1stray".into()],
+            ..Default::default()
+        };
+        p.confirm_recipient_change(&sample_change(mismatched))
+            .unwrap();
+        let text = out.text();
+        assert!(text.contains("age1stray"), "{text}");
+        assert!(text.contains(".age-recipients"), "{text}");
+        assert!(!text.contains("verify passes"), "{text}");
+
+        let (p, _) = interactive("\n");
+        assert!(
+            !p.confirm_recipient_change(&sample_change(in_sync()))
+                .unwrap(),
+            "a bare Enter approved an unreviewed list"
+        );
+    }
+
+    // Go: TestConfirmRecipientChangeNamesBothDirectionsOfAMismatch (from P2).
+    // A key only .age-recipients has and a key only config.toml has are
+    // different problems, and the question lists both.
+    #[test]
+    fn confirm_recipient_change_names_both_directions_of_a_mismatch() {
+        let (p, out) = interactive("n\n");
+        let w = RecipientChangeWarning {
+            vault: "personal".into(),
+            verification: RecipientVerification {
+                in_sync: false,
+                only_in_recipients_file: vec!["age1onlyinrecipientsfile".into()],
+                only_in_config: vec!["age1onlyinconfig".into()],
+            },
+            ..Default::default()
+        };
+        assert!(!p.confirm_recipient_change(&w).unwrap(), "`n` approved");
+        let text = out.text();
+        for want in [
+            "age1onlyinrecipientsfile is in .age-recipients but not in .gage/config.toml",
+            "age1onlyinconfig is in .gage/config.toml but not in .age-recipients",
+            "DISAGREE",
+            "does not clear the mismatch",
+        ] {
+            assert!(text.contains(want), "missing {want:?}:\n{text}");
+        }
+    }
+
+    // Go: TestRecipientChangeCountSummarizesEveryShape (from P2): the design
+    // doc's "1 recipient added." line, for every shape of change.
+    #[test]
+    fn recipient_change_count_summarizes_every_shape() {
+        let r = |n: usize| {
+            vec![
+                gage::vaultconfig::Recipient {
+                    device: "d".into(),
+                    pubkey: "k".into(),
+                };
+                n
+            ]
+        };
+        let shape = |added: usize, removed: usize| RecipientChangeWarning {
+            added: r(added),
+            removed: r(removed),
+            ..Default::default()
+        };
+        for (w, want) in [
+            (shape(1, 0), "1 recipient added"),
+            (shape(2, 0), "2 recipients added"),
+            (shape(0, 1), "1 recipient removed"),
+            (shape(0, 2), "2 recipients removed"),
+            (shape(1, 2), "1 recipient(s) added, 2 removed"),
+            (shape(0, 0), "The recipient list changed"),
+        ] {
+            assert_eq!(recipient_change_count(&w), want);
+        }
+    }
+
+    // With nobody at the terminal the question is refused before anything
+    // is drawn or read (Q-RECIPIENT-PROMPT): on piped input the next line
+    // belongs to someone else, a value or a session command.
+    #[test]
+    fn non_interactive_prompter_refuses_the_recipient_question() {
+        let (p, out) = prompter("y\n");
+        let err = p
+            .confirm_recipient_change(&sample_change(in_sync()))
+            .unwrap_err();
+        assert!(matches!(err, PromptError::NotInteractive), "{err}");
+        assert_eq!(out.text(), "", "a refusing prompter rendered the diff");
+        assert_eq!(&*p.value("x").unwrap(), "y", "the answer line was consumed");
     }
 
     // Go: TestRealPrompterReadsAPassphraseWithoutEchoing. One of the few
