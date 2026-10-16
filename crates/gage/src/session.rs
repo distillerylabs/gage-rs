@@ -21,8 +21,16 @@
 //! (title, description, dates; never a value or a field), built by the
 //! first `list`, `resolve` or `search` against it and dropped with its
 //! key. See `index` and "Addressing entries & the metadata index".
+//!
+//! A pull or a merge that moves a vault's working tree (on unlock, on
+//! `use`, inside a write's push, or through a sync verb) raises the flag
+//! the session installed on that vault, and the index is dropped before
+//! anything is served from it again.
 
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use uuid::Uuid;
@@ -33,6 +41,7 @@ use crate::identity::Identity;
 use crate::identityfile::UnlockError;
 use crate::index::Index;
 use crate::prompter::{PromptError, Prompter};
+use crate::remotesync::{SyncError, SyncReport};
 use crate::search::{SearchResult, matches_body, sort_results};
 use crate::vault::Vault;
 
@@ -180,6 +189,9 @@ struct HeldVault {
     /// growing arena doesn't repeat it. Reset with the index: a rebuild
     /// may meet a different limit.
     index_warned: bool,
+    /// Raised by the vault when a pull or merge moves its working tree:
+    /// the index no longer describes `entries/`.
+    pulled: Arc<AtomicBool>,
 }
 
 pub struct Session<'a> {
@@ -221,15 +233,74 @@ impl<'a> Session<'a> {
     /// Makes `name` the current vault, unlocking it unless this session
     /// already holds its key. Re-selecting an unlocked vault never
     /// re-prompts: that is the point of a session.
+    ///
+    /// `use` means "catch me up" either way. A first `use` unlocks, and the
+    /// unlock pulls; re-selecting a vault already unlocked runs no unlock,
+    /// so the pull is asked for here rather than skipped for the vaults a
+    /// session returns to most.
     pub fn use_vault(&mut self, name: &str) -> Result<(), SessionError> {
         if name.is_empty() {
             return Err(SessionError::NoCurrentVault {
                 hint: "use <vault>",
             });
         }
+        let was_unlocked = self.vaults.get(name).is_some_and(|h| h.identity.is_some());
         self.vault(Some(name))?;
+        if was_unlocked {
+            let prompter = self.prompter;
+            self.vaults[name].vault.sync_on_unlock(prompter);
+        }
         self.current = Some(name.to_string());
         Ok(())
+    }
+
+    /// A vault this session can name, without unlocking it: for the sync
+    /// verbs, which decrypt nothing for a fast-forward or a merge of
+    /// disjoint changes, so asking for a passphrase up front would prompt
+    /// for a key most syncs never use. `None` is the current vault. A pull
+    /// or merge through it still invalidates this session's index.
+    pub fn vault_without_unlocking(&mut self, name: Option<&str>) -> Result<&Vault, SessionError> {
+        self.enter();
+        let name = self.target(name)?;
+        Ok(&self.hold(&name)?.vault)
+    }
+
+    /// `gage sync` with interactive resolution in a vault (`None` is the
+    /// current one), through this session's prompter. A conflict reuses
+    /// the identity the session already holds, so nobody is asked twice; a
+    /// vault not yet unlocked is unlocked once, through the session's own
+    /// path, and only if a conflict needs it, and then stays unlocked like
+    /// any other. A fast-forward or a disjoint merge unlocks nothing.
+    ///
+    /// The outer error is the vault lookup; the inner one is the sync's,
+    /// with its report.
+    pub fn sync_resolving(
+        &mut self,
+        name: Option<&str>,
+    ) -> Result<Result<SyncReport, SyncError>, SessionError> {
+        self.enter();
+        let name = self.target(name)?;
+        let prompter = self.prompter;
+        let now = (self.now)();
+        let held = self.hold(&name)?;
+        // The vault and its cached identity borrowed together: both are
+        // shared borrows of one held vault.
+        let (vault, cached) = (&held.vault, held.identity.as_ref());
+        let unlocked = OnceCell::new();
+        let result = vault.sync_resolving_with(prompter, &mut || {
+            if let Some(identity) = cached.or(unlocked.get()) {
+                return Ok(identity);
+            }
+            let identity = vault.unlock(prompter)?;
+            Ok(unlocked.get_or_init(|| identity))
+        });
+        if let Some(identity) = unlocked.into_inner() {
+            held.identity = Some(identity);
+        }
+        if held.identity.is_some() {
+            held.last_used = Some(now);
+        }
+        Ok(result)
     }
 
     /// A vault and its unlocked identity, unlocking first if needed.
@@ -415,6 +486,7 @@ impl<'a> Session<'a> {
         else {
             return Vec::new();
         };
+        settle(held);
         if held.index.is_none() && build_index(held, prompter).is_err() {
             return Vec::new();
         }
@@ -534,7 +606,9 @@ impl<'a> Session<'a> {
     /// Never opens or unlocks anything.
     fn indexed(&mut self, name: Option<&str>) -> Option<&mut HeldVault> {
         let name = self.target(name).ok()?;
-        self.vaults.get_mut(&name).filter(|h| h.index.is_some())
+        let held = self.vaults.get_mut(&name)?;
+        settle(held);
+        held.index.is_some().then_some(held)
     }
 
     /// The vault a call operates on: the one named, else the current one.
@@ -548,10 +622,14 @@ impl<'a> Session<'a> {
     }
 
     /// This session's record for a vault, opened and registered on first
-    /// sight. Never unlocks.
+    /// sight, with its index dropped if a pull moved the tree since. Never
+    /// unlocks.
     fn hold(&mut self, name: &str) -> Result<&mut HeldVault, SessionError> {
         if !self.vaults.contains_key(name) {
-            let vault = (self.open)(name)?;
+            // The vault is what knows when its tree moved, so it is told
+            // whom to tell.
+            let pulled = Arc::new(AtomicBool::new(false));
+            let vault = (self.open)(name)?.with_pull_observer(Arc::clone(&pulled));
             self.vaults.insert(
                 name.to_string(),
                 HeldVault {
@@ -560,10 +638,13 @@ impl<'a> Session<'a> {
                     last_used: None,
                     index: None,
                     index_warned: false,
+                    pulled,
                 },
             );
         }
-        Ok(self.vaults.get_mut(name).expect("inserted above"))
+        let held = self.vaults.get_mut(name).expect("inserted above");
+        settle(held);
+        Ok(held)
     }
 
     fn lock_all(&mut self) {
@@ -582,10 +663,18 @@ fn lock_held(held: &mut HeldVault) {
 }
 
 /// Drops a vault's index (zeroed, its pages released). The one place that
-/// happens, so locking and reindexing (and P4's pull) can't drift apart.
+/// happens, so locking, reindexing and a pull can't drift apart.
 fn discard_index(held: &mut HeldVault) {
     held.index = None;
     held.index_warned = false;
+}
+
+/// Drops the index if the vault's tree moved since it was built, and
+/// lowers the flag. Run before anything reads the index.
+fn settle(held: &mut HeldVault) {
+    if held.pulled.swap(false, Ordering::SeqCst) {
+        discard_index(held);
+    }
 }
 
 /// Builds `held`'s index from one decrypt pass over its (unlocked) vault,

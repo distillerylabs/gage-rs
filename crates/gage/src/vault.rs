@@ -21,6 +21,7 @@ use crate::locker::{Locker, MemLocker};
 use crate::paths;
 use crate::prompter::Prompter;
 use crate::recipients;
+use crate::remotesync::{PullObserver, SyncerSeam};
 use crate::vaultconfig;
 use crate::xdgpaths::Dirs;
 
@@ -69,6 +70,12 @@ pub struct Vault {
     dirs: Dirs,
     locker: LockerSeam,
     pub(crate) decrypts: DecryptCounter,
+    /// The network half of sync; the real git-backed one unless a test
+    /// injected another (see `remotesync`).
+    pub(crate) syncer: SyncerSeam,
+    /// Who to tell that a pull or merge moved the working tree: a
+    /// session's index. See `remotesync`.
+    pub(crate) pulled: PullObserver,
 }
 
 /// How many entries this vault (and its clones) has decrypted: what the
@@ -327,6 +334,8 @@ impl Vault {
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
+            syncer: SyncerSeam::default(),
+            pulled: PullObserver::default(),
         })
     }
 
@@ -376,6 +385,8 @@ impl Vault {
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
+            syncer: SyncerSeam::default(),
+            pulled: PullObserver::default(),
         })
     }
 
@@ -414,6 +425,12 @@ impl Vault {
     /// is warned once and the unlock proceeds: a container that won't allow
     /// `mlock` must not make gage unusable ("Session model").
     pub fn unlock(&self, prompter: &dyn Prompter) -> Result<Identity, UnlockError> {
+        // The automatic catch-up, before anything is read. This is the one
+        // point both invocation modes pass through (a one-shot command's
+        // implicit unlock and a session's), so "every unlock fetches" holds
+        // for all of them. It never fails the unlock.
+        self.sync_on_unlock(prompter);
+
         let (device, method) = self.local_identity_record()?;
         if method != METHOD_PASSPHRASE {
             return Err(UnlockError::UnsupportedMethod {
@@ -486,6 +503,8 @@ impl Vault {
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
+            syncer: SyncerSeam::default(),
+            pulled: PullObserver::default(),
         }
     }
 
@@ -517,9 +536,89 @@ impl Vault {
         paths::lock_file_path(&self.dirs, &self.id)
     }
 
+    /// This device's roots, as this vault value carries them.
+    pub(crate) fn dirs(&self) -> &Dirs {
+        &self.dirs
+    }
+
     /// Where this vault's committed config lives.
     pub fn config_path(&self) -> PathBuf {
         config_path(&self.path)
+    }
+}
+
+/// Why a vault name couldn't be inferred, or can't be used.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum NameError {
+    #[error("a remote URL is required")]
+    UrlRequired,
+    #[error("cannot infer a vault name from {0:?}; pass --name")]
+    CannotInfer(String),
+    #[error("{0:?} cannot be used as a vault name; pass --name with a plain name")]
+    NotOnePathComponent(String),
+}
+
+impl HasCode for NameError {
+    fn code(&self) -> Code {
+        Code::Usage
+    }
+}
+
+/// Infers a vault's local name from its remote URL: the last path segment
+/// minus `.git`, for every spelling a remote arrives in
+/// (`https://host/user/repo.git`, `git@host:user/repo.git`, a local path,
+/// a Windows path). An inference, not a gate: the result still has to pass
+/// [`check_name`].
+pub fn name_from_url(url: &str) -> Result<String, NameError> {
+    let trimmed = url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Err(NameError::UrlRequired);
+    }
+    // Both separators: a Windows path and a URL can both arrive here.
+    let mut path = trimmed.replace('\\', "/");
+    // An scp-style remote's path starts after the colon; a URL's colon is
+    // followed by "//", and a drive letter's by a separator.
+    if let Some((_, after)) = path.split_once(':')
+        && !after.starts_with("//")
+    {
+        path = after.to_string();
+    }
+    let base = last_segment(&path);
+    let base = base.strip_suffix(".git").unwrap_or(base);
+    if base.is_empty() || base == "." || base == "/" {
+        return Err(NameError::CannotInfer(url.to_string()));
+    }
+    Ok(base.to_string())
+}
+
+/// Go's `path.Base`: the last slash-separated element, "." for an empty
+/// path and "/" for one that is all slashes.
+fn last_segment(path: &str) -> &str {
+    if path.is_empty() {
+        return ".";
+    }
+    let path = path.trim_end_matches('/');
+    if path.is_empty() {
+        return "/";
+    }
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Refuses a vault name that wouldn't stay one ordinary path component
+/// under the vaults directory. A cloned vault's name can be inferred from
+/// its URL, which makes it attacker-influenced input on its way to
+/// becoming a directory: a security boundary, like a device name.
+pub fn check_name(name: &str) -> Result<(), NameError> {
+    let refuse = || Err(NameError::NotOnePathComponent(name.to_string()));
+    if name.is_empty() || name.contains(['/', '\\', '\0']) {
+        return refuse();
+    }
+    // Whatever this platform's path rules make of it (".", "..", a Windows
+    // drive prefix such as "C:") must be exactly one plain component.
+    let mut components = Path::new(name).components();
+    match (components.next(), components.next()) {
+        (Some(std::path::Component::Normal(c)), None) if c == name => Ok(()),
+        _ => refuse(),
     }
 }
 
@@ -759,6 +858,8 @@ mod tests {
                 dirs: test_dirs(),
                 locker: LockerSeam::default(),
                 decrypts: DecryptCounter::default(),
+                syncer: SyncerSeam::default(),
+                pulled: PullObserver::default(),
             }
         );
         for rel in [
@@ -1231,6 +1332,8 @@ mod tests {
                 dirs: test_dirs(),
                 locker: LockerSeam::default(),
                 decrypts: DecryptCounter::default(),
+                syncer: SyncerSeam::default(),
+                pulled: PullObserver::default(),
             }
         );
     }
@@ -1407,5 +1510,93 @@ mod tests {
         std::fs::create_dir_all(&spec.path).unwrap();
         std::fs::write(spec.path.join("keep.txt"), "mine").unwrap();
         spec.validate_without_device_key().unwrap();
+    }
+
+    // --- vault names a clone infers ------------------------------------------
+
+    // Go: TestVaultNameFromURL. The three spellings a remote arrives in all
+    // end the same way; the two shapes with no name to infer are refused
+    // with different messages.
+    #[test]
+    fn vault_name_from_url() {
+        for (url, want) in [
+            ("https://github.com/me/secrets", "secrets"),
+            ("https://github.com/me/secrets.git", "secrets"),
+            ("https://github.com/me/secrets/", "secrets"),
+            ("https://github.com/me/secrets///", "secrets"),
+            ("git@github.com:me/secrets.git", "secrets"),
+            ("git@github.com:me/secrets", "secrets"),
+            ("/srv/vaults/secrets", "secrets"),
+            ("/srv/vaults/secrets.git", "secrets"),
+            (r"C:\vaults\secrets", "secrets"),
+            ("  https://github.com/me/secrets.git  ", "secrets"),
+        ] {
+            assert_eq!(name_from_url(url).unwrap(), want, "{url:?}");
+        }
+        for empty in ["", "   ", "/", "///"] {
+            let err = name_from_url(empty).unwrap_err();
+            assert_eq!(err, NameError::UrlRequired, "{empty:?}");
+            assert_eq!(err.code(), Code::Usage);
+            assert!(err.to_string().contains("required"), "{err}");
+        }
+        for nameless in ["git@host:", "git@host:/", ".", "./"] {
+            let err = name_from_url(nameless).unwrap_err();
+            assert!(
+                matches!(err, NameError::CannotInfer(_)),
+                "{nameless:?}: {err}"
+            );
+            assert_eq!(err.code(), Code::Usage);
+            assert!(err.to_string().contains("--name"), "{err}");
+        }
+    }
+
+    // Go: TestVaultNameFromURLHandlesEverySpelling
+    #[test]
+    fn vault_name_from_url_handles_every_spelling() {
+        for (url, want) in [
+            ("https://github.com/me/work-vault.git", "work-vault"),
+            ("https://github.com/me/work-vault", "work-vault"),
+            ("git@github.com:me/work-vault.git", "work-vault"),
+            ("ssh://git@github.com/me/work-vault.git", "work-vault"),
+            ("/tmp/somewhere/remote.git", "remote"),
+            ("https://github.com/me/work-vault.git/", "work-vault"),
+        ] {
+            assert_eq!(name_from_url(url).unwrap(), want, "{url:?}");
+        }
+    }
+
+    // Go: TestCheckVaultNameRefusesAnythingThatIsNotOnePathComponent, and
+    // TestCloneRefusesANameThatEscapesTheVaultsDirectory (its subset). A
+    // cloned vault's name can come from the URL, so it is
+    // attacker-influenced on its way to becoming a directory.
+    #[test]
+    fn check_vault_name_refuses_anything_that_is_not_one_path_component() {
+        for bad in [
+            "", ".", "..", "a/b", r"a\b", "/abs", "a\0b", "a/../b", "name/", "../evil",
+        ] {
+            let err = check_name(bad).unwrap_err();
+            assert_eq!(err, NameError::NotOnePathComponent(bad.into()), "{bad:?}");
+            assert_eq!(err.code(), Code::Usage);
+            assert!(err.to_string().contains("--name"), "{err}");
+        }
+        #[cfg(windows)]
+        for bad in ["C:", r"\\server\share"] {
+            assert!(check_name(bad).is_err(), "{bad:?}");
+        }
+        for ok in ["personal", "work-vault", "vault.2", "a_b"] {
+            check_name(ok).unwrap_or_else(|e| panic!("{ok:?}: {e}"));
+        }
+    }
+
+    // Go: TestInferredNamesStillGoThroughCheckVaultName. Inference is not
+    // a gate: ".." has a perfectly good last segment, and only the check
+    // refuses it. Clone runs the check on every name.
+    #[test]
+    fn inferred_names_still_go_through_check_vault_name() {
+        for url in ["..", "git@host:..", "/srv/vaults/.."] {
+            if let Ok(name) = name_from_url(url) {
+                assert!(check_name(&name).is_err(), "{url:?} inferred {name:?}");
+            }
+        }
     }
 }

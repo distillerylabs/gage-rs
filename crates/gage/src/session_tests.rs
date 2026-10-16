@@ -220,6 +220,7 @@ impl Device {
                         ..NewEntry::default()
                     },
                     true,
+                    &FakePrompter::new(),
                 )
                 .unwrap()
             })
@@ -351,6 +352,7 @@ fn session_calls_the_same_vault_methods_as_one_shot() {
                 ..NewEntry::default()
             },
             false,
+            &FakePrompter::new(),
         )
         .unwrap();
 

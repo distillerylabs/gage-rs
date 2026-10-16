@@ -5,6 +5,9 @@ function phase(f,  b) {
   b=f; sub(/.*\//,"",b); sub(/_test\.go$/,"",b)
   if (f ~ /internal\/gage\/(exitcode|atomicfile|vaultlock|xdgpaths|config|devicename|vaultconfig|gittest)\//) return "P1"
   if (f ~ /internal\/gage\/(agekey|memlock)\//) return "P2"
+  # gitrepo.Log (the single-path history walk) shipped with Go M12, for
+  # `log`/`history`, not with sync (re-tagged in P4 planning).
+  if (f ~ /internal\/gage\/gitrepo\/history_test\.go$/) return "P6"
   if (f ~ /internal\/gage\/(gitrepo|remoteauth|syncerr)\//) return "P4"
   if (f ~ /internal\/gage\/recipients\//) return "P5"
   if (b ~ /^(enroll|approve)/ || b=="clone_enroll") return "P7"

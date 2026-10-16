@@ -28,10 +28,14 @@ pub mod memlock;
 pub mod paths;
 pub mod prompter;
 pub mod recipients;
+pub mod remoteauth;
+pub mod remotesync;
 pub mod search;
 pub mod session;
 #[cfg(test)]
 mod session_tests;
+pub mod syncerr;
+pub mod syncresolve;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testsupport;
 pub mod vault;
@@ -39,5 +43,7 @@ pub mod vaultconfig;
 pub mod vaultlock;
 pub mod xdgpaths;
 
+#[cfg(test)]
+mod sync_index_tests;
 #[cfg(test)]
 mod unlock_tests;

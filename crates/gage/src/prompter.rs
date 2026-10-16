@@ -6,14 +6,16 @@
 //!
 //! M0b fixed the shape; M2 adds the unlock purpose and `warn`. Each later
 //! question (a free-form secret value, a default-yes confirmation, choosing
-//! among ambiguous candidates, a recipient-change warning) is added as a
-//! method by the milestone that first asks it.
+//! among ambiguous candidates, which version of a conflicted entry to keep,
+//! a recipient-change warning) is added as a method by the milestone that
+//! first asks it.
 
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::entry::CandidateList;
 use crate::exitcode::{Code, HasCode};
+use crate::syncresolve::{EntryConflict, Resolution};
 
 /// The identity method an [`UnlockRequest`] is asking about. Unlocking is
 /// one method-agnostic exchange rather than a passphrase-specific call, so
@@ -126,6 +128,16 @@ pub enum PromptError {
     /// query always has at least two candidates.
     #[error("gage: asked to choose from an empty candidate list")]
     EmptyCandidates,
+    /// Asked which version of a conflicted entry to keep with nobody to
+    /// ask: a script, a `--stdin` session, CI. gage never picks a side on
+    /// its own; a silent choice is the last-write-wins outcome the sync
+    /// model exists to refuse (Go's `ErrNotInteractive`).
+    #[error("gage: resolving an entry conflict needs someone to ask")]
+    NotInteractive,
+    /// The frontend's retry policy ended a conflict question without an
+    /// answer it recognized.
+    #[error("gage: no version chosen after {0} attempts")]
+    NoResolution(u32),
     #[error("prompt failed: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -140,6 +152,8 @@ impl HasCode for PromptError {
             | PromptError::TooManyAttempts
             | PromptError::NoMatchingPassphrase(_) => Code::LockedOrAuth,
             PromptError::NoChoice(_) => Code::Ambiguous,
+            // A human must resolve it, and nobody did.
+            PromptError::NotInteractive | PromptError::NoResolution(_) => Code::Conflict,
             PromptError::UnsupportedKind(_) | PromptError::EmptyCandidates | PromptError::Io(_) => {
                 Code::Internal
             }
@@ -170,6 +184,19 @@ pub trait Prompter {
     /// unresolved, as one-shot does. An id outside the list is refused by
     /// the caller, not trusted.
     fn choose(&self, list: &CandidateList) -> Result<Uuid, PromptError>;
+
+    /// Asks which version of an entry both sides of a divergence changed
+    /// to keep. Both versions arrive decrypted, with their provenance; a
+    /// CLI renders a menu, a GUI a dialog.
+    ///
+    /// The default refuses with [`PromptError::NotInteractive`]: a
+    /// frontend with nobody to ask implements nothing and refuses, rather
+    /// than every caller remembering a flag (Q-CONFLICT-PROMPTER). Only a
+    /// frontend that really can ask a human overrides it.
+    fn resolve_conflict(&self, conflict: &EntryConflict) -> Result<Resolution, PromptError> {
+        let _ = conflict;
+        Err(PromptError::NotInteractive)
+    }
 
     /// Delivers a non-fatal advisory to surface once: today, that
     /// page-locking key material failed and the unlock is proceeding
@@ -203,11 +230,26 @@ mod fake {
         confirms: Mutex<VecDeque<bool>>,
         values: Mutex<VecDeque<Result<String, PromptError>>>,
         choices: Mutex<VecDeque<Choice>>,
+        /// `None` until a resolution is scripted: a fake nobody scripted
+        /// answers is a frontend with nobody to ask, and refuses as the
+        /// trait's default does.
+        resolutions: Mutex<Option<Resolutions>>,
         asked_unlock: Mutex<Vec<UnlockRequest>>,
         asked_confirm: Mutex<Vec<String>>,
         asked_value: Mutex<Vec<String>>,
         asked_choose: Mutex<Vec<CandidateList>>,
+        asked_resolve: Mutex<Vec<EntryConflict>>,
         warnings: Mutex<Vec<String>>,
+    }
+
+    /// The scripted answers to [`Prompter::resolve_conflict`]: in order, or
+    /// by the conflicted entry's title. Conflicts are presented in path
+    /// order, which is UUID order, which no test can predict, so a test
+    /// giving two conflicts different answers addresses them by title.
+    #[derive(Debug, Default)]
+    struct Resolutions {
+        in_order: VecDeque<Result<Resolution, PromptError>>,
+        by_title: std::collections::BTreeMap<String, Resolution>,
     }
 
     /// One scripted answer to [`Prompter::choose`].
@@ -277,6 +319,39 @@ mod fake {
         pub fn with_choose_error(self, err: PromptError) -> FakePrompter {
             self.choices.lock().unwrap().push_back(Choice::Err(err));
             self
+        }
+
+        /// Answers the next conflicts with `answers`, in order.
+        pub fn with_resolutions(self, answers: &[Resolution]) -> FakePrompter {
+            self.resolutions_mut(|r| r.in_order.extend(answers.iter().map(|a| Ok(*a))));
+            self
+        }
+
+        /// Answers any conflict over an entry titled `title` with `answer`.
+        pub fn with_resolution_for(self, title: &str, answer: Resolution) -> FakePrompter {
+            self.resolutions_mut(|r| {
+                r.by_title.insert(title.to_string(), answer);
+            });
+            self
+        }
+
+        /// Fails the next conflict question with `err`.
+        pub fn with_resolution_error(self, err: PromptError) -> FakePrompter {
+            self.resolutions_mut(|r| r.in_order.push_back(Err(err)));
+            self
+        }
+
+        fn resolutions_mut(&self, f: impl FnOnce(&mut Resolutions)) {
+            f(self
+                .resolutions
+                .lock()
+                .unwrap()
+                .get_or_insert_with(Resolutions::default));
+        }
+
+        /// Every conflict presented, in order.
+        pub fn conflicts_presented(&self) -> Vec<EntryConflict> {
+            self.asked_resolve.lock().unwrap().clone()
         }
 
         /// Every candidate list offered, in order.
@@ -355,6 +430,22 @@ mod fake {
         fn warn(&self, msg: &str) {
             self.warnings.lock().unwrap().push(msg.to_string());
         }
+
+        fn resolve_conflict(&self, c: &EntryConflict) -> Result<Resolution, PromptError> {
+            self.asked_resolve.lock().unwrap().push(c.clone());
+            let mut scripted = self.resolutions.lock().unwrap();
+            let Some(scripted) = scripted.as_mut() else {
+                return Err(PromptError::NotInteractive);
+            };
+            let title = c.title();
+            if let Some(answer) = scripted.by_title.get(title) {
+                return Ok(*answer);
+            }
+            scripted
+                .in_order
+                .pop_front()
+                .unwrap_or_else(|| panic!("FakePrompter: unscripted conflict over {title:?}"))
+        }
     }
 }
 
@@ -402,6 +493,8 @@ mod tests {
             ),
             (PromptError::NoChoice(3), Code::Ambiguous),
             (PromptError::EmptyCandidates, Code::Internal),
+            (PromptError::NotInteractive, Code::Conflict),
+            (PromptError::NoResolution(5), Code::Conflict),
             (
                 PromptError::Io(std::io::Error::other("tty gone")),
                 Code::Internal,

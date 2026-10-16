@@ -95,7 +95,10 @@ impl Env {
             script.as_bytes().to_vec(),
         ))));
         let stderr = SharedOutput::default();
-        let prompter = TerminalPrompter::new(input.clone(), stderr.clone(), SecretInput::Lines);
+        // Interactive, as `main` makes it on a terminal: a session on one
+        // can ask which version of a conflicted entry to keep.
+        let prompter = TerminalPrompter::new(input.clone(), stderr.clone(), SecretInput::Lines)
+            .interactive(true);
         let mut stdout = Vec::new();
         let dirs = self.dirs.clone();
         let hostname = self.hostname.clone();

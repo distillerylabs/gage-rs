@@ -153,6 +153,74 @@ fn the_real_library_depends_on_no_frontend_crate() {
     assert_eq!(offenders(&metadata, "gage"), Vec::<Vec<String>>::new());
 }
 
+/// Host SDKs and OAuth/device-flow crates: how host-specific code paths
+/// would come back (Go's Q-OAUTH-APP). gage's remote auth is a token the
+/// user issued, for any host.
+const HOST_SPECIFIC: &[&str] = &[
+    "oauth2",
+    "yup-oauth2",
+    "octocrab",
+    "github*",
+    "gitlab*",
+    "hubcaps",
+    "gix-credentials",
+];
+
+fn is_host_specific(name: &str) -> bool {
+    HOST_SPECIFIC
+        .iter()
+        .any(|pattern| match pattern.strip_suffix('*') {
+            Some(prefix) => name.starts_with(prefix),
+            None => name == *pattern,
+        })
+}
+
+// Go: TestNoHostSpecificDependencies: no host SDK or OAuth crate anywhere
+// in the workspace's graph, and no OAuth client id in its sources.
+#[test]
+fn no_host_specific_dependencies() {
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
+    let output = Command::new(cargo)
+        .args(["metadata", "--format-version", "1", "--locked"])
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("running cargo metadata");
+    assert!(output.status.success());
+    let metadata: Value = serde_json::from_slice(&output.stdout).expect("metadata is JSON");
+    let offenders: Vec<&str> = metadata["packages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p["name"].as_str())
+        .filter(|name| is_host_specific(name))
+        .collect();
+    assert_eq!(offenders, Vec::<&str>::new());
+    assert!(is_host_specific("octocrab") && is_host_specific("github-rs"));
+
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut stack = vec![crates];
+    let this_file = std::path::Path::new(file!()).file_name().unwrap();
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                stack.push(path);
+            } else if path.extension().is_some_and(|e| e == "rs" || e == "toml")
+                && path.file_name() != Some(this_file)
+            {
+                let text = std::fs::read_to_string(&path).unwrap();
+                for needle in ["client_id", "client-id", "device_code"] {
+                    assert!(
+                        !text.contains(needle),
+                        "{} contains {needle}",
+                        path.display()
+                    );
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn a_transitive_frontend_dependency_is_reported_with_the_path_that_pulls_it_in() {
     let metadata = fixture(

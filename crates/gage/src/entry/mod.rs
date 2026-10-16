@@ -23,8 +23,8 @@ use crate::identity::Identity;
 
 pub(crate) use crud::sort_list;
 pub use crud::{
-    Candidate, CandidateList, ListEntry, NewEntry, ResolveError, WRITE_LOCK_TIMEOUT, WriteError,
-    resolve_query,
+    Candidate, CandidateList, ListEntry, LockError, NewEntry, ResolveError, WRITE_LOCK_TIMEOUT,
+    WriteError, resolve_query,
 };
 pub use yaml::{marshal, unmarshal};
 

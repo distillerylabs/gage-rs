@@ -203,6 +203,7 @@ fn insert_multiline_captures_from_a_real_terminal_until_eof() {
     for (k, v) in m.xdg() {
         cmd.env(k, v);
     }
+    let tty_path = pair.master.tty_name().expect("a unix pty has a path");
     let mut child = pair.slave.spawn_command(cmd).unwrap();
     drop(pair.slave);
 
@@ -237,6 +238,14 @@ fn insert_multiline_captures_from_a_real_terminal_until_eof() {
     let mut writer = pair.master.take_writer().unwrap();
 
     wait_for("Enter passphrase");
+    // The prompt is printed before the read turns echo off: wait for it to
+    // go off before typing, or a fast typist (this test) is echoed.
+    let probe = std::fs::File::open(&tty_path).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while echo_on(&probe) {
+        assert!(Instant::now() < deadline, "echo never went off");
+        std::thread::sleep(Duration::from_millis(2));
+    }
     writer.write_all(format!("{PASS}\n").as_bytes()).unwrap();
     wait_for("Ctrl-D");
     // Typed lines, then Ctrl-D at the start of a line: EOF.
@@ -259,4 +268,19 @@ fn insert_multiline_captures_from_a_real_terminal_until_eof() {
     let yaml = m.ok(&["cat", "Notes"], "");
     let e = gage::entry::unmarshal(yaml.as_bytes()).unwrap();
     assert_eq!(e.value, typed, "byte for byte what was typed");
+}
+
+/// Whether the terminal at `tty` has echo on.
+#[cfg(unix)]
+#[allow(unsafe_code)]
+fn echo_on(tty: &std::fs::File) -> bool {
+    use std::os::fd::AsRawFd;
+    // SAFETY: termios is plain data, filled in by tcgetattr on an fd this
+    // test holds open.
+    let lflag = unsafe {
+        let mut t: libc::termios = std::mem::zeroed();
+        assert_eq!(libc::tcgetattr(tty.as_raw_fd(), &mut t), 0);
+        t.c_lflag
+    };
+    lflag & libc::ECHO != 0
 }

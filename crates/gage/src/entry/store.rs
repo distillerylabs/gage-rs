@@ -42,9 +42,7 @@ impl Vault {
     /// The caller holds the vault's write lock and commits; this only
     /// writes the file.
     pub fn write_entry(&self, id: Uuid, e: &Entry) -> Result<(), Error> {
-        let to = self.encrypt_recipients()?;
-        let plaintext = marshal(e)?;
-        let ciphertext = crypt::encrypt(&plaintext, &to)?;
+        let ciphertext = self.encrypt_entry(e)?;
 
         let dir = self.entries_dir();
         std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
@@ -62,6 +60,29 @@ impl Vault {
         })?;
         atomicfile::write(&self.entry_path(id), &ciphertext, 0o600)
             .map_err(|source| Error::Write { id, source })
+    }
+
+    /// `e` encrypted to every recipient currently listed in
+    /// `.age-recipients`, without writing it anywhere (Go's
+    /// `encryptEntry`): what [`Vault::write_entry`] writes, and what a
+    /// conflict resolution's keep-both hands the merge to create. Stamps
+    /// nothing: the entry is encrypted exactly as given.
+    pub fn encrypt_entry(&self, e: &Entry) -> Result<Vec<u8>, Error> {
+        let to = self.encrypt_recipients()?;
+        let plaintext = marshal(e)?;
+        Ok(crypt::encrypt(&plaintext, &to)?)
+    }
+
+    /// Decrypts and parses one entry's ciphertext, wherever it came from:
+    /// a file, or a git object a merge read.
+    pub(crate) fn decrypt_entry(
+        &self,
+        ciphertext: &[u8],
+        identity: &Identity,
+    ) -> Result<Entry, Error> {
+        self.decrypts.bump();
+        let plaintext = Zeroizing::new(crypt::decrypt(ciphertext, identity)?);
+        unmarshal(&plaintext)
     }
 
     /// Reads and decrypts `entries/<id>.age` with `identity` and parses
@@ -83,9 +104,7 @@ impl Vault {
                 });
             }
         };
-        self.decrypts.bump();
-        let plaintext = Zeroizing::new(crypt::decrypt(&ciphertext, identity)?);
-        unmarshal(&plaintext)
+        self.decrypt_entry(&ciphertext, identity)
     }
 
     /// The ids of every entry file in `entries/`, sorted. It reads only

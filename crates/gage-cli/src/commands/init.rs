@@ -4,17 +4,19 @@
 //! key first, and only once it exists registers it in global config. If
 //! creating the vault fails, the identity is removed again.
 //!
-//! There is no `--remote` until P4 · M8a, since Go's publishes immediately
-//! and that needs push, and no recovery key until P7.
+//! `--remote` sets origin and publishes the new vault at once, asking for
+//! the host's token first if none is stored (#38). The recovery key is
+//! P8's.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::config::{RegistryError, VaultEntry};
-use gage::exitcode::Code;
+use gage::config::{GitMeta, RegistryError, VaultEntry};
+use gage::exitcode::{Code, HasCode};
 use gage::prompter::Prompter;
+use gage::syncerr::Kind;
 use gage::vault::{self, CreateSpec, Vault};
-use gage::{devicename, identityfile, paths, vaultconfig};
+use gage::{devicename, identityfile, paths, remoteauth, vaultconfig};
 
 use super::{arg, dirs, fail, load_global, out};
 use crate::Io;
@@ -27,7 +29,12 @@ you choose, and writes the public half into the vault's recipient files.
 The wrapped key is stored outside the vault and is never committed or synced.
 
 --recipient is additive: each one is written alongside this device's own key,
-for recipients you already hold public keys for.";
+for recipients you already hold public keys for.
+
+--remote publishes the new vault immediately. If its host needs a token and
+none is stored yet, init asks for one on the spot (leave blank to skip and
+try anonymously) — the same prompt as `gage auth login`, so a private repo
+doesn't need a separate auth login round trip before the first push succeeds.";
 
 pub fn flags() -> Vec<Arg> {
     let accepted = |list: &[&str]| format!("[{}]", list.join(" "));
@@ -53,6 +60,10 @@ pub fn flags() -> Vec<Arg> {
             .value_name("KEY")
             .action(ArgAction::Append)
             .help("additional recipient public key (repeatable; this device's own key is always included)"),
+        Arg::new("remote")
+            .long("remote")
+            .value_name("URL")
+            .help("git remote (origin) URL; omit to start local-only"),
         Arg::new("type")
             .long("type")
             .value_name("TYPE")
@@ -106,7 +117,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         method: flag("method").expect("defaulted"),
         device,
         recipients: extra_recipients,
-        remote: None,
+        remote: flag("remote"),
     };
     // Everything knowable from the flags fails before a human types a
     // passphrase twice (Q-INIT-ORDER). The target directory is checked by
@@ -148,7 +159,9 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
             // answered by comparing keys (Q-ORPHAN-BY-NAME).
             pubkey: pubkey.clone(),
             method: spec.method.clone(),
-            ..Default::default()
+            git: GitMeta {
+                origin: spec.remote.clone().unwrap_or_default(),
+            },
         },
     )?;
     gage::config::save(&config_path, &global)?;
@@ -166,6 +179,83 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
             ),
         ],
     );
+    match &spec.remote {
+        Some(remote) => publish(io, prompter, &created, remote),
+        None => Ok(()),
+    }
+}
+
+/// Pushes the new vault's first commit to the remote it was given: naming
+/// a remote at creation means the vault is on it, not that it will be
+/// after some later write. The vault is created and registered by now and
+/// stays so whatever happens here: it is durable locally, and being unable
+/// to publish is a thing to report, never a reason to throw it away.
+fn publish(io: &mut Io, prompter: &dyn Prompter, v: &Vault, remote: &str) -> Result<(), CliError> {
+    ensure_remote_token(io, prompter, remote)?;
+    let name = &v.name;
+    let err = match v.push() {
+        Ok(_) => {
+            out(io, &[format!("gage: published {name:?} to {remote}")]);
+            return Ok(());
+        }
+        Err(err) => err,
+    };
+    // Offline at creation is not a failure: the next successful sync
+    // publishes it. A local path that isn't there is not offline, though:
+    // gage never creates a repository, so at init it is one that hasn't
+    // been made yet (Go reports it as such; for a sync, the same path is
+    // an unmounted drive, Q-SYNC-CLASSIFY).
+    let missing_path =
+        remoteauth::host(remote).is_ok_and(|h| h.is_empty()) && !Path::new(remote).exists();
+    if err.remote_kind() == Some(Kind::Unreachable) && !missing_path {
+        let _ = writeln!(
+            io.stderr,
+            "gage: could not reach {remote}; {name:?} exists locally and will publish on the next successful sync"
+        );
+        return Ok(());
+    }
+    let code = if missing_path {
+        Code::LockedOrAuth
+    } else {
+        err.code()
+    };
+    let msg = err.to_string();
+    Err(fail(
+        code,
+        format!(
+            "{name:?} was created locally, but publishing it to {remote} failed: {}\n\
+             gage: gage never creates a repository for you — create an empty one there, then run `gage push`",
+            msg.strip_prefix("gage: ").unwrap_or(&msg)
+        ),
+    ))
+}
+
+/// Asks for a token for `remote`'s host, once, before the first push, so
+/// a private HTTPS repository doesn't take three commands (init, auth
+/// login, push) to publish. Only for a host that is a token candidate at
+/// all, never a local path or an SSH remote, and only when no token is
+/// stored. A blank answer stores nothing and the push goes anonymously:
+/// not every remote needs a token, and init can't know which kind this is
+/// without asking.
+fn ensure_remote_token(io: &mut Io, prompter: &dyn Prompter, remote: &str) -> Result<(), CliError> {
+    let host = remoteauth::token_host(remote)?;
+    if host.is_empty() {
+        return Ok(());
+    }
+    let dirs = dirs(io)?;
+    match remoteauth::load(&dirs, &host) {
+        Ok(_) => return Ok(()),
+        Err(remoteauth::Error::NoToken { .. }) => {}
+        Err(e) => return Err(e.into()),
+    }
+    let token = prompter
+        .value(&format!("token for {host} (leave blank to skip)"))
+        .map_err(|e| fail(Code::LockedOrAuth, e))?;
+    if token.trim().is_empty() {
+        return Ok(());
+    }
+    remoteauth::store(&dirs, &host, &token)?;
+    out(io, &[format!("gage: stored a token for {host}")]);
     Ok(())
 }
 

@@ -31,7 +31,10 @@ fn main() {
         } else {
             SecretInput::Lines
         },
-    );
+    )
+    // A conflict is resolved only with a human to ask: a script, a
+    // `--stdin` session and CI are refused rather than answered.
+    .interactive(stdin_is_terminal);
     let mut io = Io {
         stdin: &mut std::io::stdin(),
         stdout: &mut std::io::stdout().lock(),

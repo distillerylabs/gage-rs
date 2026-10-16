@@ -649,8 +649,9 @@ fn init_writes_format_version_two() {
     assert_eq!(env.vault_config("personal").vault.format_version, 2);
 }
 
-// init's help describes what M2 ships: the identity it generates and an
-// additive --recipient, and no --remote or recovery-key flags yet.
+// init's help describes what has shipped: the identity it generates, an
+// additive --recipient and (P4 · M8a2) --remote, and no recovery-key flags
+// yet.
 #[test]
 fn init_help_describes_this_milestone() {
     let env = Env::new();
@@ -668,10 +669,12 @@ fn init_help_describes_this_milestone() {
         "never committed or synced",
         "--recipient is additive",
         "this device's own key is always included",
+        "--remote",
+        "publishes the new vault immediately",
     ] {
         assert!(help.contains(want), "{want:?} missing:\n{help}");
     }
-    for absent in ["--remote", "recovery", "required for now"] {
+    for absent in ["recovery", "required for now"] {
         assert!(!help.contains(absent), "{absent:?} present:\n{help}");
     }
     assert_eq!(env.ok(&["help", "init"]).stdout, help);

@@ -102,8 +102,10 @@ one, which is a narrower guarantee.
 - **`--type`** is the vault's backing store. `git` is the default and the
   only option.
 
-A vault starts local-only. `gage git set-remote` gives it a remote (see
-below); Go gage's `init --remote` arrives with sync.
+- **`--remote`** gives the vault an `origin` and publishes its first
+  commit straight away. Without it the vault starts local-only, and
+  `gage git set-remote` can give it a remote later (see below). See
+  [Git remotes and authentication](git-and-auth.md).
 
 `init` is one-shot only: it creates a vault rather than operating on one.
 

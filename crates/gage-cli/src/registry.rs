@@ -133,6 +133,15 @@ pub fn registry() -> Registry {
                 GROUP_VAULT,
                 OneShotOnly,
             ),
+            // One-shot only, like init: it creates a vault rather than
+            // operating on one.
+            command(
+                "clone",
+                "<remote-url>",
+                "Clone an existing vault from a remote",
+                GROUP_VAULT,
+                OneShotOnly,
+            ),
             command(
                 "vault list",
                 "",
@@ -221,9 +230,51 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                "sync",
+                "",
+                "Pull, merge what can be merged, then push",
+                GROUP_SYNC,
+                Both,
+            ),
+            command(
+                "pull",
+                "",
+                "Fast-forward this vault from its remote",
+                GROUP_SYNC,
+                Both,
+            ),
+            command(
+                "push",
+                "",
+                "Publish this vault's commits to its remote",
+                GROUP_SYNC,
+                Both,
+            ),
+            command(
                 "git set-remote",
                 "<name> <url>",
                 "Set or change a vault's git remote (origin)",
+                GROUP_GIT,
+                Both,
+            ),
+            command(
+                "auth login",
+                "",
+                "Store a token for a git host",
+                GROUP_GIT,
+                Both,
+            ),
+            command(
+                "auth status",
+                "",
+                "Show which git hosts have a token",
+                GROUP_GIT,
+                Both,
+            ),
+            command(
+                "auth logout",
+                "",
+                "Forget a git host's token",
                 GROUP_GIT,
                 Both,
             ),
@@ -236,6 +287,10 @@ pub fn registry() -> Registry {
             ParentInfo {
                 name: "git",
                 short: "Git-specific vault operations",
+            },
+            ParentInfo {
+                name: "auth",
+                short: "Manage tokens for git hosts",
             },
         ],
     }
