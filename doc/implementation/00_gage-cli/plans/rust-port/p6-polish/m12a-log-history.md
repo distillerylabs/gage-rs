@@ -240,7 +240,7 @@ task 4, and 2 that each task ports half of.)
       field choice taken from Go, not part of the walk rule, so it is not
       a gap in the merge rows.
 - [x] Parity ledger: §3 M12 (`log`/`history`) and §4 `log`, `history`.
-- [ ] Mark M12a `[x]` in the [P6 index](index.md) after CI.
+- [x] Mark M12a `[x]` in the [P6 index](index.md) after CI.
 
 ## Definition of done
 
