@@ -100,7 +100,7 @@ pub enum Resolution {
 /// What a resolved merge commits under. Like every message gage commits,
 /// it names no entry and carries no plaintext: how much was decided, never
 /// what.
-pub fn resolution_message(resolved: u32) -> String {
+pub fn resolution_message(resolved: usize) -> String {
     format!(
         "{MERGE_COMMIT_MESSAGE}, resolving {}",
         entry_count(resolved)
@@ -108,7 +108,7 @@ pub fn resolution_message(resolved: u32) -> String {
 }
 
 /// A number of entries, as English: "1 entry", "2 entries".
-pub fn entry_count(n: u32) -> String {
+pub fn entry_count(n: usize) -> String {
     if n == 1 {
         "1 entry".to_string()
     } else {
@@ -185,7 +185,7 @@ impl Vault {
             // file would be an access list neither device wrote (M10 adds
             // its trust-cache confirmation). A push rejected twice, with no
             // conflict found, is the remote moving again.
-            if !matches!(err.cause, SyncCause::Conflict)
+            if !matches!(*err.cause, SyncCause::Conflict)
                 || err.report.conflict_kind() != ConflictKind::Entries
             {
                 return Err(err);
@@ -222,11 +222,11 @@ impl Vault {
         }
 
         // The lazy unlock, at the one point plaintext is needed.
-        let identity = unlock().map_err(|e| fail(SyncCause::Unlock(Box::new(e)), &report))?;
+        let identity = unlock().map_err(|e| fail(SyncCause::Unlock(e), &report))?;
 
         let mut choices = BTreeMap::new();
         let mut adds = BTreeMap::new();
-        let (mut resolved, mut skipped) = (0, 0);
+        let mut skipped = 0;
         for (path, id) in conflicts.iter().zip(ids) {
             let conflict = self
                 .conflict_at(&merge, id, path, identity)
@@ -234,12 +234,6 @@ impl Vault {
             let answer = prompter
                 .resolve_conflict(&conflict)
                 .map_err(|e| fail(SyncCause::Prompt(e), &report))?;
-            if matches!(
-                answer,
-                Resolution::KeepLocal | Resolution::KeepRemote | Resolution::KeepBoth
-            ) {
-                resolved += 1;
-            }
             match answer {
                 Resolution::KeepLocal => {
                     choices.insert(path.clone(), MergeSide::Local);
@@ -261,7 +255,7 @@ impl Vault {
                         // showed.
                         let ciphertext = self
                             .encrypt_entry(theirs)
-                            .map_err(|e| fail(SyncCause::Entry(Box::new(e)), &report))?;
+                            .map_err(|e| fail(SyncCause::Entry(e), &report))?;
                         adds.insert(entry_file_path(new_id()), ciphertext);
                     }
                 }
@@ -280,7 +274,7 @@ impl Vault {
             let total = conflicts.len();
             return Err(fail(SyncCause::Unresolved { total }, &report));
         }
-        self.apply_resolution(merge, report, resolved, &choices, &adds)
+        self.apply_resolution(merge, report, &choices, &adds)
     }
 
     /// Writes every answer as one merge commit, and publishes it.
@@ -288,10 +282,10 @@ impl Vault {
         &self,
         merge: PendingMerge,
         mut report: SyncReport,
-        resolved: u32,
         choices: &BTreeMap<String, MergeSide>,
         adds: &BTreeMap<String, Vec<u8>>,
     ) -> Result<SyncReport, SyncError> {
+        let resolved = choices.len();
         merge
             .commit(&resolution_message(resolved), choices, adds)
             .map_err(|e| local(e).with_report(report.clone()))?;
@@ -332,7 +326,7 @@ impl Vault {
             let entry = match merge.content(side, path).map_err(SyncCause::Local)? {
                 Some(ciphertext) => Some(
                     self.decrypt_entry(&ciphertext, identity)
-                        .map_err(|e| SyncCause::Entry(Box::new(e)))?,
+                        .map_err(SyncCause::Entry)?,
                 ),
                 None => None,
             };

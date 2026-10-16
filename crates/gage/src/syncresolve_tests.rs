@@ -474,7 +474,7 @@ fn a_prompter_error_leaves_the_vault_untouched() {
     )));
     let err = f.resolve(&p).unwrap_err();
     assert!(
-        matches!(err.cause, SyncCause::Prompt(PromptError::Io(_))),
+        matches!(*err.cause, SyncCause::Prompt(PromptError::Io(_))),
         "{err}"
     );
     assert!(err.to_string().contains("the terminal went away"), "{err}");
@@ -810,7 +810,7 @@ fn a_failed_unlock_changes_nothing() {
             )
         })
         .unwrap_err();
-    assert!(matches!(err.cause, SyncCause::Unlock(_)), "{err}");
+    assert!(matches!(*err.cause, SyncCause::Unlock(_)), "{err}");
     assert_eq!(err.code(), Code::LockedOrAuth);
     assert!(p.conflicts_presented().is_empty());
     f.assert_untouched();
@@ -868,7 +868,7 @@ fn recipient_conflict_does_not_reach_the_entry_resolver() {
     let unlock = Counting::new(&identity);
     let p = answering(&[Resolution::KeepLocal]);
     let err = unlock.run(&s.vault, &p).unwrap_err();
-    assert!(matches!(err.cause, SyncCause::Conflict), "{err}");
+    assert!(matches!(*err.cause, SyncCause::Conflict), "{err}");
     assert_eq!(err.report.conflict_kind(), ConflictKind::Recipients);
     assert!(p.conflicts_presented().is_empty());
     assert_eq!(unlock.calls(), 0);
@@ -900,7 +900,7 @@ fn non_interactive_prompter_refuses_on_the_first_conflict() {
     let f = Fixture::two();
     let err = f.resolve(&Plain).unwrap_err();
     assert!(
-        matches!(err.cause, SyncCause::Prompt(PromptError::NotInteractive)),
+        matches!(*err.cause, SyncCause::Prompt(PromptError::NotInteractive)),
         "{err}"
     );
     assert_eq!(err.code(), Code::Conflict);
@@ -911,7 +911,7 @@ fn non_interactive_prompter_refuses_on_the_first_conflict() {
     // A FakePrompter with no resolutions scripted is the same frontend.
     let err = f.resolve(&FakePrompter::new()).unwrap_err();
     assert!(
-        matches!(err.cause, SyncCause::Prompt(PromptError::NotInteractive)),
+        matches!(*err.cause, SyncCause::Prompt(PromptError::NotInteractive)),
         "{err}"
     );
     f.assert_untouched();

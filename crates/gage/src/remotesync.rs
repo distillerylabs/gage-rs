@@ -172,13 +172,12 @@ pub struct SyncReport {
     /// How many local commits the remote lacks, as of the report.
     pub ahead: usize,
     /// How many conflicting entries a human's choice was applied to.
-    /// Zero on every automatic path. `u32`, as is `skipped`: every sync
-    /// result carries this report, and keeping it small keeps them cheap.
-    pub resolved: u32,
+    /// Zero on every automatic path.
+    pub resolved: usize,
     /// How many conflicts were left unanswered on purpose. Any skip means
     /// nothing was applied and nothing pushed: a partial resolution would
     /// turn a skipped entry's local version into a silent choice.
-    pub skipped: u32,
+    pub skipped: usize,
     /// The human quit the resolution, which changes nothing.
     pub aborted: bool,
 }
@@ -228,7 +227,9 @@ impl SyncReport {
 #[derive(Debug)]
 pub struct SyncError {
     pub report: SyncReport,
-    pub cause: SyncCause,
+    /// Boxed: every sync result carries this error, and the causes are
+    /// large.
+    pub cause: Box<SyncCause>,
 }
 
 #[derive(Debug)]
@@ -250,15 +251,13 @@ pub enum SyncCause {
     /// applied.
     Prompt(PromptError),
     /// The lazy unlock a conflict forced failed. Nothing was applied.
-    /// Boxed, as is `Entry`: both are large, and every sync result
-    /// carries this type.
-    Unlock(Box<UnlockError>),
+    Unlock(UnlockError),
     /// A path that is not an entry changed on both sides, so there is no
     /// version of it to choose. Refused before anything was unlocked.
     NotAnEntry(String),
     /// Decrypting a side of a conflict, or encrypting keep-both's copy,
     /// failed. Nothing was applied.
-    Entry(Box<entry::Error>),
+    Entry(entry::Error),
     /// Conflicts were skipped (the report's `skipped` of `total`), so
     /// nothing was applied or pushed.
     Unresolved { total: usize },
@@ -270,7 +269,7 @@ impl SyncError {
     pub(crate) fn new(cause: SyncCause) -> SyncError {
         SyncError {
             report: SyncReport::default(),
-            cause,
+            cause: Box::new(cause),
         }
     }
 
@@ -288,7 +287,7 @@ impl SyncError {
     /// divergence it declined to resolve is there, as it was before anyone
     /// was asked (Go's `resolutionRefusal`).
     pub fn remote_kind(&self) -> Option<Kind> {
-        match &self.cause {
+        match &*self.cause {
             SyncCause::Remote(gitrepo::Error::Sync(e)) => Some(e.kind()),
             SyncCause::Conflict | SyncCause::Unresolved { .. } | SyncCause::Aborted => {
                 Some(Kind::Diverged)
@@ -301,7 +300,7 @@ impl SyncError {
     /// human resolves.
     pub fn is_dirty_work_tree(&self) -> bool {
         matches!(
-            self.cause,
+            *self.cause,
             SyncCause::Local(gitrepo::Error::DirtyWorkTree { .. })
         )
     }
@@ -309,7 +308,7 @@ impl SyncError {
 
 impl std::fmt::Display for SyncError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self.cause {
+        match &*self.cause {
             SyncCause::Conflict => write!(f, "gage: {}", self.report.summary()),
             // gitrepo's own wording, said as gage: a dirty tree is neither
             // unexpected nor a fault, so it reads as gage's message.
@@ -343,11 +342,11 @@ impl std::fmt::Display for SyncError {
 // Transparent: the cause's own source, so nobody renders a message twice.
 impl std::error::Error for SyncError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match &self.cause {
+        match &*self.cause {
             SyncCause::Remote(e) | SyncCause::Local(e) => e.source(),
             SyncCause::Lock(e) => e.source(),
             SyncCause::Prompt(e) => e.source(),
-            SyncCause::Unlock(e) => Some(e.as_ref()),
+            SyncCause::Unlock(e) => Some(e),
             SyncCause::Entry(e) => e.source(),
             SyncCause::Conflict
             | SyncCause::NotAnEntry(_)
@@ -359,7 +358,7 @@ impl std::error::Error for SyncError {
 
 impl HasCode for SyncError {
     fn code(&self) -> Code {
-        match &self.cause {
+        match &*self.cause {
             // Unreachable 7, auth 5, diverged 1 (Q-SYNC-CLASSIFY).
             SyncCause::Remote(e) => e.code(),
             // "A state a human must resolve."

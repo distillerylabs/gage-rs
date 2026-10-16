@@ -177,11 +177,13 @@ next:
 - **`Entry` holds plain `String`s**, not `Zeroizing` ones (the decision
   above assumed otherwise). `EntryConflict` carries `Entry` as every
   other decrypted read does. Changing that is not this milestone's.
-- **`SyncReport` grew `resolved`, `skipped` (both `u32`) and `aborted`**,
-  and `SyncCause` grew `Prompt`, `Unlock`, `NotAnEntry`, `Entry`,
-  `Unresolved` and `Aborted`. The counts are `u32`, and the unlock and
-  entry causes are boxed, to keep `SyncError` under clippy's
-  `result_large_err` threshold. A skipped or aborted resolution still
+- **`SyncReport` grew `resolved`, `skipped` and `aborted`**, and
+  `SyncCause` grew `Prompt`, `Unlock`, `NotAnEntry`, `Entry`, `Unresolved`
+  and `Aborted`. `SyncError::cause` is now a `Box<SyncCause>`: the report
+  plus the largest cause crossed clippy's `result_large_err` threshold,
+  first on Windows, where `PathBuf` is larger. Boxing the cause keeps
+  every sync result small on every platform, and code matching a cause
+  matches `*err.cause`. A skipped or aborted resolution still
   reports `Kind::Diverged`, as Go's `resolutionRefusal` unwraps to
   `ErrDiverged`.
 - **`PendingMerge::commit`** also refuses an add at a path the merge itself
