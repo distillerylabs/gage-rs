@@ -17,6 +17,7 @@ use crate::Io;
 use crate::error::CliError;
 
 mod auth;
+mod catfmt;
 mod clone;
 mod entry;
 mod git;
@@ -29,7 +30,11 @@ mod sync;
 mod vault;
 
 #[cfg(test)]
-pub(crate) use entry::{parse_field_flags, render_ls, trim_one_trailing_newline, with_unlocked};
+pub(crate) use catfmt::{align_cat_output, pad_key_lines};
+#[cfg(test)]
+pub(crate) use entry::{
+    parse_field_flags, render_ls, render_ls_table, trim_one_trailing_newline, with_unlocked,
+};
 pub(crate) use entry::{session_failure, short_id};
 #[cfg(test)]
 pub(crate) use init::resolve_device_name;
@@ -132,7 +137,7 @@ pub fn run(
         "history" => log::history(matches, io, keys),
         "vault list" => vault::list(io),
         "vault info" => vault::info(matches, io),
-        "vault remove" => vault::remove(matches, io),
+        "vault remove" => vault::remove(matches, io, keys.prompter()),
         "vault set-default" => vault::set_default(matches, io),
         "git set-remote" => git::set_remote(matches, io),
         "auth login" => auth::login(matches, io, keys),

@@ -32,6 +32,7 @@ pub mod memlock;
 pub mod movecopy;
 #[cfg(test)]
 mod movecopy_tests;
+pub mod orphan;
 pub mod paths;
 pub mod prompter;
 pub mod recipient;

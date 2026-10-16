@@ -70,7 +70,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `4604dc5`…`4c23f99` | — | Milestones M0–M12 as planned | See §3 | — |
 | `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[x]` (session half: P3 · M6 `[x]` `session_wrong_arg_count_shows_command_usage`, through the interactive session; the `--stdin` spelling is P6 · M12's) |
 | `386c57e` | #38 | `init --remote` solicits an HTTPS token inline | P4 · M8a2 ([plan](p4-sync/m8a2-sync-wiring.md)) | `[x]` asked only for a token-candidate host with no stored token, before the push; blank skips; checked at the loopback recorder (`init_solicits_a_token_when_none_is_stored` and its three siblings) |
-| `a0920b0`, `0a1beeb` | #39 | `vault remove` orphaned-identity cleanup (later revised by E0: compare public keys, `Confirm`, default keep) | P6 · M12 | `[ ]` |
+| `a0920b0`, `0a1beeb` | #39 | `vault remove` orphaned-identity cleanup (later revised by E0: compare public keys, `Confirm`, default keep) | P6 · M12b | implemented (`gage::orphan`, `commands/vault.rs`), awaiting Opus review and CI |
 | `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | P1 · M0b (a separate binary, never a `gage` subcommand; needs `xdgpaths`) | `[x]` |
 | `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[x]` errors (M0b); warnings: M2's (page lock, identity reuse) and P4 · M8a2's (push after a write, pull on unlock) name gage once through `Prompter::warn` (`no_sync_failure_or_warning_doubles_gages_own_prefix`) |
 | `a1572d5` | — | `ls` shows title and `updated_by` | P2 · M4 | `[x]` `render_ls` prints title, short id, created, updated, `updated_by` |
@@ -84,8 +84,8 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `c86ad4c` | — | E3 joining side | P7 · E3 | `[ ]` |
 | `f800af6`, `187c810`, `faf49b9` | #52 | E4 approving side (commit titled "Milestone 4") + fixes, docs | P7 · E4 | `[ ]` |
 | `a4b989e` | #58 / #59 | `insert --field NAME=VALUE` | P2 · M4 | `[x]` `parse_field_flags` (M4); the `show --field` halves and `--field`/`-e` exclusivity in P3 · M5 |
-| `f0e17db`, `f1e391f` | #55 / #60, #61 | `cat`: display-only short id, column-aligned labels, flush-left multi-line values | P6 · M12 | `[ ]` |
-| `fb2f1e9` | #54 / #62 | `ls -H/--header` labelled `\|`-delimited table | P6 · M12 | `[ ]` |
+| `f0e17db`, `f1e391f` | #55 / #60, #61 | `cat`: display-only short id, column-aligned labels, flush-left multi-line values | P6 · M12b | implemented (`entry::key_layout`, `commands/catfmt.rs`), awaiting CI |
+| `fb2f1e9` | #54 / #62 | `ls -H/--header` labelled `\|`-delimited table | P6 · M12b | implemented (`render_ls_table`), awaiting CI |
 | `0aa325c` | #25 / #63 | M13 session Tab completion and command abbreviation | P3 · M13 ([plan](p3-query-session/m13-tab-completion.md)) | `[x]` |
 | `bbb24ba` | #64 / #65 | Coverage and vulnerability reporting | M0a | `[ ]` |
 | `30b21df` | #66 / #67 | Apache-2.0 license; fixture-data cleanup | Bootstrap (`LICENSE`) | `[~]` |
@@ -104,7 +104,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[x]` |
 | | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[x]` M8a1 ([#33](https://github.com/distillerylabs/gage-rs/issues/33)), M8a2 ([#34](https://github.com/distillerylabs/gage-rs/issues/34)), M8b ([#35](https://github.com/distillerylabs/gage-rs/issues/35)) |
 | | M9 (+ A19), M10, M11 | P5 ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)): M9 → M9a + M9b, M10, M11 | `[x]` M9a ([#42](https://github.com/distillerylabs/gage-rs/issues/42)) `[x]`; M9b ([#43](https://github.com/distillerylabs/gage-rs/issues/43)) `[x]`; M10 ([#44](https://github.com/distillerylabs/gage-rs/issues/44)) `[x]` (38 rows + 3 inbound, both P4 follow-ups; CI green on all three platforms); M11 ([#45](https://github.com/distillerylabs/gage-rs/issues/45)) `[x]` (20 rows; CI green on all three platforms) |
-| | M12 (+ post-plan items in §2) | P6 ([plan](p6-polish/index.md), [#52](https://github.com/distillerylabs/gage-rs/issues/52)): M12 → M12a `log`/`history`, M12b `cat`/`ls -H`/orphan cleanup, M12c `-c`/`-q`, M12d `--script`/`--stdin` | M12a ([#53](https://github.com/distillerylabs/gage-rs/issues/53)) implemented, awaiting review and CI; rest `[ ]` |
+| | M12 (+ post-plan items in §2) | P6 ([plan](p6-polish/index.md), [#52](https://github.com/distillerylabs/gage-rs/issues/52)): M12 → M12a `log`/`history`, M12b `cat`/`ls -H`/orphan cleanup, M12c `-c`/`-q`, M12d `--script`/`--stdin` | M12a ([#53](https://github.com/distillerylabs/gage-rs/issues/53)) `[x]`; M12b ([#54](https://github.com/distillerylabs/gage-rs/issues/54)) implemented, awaiting Opus review and CI; rest `[ ]` |
 | | "Post-plan changes" section | Rows in §2 | — |
 | `gage-cli-init-design/` | E0, E1a | Folded (see §2) | `[ ]` |
 | | E1b, E2, E3, E4 | P7 | `[ ]` |

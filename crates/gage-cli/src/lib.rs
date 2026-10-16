@@ -184,3 +184,5 @@ mod sync_tests;
 mod tests;
 #[cfg(test)]
 mod trustcache_cli_tests;
+#[cfg(test)]
+mod vault_remove_tests;

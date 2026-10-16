@@ -8,6 +8,7 @@
 //! heuristics: see `yaml` for the rules and the check behind them.
 
 mod crud;
+mod layout;
 mod store;
 mod yaml;
 
@@ -26,6 +27,7 @@ pub use crud::{
     Candidate, CandidateList, ListEntry, LockError, NewEntry, ResolveError, WRITE_LOCK_TIMEOUT,
     WriteError, resolve_query,
 };
+pub use layout::{KeyLine, key_layout};
 pub use yaml::{marshal, unmarshal};
 
 /// The vault-relative directory every entry file lives under ("On-disk
