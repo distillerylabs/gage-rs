@@ -347,14 +347,13 @@ Write each task's tests first, at task granularity.
     (M8a2) is unchanged, but now reaches its refusal through
     `sync_resolving`: its `shared.txt` is not an entry, so it is refused
     before any unlock and still names the path and the vault.
-- [ ] Parity ledger:
+- [x] Parity ledger:
   - §3 M8a and M8b marked `[x]`
   - §4 the P4 row
   - §6 `sync.md`, `git-and-auth.md`
 
-  §4 and §6 are updated. §3 is marked `[x]` with the phase after CI, as
-  M8a1 and M8a2 were.
-- [ ] Mark P4 `[x]` in the [port plan](../index.md) and in this phase's
+  §3 marked `[x]` with the phase after CI, as M8a1 and M8a2 were.
+- [x] Mark P4 `[x]` in the [port plan](../index.md) and in this phase's
       index, after CI.
 
 ## Definition of done
