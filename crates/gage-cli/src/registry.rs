@@ -307,6 +307,20 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                "log",
+                "[query]",
+                "Show an entry's commit history — timestamps only, nothing decrypted",
+                GROUP_SYNC,
+                Both,
+            ),
+            command(
+                "history",
+                "<query>",
+                "Decrypt every past revision of one entry (surfaces old secret values)",
+                GROUP_SYNC,
+                Both,
+            ),
+            command(
                 "git set-remote",
                 "<name> <url>",
                 "Set or change a vault's git remote (origin)",

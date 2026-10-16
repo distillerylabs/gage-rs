@@ -18,6 +18,9 @@ pub mod generate;
 pub mod gitrepo;
 #[cfg(any(test, feature = "test-support"))]
 pub mod gittest;
+pub mod history;
+#[cfg(test)]
+mod history_tests;
 pub mod identity;
 pub mod identity_add;
 pub mod identityfile;

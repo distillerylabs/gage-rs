@@ -68,6 +68,11 @@ Two commands over one entry's git history, at two danger levels:
 
 ## Decisions to make first
 
+Settled while implementing, and recorded as
+[Q-LOG-WALK](../open-questions.md#q-log-walk): the walk's sort order, the
+scope of a vault-wide `log`, `history`'s order and print format, and the
+`jiff` time zone dependency in `gage-cli`.
+
 - **The walk on `git2`.** `Revwalk` from HEAD, sorted `Sort::TIME` (Go
   uses committer-time order). A commit is a change when its blob at the
   path differs from *every* parent's. A root commit is a change exactly
@@ -107,9 +112,9 @@ Write each task's tests first, at task granularity.
 
 ### 1. `gitrepo::log` — 6 rows (5 + one half)
 
-- [ ] `gitrepo::log(dir, path) -> Result<Vec<Revision>, Error>`, newest
+- [x] `gitrepo::log(dir, path) -> Result<Vec<Revision>, Error>`, newest
       first, as decided above.
-- [ ] Rows:
+- [x] Rows:
   - `TestLogReportsEachRealChangeOnce`
   - `TestLogReportsADeletionOnce`: the deleting commit appears once, with
     no content.
@@ -122,16 +127,16 @@ Write each task's tests first, at task granularity.
   - The `Log` half of `TestLogAndHeadCommitterTimeOnARepoWithNoCommitsYet`:
     an unborn HEAD gives an empty log. The `HeadCommitterTime` half is
     P7's (see the [P6 plan](index.md#inventory-accounting)).
-- [ ] Beyond Go's rows: a merge that resolved a real conflict with a blob
+- [x] Beyond Go's rows: a merge that resolved a real conflict with a blob
       equal to *neither* parent is a change. It is the case the
       every-parent rule exists to keep, and none of Go's rows pins it.
 
 ### 2. `Vault::log` and `Vault::history` — 6 rows
 
-- [ ] Both over one shared walk of `entries/<uuid>.age`, built with
+- [x] Both over one shared walk of `entries/<uuid>.age`, built with
       forward slashes on every platform (Go's `entryFilePath`; a
       `Path::join` matches nothing on Windows).
-- [ ] Rows:
+- [x] Rows:
   - `TestLogReportsOneRevisionPerWrite`
   - `TestLogMarksTheDeletingCommit`
   - `TestLogOnAnEntryGitHasNeverSeenIsEmptyNotAnError`
@@ -143,9 +148,9 @@ Write each task's tests first, at task granularity.
 
 ### 3. `gage log` — 4 rows + 2 shared with task 4
 
-- [ ] Register `log` (group and description from the fixture, both
+- [x] Register `log` (group and description from the fixture, both
       modes, `[QUERY]`, `-u/--use`).
-- [ ] Rows:
+- [x] Rows:
   - `TestLogShowsTimestampsAndNoDecryptedContent`: neither the value,
     the title nor any field appears on stdout or stderr.
   - `TestLogRevealsNoTitlesFromCommitMessages`
@@ -155,28 +160,28 @@ Write each task's tests first, at task granularity.
   - `TestLogAndHistoryOnAnEntryWithNoHistorySayNothingIsThere` (the `log`
     half; the `history` half is in task 4).
   - `TestLogAndHistoryWorkInASession` (the `log` half).
-- [ ] Beyond Go's rows: a vault-wide `log` (no query) interleaves two
+- [x] Beyond Go's rows: a vault-wide `log` (no query) interleaves two
       entries newest first and tags each line with its short entry id.
 
 ### 4. `gage history --decrypt` — 6 rows + 2 shared with task 3
 
-- [ ] Register `history` (`--decrypt <query>`, `--decrypt`, `-u/--use`).
+- [x] Register `history` (`--decrypt <query>`, `--decrypt`, `-u/--use`).
       Without `--decrypt` it is a Usage error naming `gage log`. A missing
       query is clap's usage error.
-- [ ] `diffEntryLines` ported: `+`, `-` and unchanged markers for `title`,
+- [x] `diffEntryLines` ported: `+`, `-` and unchanged markers for `title`,
       `description` (only if either side has one), `value`, `updated_by`,
       and `fields.<key>` over the union of both sides' keys, sorted.
-- [ ] Rows:
+- [x] Rows:
   - `TestHistoryRequiresDecrypt`
   - `TestHistoryWithNoQueryIsAUsageError`
   - `TestHistoryDecryptWalksRevisionsAndDiffs`
   - `TestHistoryDecryptMarksADescriptionChange`
   - `TestHistoryDecryptShowsAFieldThatWasRemoved`
   - `TestHistoryDecryptShowsADeletedRevision`
-- [ ] The `history` halves of
+- [x] The `history` halves of
       `TestLogAndHistoryOnAnEntryWithNoHistorySayNothingIsThere` and
       `TestLogAndHistoryWorkInASession`.
-- [ ] Beyond Go's rows: nothing `history` decrypts reaches the session
+- [x] Beyond Go's rows: nothing `history` decrypts reaches the session
       history file, which records only the line as typed (Go's M12
       decision names this as testable).
 
@@ -185,7 +190,7 @@ task 4, and 2 that each task ports half of.)
 
 ### 5. Parity, review, ledger
 
-- [ ] A `p6_log_and_history_have_their_go_fixture_flags_and_descriptions`
+- [x] A `p6_log_and_history_have_their_go_fixture_flags_and_descriptions`
       test over `tests/fixtures/go/help/log.txt` and `history.txt`.
 - [ ] **Opus review (⚑)** of task 1's merge rows and the extra row. For
       each, name the mutation it kills and record the table here:
@@ -193,7 +198,21 @@ task 4, and 2 that each task ports half of.)
     parents
   - comparing only bytes, not presence
   - "changed if it differs from *any* parent" instead of every parent
-- [ ] Parity ledger: §3 M12 (`log`/`history`) and §4 `log`, `history`.
+
+      The mutations were applied to `gitrepo::log`, the `log` tests rerun,
+      and the file restored (by the implementing session; the Opus review
+      of this table is still to do):
+
+      | Mutation | Killed by |
+      |---|---|
+      | Compare against the previous commit in the walk, not the parents | `log_across_a_merge_of_unrelated_edits`, `log_across_a_conflict_resolved_by_taking_a_side` (and the linear rows, because the crude form also mishandles roots) |
+      | Compare bytes only, so absent equals empty | `log_tells_an_empty_file_from_an_absent_one`, `log_reports_a_deletion_once`, `log_on_a_path_git_has_never_seen_is_empty`, `log_across_a_merge_of_unrelated_edits` |
+      | "Changed if it differs from *any* parent" | `log_across_a_merge_of_unrelated_edits`, `log_across_a_conflict_resolved_by_taking_a_side` |
+
+      `log_reports_a_merge_that_resolved_to_a_blob_neither_parent_has` is
+      the extra row: it fails on any rule that drops a merge which really
+      resolved a conflict by hand.
+- [x] Parity ledger: §3 M12 (`log`/`history`) and §4 `log`, `history`.
 - [ ] Mark M12a `[x]` in the [P6 index](index.md) after CI.
 
 ## Definition of done

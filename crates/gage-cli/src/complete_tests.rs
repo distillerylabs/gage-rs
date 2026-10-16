@@ -185,13 +185,13 @@ fn resolve_session_command_name_unambiguous_abbreviation() {
 }
 
 // Go: TestResolveSessionCommandNameAmbiguousAbbreviationReportsCandidates.
-// Go's `l` matches lock, log and ls; `log` is P4's.
+// Go's `l` matches lock, log and ls (`log` is M12a's).
 #[test]
 fn resolve_session_command_name_ambiguous_abbreviation_reports_candidates() {
     let err = resolve_session_command_name(&registry(), "l").unwrap_err();
-    assert_eq!(err.candidates, ["lock", "ls"]);
+    assert_eq!(err.candidates, ["lock", "log", "ls"]);
     let text = err.to_string();
-    for want in ["lock", "ls", "\"l\""] {
+    for want in ["lock", "log", "ls", "\"l\""] {
         assert!(text.contains(want), "{text}");
     }
 }
@@ -742,7 +742,7 @@ fn session_completer_complete_wires_candidates_into_rustylines_contract() {
     };
 
     assert_eq!(complete("u"), (0, same(&["use"])), "a single match");
-    assert_eq!(complete("l"), (0, same(&["lock", "ls"])), "several");
+    assert_eq!(complete("l"), (0, same(&["lock", "log", "ls"])), "several");
     assert_eq!(complete("enti"), (0, vec![]), "a substring offers nothing");
     assert_eq!(
         complete("vault s"),

@@ -1133,6 +1133,30 @@ reason is testable without the CLI. The behavior is Go's after E0:
 compare public keys, never names; always confirm, default no; keep and
 say why in every other case.
 
+### `[x]` Q-LOG-WALK — What do `log` and `history` walk, and how do they print? {#q-log-walk}
+
+**Resolved while implementing M12a: Go's behavior, with these choices where
+Go's code leaves room.**
+
+- **The walk** is `Revwalk` from HEAD sorted `TIME | TOPOLOGICAL`. Go uses
+  committer-time order alone; adding topological order keeps a child ahead
+  of its parent when a vault commits several times in one second. A commit
+  is a change when its blob at the path differs from *every* parent's, and
+  absent is a different state from empty.
+- **A vault-wide `log`** (no query) covers the entries the vault holds now.
+  A removed entry's history is reached by naming its full id; listing every
+  removed entry would mean diffing the whole history of the repository.
+- **`Vault::history` returns oldest first**, the order it prints in. `log`
+  returns newest first.
+- **`history` prints** `== <time>  <hash>[ (deleted)]` per revision, then
+  one line per compared part of the entry, marked `+`, `-` or a space. A
+  deleted revision prints its header and no body.
+- **Local time** needs a time zone database, so `gage-cli` takes `jiff`
+  with `tz-system` (and `tzdb-bundle-platform` on Windows, which has none).
+  The library keeps its instants zone-free.
+
+---
+
 ---
 
 ## Withdrawn

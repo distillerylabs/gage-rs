@@ -11,9 +11,11 @@ use std::sync::Once;
 use crate::exitcode::{Code, HasCode};
 use crate::{remoteauth, syncerr};
 
+mod history;
 mod merge;
 mod remote;
 
+pub use history::{Revision, log};
 pub use merge::{MergeResult, MergeSide, PendingMerge, merge_remote, prepare_merge};
 pub use remote::{
     REMOTE_OP_TIMEOUT, RemoteOptions, RemoteState, ahead_count, clone, compare, fast_forward,
@@ -508,6 +510,8 @@ fn fail(op: &'static str, dir: &Path) -> impl Fn(git2::Error) -> Error + use<> {
     }
 }
 
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod isolation_tests;
 #[cfg(test)]

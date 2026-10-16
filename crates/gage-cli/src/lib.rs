@@ -167,6 +167,8 @@ mod init_identity_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
+mod log_cli_tests;
+#[cfg(test)]
 mod movecopy_cli_tests;
 #[cfg(test)]
 mod query_tests;
