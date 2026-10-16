@@ -93,7 +93,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 
 | # | Milestone | Model | Depends on | Inventory rows | Status |
 |---|---|---|---|---|---|
-| M8a1 | [Remote primitives & auth](m8a1-remote-primitives.md) ([#33](https://github.com/distillerylabs/gage-rs/issues/33)) | **Opus** | P3 | 57 | `[~]` (local green; CI pending) |
+| M8a1 | [Remote primitives & auth](m8a1-remote-primitives.md) ([#33](https://github.com/distillerylabs/gage-rs/issues/33)) | **Opus** | P3 | 57 | `[x]` |
 | M8a2 | [Sync wiring](m8a2-sync-wiring.md) ([#34](https://github.com/distillerylabs/gage-rs/issues/34)) | **Opus** | M8a1 | 53 | `[~]` (local green; CI pending) |
 | M8b | [Conflict resolution](m8b-conflict-resolution.md) ([#35](https://github.com/distillerylabs/gage-rs/issues/35)) | **Opus** | M8a2 | 49 | `[ ]` |
 
