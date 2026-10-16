@@ -175,7 +175,7 @@ pub enum TrustError {
     #[error("gage: parsing {path}: {source}")]
     Parse {
         path: PathBuf,
-        source: toml::de::Error,
+        source: Box<toml::de::Error>,
     },
     #[error("gage: encoding {TRUST_FILE}: {0}")]
     Encode(#[from] toml::ser::Error),
@@ -193,10 +193,25 @@ pub enum TrustError {
     Write(#[from] atomicfile::Error),
     #[error(transparent)]
     Path(#[from] paths::Error),
+    // The TOML and config errors are boxed: inline they make this enum
+    // 120 bytes, and on Windows (whose `PathBuf` is larger) every error
+    // carrying a `TrustError` crosses clippy's `result_large_err` limit.
     #[error(transparent)]
-    Verify(#[from] VerifyError),
+    Verify(Box<VerifyError>),
     #[error(transparent)]
-    Config(#[from] vaultconfig::Error),
+    Config(Box<vaultconfig::Error>),
+}
+
+impl From<VerifyError> for TrustError {
+    fn from(e: VerifyError) -> TrustError {
+        TrustError::Verify(Box::new(e))
+    }
+}
+
+impl From<vaultconfig::Error> for TrustError {
+    fn from(e: vaultconfig::Error) -> TrustError {
+        TrustError::Config(Box::new(e))
+    }
 }
 
 impl HasCode for TrustError {
@@ -307,8 +322,10 @@ impl Vault {
             return Ok(None);
         };
         let text = String::from_utf8_lossy(&data);
-        let record: TrustRecord =
-            toml::from_str(&text).map_err(|source| TrustError::Parse { path, source })?;
+        let record: TrustRecord = toml::from_str(&text).map_err(|source| TrustError::Parse {
+            path,
+            source: Box::new(source),
+        })?;
         Ok(Some(TrustCache {
             known_config,
             recipients_hash: record.recipients_hash,
@@ -415,8 +432,13 @@ impl Vault {
         cached: &[u8],
     ) -> Result<(Vec<Recipient>, Vec<Recipient>), TrustError> {
         let path = self.trust_cache_dir()?.join(KNOWN_CONFIG_FILE);
-        let was: vaultconfig::File = toml::from_str(&String::from_utf8_lossy(cached))
-            .map_err(|source| TrustError::Parse { path, source })?;
+        let was: vaultconfig::File =
+            toml::from_str(&String::from_utf8_lossy(cached)).map_err(|source| {
+                TrustError::Parse {
+                    path,
+                    source: Box::new(source),
+                }
+            })?;
         let now = self.recipients()?;
         let had = |key: &str| was.recipients.iter().any(|r| r.pubkey == key);
         let has = |key: &str| now.iter().any(|r| r.pubkey == key);

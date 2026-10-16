@@ -1255,3 +1255,14 @@ fn verify_and_repair_report_only_in_config() {
     assert!(asked.contains("add") && asked.contains(&extra), "{asked}");
     assert!(t.recipients_file().contains(&extra));
 }
+
+// Clippy's `result_large_err` limit is 128 bytes, and only Windows CI
+// crossed it (its `PathBuf` is 8 bytes larger), so it went unnoticed on
+// Linux and macOS. `TrustError` rides inside every write's error type, so
+// it stays small here on every platform, with room to spare.
+#[test]
+fn trust_error_stays_small_enough_to_carry() {
+    use std::mem::size_of;
+    assert!(size_of::<TrustError>() <= 96, "{}", size_of::<TrustError>());
+    assert!(size_of::<WriteError>() <= 96, "{}", size_of::<WriteError>());
+}
