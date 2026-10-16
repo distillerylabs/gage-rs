@@ -89,7 +89,7 @@ impl Env {
 
 /// Appends a recipient to both files and commits: the shape a legitimate
 /// `recipient add` on another device arrives in after a pull.
-fn commit_routine_change(vault: &Path, device: &str, pubkey: &str) {
+pub(crate) fn commit_routine_change(vault: &Path, device: &str, pubkey: &str) {
     let path = vault.join(".age-recipients");
     let mut keys = recipients::read(&path).unwrap();
     keys.push(pubkey.into());

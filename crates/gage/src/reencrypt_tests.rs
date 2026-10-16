@@ -25,7 +25,7 @@ use crate::vaultconfig::Recipient;
 /// error path, and a test would then prove that cleanup works rather than
 /// that an interrupted run is invisible. Unwinding runs only `Drop`s, the
 /// lock's included, which is what a killed process leaves behind.
-struct SimulatedCrash;
+pub(crate) struct SimulatedCrash;
 
 /// `vault`, dying once `n` entries have been re-encrypted into the working
 /// tree (Go's `crashAfter`).

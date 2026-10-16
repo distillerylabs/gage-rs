@@ -250,6 +250,20 @@ pub fn registry() -> Registry {
             ),
             command("rm", "<query>", "Delete an entry", GROUP_ENTRY, Both),
             command(
+                "mv",
+                "<query>",
+                "Move an entry to another vault — the sharing mechanism",
+                GROUP_ENTRY,
+                Both,
+            ),
+            command(
+                "cp",
+                "<query>",
+                "Copy an entry into another vault, keeping the original",
+                GROUP_ENTRY,
+                Both,
+            ),
+            command(
                 "ls",
                 "",
                 "List entries with their ids, dates, and last writer",

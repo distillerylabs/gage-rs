@@ -26,6 +26,9 @@ mod index;
 mod index_tests;
 pub mod locker;
 pub mod memlock;
+pub mod movecopy;
+#[cfg(test)]
+mod movecopy_tests;
 pub mod paths;
 pub mod prompter;
 pub mod recipient;

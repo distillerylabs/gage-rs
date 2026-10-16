@@ -79,7 +79,15 @@ secret and lives apart from the data below.
   [Git remotes and authentication](git-and-auth.md).
 - **`$GAGE_STATE/history`**: the command lines typed in sessions, mode
   `0600`, unless `[shell].history_file` names another path.
-- **`$GAGE_STATE/<vault-id>/`**: the trust cache, in a later phase.
+- **`$GAGE_STATE/<vault-id>/`**: the local trust cache: this device's
+  record of the recipient list it last confirmed for the vault.
+  `known-config.toml` is a verbatim copy of the vault's
+  `.gage/config.toml`, and `trust.toml` holds the SHA-256 of
+  `.age-recipients` with when it was recorded. Keyed by the vault's id like
+  everything else here, and never committed or synced: it exists so that a
+  recipient list changed by someone else is shown to you before anything is
+  encrypted to it. See
+  [the recipient-change confirmation](identities-and-recipients.md#the-recipient-change-confirmation).
 
 ## Inside a vault
 

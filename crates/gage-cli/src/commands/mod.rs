@@ -22,6 +22,7 @@ mod entry;
 mod git;
 mod identity;
 mod init;
+mod movecopy;
 mod recipient;
 mod sync;
 mod vault;
@@ -44,6 +45,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
         "sync" | "pull" | "push" => sync::flags(),
         "insert" | "show" | "cat" | "edit" | "rename" | "generate" | "rm" | "ls" | "search"
         | "reindex" => entry::flags(name),
+        "mv" | "cp" => movecopy::flags(),
         "auth login" | "auth status" | "auth logout" => auth::flags(),
         "identity add" | "identity list" => identity::flags(name),
         "recipient add" | "recipient remove" | "recipient list" | "recipient verify" => {
@@ -117,6 +119,8 @@ pub fn run(
         "rename" => entry::rename(matches, io, keys),
         "generate" => entry::generate(matches, io, keys),
         "rm" => entry::rm(matches, io, keys),
+        "mv" => movecopy::mv(matches, io, keys),
+        "cp" => movecopy::cp(matches, io, keys),
         "ls" => entry::ls(matches, io, keys),
         "search" => entry::search(matches, io, keys),
         "reindex" => entry::reindex(matches, io, keys),

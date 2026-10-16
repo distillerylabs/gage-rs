@@ -74,6 +74,10 @@ pub struct Vault {
     /// entry a re-encryption writes. Zero-sized, and a no-op, outside
     /// tests.
     pub(crate) reencrypt_hook: ReencryptHook,
+    /// The `mv` crash seam (Q-CRASH-SEAM): called once the destination's
+    /// commit and push are done and before the source loses the entry.
+    /// Zero-sized, and a no-op, outside tests.
+    pub(crate) move_hook: MoveHook,
     /// The network half of sync; the real git-backed one unless a test
     /// injected another (see `remotesync`).
     pub(crate) syncer: SyncerSeam,
@@ -146,6 +150,37 @@ impl Eq for ReencryptHook {}
 impl std::fmt::Debug for ReencryptHook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ReencryptHook")
+    }
+}
+
+/// Called by a move between the destination's commit and the source's
+/// removal (Go's `onMoveDestCommitted`). A test panics from it to die in
+/// that window with no cleanup beyond `Drop`s, or probes both vault locks
+/// from it. Nothing on the move path may catch an unwind, for the reason
+/// [`ReencryptHook`] gives.
+#[derive(Clone, Default)]
+pub(crate) struct MoveHook(#[cfg(test)] Option<Arc<dyn Fn() + Send + Sync>>);
+
+impl MoveHook {
+    pub(crate) fn after_dest_committed(&self) {
+        #[cfg(test)]
+        if let Some(hook) = &self.0 {
+            hook();
+        }
+    }
+}
+
+impl PartialEq for MoveHook {
+    fn eq(&self, _: &MoveHook) -> bool {
+        true
+    }
+}
+
+impl Eq for MoveHook {}
+
+impl std::fmt::Debug for MoveHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("MoveHook")
     }
 }
 
@@ -374,6 +409,7 @@ impl Vault {
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
             reencrypt_hook: ReencryptHook::default(),
+            move_hook: MoveHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
         })
@@ -426,6 +462,7 @@ impl Vault {
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
             reencrypt_hook: ReencryptHook::default(),
+            move_hook: MoveHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
         })
@@ -553,6 +590,7 @@ impl Vault {
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
             reencrypt_hook: ReencryptHook::default(),
+            move_hook: MoveHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
         }
@@ -575,6 +613,14 @@ impl Vault {
         hook: impl Fn(usize) + Send + Sync + 'static,
     ) -> Vault {
         self.reencrypt_hook = ReencryptHook(Some(Arc::new(hook)));
+        self
+    }
+
+    /// The same vault, calling `hook` after a move's destination commit.
+    /// This crate's tests only.
+    #[cfg(test)]
+    pub(crate) fn with_move_hook(mut self, hook: impl Fn() + Send + Sync + 'static) -> Vault {
+        self.move_hook = MoveHook(Some(Arc::new(hook)));
         self
     }
 
@@ -920,6 +966,7 @@ mod tests {
                 locker: LockerSeam::default(),
                 decrypts: DecryptCounter::default(),
                 reencrypt_hook: ReencryptHook::default(),
+                move_hook: MoveHook::default(),
                 syncer: SyncerSeam::default(),
                 pulled: PullObserver::default(),
             }
@@ -1395,6 +1442,7 @@ mod tests {
                 locker: LockerSeam::default(),
                 decrypts: DecryptCounter::default(),
                 reencrypt_hook: ReencryptHook::default(),
+                move_hook: MoveHook::default(),
                 syncer: SyncerSeam::default(),
                 pulled: PullObserver::default(),
             }

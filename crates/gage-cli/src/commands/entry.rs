@@ -253,7 +253,7 @@ impl Keys<'_, '_> {
 
 /// An unresolvable query as an error. An ambiguous one lists the
 /// candidates, with full ids so the next attempt can name one exactly.
-fn resolve_failure(err: ResolveError) -> CliError {
+pub(super) fn resolve_failure(err: ResolveError) -> CliError {
     match err {
         ResolveError::Ambiguous(list) => ambiguous(&list),
         other => other.into(),

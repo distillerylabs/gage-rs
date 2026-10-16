@@ -257,7 +257,7 @@ impl Vault {
         Ok((id, self.read_entry(id, identity)?))
     }
 
-    fn titles(&self, identity: &Identity) -> Result<Vec<(Uuid, String)>, Error> {
+    pub(crate) fn titles(&self, identity: &Identity) -> Result<Vec<(Uuid, String)>, Error> {
         Ok(self
             .list(identity)?
             .into_iter()
@@ -430,6 +430,43 @@ impl Vault {
         }
     }
 
+    /// [`Vault::with_vault_write`] across two vaults, for `mv`/`cp`. Both
+    /// locks are taken in order of vault id, whatever order the caller
+    /// names them in: the lock file is keyed by id, so any other order
+    /// lets two opposite-direction moves each hold one lock and wait on
+    /// the other (Q-TWO-VAULT-LOCK). Both working trees are reset, then
+    /// `f` runs with both locks held, and both are released on every path
+    /// out. A caller refuses a shared id before getting here; given one
+    /// anyway this takes the one lock once, since a second `flock` on its
+    /// own open file description would only wait out the timeout.
+    pub(crate) fn with_two_vault_locks<T, E: From<LockError> + From<gitrepo::Error>>(
+        a: &Vault,
+        b: &Vault,
+        timeout: Duration,
+        prompter: &dyn Prompter,
+        f: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        if a.id == b.id {
+            return a.with_vault_write(timeout, prompter, f);
+        }
+        let (first, second) = if a.id < b.id { (a, b) } else { (b, a) };
+        let held_first = vaultlock::Lock::acquire(&first.prepare_lock_file()?, timeout)
+            .map_err(LockError::from)?;
+        let held_second = vaultlock::Lock::acquire(&second.prepare_lock_file()?, timeout)
+            .map_err(LockError::from)?;
+        let result = (|| {
+            first.reset_dirty_work_tree(prompter)?;
+            second.reset_dirty_work_tree(prompter)?;
+            f()
+        })();
+        let released = held_second.release().and(held_first.release());
+        match (result, released) {
+            (Ok(v), Ok(())) => Ok(v),
+            (Err(e), _) => Err(e),
+            (Ok(_), Err(e)) => Err(LockError::from(e).into()),
+        }
+    }
+
     /// Every mutating method's preamble (Go's `withVaultWrite`): take the
     /// write lock, discard an unexpectedly dirty working tree, warning
     /// through `prompter` first, then run the write. In one place, so "no
@@ -513,7 +550,7 @@ impl Vault {
 
     /// The lock file's path, with its directory created. The path (and
     /// with it the vault id) is validated before anything is created.
-    fn prepare_lock_file(&self) -> Result<std::path::PathBuf, LockError> {
+    pub(crate) fn prepare_lock_file(&self) -> Result<std::path::PathBuf, LockError> {
         let path = self.lock_file_path()?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|source| LockError::Io {
