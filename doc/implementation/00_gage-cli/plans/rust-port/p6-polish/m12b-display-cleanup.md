@@ -268,7 +268,7 @@ Write each task's tests first, at task granularity.
 
 - [x] Parity ledger: §2 #39, #55, #54; §4 `cat`, `ls`, `vault_remove`;
       the P1 · M1 and P2 inbound rows.
-- [ ] Mark M12b `[x]` in the [P6 index](index.md) after CI.
+- [x] Mark M12b `[x]` in the [P6 index](index.md) after CI.
 
 ## Definition of done
 
