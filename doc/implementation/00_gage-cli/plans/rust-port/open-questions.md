@@ -765,6 +765,37 @@ against a loopback HTTP recorder.**
   the origin accepted the token first and then redirected
   (`a_token_is_not_offered_to_a_host_it_was_not_stored_for`,
   `a_redirect_after_the_token_does_not_carry_it_to_another_host`).
+- *Amended after M8a1's first Windows CI run, WinHTTP:* on Windows,
+  libgit2 does HTTP(S) through WinHTTP, not its own client, and two
+  differences break the guarantees above (read in libgit2 1.9.7's
+  `transports/winhttp.c`):
+  - It reads any `follow_redirects` mode except `None` as "follow to
+    another host, on every request". It never treats `Initial` as
+    initial-only.
+  - Once a credential is accepted, it re-applies it to every later
+    request (`apply_credentials` ignores the URL), without asking the
+    `credentials` callback again.
+
+  An origin that accepted the token and then redirected to another
+  `https://` host would therefore receive the token there. gage sets
+  `RemoteRedirect::None` on Windows (`gitrepo::REDIRECTS`). Unix keeps
+  `Initial`. A same-host redirect is still followed. `clone`'s branch
+  listing goes through `git_remote_connect`, which takes no redirect
+  option, and a detached remote always gets `Initial`. So the listing
+  connects through an anonymous remote on a scratch repository whose
+  `http.followRedirects` carries the same policy, on every platform.
+  - WinHTTP follows a cross-host redirect only to `https://`, and the
+    loopback recorder speaks plain HTTP. On Windows the redirect tests
+    therefore pin that the redirect is replayed to the same host and
+    never reaches the other one, with no leak; they can't exercise the
+    `https://` case. That case rests on `REDIRECTS` (pinned by
+    `the_redirect_policy_matches_the_http_backend`) and libgit2's
+    `git_net_url_apply_redirect` refusing a host change when following
+    is off.
+  - Also from that run: with no credentials callback installed,
+    WinHTTP reports a 401 as class `Http`, `GenericError`, rather than
+    `ErrorCode::Auth`. The class puts it in the auth bucket all the same
+    (see Q-SYNC-CLASSIFY and the `syncerr` table).
 - **No token stored** means an anonymous attempt, not an error, as in Go.
 - **The test hook.** libgit2 hands credentials only to its built-in HTTP
   transport, so Go's `gagetest://` recording transport has no equivalent.
