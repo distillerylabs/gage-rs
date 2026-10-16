@@ -46,6 +46,10 @@ pub mod vaultlock;
 pub mod xdgpaths;
 
 #[cfg(test)]
+mod recipient_tests;
+#[cfg(test)]
+mod reencrypt_tests;
+#[cfg(test)]
 mod sync_index_tests;
 #[cfg(test)]
 mod twodevice_tests;

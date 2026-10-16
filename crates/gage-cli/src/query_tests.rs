@@ -35,7 +35,11 @@ impl Env {
             value: value.into(),
             ..Entry::default()
         };
-        self.vault("personal").write_entry(id, &e).unwrap();
+        let vault = self.vault("personal");
+        vault.write_entry(id, &e).unwrap();
+        // Committed, as a real write would be: an uncommitted file is what
+        // the next write's dirty-tree reset discards.
+        gage::gitrepo::commit_all(&vault.path, &id.to_string()).unwrap();
         id
     }
 

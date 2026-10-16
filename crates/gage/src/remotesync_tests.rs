@@ -425,28 +425,69 @@ fn pull_that_brings_nothing_reports_no_change() {
 
 const HOLDER_ENV: &str = "GAGE_REMOTESYNC_TEST_LOCK";
 
+/// Set alongside `HOLDER_ENV`: try the lock once instead of holding it.
+const PROBE_ENV: &str = "GAGE_REMOTESYNC_TEST_PROBE";
+
 /// The child side: take the lock at `$HOLDER_ENV`, announce it on stderr,
-/// and hold it until stdin closes.
+/// and hold it until stdin closes. With `$PROBE_ENV`, try it once instead
+/// and report `HELD` or `FREE`.
 #[test]
 #[allow(clippy::disallowed_macros, clippy::disallowed_methods)]
 fn lock_holder_trampoline() {
     let Some(path) = std::env::var_os(HOLDER_ENV) else {
         return;
     };
+    if std::env::var_os(PROBE_ENV).is_some() {
+        match vaultlock::Lock::try_acquire(Path::new(&path)).unwrap() {
+            Some(lock) => {
+                lock.release().unwrap();
+                eprintln!("FREE");
+            }
+            None => eprintln!("HELD"),
+        }
+        return;
+    }
     let lock = vaultlock::Lock::acquire(Path::new(&path), Duration::from_secs(5)).unwrap();
     eprintln!("ACQUIRED");
     let _ = std::io::stdin().read(&mut [0u8]);
     lock.release().unwrap();
 }
 
-struct Holder {
+/// Whether another process finds the lock at `path` taken right now: what
+/// a concurrent gage write would see first.
+pub(crate) fn lock_is_held_elsewhere(path: &Path) -> bool {
+    let out = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "remotesync::tests::lock_holder_trampoline",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(HOLDER_ENV, path)
+        .env(PROBE_ENV, "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    match (
+        stderr.lines().any(|l| l == "HELD"),
+        stderr.lines().any(|l| l == "FREE"),
+    ) {
+        (true, false) => true,
+        (false, true) => false,
+        _ => panic!("the lock probe reported neither HELD nor FREE:\n{stderr}"),
+    }
+}
+
+pub(crate) struct Holder {
     child: Child,
     stdin: Option<ChildStdin>,
 }
 
 impl Holder {
     /// Starts a process holding the lock at `path`; returns once it has it.
-    fn spawn(path: &Path) -> Holder {
+    pub(crate) fn spawn(path: &Path) -> Holder {
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args([
                 "remotesync::tests::lock_holder_trampoline",

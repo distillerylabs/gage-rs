@@ -78,7 +78,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[x]` `memlock::LockedBuf` gives each key its own pages; `alloc_gives_each_buffer_its_own_page`, `unlocking_one_buffer_leaves_another_locked` |
 | `e52828a` | — | Scrypt work-factor test hook and its guard tests | P2 · M2 | `[~]` identity-file halves done (Q-SCRYPT-HOOK); the enrollment halves are P7's |
 | `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders; M1: `[vault].id`, format 2 with the directional refusal, the registration-vs-vault id check; M2: identity files filed under the committed id, the `vault-name.txt` marker, `init`'s rollback |
-| `3fd784c`, `fbc887f` | #46 | E1a unconditional re-encrypt + recipient regression fixes | Folded: P5 · M9 | `[ ]` |
+| `3fd784c`, `fbc887f` | #46 | E1a unconditional re-encrypt + recipient regression fixes | Folded: P5 · M9b ([#43](https://github.com/distillerylabs/gage-rs/issues/43)): `recipient add` has no `--reencrypt` and always re-encrypts; the `RequireFullAccess` pre-flight with its clean-tree gate | `[x]` |
 | `045bf24`, `9d72384` | #48 | E1b shared recipient write + fixes | P7 · E1b | `[ ]` |
 | `798ed47` | — | E2 sealed request | P7 · E2 | `[ ]` |
 | `c86ad4c` | — | E3 joining side | P7 · E3 | `[ ]` |
@@ -103,7 +103,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
 | | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[x]` |
 | | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[x]` M8a1 ([#33](https://github.com/distillerylabs/gage-rs/issues/33)), M8a2 ([#34](https://github.com/distillerylabs/gage-rs/issues/34)), M8b ([#35](https://github.com/distillerylabs/gage-rs/issues/35)) |
-| | M9 (+ A19), M10, M11 | P5 ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)): M9 → M9a + M9b, M10, M11 | `[~]` M9a ([#42](https://github.com/distillerylabs/gage-rs/issues/42)) |
+| | M9 (+ A19), M10, M11 | P5 ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)): M9 → M9a + M9b, M10, M11 | `[~]` M9a ([#42](https://github.com/distillerylabs/gage-rs/issues/42)) `[x]`; M9b ([#43](https://github.com/distillerylabs/gage-rs/issues/43)) implemented, awaiting CI |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
 | | "Post-plan changes" section | Rows in §2 | — |
 | `gage-cli-init-design/` | E0, E1a | Folded (see §2) | `[ ]` |
@@ -129,7 +129,7 @@ to match Cobra's layout.
 | `search`, `reindex` | P3 · M7 `[x]` (name, alias `grep`, group, arguments and `-u/--use` match; checked by `m7_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 · M8a1 `[x]` (name, group Git-specific, both modes, `--host`, `login`'s long help; checked by `p4_auth_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `clone`, `sync`, `pull`, `push` | P4 · M8a2 `[x]` `clone` (one-shot, `--name`/`--dir`/`--device`), `sync`/`pull`/`push` (group Sync, both modes, `-u/--use`), `init --remote` (checked by `p4_sync_commands_have_their_go_fixture_flags_and_descriptions`); `sync`'s resolving half: P4 · M8b `[x]` (the `[l/r/b/s/q]` menu, lazy unlock, refusal with nobody to ask; `sync --yes` stays an unknown flag, pinned by `yes_does_not_resolve_conflicts`) (`clone`'s enrollment offer is P7's; `sync --yes` arrives with P5 · M10) |
-| `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5: `identity*`, `recipient`, `recipient_list`, `recipient_verify` in M9a `[x]` (CI green on all three platforms, matched by `p5_identity_commands_have_their_go_fixture_flags_and_descriptions`; `verify`'s `--repair` prose is M10's); `recipient_add`, `recipient_remove` in M9b; `recipient verify --repair` and the root `--yes` (with `sync --yes`'s meaning) in M10; `mv`, `cp` in M11 |
+| `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5: `identity*`, `recipient`, `recipient_list`, `recipient_verify` in M9a `[x]` (CI green on all three platforms, matched by `p5_identity_commands_have_their_go_fixture_flags_and_descriptions`; `verify`'s `--repair` prose is M10's); `recipient_add`, `recipient_remove` in M9b (matched by the same test; awaiting CI); `recipient verify --repair` and the root `--yes` (with `sync --yes`'s meaning) in M10; `mv`, `cp` in M11 |
 | `log`, `history` (and the output flags `--clip`, `--qr`, `--script`; `show --field` itself is P3 · M5) | P6 |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |
 | `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8 |

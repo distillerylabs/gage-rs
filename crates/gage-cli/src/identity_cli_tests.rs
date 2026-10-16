@@ -414,6 +414,18 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
             &["-u", "--use"][..],
         ),
         (
+            "recipient add",
+            include_str!("../../../tests/fixtures/go/help/recipient_add.txt"),
+            true,
+            &["--device", "-u", "--use"][..],
+        ),
+        (
+            "recipient remove",
+            include_str!("../../../tests/fixtures/go/help/recipient_remove.txt"),
+            true,
+            &["--reencrypt", "-u", "--use"][..],
+        ),
+        (
             "recipient list",
             include_str!("../../../tests/fixtures/go/help/recipient_list.txt"),
             true,
@@ -456,9 +468,15 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
             .stdout
             .contains("--repair")
     );
+    assert!(
+        !env.ok(&["recipient", "add", "--help"])
+            .stdout
+            .contains("--reencrypt")
+    );
 
     // The parents list only the children that exist: enroll and the
-    // enrollment and write children of `recipient` are later milestones'.
+    // enrollment children of `recipient` are later milestones'. `recipient
+    // add` takes no --reencrypt (A19); `remove` requires it.
     let identity = env.ok(&["identity"]).stdout;
     assert!(identity.starts_with("Manage this device's identities for a vault"));
     for (child, short) in [
@@ -473,6 +491,14 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
     let recipient = env.ok(&["recipient"]).stdout;
     assert!(recipient.starts_with("Manage who can read this vault"));
     for (child, short) in [
+        (
+            "add",
+            "Authorize a public key and re-encrypt the vault to include it",
+        ),
+        (
+            "remove",
+            "Revoke a recipient and re-encrypt the vault without its key",
+        ),
         ("list", "List the keys this vault is encrypted to"),
         (
             "verify",
@@ -486,6 +512,8 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
     for short in [
         "identity add",
         "identity list",
+        "recipient add",
+        "recipient remove",
         "recipient list",
         "recipient verify",
     ] {
@@ -495,6 +523,8 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
     for (name, group) in [
         ("identity add", GROUP_IDENTITY),
         ("identity list", GROUP_IDENTITY),
+        ("recipient add", GROUP_RECIPIENT),
+        ("recipient remove", GROUP_RECIPIENT),
         ("recipient list", GROUP_RECIPIENT),
         ("recipient verify", GROUP_RECIPIENT),
     ] {

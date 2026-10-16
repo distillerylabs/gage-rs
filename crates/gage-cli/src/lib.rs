@@ -159,6 +159,8 @@ mod lifecycle_tests;
 #[cfg(test)]
 mod query_tests;
 #[cfg(test)]
+mod recipient_cli_tests;
+#[cfg(test)]
 mod repl_tests;
 #[cfg(test)]
 mod search_tests;

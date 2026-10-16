@@ -5,7 +5,8 @@
 //! [`Machine`] cloned from the same origin the way `gage clone` leaves one:
 //! registered, with no identity and an empty `pubkey`.
 //!
-//! The tests in this file are M9a's; the fixture is shared with M9b
+//! The tests in this file are M9a's, plus M9b's lost-identity recovery;
+//! the fixture is shared with M9b
 //! (re-encryption) and M10 (a pulled recipient change).
 
 use crate::config::{self, Global, VaultEntry};
@@ -398,4 +399,50 @@ fn list_identities_skips_subdirectories_and_invalidly_named_files() {
         .map(|i| i.device)
         .collect();
     assert_eq!(devices, [DEVICE]);
+}
+
+// --- lost-identity recovery (M9b task 6) ------------------------------------
+
+// Go: TestRecoveringALostIdentityFileNeedsNoFileRestore. Device B's file is
+// gone; it registers a fresh identity under a new name, A adds that key,
+// and B reads the whole history again. Nothing is restored: the old key is
+// simply gone.
+#[test]
+fn recovering_a_lost_identity_file_needs_no_file_restore() {
+    let a = SyncVault::new();
+    let id_a = a.unlock();
+    let entry = a
+        .vault
+        .insert(
+            &id_a,
+            crate::entry::NewEntry {
+                title: "ProtonMail".into(),
+                value: "v".into(),
+                ..Default::default()
+            },
+            false,
+            &FakePrompter::new(),
+        )
+        .unwrap();
+    let b = Machine::cloned_from(&a, B_DEVICE);
+    let old_key = b.identity_add(B_DEVICE);
+    a.vault
+        .add_recipient(B_DEVICE, &old_key, &id_a, &FakePrompter::new())
+        .unwrap();
+
+    std::fs::remove_file(paths::identity_file_path(&b.dirs, &b.vault.id, B_DEVICE).unwrap())
+        .unwrap();
+    let new_key = b.identity_add("laptop-2-new");
+    assert_ne!(new_key, old_key);
+
+    a.vault
+        .add_recipient("laptop-2-new", &new_key, &id_a, &FakePrompter::new())
+        .unwrap();
+
+    let id_b = b.unlock();
+    assert_eq!(id_b.recipient(), new_key);
+    assert_eq!(
+        b.vault.read_entry(entry, &id_b).unwrap().title,
+        "ProtonMail"
+    );
 }

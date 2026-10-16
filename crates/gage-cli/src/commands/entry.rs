@@ -168,7 +168,7 @@ impl Keys<'_, '_> {
     /// Runs `f` with the vault `--use` names (or the current one) and its
     /// identity: unlocked for this command and dropped after it one-shot,
     /// borrowed from the session (unlocking there once, if needed) in one.
-    fn with_vault<T>(
+    pub(super) fn with_vault<T>(
         &mut self,
         matches: &ArgMatches,
         io: &mut Io,

@@ -1,11 +1,25 @@
-//! The read side of `recipient`: who the vault lists, and whether its two
-//! copies of that list agree. Neither needs an identity: both files are
-//! plaintext and committed, so anyone with the vault can inspect them.
+//! `recipient`: who a vault is encrypted to, and changing that.
+//!
+//! The read side (who the vault lists, whether its two copies of that list
+//! agree) needs no identity: both files are plaintext and committed, so
+//! anyone with the vault can inspect them.
+//!
+//! The write side re-encrypts, always: `add` since A19, `remove` since it
+//! has always required `--reencrypt`. Every entry and both recipient files
+//! land in exactly one commit, or none of it does. The ordering in
+//! [`Vault::commit_recipient_list`] is what makes an interrupted run
+//! invisible in history. See "Recipient / access management" and "Why
+//! adding a recipient always re-encrypts" in the design doc.
 
+use uuid::Uuid;
+
+use crate::entry::{self, LockError, WRITE_LOCK_TIMEOUT};
 use crate::exitcode::{Code, HasCode};
-use crate::recipients;
+use crate::identity::Identity;
+use crate::prompter::{PromptError, Prompter};
 use crate::vault::Vault;
-use crate::vaultconfig;
+use crate::vaultconfig::{self, Recipient};
+use crate::{agekey, crypt, devicename, gitrepo, paths, recipients, vaultlock};
 
 /// Where `.gage/config.toml` and `.age-recipients` differ.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -74,4 +88,435 @@ fn missing_from<'a, 'b>(
         .filter(|k| !theirs.contains(k) && seen.insert(*k))
         .cloned()
         .collect()
+}
+
+/// What an add or a remove did: which recipient, in which commit, and how
+/// many entries rode along in it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecipientChange {
+    pub device: String,
+    pub pubkey: String,
+    /// The one commit's id.
+    pub commit: String,
+    /// Always the whole vault: both verbs re-encrypt every entry.
+    pub reencrypted: usize,
+}
+
+/// Why a recipient change was refused or failed. Every refusal is decided
+/// before the first byte is written.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum RecipientError {
+    #[error("gage: device name {0:?} is invalid")]
+    InvalidDeviceName(String),
+    #[error(transparent)]
+    InvalidRecipient(#[from] agekey::Error),
+    /// The key, or the device name, is already listed. A list carrying
+    /// either twice makes `verify` and the trust cache's diff harder to
+    /// reason about, and buys nothing.
+    #[error("gage: this vault already lists that recipient: {}", exists(.device, .pubkey))]
+    RecipientExists {
+        device: String,
+        /// The listed key, when the key is what collided; `None` when it
+        /// is the device name.
+        pubkey: Option<String>,
+    },
+    /// Reported rather than a no-op, so a typo can't read as a completed
+    /// revocation.
+    #[error("gage: no recipient of this vault matches that name or key: {query:?}")]
+    RecipientNotFound { query: String },
+    /// Removing a key while every existing entry stays encrypted to it
+    /// revokes nothing at all.
+    #[error(
+        "gage: removing a recipient requires --reencrypt: without it the removed key still opens every entry that already exists, so the revocation would only look like one"
+    )]
+    ReencryptRequired,
+    /// There is no `--force`: an empty list can't be encrypted to, and the
+    /// re-encryption would already have rewritten every entry to a list
+    /// nobody holds a key for.
+    #[error(
+        "gage: a vault must keep at least one recipient: removing {device:?} would leave nothing to encrypt to, and --reencrypt would rewrite every entry to a list no key opens"
+    )]
+    LastRecipient { device: String },
+    /// A19's refusal: an actor who can't read the whole vault has nothing
+    /// whole to grant. The count, never the ids: those are opaque to it by
+    /// construction.
+    #[error(
+        "gage: this device cannot read every entry in the vault, so it cannot grant full access: {unreadable} of {total} {} cannot be read by {device:?}; a device that can read all of {vault:?} has to make this change",
+        if *.total == 1 { "entry" } else { "entries" }
+    )]
+    CannotGrantFullAccess {
+        unreadable: usize,
+        total: usize,
+        device: String,
+        vault: String,
+    },
+    #[error("gage: not removing {device:?}; nothing was written")]
+    SelfRemovalDeclined { device: String },
+    #[error(
+        "gage: removing {device:?} would lock this device out of {vault:?}, and that could not be confirmed: {source}"
+    )]
+    Confirm {
+        device: String,
+        vault: String,
+        source: PromptError,
+    },
+    /// One entry couldn't be decrypted or rewritten; the whole change
+    /// aborted, and this names the entry.
+    #[error("gage: re-encrypting entry {id}: {source}")]
+    Reencrypt { id: Uuid, source: entry::Error },
+    /// A key in the new list this build can't encrypt to.
+    #[error("gage: re-encrypting to {device:?} ({pubkey}): {source}")]
+    ReencryptTo {
+        device: String,
+        pubkey: String,
+        source: crypt::Error,
+    },
+    #[error(transparent)]
+    Entry(#[from] entry::Error),
+    #[error(transparent)]
+    Config(#[from] vaultconfig::Error),
+    #[error(transparent)]
+    Recipients(#[from] recipients::Error),
+    #[error(transparent)]
+    Path(#[from] paths::Error),
+    #[error(transparent)]
+    Lock(#[from] vaultlock::Error),
+    #[error(transparent)]
+    Git(#[from] gitrepo::Error),
+    #[error("gage: creating {path}: {source}")]
+    Io {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+    },
+}
+
+fn exists(device: &str, pubkey: &Option<String>) -> String {
+    match pubkey {
+        Some(key) => format!("{key} is already listed as {device:?}"),
+        None => format!("{device:?} is already a recipient of this vault"),
+    }
+}
+
+impl HasCode for RecipientError {
+    fn code(&self) -> Code {
+        use RecipientError::*;
+        match self {
+            InvalidDeviceName(_) | InvalidRecipient(_) | ReencryptRequired => Code::Usage,
+            RecipientExists { .. }
+            | LastRecipient { .. }
+            | CannotGrantFullAccess { .. }
+            | SelfRemovalDeclined { .. } => Code::Conflict,
+            RecipientNotFound { .. } => Code::NotFound,
+            Confirm { .. } => Code::LockedOrAuth,
+            Reencrypt { source, .. } => source.code(),
+            ReencryptTo { source, .. } => source.code(),
+            Entry(e) => e.code(),
+            Config(e) => e.code(),
+            Recipients(e) => e.code(),
+            Path(e) => e.code(),
+            Lock(e) => e.code(),
+            Git(e) => e.code(),
+            Io { .. } => Code::Internal,
+        }
+    }
+}
+
+impl From<LockError> for RecipientError {
+    fn from(err: LockError) -> RecipientError {
+        match err {
+            LockError::Path(e) => RecipientError::Path(e),
+            LockError::Lock(e) => RecipientError::Lock(e),
+            LockError::Io { path, source } => RecipientError::Io { path, source },
+        }
+    }
+}
+
+impl Vault {
+    /// A19's pre-flight: can `identity` read every entry in this vault?
+    ///
+    /// Public and standalone because two commands place it differently:
+    /// `recipient add` runs it before the lock, E4's approval later in its
+    /// own sequence. Either way the refusal never arrives mid-write on an
+    /// opaque entry id.
+    ///
+    /// It counts only entries `identity` is not a recipient of. One that
+    /// fails for any other reason (corrupt, truncated) is a different
+    /// problem with a different fix, and the useful answer there is which
+    /// entry, which the re-encryption itself reports. Asks nothing.
+    pub fn require_full_access(&self, identity: &Identity) -> Result<(), RecipientError> {
+        let ids = self.entry_ids()?;
+        let unreadable = ids
+            .iter()
+            .filter(|id| {
+                matches!(
+                    self.read_entry(**id, identity),
+                    Err(entry::Error::Crypt(crypt::Error::NotARecipient))
+                )
+            })
+            .count();
+        if unreadable == 0 {
+            return Ok(());
+        }
+        Err(RecipientError::CannotGrantFullAccess {
+            unreadable,
+            total: ids.len(),
+            device: identity.device().to_string(),
+            vault: self.name.clone(),
+        })
+    }
+
+    /// Adds `pubkey` as `device` and re-encrypts every entry to the new
+    /// list, always (A19): there is no invocation that leaves a recipient
+    /// able to read only part of the vault. That isn't an access tier
+    /// anyone chose but an artifact of age baking recipients into each
+    /// file, and it is contagious: a partially admitted device can neither
+    /// repair itself nor grant full access to anyone else.
+    ///
+    /// Every entry and both recipient files land in one commit, then the
+    /// ordinary post-write push runs; a failed push warns through
+    /// `prompter` and fails nothing.
+    pub fn add_recipient(
+        &self,
+        device: &str,
+        pubkey: &str,
+        identity: &Identity,
+        prompter: &dyn Prompter,
+    ) -> Result<RecipientChange, RecipientError> {
+        if !devicename::valid(device) {
+            return Err(RecipientError::InvalidDeviceName(device.to_string()));
+        }
+        agekey::validate_recipient(pubkey)?;
+
+        // The pre-flight, ahead of the lock and of every question. It
+        // reads entries off disk, so it is only authoritative on a clean
+        // tree: an interrupted `remove <this device> --reencrypt` leaves
+        // entries/ encrypted to a list without this device while HEAD,
+        // which the reset is about to restore, is entirely readable by it.
+        // Refusing on that would send the operator elsewhere to repair a
+        // vault that was never damaged. So on a dirty tree the check moves
+        // to just after the reset: still before the first byte is written.
+        let clean = gitrepo::is_clean(&self.path)?;
+        if clean {
+            self.require_full_access(identity)?;
+        }
+        self.with_vault_write(WRITE_LOCK_TIMEOUT, prompter, || {
+            if !clean {
+                self.require_full_access(identity)?;
+            }
+            self.add_recipient_locked(
+                Recipient {
+                    device: device.to_string(),
+                    pubkey: pubkey.to_string(),
+                },
+                &format!("gage: recipient add {device} (reencrypt)"),
+                identity,
+                prompter,
+            )
+        })
+    }
+
+    /// Removes the recipient `query` names (a device name or a public key:
+    /// the design spells it `<pubkey-or-name>`) and re-encrypts every entry
+    /// to the reduced list.
+    ///
+    /// `reencrypt` is required, not optional: see
+    /// [`RecipientError::ReencryptRequired`]. Two removals are treated
+    /// apart because they differ in recoverability: the last recipient is
+    /// refused outright, and this device's own key goes only behind a
+    /// `prompter.confirm` naming the device that loses access.
+    pub fn remove_recipient(
+        &self,
+        query: &str,
+        reencrypt: bool,
+        identity: &Identity,
+        prompter: &dyn Prompter,
+    ) -> Result<RecipientChange, RecipientError> {
+        // A rejection of the command line, not a finding about the vault:
+        // before the lock, and before anything is read.
+        if !reencrypt {
+            return Err(RecipientError::ReencryptRequired);
+        }
+        self.with_vault_write(WRITE_LOCK_TIMEOUT, prompter, || {
+            let current = self.recipients()?;
+            let Some(index) = current
+                .iter()
+                .position(|r| r.device == query || r.pubkey == query)
+            else {
+                return Err(RecipientError::RecipientNotFound {
+                    query: query.to_string(),
+                });
+            };
+            let mut updated = current;
+            let removed = updated.remove(index);
+            // Before the confirmation below, so a "yes" never meets a
+            // refusal.
+            if updated.is_empty() {
+                return Err(RecipientError::LastRecipient {
+                    device: removed.device,
+                });
+            }
+            self.confirm_self_removal(&removed, identity, prompter)?;
+            // Said before the work, not after: by the time the commit
+            // lands there is nothing left to reconsider, and the point is
+            // that revocation is narrower than it sounds.
+            prompter.warn(&format!(
+                "gage: removing {:?} revokes future access only — anything {} already read can't be unread.",
+                removed.device, removed.device
+            ));
+            let (reencrypted, commit) = self.commit_recipient_list(
+                &updated,
+                &format!("gage: recipient remove {} (reencrypt)", removed.device),
+                identity,
+                prompter,
+            )?;
+            Ok(RecipientChange {
+                device: removed.device,
+                pubkey: removed.pubkey,
+                commit,
+                reencrypted,
+            })
+        })
+    }
+
+    /// Gates removing the key this vault was unlocked with. Legitimate
+    /// (decommissioning this laptop from a vault others still use), and it
+    /// works, since every entry is decrypted with the still-valid identity
+    /// before the list shrinks; but it is the one way to lock yourself out,
+    /// so it asks. `confirm` defaults to no, so a scripted run can't fall
+    /// into it.
+    fn confirm_self_removal(
+        &self,
+        removed: &Recipient,
+        identity: &Identity,
+        prompter: &dyn Prompter,
+    ) -> Result<(), RecipientError> {
+        if removed.pubkey != identity.recipient() && removed.device != identity.device() {
+            return Ok(());
+        }
+        let question = format!(
+            "Remove {:?} — this device's own key? It will no longer be able to read vault {:?}.",
+            removed.device, self.name
+        );
+        match prompter.confirm(&question) {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(RecipientError::SelfRemovalDeclined {
+                device: removed.device.clone(),
+            }),
+            Err(source) => Err(RecipientError::Confirm {
+                device: removed.device.clone(),
+                vault: self.name.clone(),
+                source,
+            }),
+        }
+    }
+
+    /// The add itself, with the write lock held. Split from
+    /// [`Vault::add_recipient`] so E1b can widen it to several recipients
+    /// and E4's approval can call it under a lock it took itself.
+    fn add_recipient_locked(
+        &self,
+        add: Recipient,
+        message: &str,
+        identity: &Identity,
+        prompter: &dyn Prompter,
+    ) -> Result<RecipientChange, RecipientError> {
+        let current = self.recipients()?;
+        // Re-validated here, the function that writes the list: a device
+        // name in it becomes a path component, and a config carrying an
+        // invalid one is a vault nobody can open.
+        if !devicename::valid(&add.device) {
+            return Err(RecipientError::InvalidDeviceName(add.device));
+        }
+        agekey::validate_recipient(&add.pubkey)?;
+        if let Some(existing) = current.iter().find(|r| r.pubkey == add.pubkey) {
+            return Err(RecipientError::RecipientExists {
+                device: existing.device.clone(),
+                pubkey: Some(existing.pubkey.clone()),
+            });
+        }
+        if current.iter().any(|r| r.device == add.device) {
+            return Err(RecipientError::RecipientExists {
+                device: add.device,
+                pubkey: None,
+            });
+        }
+        let mut updated = current;
+        updated.push(add.clone());
+        let (reencrypted, commit) =
+            self.commit_recipient_list(&updated, message, identity, prompter)?;
+        Ok(RecipientChange {
+            device: add.device,
+            pubkey: add.pubkey,
+            commit,
+            reencrypted,
+        })
+    }
+
+    /// The shared tail of add and remove: re-encrypt every entry to
+    /// `updated`, write both recipient files, and commit all of it once.
+    /// There is no path through it that skips the re-encryption.
+    ///
+    /// The order is the crash-safety property. Entries are written first,
+    /// to the new list passed explicitly; the recipient files last, just
+    /// before the commit. An interrupted run's dirty surface is then
+    /// entries/ (which the next write's reset discards) for as long as
+    /// possible, instead of a recipient file naming a key no entry is
+    /// encrypted to. Runs with the write lock held.
+    fn commit_recipient_list(
+        &self,
+        updated: &[Recipient],
+        message: &str,
+        identity: &Identity,
+        prompter: &dyn Prompter,
+    ) -> Result<(usize, String), RecipientError> {
+        let reencrypted = self.reencrypt_to(updated, identity)?;
+        self.write_recipient_files(updated)?;
+        let commit = gitrepo::commit_all(&self.path, message)?;
+        // A failed push is a publishing problem, not a half-done migration:
+        // the guarantee is about HEAD, and HEAD already has all of it.
+        self.push_after_write(prompter);
+        Ok((reencrypted, commit))
+    }
+
+    /// Rewrites every entry to `to`, returning how many. Every entry is
+    /// decrypted first, and the list parsed, before anything is written: a
+    /// failure in either aborts with nothing touched and names what failed.
+    fn reencrypt_to(&self, to: &[Recipient], identity: &Identity) -> Result<usize, RecipientError> {
+        let ids = self.entry_ids()?;
+        let entries = ids
+            .iter()
+            .map(|&id| {
+                self.read_entry(id, identity)
+                    .map_err(|source| RecipientError::Reencrypt { id, source })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let parsed = to
+            .iter()
+            .map(|r| {
+                crypt::Recipient::parse(&r.pubkey).map_err(|source| RecipientError::ReencryptTo {
+                    device: r.device.clone(),
+                    pubkey: r.pubkey.clone(),
+                    source,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for (done, (&id, e)) in ids.iter().zip(&entries).enumerate() {
+            self.write_entry_to(id, e, &parsed)
+                .map_err(|source| RecipientError::Reencrypt { id, source })?;
+            self.reencrypt_hook.after_entry(done + 1);
+        }
+        Ok(ids.len())
+    }
+
+    /// Writes `.age-recipients` and `.gage/config.toml` from one list, in
+    /// that order. Neither is ever written without the other.
+    pub(crate) fn write_recipient_files(&self, list: &[Recipient]) -> Result<(), RecipientError> {
+        let keys: Vec<String> = list.iter().map(|r| r.pubkey.clone()).collect();
+        recipients::write(&self.path.join(".age-recipients"), &keys)?;
+        let mut file = vaultconfig::read(&self.config_path())?;
+        file.recipients = list.to_vec();
+        vaultconfig::write(&self.config_path(), &file)?;
+        Ok(())
+    }
 }

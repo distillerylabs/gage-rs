@@ -283,7 +283,7 @@ impl Vault {
         force: bool,
         prompter: &dyn Prompter,
     ) -> Result<Uuid, WriteError> {
-        self.with_write_lock(timeout, || {
+        self.with_vault_write(timeout, prompter, || {
             if !force
                 && let Some((id, _)) = self
                     .titles(identity)?
@@ -336,7 +336,7 @@ impl Vault {
         query: &str,
         prompter: &dyn Prompter,
     ) -> Result<Uuid, WriteError> {
-        self.with_write_lock(timeout, || {
+        self.with_vault_write(timeout, prompter, || {
             let id = resolve_query(query, &self.titles(identity)?)?;
             let path = self.entry_path(id);
             std::fs::remove_file(&path).map_err(|source| WriteError::Io {
@@ -359,7 +359,7 @@ impl Vault {
     /// the vault's recipients, not to the writer. Go's other use for the
     /// identity, reporting the automatic push, is `prompter` here.
     pub fn update(&self, id: Uuid, e: &Entry, prompter: &dyn Prompter) -> Result<(), WriteError> {
-        self.with_write_lock(WRITE_LOCK_TIMEOUT, || {
+        self.with_vault_write(WRITE_LOCK_TIMEOUT, prompter, || {
             self.write_entry(id, e)?;
             gitrepo::commit_all(&self.path, &id.to_string())?;
             self.push_after_write(prompter);
@@ -381,7 +381,7 @@ impl Vault {
         force: bool,
         prompter: &dyn Prompter,
     ) -> Result<Uuid, WriteError> {
-        self.with_write_lock(WRITE_LOCK_TIMEOUT, || {
+        self.with_vault_write(WRITE_LOCK_TIMEOUT, prompter, || {
             let titles = self.titles(identity)?;
             let id = resolve_query(query, &titles)?;
             if !force
@@ -422,6 +422,51 @@ impl Vault {
             (Err(e), _) => Err(e),
             (Ok(_), Err(e)) => Err(LockError::from(e).into()),
         }
+    }
+
+    /// Every mutating method's preamble (Go's `withVaultWrite`): take the
+    /// write lock, discard an unexpectedly dirty working tree, warning
+    /// through `prompter` first, then run the write. In one place, so "no
+    /// write folds an earlier write's leftovers into its own commit" is
+    /// structural, as the lock is. The reset runs under the lock, so it
+    /// can't race another process's write in progress.
+    ///
+    /// The sync verbs take the bare lock instead and *refuse* a dirty tree:
+    /// there the uncommitted work could be something outside gage
+    /// mid-edit, where here gage itself is about to commit, and a leftover
+    /// can only come from a gage write that died.
+    pub(crate) fn with_vault_write<T, E: From<LockError> + From<gitrepo::Error>>(
+        &self,
+        timeout: Duration,
+        prompter: &dyn Prompter,
+        f: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        self.with_write_lock(timeout, || {
+            self.reset_dirty_work_tree(prompter)?;
+            f()
+        })
+    }
+
+    /// Discards uncommitted changes across the whole working tree, not
+    /// only `entries/`: a crash after the recipient files are written but
+    /// before the commit dirties those two as well. Warns once, naming
+    /// what it discarded, whatever the cause: "only an interrupted write
+    /// does this" is likely, not provable, so the reset is never silent. A
+    /// clean tree is: a warning on every write would teach people to skip
+    /// the one that matters.
+    fn reset_dirty_work_tree(&self, prompter: &dyn Prompter) -> Result<(), gitrepo::Error> {
+        let discarded = gitrepo::reset_hard(&self.path)?;
+        if discarded.is_empty() {
+            return Ok(());
+        }
+        // The working tree moved, as a pull moves it: a session's index
+        // must not keep serving what the discarded files held.
+        self.pulled.note();
+        prompter.warn(&format!(
+            "gage: discarded uncommitted changes left by an interrupted write: {}",
+            discarded.join(", ")
+        ));
+        Ok(())
     }
 
     /// The write lock if it is free right now, `None` if another process
@@ -727,9 +772,10 @@ mod tests {
         );
     }
 
-    // Not a Go row, but Go's behavior: a failed commit fails the insert and
-    // leaves the entry file uncommitted in the working tree (no rollback),
-    // and the next successful write's commit records it.
+    // Not a Go row, but Go's behavior since M9: a failed commit fails the
+    // insert and leaves the entry file uncommitted in the working tree (no
+    // rollback), and the next write discards it with a warning naming it,
+    // rather than folding it into its own commit.
     #[test]
     fn an_insert_whose_commit_fails_leaves_the_entry_uncommitted() {
         let f = Fixture::new();
@@ -752,21 +798,29 @@ mod tests {
         assert!(matches!(err, WriteError::Git(_)), "{err}");
         assert_eq!(err.code(), Code::Internal);
         assert_eq!(f.commits(), before);
-        assert_eq!(f.vault.entry_ids().unwrap().len(), 1, "the file stays");
+        let orphan = f.vault.entry_ids().unwrap();
+        assert_eq!(orphan.len(), 1, "the file stays");
         std::fs::remove_file(&index_lock).unwrap();
         assert!(!gitrepo::is_clean(&f.vault.path).unwrap());
 
-        f.vault
-            .insert(
-                &f.identity(),
-                new_entry("y", "v"),
-                false,
-                &FakePrompter::new(),
-            )
+        let p = FakePrompter::new();
+        let kept = f
+            .vault
+            .insert(&f.identity(), new_entry("y", "v"), false, &p)
             .unwrap();
         assert_eq!(f.commits(), before + 1);
         assert!(gitrepo::is_clean(&f.vault.path).unwrap());
-        assert_eq!(f.vault.list(&f.identity()).unwrap().len(), 2);
+        assert_eq!(
+            f.vault.entry_ids().unwrap(),
+            vec![kept],
+            "the orphan is gone"
+        );
+        let warnings = p.warnings();
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(
+            warnings[0].contains(&format!("entries/{}.age", orphan[0])),
+            "{warnings:?}"
+        );
     }
 
     // Go: TestRemoveUnknownQueryFails
@@ -1154,6 +1208,9 @@ mod tests {
         let mut was = f.vault.read_entry(id, &f.identity()).unwrap();
         was.updated_by = "another-device".into();
         f.vault.write_entry(id, &was).unwrap();
+        // Committed: left in the working tree, the rename's dirty-tree
+        // reset would discard it and the re-stamp below would prove nothing.
+        gitrepo::commit_all(&f.vault.path, "another device's write").unwrap();
 
         let got = f
             .vault

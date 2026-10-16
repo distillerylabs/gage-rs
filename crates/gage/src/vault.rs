@@ -70,6 +70,10 @@ pub struct Vault {
     dirs: Dirs,
     locker: LockerSeam,
     pub(crate) decrypts: DecryptCounter,
+    /// The re-encryption crash seam (Q-CRASH-SEAM): called after each
+    /// entry a re-encryption writes. Zero-sized, and a no-op, outside
+    /// tests.
+    pub(crate) reencrypt_hook: ReencryptHook,
     /// The network half of sync; the real git-backed one unless a test
     /// injected another (see `remotesync`).
     pub(crate) syncer: SyncerSeam,
@@ -107,6 +111,41 @@ impl Eq for DecryptCounter {}
 impl std::fmt::Debug for DecryptCounter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("DecryptCounter")
+    }
+}
+
+/// Called after each entry a re-encryption writes into the working tree,
+/// with how many it has written so far (Go's `onReencryptEntry`). A test
+/// panics from it to interrupt the pass with no cleanup beyond `Drop`s,
+/// which is what a killed process leaves, or probes the vault lock from it.
+/// Nothing on the re-encryption path may catch an unwind: that would turn
+/// the simulated crash into ordinary cleanup, and the crash tests would
+/// quietly start proving something else.
+#[derive(Clone, Default)]
+pub(crate) struct ReencryptHook(#[cfg(test)] Option<Arc<dyn Fn(usize) + Send + Sync>>);
+
+impl ReencryptHook {
+    pub(crate) fn after_entry(&self, done: usize) {
+        #[cfg(test)]
+        if let Some(hook) = &self.0 {
+            hook(done);
+        }
+        let _ = done;
+    }
+}
+
+// A hook observes; it doesn't make two vaults different vaults.
+impl PartialEq for ReencryptHook {
+    fn eq(&self, _: &ReencryptHook) -> bool {
+        true
+    }
+}
+
+impl Eq for ReencryptHook {}
+
+impl std::fmt::Debug for ReencryptHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ReencryptHook")
     }
 }
 
@@ -334,6 +373,7 @@ impl Vault {
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
+            reencrypt_hook: ReencryptHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
         })
@@ -385,6 +425,7 @@ impl Vault {
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
+            reencrypt_hook: ReencryptHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
         })
@@ -503,6 +544,7 @@ impl Vault {
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
+            reencrypt_hook: ReencryptHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
         }
@@ -514,6 +556,17 @@ impl Vault {
     #[cfg(any(test, feature = "test-support"))]
     pub fn with_locker(mut self, locker: Arc<dyn Locker>) -> Vault {
         self.locker = LockerSeam(Some(locker));
+        self
+    }
+
+    /// The same vault, calling `hook` after each entry a re-encryption
+    /// writes. This crate's tests only.
+    #[cfg(test)]
+    pub(crate) fn with_reencrypt_hook(
+        mut self,
+        hook: impl Fn(usize) + Send + Sync + 'static,
+    ) -> Vault {
+        self.reencrypt_hook = ReencryptHook(Some(Arc::new(hook)));
         self
     }
 
@@ -858,6 +911,7 @@ mod tests {
                 dirs: test_dirs(),
                 locker: LockerSeam::default(),
                 decrypts: DecryptCounter::default(),
+                reencrypt_hook: ReencryptHook::default(),
                 syncer: SyncerSeam::default(),
                 pulled: PullObserver::default(),
             }
@@ -1332,6 +1386,7 @@ mod tests {
                 dirs: test_dirs(),
                 locker: LockerSeam::default(),
                 decrypts: DecryptCounter::default(),
+                reencrypt_hook: ReencryptHook::default(),
                 syncer: SyncerSeam::default(),
                 pulled: PullObserver::default(),
             }

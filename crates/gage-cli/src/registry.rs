@@ -185,6 +185,20 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                "recipient add",
+                "<pubkey>",
+                "Authorize a public key and re-encrypt the vault to include it",
+                GROUP_RECIPIENT,
+                Both,
+            ),
+            command(
+                "recipient remove",
+                "<pubkey-or-name>",
+                "Revoke a recipient and re-encrypt the vault without its key",
+                GROUP_RECIPIENT,
+                Both,
+            ),
+            command(
                 "recipient list",
                 "",
                 "List the keys this vault is encrypted to",

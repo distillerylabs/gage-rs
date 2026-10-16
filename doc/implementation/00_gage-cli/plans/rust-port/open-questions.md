@@ -902,9 +902,17 @@ Go's M9 review found that the hook can't reach the window after the
 recipient files are written. The test for that window calls the real
 `write_recipient_files` rather than hand-writing lookalike files.
 
-A hook stands in for a crash by returning an error. The `Vault` is then
-dropped without its commit, which leaves the same on-disk state a killed
-process would.
+~~A hook stands in for a crash by returning an error.~~ **Amended at the
+start of M9b:** a hook stands in for a crash by *panicking*, as Go's
+does, and the test catches the unwind (`catch_unwind`) and re-raises any
+other panic. A returned error would run the error-handling path, so a
+cleanup-on-failure added later would make every crash test prove that
+cleanup rather than that an interruption is invisible. Unwinding runs only
+`Drop`s: the lock's releases it, as the OS does for a killed process, and
+the files on disk stay as the crash left them. Nothing in the library
+catches an unwind. The hook is a zero-sized field outside `cfg(test)`
+(the `DecryptCounter` pattern), so `Vault`'s constructors and derives are
+unchanged.
 
 ### `[x]` Q-TRUST-HASH — How is `.age-recipients` hashed, and who computes the diff? {#q-trust-hash}
 
