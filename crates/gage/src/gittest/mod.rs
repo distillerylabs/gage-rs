@@ -116,6 +116,26 @@ impl Device {
         std::fs::write(&full, content).unwrap_or_else(|e| panic!("gittest: writing {rel}: {e}"));
     }
 
+    /// [`Device::write`] for content that isn't text, such as an entry's
+    /// age ciphertext.
+    pub fn write_bytes(&self, rel: &str, content: &[u8]) {
+        let full = self.path.join(rel);
+        std::fs::create_dir_all(full.parent().unwrap()).expect("gittest: mkdir");
+        std::fs::write(&full, content).unwrap_or_else(|e| panic!("gittest: writing {rel}: {e}"));
+    }
+
+    /// This clone's HEAD commit id: for a fresh clone, what the remote's
+    /// branch points at.
+    pub fn head(&self) -> String {
+        self.repo()
+            .head()
+            .unwrap()
+            .peel_to_commit()
+            .unwrap()
+            .id()
+            .to_string()
+    }
+
     pub fn remove(&self, rel: &str) {
         std::fs::remove_file(self.path.join(rel))
             .unwrap_or_else(|e| panic!("gittest: removing {rel}: {e}"));

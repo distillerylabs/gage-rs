@@ -102,7 +102,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M3 | P2 · M3 | `[x]` ([#14](https://github.com/distillerylabs/gage-rs/issues/14)) |
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
 | | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[x]` |
-| | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[~]` M8a1 ([#33](https://github.com/distillerylabs/gage-rs/issues/33)), M8a2 ([#34](https://github.com/distillerylabs/gage-rs/issues/34)) |
+| | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[~]` M8a1 ([#33](https://github.com/distillerylabs/gage-rs/issues/33)), M8a2 ([#34](https://github.com/distillerylabs/gage-rs/issues/34)) done; M8b ([#35](https://github.com/distillerylabs/gage-rs/issues/35)) implemented, awaiting CI |
 | | M9 (+ A19), M10, M11 | P5 | `[ ]` |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
 | | "Post-plan changes" section | Rows in §2 | — |
@@ -128,7 +128,7 @@ to match Cobra's layout.
 | `show`, `edit`, `rename`, `generate` | P3 · M5 `[x]` (all fixture flags but `-c`/`-q` on `show` and `generate`, which are P6 · M12; checked by `m5_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `search`, `reindex` | P3 · M7 `[x]` (name, alias `grep`, group, arguments and `-u/--use` match; checked by `m7_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 · M8a1 `[x]` (name, group Git-specific, both modes, `--host`, `login`'s long help; checked by `p4_auth_commands_have_their_go_fixture_flags_and_descriptions`) |
-| `clone`, `sync`, `pull`, `push` | P4 · M8a2 `[x]` `clone` (one-shot, `--name`/`--dir`/`--device`), `sync`/`pull`/`push` (group Sync, both modes, `-u/--use`), `init --remote` (checked by `p4_sync_commands_have_their_go_fixture_flags_and_descriptions`); `sync`'s resolving half in M8b (`clone`'s enrollment offer is P7's; `sync --yes` arrives with P5 · M10) |
+| `clone`, `sync`, `pull`, `push` | P4 · M8a2 `[x]` `clone` (one-shot, `--name`/`--dir`/`--device`), `sync`/`pull`/`push` (group Sync, both modes, `-u/--use`), `init --remote` (checked by `p4_sync_commands_have_their_go_fixture_flags_and_descriptions`); `sync`'s resolving half: P4 · M8b `[x]` (the `[l/r/b/s/q]` menu, lazy unlock, refusal with nobody to ask; `sync --yes` stays an unknown flag, pinned by `yes_does_not_resolve_conflicts`) (`clone`'s enrollment offer is P7's; `sync --yes` arrives with P5 · M10) |
 | `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5 |
 | `log`, `history` (and the output flags `--clip`, `--qr`, `--script`; `show --field` itself is P3 · M5) | P6 |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |
@@ -189,7 +189,8 @@ M13's; see the [P3 plan](p3-query-session/index.md#inventory-accounting).
 Resolved in P4 planning: `gitrepo/history_test.go` (6 rows) was
 re-tagged P6 in the phase map, because Go's `gitrepo.Log` shipped with Go
 M12 for `log`/`history`. M1 already claims 7 of P4's 166 rows. The other
-159 are split M8a1 (57), M8a2 (54) and M8b (48), with M8b excusing one
+159 are split M8a1 (57), M8a2 (53) and M8b (49, `TestPluralEntries` having
+moved from M8a2), with M8b excusing one
 (`TestNilPrompterRefusesRatherThanPanicking`, per
 [Q-CONFLICT-PROMPTER](open-questions.md#q-conflict-prompter)). See the
 [P4 plan](p4-sync/index.md#inventory-accounting).
@@ -205,7 +206,7 @@ behavior; each phase's last milestone updates the pages for its surface.
 | `entries.md` | P2 · M4: `doc/cli/entries.md` `[x]` for the shipped surface; P3 · M5 `[x]` `show`, `edit`, `rename`, `generate`, `insert -e`, addressing; P3 · M7 `[x]` `search`/`grep`, `reindex`; P6 for `cat`/`ls` display |
 | `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker; M7 `[x]` the index; M13 `[x]` the title completion source (enrollment ids are P7's) |
 | `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 `[x]` the metadata index and `reindex`; M13 `[x]` completion and abbreviation; `--script`/`--stdin` and `GAGE_PASSPHRASE` are P6 · M12's, enrollment's session behavior P7's |
-| `sync.md`, `git-and-auth.md` | P4 · M8b (with `exit-codes.md`'s `Unreachable` and `configuration.md`'s tokens directory) |
+| `sync.md`, `git-and-auth.md` | P4 · M8b `[x]` (with `exit-codes.md`'s `Unreachable` and sync meanings of 1 and 5, and `configuration.md`'s tokens directory); describes P4 only: the recipient-change confirmation and enrollment exceptions arrive with P5 and P7 |
 | `identities-and-recipients.md`, `sharing.md` | P5 (+ P8 for the recovery sections) |
 | `enrollment.md` | P7 |
 | `README.md`, `getting-started.md`, `command-reference.md` | Grown each phase; final pass in P9 |

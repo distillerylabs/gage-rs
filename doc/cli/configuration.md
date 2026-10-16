@@ -65,12 +65,18 @@ secret and lives apart from the data below.
 - **`$GAGE_DATA/vaults/<name>/`**: a vault's git repository, unless
   `init --dir` put it elsewhere.
 - **`$GAGE_DATA/identities/<vault-id>/`**: this device's wrapped private
-  keys, keyed by the vault's id. Not created yet; identities arrive in a
-  later phase. Deliberately outside the vault's git tree (it would be
-  pushed) and outside `$GAGE_CONFIG` (which dotfile managers sync).
+  keys, keyed by the vault's id. Deliberately outside the vault's git tree
+  (it would be pushed) and outside `$GAGE_CONFIG` (which dotfile managers
+  sync).
 - **`$GAGE_STATE/locks/<vault-id>.lock`**: the per-vault write lock, held
-  only while a write runs and released by the OS if the process dies. Not
-  created yet: the first writes that take it arrive with entries.
+  while a write or a sync command runs and released by the OS if the
+  process dies.
+- **`$GAGE_STATE/tokens/<host>`**: the HTTPS token `gage auth login`
+  stored for a git host, mode `0600` in a `0700` directory. One per host,
+  shared by every vault on it. Local device state, never synced: a token
+  can always be had again by logging in. A token file anyone else can read
+  is refused rather than used. See
+  [Git remotes and authentication](git-and-auth.md).
 - **`$GAGE_STATE/history`**: the command lines typed in sessions, mode
   `0600`, unless `[shell].history_file` names another path.
 - **`$GAGE_STATE/<vault-id>/`**: the trust cache, in a later phase.

@@ -6,6 +6,7 @@ use crate::entry::{Entry, Timestamp};
 use crate::prompter::FakePrompter;
 use crate::remotesync::tests::{NAME, PASSPHRASE, SyncVault, sample};
 use crate::session::{Session, SessionConfig};
+use crate::syncresolve::Resolution;
 
 /// A session over the synced vault, the way the REPL wires one (Go's
 /// `newSyncSession`).
@@ -177,4 +178,95 @@ fn a_sync_verb_needs_no_unlock_and_still_invalidates_the_index() {
         .pull()
         .unwrap();
     assert!(fresh.unlock_requests().is_empty());
+}
+
+/// One entry both sides changed, with this side's version committed and
+/// the divergence found: the session tests' version of the resolution
+/// fixture. Returns the entry's id.
+fn diverge_on_one_entry(s: &SyncVault) -> uuid::Uuid {
+    let identity = s.unlock();
+    let p = FakePrompter::new();
+    let id = s
+        .vault
+        .insert(&identity, sample("ProtonMail"), false, &p)
+        .unwrap();
+    let mut theirs = s.vault.read_entry(id, &identity).unwrap();
+    theirs.value = "theirs".into();
+    theirs.updated_by = "phone".into();
+    let other = s.other();
+    other.write_bytes(
+        &format!("entries/{id}.age"),
+        &s.vault.encrypt_entry(&theirs).unwrap(),
+    );
+    other.commit("their edit");
+    other.push();
+    let mut mine = s.vault.read_entry(id, &identity).unwrap();
+    mine.value = "mine".into();
+    s.vault.update(id, &mine, &p).unwrap();
+    id
+}
+
+// Go: TestResolutionReusesASessionsCachedIdentity. An unlocked session
+// resolves without a second passphrase request.
+#[test]
+fn resolution_reuses_a_sessions_cached_identity() {
+    let s = SyncVault::new();
+    let id = diverge_on_one_entry(&s);
+    let p = FakePrompter::new()
+        .with_passphrase(PASSPHRASE)
+        .with_resolutions(&[Resolution::KeepRemote]);
+    let mut session = new_session(&s, &p);
+    session.vault(None).unwrap();
+    assert_eq!(p.unlock_requests().len(), 1);
+
+    let report = session.sync_resolving(None).unwrap().unwrap();
+    assert_eq!(report.resolved, 1);
+    assert_eq!(p.unlock_requests().len(), 1, "resolution re-prompted");
+    assert_eq!(p.conflicts_presented().len(), 1);
+    let (vault, identity) = session.vault(None).unwrap();
+    assert_eq!(vault.read_entry(id, identity).unwrap().value, "theirs");
+}
+
+// A locked session unlocks once, when the conflict is reached, and keeps
+// the key like any other unlock; a sync with nothing to decrypt asks for
+// nothing.
+#[test]
+fn a_locked_session_unlocks_only_for_a_conflict_and_keeps_the_key() {
+    let s = SyncVault::new();
+    s.other()
+        .write_commit_push("notes.txt", "from elsewhere", "another device's commit");
+    let p = FakePrompter::new();
+    let mut session = new_session(&s, &p);
+    let report = session.sync_resolving(None).unwrap().unwrap();
+    assert!(report.pulled, "{report:?}");
+    assert!(p.unlock_requests().is_empty(), "a fast-forward unlocked");
+    assert!(!session.status()[0].unlocked);
+
+    diverge_on_one_entry(&s);
+    let p = FakePrompter::new()
+        .with_passphrase(PASSPHRASE)
+        .with_resolutions(&[Resolution::KeepLocal]);
+    let mut session = new_session(&s, &p);
+    session.sync_resolving(None).unwrap().unwrap();
+    assert_eq!(p.unlock_requests().len(), 1);
+    assert!(session.status()[0].unlocked, "the key was not kept");
+    session.vault(None).unwrap();
+    assert_eq!(p.unlock_requests().len(), 1, "the kept key was not reused");
+}
+
+// Go: TestResolutionUpdatesTheSessionIndex. The index is built first, so
+// a stale cache surviving the resolution would still count one entry.
+#[test]
+fn resolution_updates_the_session_index() {
+    let s = SyncVault::new();
+    diverge_on_one_entry(&s);
+    let p = FakePrompter::new()
+        .with_passphrase(PASSPHRASE)
+        .with_resolutions(&[Resolution::KeepBoth]);
+    let mut session = new_session(&s, &p);
+    assert_eq!(session.list(None).unwrap().len(), 1);
+
+    session.sync_resolving(None).unwrap().unwrap();
+
+    assert_eq!(session.list(None).unwrap().len(), 2, "the index went stale");
 }

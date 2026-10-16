@@ -27,9 +27,20 @@ pub enum MergeResult {
     Conflicts(Vec<String>),
 }
 
+/// One of the two versions a merge reconciles: which side's content to
+/// read, and which side's version to keep for a path both changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeSide {
+    /// This device's version: what HEAD has.
+    Local,
+    /// The fetched version: what the remote-tracking ref has.
+    Remote,
+}
+
 /// A three-way merge computed but not yet applied. Splitting the two is
-/// what lets a caller (M8b) look at what conflicted and decide before
-/// anything is written; one that decides not to proceed never calls
+/// what lets a caller (M8b's resolution) read both sides of what
+/// conflicted ([`PendingMerge::content`]) and decide before anything is
+/// written; one that decides not to proceed never calls
 /// [`PendingMerge::commit`], and the vault is untouched.
 #[derive(Debug)]
 pub struct PendingMerge {
@@ -58,7 +69,7 @@ pub fn merge_remote(dir: &Path, message: &str) -> Result<MergeResult, Error> {
     if !merge.conflicts.is_empty() {
         return Ok(MergeResult::Conflicts(merge.conflicts));
     }
-    merge.commit(message)
+    merge.commit(message, &BTreeMap::new(), &BTreeMap::new())
 }
 
 /// Computes the merge [`merge_remote`] would make, writing nothing.
@@ -171,29 +182,94 @@ impl PendingMerge {
         &self.conflicts
     }
 
+    /// One side's version of `path`, read from the git objects, or `None`
+    /// if that side doesn't have it: a deletion, which is what lets a
+    /// delete/modify conflict be shown as "one side removed this". The
+    /// remote's version of a conflicted path was never written to disk,
+    /// and reading the local one from the same place keeps one source of
+    /// truth for what "local" means.
+    pub fn content(&self, side: MergeSide, path: &str) -> Result<Option<Vec<u8>>, Error> {
+        let commit = match side {
+            MergeSide::Local => self.local,
+            MergeSide::Remote => self.remote,
+        };
+        let repo = open(&self.dir)?;
+        let tree = repo
+            .find_commit(commit)
+            .and_then(|c| c.tree())
+            .map_err(fail("reading a tree of", &self.dir))?;
+        let entry = match tree.get_path(Path::new(path)) {
+            Ok(entry) => entry,
+            Err(e) if e.code() == git2::ErrorCode::NotFound => return Ok(None),
+            Err(e) => return Err(fail("reading a tree of", &self.dir)(e)),
+        };
+        let blob = entry
+            .to_object(&repo)
+            .and_then(|o| o.peel_to_blob())
+            .map_err(fail("reading a merged file in", &self.dir))?;
+        Ok(Some(blob.content().to_vec()))
+    }
+
     /// Applies the merge and records it as a commit with parents [local,
-    /// remote] and `message`. Refused while any path conflicts: silently
-    /// keeping the local version is the last-write-wins outcome the sync
-    /// model exists to refuse.
+    /// remote] and `message`.
+    ///
+    /// `choices` answers every path [`PendingMerge::conflicts`] named:
+    /// [`MergeSide::Local`] leaves this device's version, and
+    /// [`MergeSide::Remote`] replaces it with the fetched one, a deletion
+    /// included. A missing answer is refused rather than defaulted:
+    /// silently keeping the local version is the last-write-wins outcome
+    /// the sync model exists to refuse, and a caller forgetting a path
+    /// must not reach it.
+    ///
+    /// `adds` are new files the merge also creates: how keep-both writes
+    /// the losing version under a fresh id without this layer knowing what
+    /// an entry is. They never replace a file, so one naming a path either
+    /// side has, or the merge touches, is refused.
     ///
     /// A failure partway rolls back to the tree as it was. Without that a
     /// failed merge would leave a dirty tree that every later sync
     /// operation refuses over, wedging the vault until a human cleaned up.
-    pub fn commit(self, message: &str) -> Result<MergeResult, Error> {
-        if let Some(path) = self.conflicts.first() {
+    pub fn commit(
+        self,
+        message: &str,
+        choices: &BTreeMap<String, MergeSide>,
+        adds: &BTreeMap<String, Vec<u8>>,
+    ) -> Result<MergeResult, Error> {
+        if let Some(path) = self.conflicts.iter().find(|p| !choices.contains_key(*p)) {
             return Err(Error::Unanswered(path.clone()));
+        }
+        let touched = |p: &String| {
+            self.local_paths.contains(p)
+                || self.take_remote.contains(p)
+                || self.conflicts.contains(p)
+        };
+        if let Some(path) = adds.keys().find(|p| touched(p)) {
+            return Err(Error::AddWouldOverwrite(path.clone()));
         }
         let repo = open(&self.dir)?;
         let remote_tree = repo
             .find_commit(self.remote)
             .and_then(|c| c.tree())
             .map_err(fail("reading the remote's tree in", &self.dir))?;
+        let take = self.take_remote.iter().chain(
+            self.conflicts
+                .iter()
+                .filter(|p| choices.get(*p) == Some(&MergeSide::Remote)),
+        );
         // A path joins `applied` before its write starts, so one that
         // failed halfway is still rolled back.
-        let mut applied: Vec<&str> = Vec::with_capacity(self.take_remote.len());
-        for path in &self.take_remote {
+        let mut applied: Vec<&str> =
+            Vec::with_capacity(self.take_remote.len() + self.conflicts.len() + adds.len());
+        for path in take {
             applied.push(path);
             if let Err(e) = self.apply_remote_version(&repo, &remote_tree, path) {
+                return Err(self.rollback(&repo, &applied, e));
+            }
+        }
+        // A BTreeMap: written in the same order on every platform.
+        for (path, content) in adds {
+            applied.push(path);
+            if let Err(e) = self.write_add(path, content) {
                 return Err(self.rollback(&repo, &applied, e));
             }
         }
@@ -236,6 +312,22 @@ impl PendingMerge {
             create_private_dirs(parent).map_err(io("creating the directory of"))?;
         }
         write_file(&full, blob.content()).map_err(io("writing"))
+    }
+
+    /// Creates one of [`PendingMerge::commit`]'s adds.
+    fn write_add(&self, path: &str, content: &[u8]) -> Result<(), Error> {
+        let full = safe_join(&self.dir, path)?;
+        let io = |op| {
+            move |source| Error::Io {
+                op,
+                path: path.to_string(),
+                source,
+            }
+        };
+        if let Some(parent) = full.parent() {
+            create_private_dirs(parent).map_err(io("creating the directory of"))?;
+        }
+        write_file(&full, content).map_err(io("writing"))
     }
 
     /// Stages what the merge wrote and commits it with both parents.

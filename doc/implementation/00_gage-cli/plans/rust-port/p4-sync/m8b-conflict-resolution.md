@@ -84,15 +84,16 @@ P4 user docs.
     adds
   - the prompter's `ResolveConflict` in `cmd/gage`
   - `cmd/gage/sync.go`: `syncUnlocker`
-- Test inventory, 48 rows:
+- Test inventory, 49 rows:
   - `internal/gage/syncresolve_test.go` (30)
   - `cmd/gage/syncresolve_cli_test.go` (8)
   - `internal/gage/gitrepo/merge_test.go` (10)
+  - `cmd/gage/sync_cli_test.go`: `TestPluralEntries` (1), moved from M8a2
 
 ## Decisions to make first
 
-These are the recommended answers. Confirm them when this plan is
-reviewed. Go's four M8b decisions carry over unchanged:
+Confirmed when implementation started (all as recommended, with the
+implementation notes below). Go's four M8b decisions carry over unchanged:
 
 - keep both keeps the title verbatim
 - keep both preserves provenance
@@ -134,9 +135,58 @@ What follows is specific to Rust.
 
   Decrypted entries hold their `Zeroizing` secret fields, as `Entry`
   already does.
-- **Merge commit message:** `gage: resolve N entries`, with the singular
-  and plural forms. Port Go's wording from `resolutionMessage`. It has no
-  title and no plaintext.
+- **Merge commit message:** Go's wording from `resolutionMessage`,
+  `gage: merge origin, resolving 1 entry` / `… 2 entries`. (An earlier
+  draft of this line said `gage: resolve N entries`; Go's wording wins.)
+  It has no title and no plaintext.
+
+### Implementation notes
+
+What implementing the decisions above settled, for whoever reads this
+next:
+
+- **Where the non-interactive refusal happens.** A default trait method
+  can't be asked about before it is called, so the refusal comes at the
+  first `resolve_conflict`, after the lazy unlock. That is where Go's
+  real CLI refuses too: `terminalPrompter` always satisfies
+  `ConflictPrompter`, and checks its `interactive` flag inside
+  `ResolveConflict`. Go's earlier structural check only spares a
+  prompter that doesn't implement the interface at all. The paths are
+  still checked before the unlock.
+- **`TerminalPrompter`'s `interactive` flag** didn't exist yet (the
+  "Depends on" list above assumed P3 had added it). M8b adds it:
+  `TerminalPrompter::interactive(bool)`, set by `main` from whether stdin
+  is a terminal, as Go's `run.go` sets it.
+- **`FakePrompter`** with no resolution scripted refuses like the trait
+  default, so it stands in for a frontend with nobody to ask. Scripted
+  answers come `with_resolutions` (in order) or `with_resolution_for`
+  (by title, since conflicts arrive in UUID order).
+- **The borrow.** `Vault::sync_resolving` takes the owned-identity
+  closure. It adapts it to the crate-internal `sync_resolving_with`, whose
+  closure lends `&Identity`, through a `OnceCell` that owns the identity
+  for the run. `Session::sync_resolving` uses the same form. It lends the
+  cached identity or unlocks once into a `OnceCell`, and keeps that key
+  afterwards like any other unlock. It returns
+  `Result<Result<SyncReport, SyncError>, SessionError>`: the outer error is
+  the vault lookup.
+- **A recipient-file conflict** is returned from `sync_resolving` exactly
+  as M8a2's push refuses it, which is what Go does at the pin. The
+  message isn't a new one naming the trust cache, since P4 has no trust
+  cache to name. Follow-up for P5 · M10: that summary ends "run
+  `gage sync`", which until M10 just refuses again.
+- **`Entry` holds plain `String`s**, not `Zeroizing` ones (the decision
+  above assumed otherwise). `EntryConflict` carries `Entry` as every
+  other decrypted read does. Changing that is not this milestone's.
+- **`SyncReport` grew `resolved`, `skipped` (both `u32`) and `aborted`**,
+  and `SyncCause` grew `Prompt`, `Unlock`, `NotAnEntry`, `Entry`,
+  `Unresolved` and `Aborted`. The counts are `u32`, and the unlock and
+  entry causes are boxed, to keep `SyncError` under clippy's
+  `result_large_err` threshold. A skipped or aborted resolution still
+  reports `Kind::Diverged`, as Go's `resolutionRefusal` unwraps to
+  `ErrDiverged`.
+- **`PendingMerge::commit`** also refuses an add at a path the merge itself
+  takes from the remote, not only one HEAD has (Go checks only HEAD's
+  files). This doesn't matter for a fresh UUID, but it closes the case.
 
 ## Tasks
 
@@ -144,7 +194,7 @@ Write each task's tests first, at task granularity.
 
 ### 1. The `gitrepo` merge seam — 10 rows
 
-- [ ] Make public what M8a1 built internally:
+- [x] Make public what M8a1 built internally:
   - `PendingMerge::conflicts`
   - `PendingMerge::content(side, path)`, which reads from the git
     objects and reports a side that isn't present
@@ -153,7 +203,7 @@ Write each task's tests first, at task granularity.
     are 0600 (Unix).
   - rollback that removes the files it created, skips paths that aren't
     there, and always reaches the hard reset
-- [ ] Rows:
+- [x] Rows:
   - `TestPrepareMergeDecidesWithoutWriting`
   - `TestPendingMergeContentReadsBothSidesFromTheObjects`
   - `TestPendingMergeContentReportsAnAbsentSide`
@@ -168,11 +218,11 @@ Write each task's tests first, at task granularity.
 
 ### 2. Resolution mechanics — 14 rows
 
-- [ ] `EntryConflict`, `ConflictSide` and `Resolution`. Add
+- [x] `EntryConflict`, `ConflictSide` and `Resolution`. Add
       `Vault::encrypt_entry`, the ciphertext without the write. Keep
       both re-encrypts under the vault's current recipients and a fresh
       UUID.
-- [ ] Keep, both, skip and abort:
+- [x] Keep, both, skip and abort:
   - `TestConflictIsPresentedWithBothSidesDecrypted`
   - `TestKeepLocalKeepsTheLocalVersion`
   - `TestKeepRemoteReplacesTheLocalVersion`
@@ -186,14 +236,14 @@ Write each task's tests first, at task granularity.
   - `TestAPrompterErrorLeavesTheVaultUntouched`
   - `TestAbortRestoresThePreSyncState`: HEAD, the working tree and
     cleanliness are unchanged, and nothing is pushed.
-- [ ] Delete/modify:
+- [x] Delete/modify:
   - `TestDeleteModifyConflictShowsTheSurvivingVersion`
   - `TestDeleteModifyConflictKeepingTheDeletion`
-- [ ] (`TestKeepBothOnADeleteModifyConflictKeepsTheSurvivor` is in task 3.)
+- [x] (`TestKeepBothOnADeleteModifyConflictKeepsTheSurvivor` is in task 3.)
 
 ### 3. Delete/modify keep-both, file modes, history — 6 rows
 
-- [ ] Rows:
+- [x] Rows:
   - `TestKeepBothOnADeleteModifyConflictKeepsTheSurvivor`
   - `TestEntryFilesAMergeCreatesAre0600`
   - `TestResolvedSyncProducesATwoParentMergeCommit`: parents [local,
@@ -205,35 +255,37 @@ Write each task's tests first, at task granularity.
 
 ### 4. Unlocking, locking and the other milestones — 10 rows (1 excused)
 
-- [ ] Lazy unlock, per the borrow decision. Rows:
+- [x] Lazy unlock, per the borrow decision. Rows:
   - `TestCleanFastForwardNeverUnlocks`
   - `TestDisjointDivergenceNeverUnlocks`
   - `TestUnlockHappensOnlyWhenAConflictIsReached`
   - `TestResolutionReusesASessionsCachedIdentity`
   - `TestANonEntryConflictIsRefusedWithoutUnlocking`
-- [ ] `TestResolutionUpdatesTheSessionIndex`, through the pull observer.
-- [ ] `TestRecipientConflictDoesNotReachTheEntryResolver`
-- [ ] `TestResolutionHoldsTheWriteLockThroughout`: a child process trying
-      to write blocks until resolution ends.
-- [ ] `TestNonInteractivePrompterRefusesOnTheFirstConflict`
-- [ ] ~~`TestNilPrompterRefusesRatherThanPanicking`~~: excused
-      (Q-CONFLICT-PROMPTER). A `&dyn Prompter` can't be null. Strike it
-      here once confirmed.
-- [ ] The push after resolution starts a fresh `REMOTE_OP_TIMEOUT`
+- [x] `TestResolutionUpdatesTheSessionIndex`, through the pull observer.
+- [x] `TestRecipientConflictDoesNotReachTheEntryResolver`
+- [x] `TestResolutionHoldsTheWriteLockThroughout`: a child process probes
+      the lock while a conflict waits for its answer (busy) and after
+      (free).
+- [x] `TestNonInteractivePrompterRefusesOnTheFirstConflict`
+- [x] ~~`TestNilPrompterRefusesRatherThanPanicking`~~: excused
+      (Q-CONFLICT-PROMPTER). A `&dyn Prompter` can't be null.
+- [x] The push after resolution starts a fresh `REMOTE_OP_TIMEOUT`
       deadline. Beyond Go's rows: a slow answer doesn't make the push
-      fail. Prove it with an injected deadline, not real time.
+      fail. Proved with the deadline a recording `RemoteSyncer` is handed,
+      which must be at least `REMOTE_OP_TIMEOUT` past the moment the
+      answer was given (`the_push_after_resolution_starts_a_fresh_deadline`).
 
 ### 5. The terminal menu and `gage sync` — 9 rows
 
-- [ ] `TerminalPrompter::resolve_conflict` renders the design doc's
+- [x] `TerminalPrompter::resolve_conflict` renders the design doc's
       `[l/r/b/s/q]` menu: the title, both sides' `updated` and
       `updated_by`, and a variant for delete/modify. It re-asks on an
       unknown answer, with no default. It refuses when it isn't
       interactive.
-- [ ] `gage sync` runs `sync_resolving` with a lazy unlock (one-shot or
+- [x] `gage sync` runs `sync_resolving` with a lazy unlock (one-shot or
       session). An outcome left with skips ends with exit code `Conflict`
       and nothing pushed.
-- [ ] Rows:
+- [x] Rows:
   - `TestConflictPromptRendersTheDesignDocsMenu`
   - `TestConflictPromptMapsEveryKey`
   - `TestConflictPromptReAsksOnAnUnknownAnswer`
@@ -249,7 +301,7 @@ Write each task's tests first, at task granularity.
 
 ### 6. User docs
 
-- [ ] Port Go's `doc/cli/sync.md` and `doc/cli/git-and-auth.md` to
+- [x] Port Go's `doc/cli/sync.md` and `doc/cli/git-and-auth.md` to
       describe what P4 shipped:
   - the automatic pull and push
   - the verbs
@@ -259,31 +311,53 @@ Write each task's tests first, at task granularity.
   - SSH via ssh-agent and its limits
   - the remote-auth ground rules: no `~/.ssh/config`, no `insteadOf`,
     no credential helpers
-- [ ] Extend `doc/cli/exit-codes.md` with `Unreachable` (7) and the sync
+- [x] Extend `doc/cli/exit-codes.md` with `Unreachable` (7) and the sync
       meanings of 1 and 5. Extend `doc/cli/configuration.md` with the
       tokens directory.
 
 ### 7. Review, earlier tests, ledger, phase close
 
-- [ ] Review again, on a fresh read, with a mutation check on each test
-      that guards against losing a secret:
-  - keep both on modify/modify and on delete/modify
-  - skip applies nothing
-  - abort is exact
-  - rollback finishes
-  - commit refuses an unanswered conflict
-- [ ] M8a1 and M8a2 tests pass with no assertion changed. Any setup edit
-      is listed here with its reason.
+- [x] Review again, on a fresh read, with a mutation check on each test
+      that guards against losing a secret. Each mutation was applied by
+      hand, the guarding test run, and the source restored:
+
+  | Guard | Mutation | Test | Result |
+  |---|---|---|---|
+  | keep both, modify/modify | drop keep-both's add | `keep_both_keeps_both_versions` | killed |
+  | keep both, modify/modify | keep both answers `Remote` | `keep_both_keeps_both_versions` | killed |
+  | keep both, delete/modify | drop keep-both's add | `keep_both_on_a_delete_modify_conflict_keeps_the_survivor` | killed |
+  | skip applies nothing | skip no longer refuses | `one_skip_applies_none_of_the_other_answers` | killed |
+  | skip applies nothing | skip also records `Local` | `one_skip_applies_none_of_the_other_answers` | survived: equivalent, since the skip refusal still fires before anything is applied |
+  | abort is exact | abort breaks out and goes on to apply | `abort_restores_the_pre_sync_state` | killed |
+  | rollback finishes | skip the hard reset | `commit_rolls_back_a_partial_failure`, `a_partial_merge_failure_rolls_back` | killed |
+  | rollback finishes | a removal error abandons the rollback | `commit_rolls_back_a_partial_failure` | killed |
+  | unanswered conflict | `commit` stops checking choices | `commit_refuses_an_unanswered_conflict` | killed |
+
+- [x] M8a1 and M8a2 tests pass with no assertion changed. Setup edits:
+  - `gitrepo::merge_tests::a_pending_merge_with_conflicts_refuses_to_commit`
+    (M8a1): `commit` now takes `choices` and `adds`, so the call passes two
+    empty maps.
+  - `repl_tests`' session harness (`Env::session_with_clock`): its
+    `TerminalPrompter` is built `.interactive(true)`, as `main` builds one
+    on a terminal, which the harness says it is. Only `resolve_conflict`
+    reads the flag, and no earlier test reaches it.
+  - `sync_tests::sync_reports_a_conflicting_divergence_and_names_the_vault`
+    (M8a2) is unchanged, but now reaches its refusal through
+    `sync_resolving`: its `shared.txt` is not an entry, so it is refused
+    before any unlock and still names the path and the vault.
 - [ ] Parity ledger:
   - §3 M8a and M8b marked `[x]`
   - §4 the P4 row
   - §6 `sync.md`, `git-and-auth.md`
+
+  §4 and §6 are updated. §3 is marked `[x]` with the phase after CI, as
+  M8a1 and M8a2 were.
 - [ ] Mark P4 `[x]` in the [port plan](../index.md) and in this phase's
       index, after CI.
 
 ## Definition of done
 
-Every box above is checked. All 48 claimed rows are ported, except the
+Every box above is checked. All 49 claimed rows are ported, except the
 one excused with its reason. The review in task 7 is recorded. `make
 lint` and `make test` are clean locally and on Linux, macOS and Windows
 CI.

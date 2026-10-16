@@ -10,13 +10,15 @@ use gage::exitcode::Code;
 use gage::gittest::{self, Answer, BareRemote, Device, HttpRecorder};
 use gage::prompter::FakePrompter;
 use gage::remotesync::SyncReport;
+use gage::syncresolve::{Resolution, entry_count};
 use gage::vault::Vault;
 use gage::{gitrepo, paths, remoteauth, vaultconfig};
 
 use crate::commands::{report_conflicts, sync_line};
 use crate::editor::fake::{Action, FakeEditor, Set};
 use crate::entry_tests::{unlocks, with_value};
-use crate::lifecycle_tests::{CliResult, Env};
+use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE};
+use crate::prompter::{SecretInput, TerminalPrompter};
 use crate::registry::registry;
 use crate::repl_tests::passphrase_prompts;
 
@@ -523,6 +525,197 @@ fn sync_verbs_in_a_session_need_no_unlock() {
         "{}",
         r.stdout
     );
+}
+
+// --- conflict resolution ----------------------------------------------------
+
+/// A vault genuinely diverged on one entry, both versions real ciphertext
+/// this device can read (Go's `conflictingVault`). The other device's
+/// version of Alpha is a copy of Beta's file: a real entry for this
+/// vault's recipients, now at Alpha's path. Returns the vault's path,
+/// Alpha's id, and the remote, which lives as long as the test holds it.
+fn conflicting_vault(env: &Env) -> (PathBuf, uuid::Uuid, BareRemote) {
+    let (path, remote) = env.init_with_remote("personal");
+    let alpha = env.insert_ok("alpha-secret", &["Alpha"]);
+    let beta = env.insert_ok("beta-secret", &["Beta"]);
+
+    let vault = env.vault("personal");
+    let identity = vault.unlock(&unlocks()).unwrap();
+    let other = Device::clone(remote.path());
+    let beta_file = std::fs::read(path.join(format!("entries/{beta}.age"))).unwrap();
+    other.write_bytes(&format!("entries/{alpha}.age"), &beta_file);
+    other.commit("the other device's edit");
+    other.push();
+
+    // This device edits the same entry; its push finds the remote moved.
+    let mut e = vault.read_entry(alpha, &identity).unwrap();
+    e.value = "alpha-rotated-locally".into();
+    vault.update(alpha, &e, &FakePrompter::new()).unwrap();
+    (path, alpha, remote)
+}
+
+/// Where HEAD is, as far as gage's own git surface can say: how many
+/// commits it has and the last one's message. A merge moves both.
+fn head(dir: &Path) -> (usize, String) {
+    (
+        gitrepo::commit_count(dir).unwrap(),
+        gitrepo::head_commit(dir).unwrap().message,
+    )
+}
+
+// Go: TestSyncResolvesAConflictInteractivelyAndPushes. The milestone's
+// definition of done through the CLI: two devices edited one entry, a
+// human answered, and the result reached the remote.
+#[test]
+fn sync_resolves_a_conflict_interactively_and_pushes() {
+    let env = Env::new();
+    let (path, alpha, _remote) = conflicting_vault(&env);
+    let p = unlocks().with_resolutions(&[Resolution::KeepBoth]);
+    let r = env.run_with(&["sync"], &p);
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(p.conflicts_presented().len(), 1);
+    assert_eq!(p.conflicts_presented()[0].id, alpha);
+    assert!(
+        r.stdout
+            .contains("resolved 1 entry in \"personal\", merged origin's changes and pushed"),
+        "{}",
+        r.stdout
+    );
+    // Keep both leaves three entries where there were two.
+    assert_eq!(entry_files(&path).len(), 3);
+    // And the merge reached the remote: the next push has nothing to do.
+    let r = env.run(&["push"]);
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert!(r.stdout.contains("already in sync"), "{}", r.stdout);
+}
+
+// The same through a session and the real terminal menu: the key `ls`
+// unlocked is not asked for again, and the answer is read from the
+// session's own input.
+#[test]
+fn sync_in_a_session_resolves_with_the_held_key() {
+    let env = Env::new();
+    let (path, alpha, _remote) = conflicting_vault(&env);
+    // The menu's own answer is read as a line, not a command: `r` alone
+    // would be an ambiguous command prefix.
+    let r = env.session_ok(&["ls", PASSPHRASE, "sync", "r", "exit"]);
+    assert_eq!(
+        passphrase_prompts(&r),
+        1,
+        "resolution re-prompted:\n{}",
+        r.stderr
+    );
+    assert!(
+        r.stderr.contains("Entry conflicts: \"Alpha\""),
+        "{}",
+        r.stderr
+    );
+    assert!(r.stdout.contains("resolved 1 entry"), "{}", r.stdout);
+    assert_eq!(entry_files(&path).len(), 2);
+    // Keep remote: Alpha now holds the other device's version, which was
+    // a copy of Beta's.
+    let entries = env.entries("personal");
+    let (_, e) = entries.iter().find(|(id, _)| *id == alpha).unwrap();
+    assert_eq!(e.value, "beta-secret");
+}
+
+// Go: TestSyncWithoutATerminalRefusesRatherThanChoosing. The real
+// terminal prompter, with no terminal: a script or CI.
+#[test]
+fn sync_without_a_terminal_refuses_rather_than_choosing() {
+    let env = Env::new();
+    let (path, _, _remote) = conflicting_vault(&env);
+    let before = head(&path);
+    let out = SharedOut::default();
+    let p = TerminalPrompter::new(
+        std::io::Cursor::new(format!("{PASSPHRASE}\nb\n").into_bytes()),
+        out.clone(),
+        SecretInput::Lines,
+    );
+    let r = env.run_with(&["sync"], &p);
+    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert!(r.stderr.contains("needs someone to ask"), "{}", r.stderr);
+    assert!(!out.text().contains("[l/r/b/s/q]"), "{}", out.text());
+    assert_eq!(head(&path), before, "HEAD moved with nobody to ask");
+    assert_eq!(entry_files(&path).len(), 2);
+}
+
+// Go: TestYesDoesNotResolveConflicts. As in Go before M10, `sync --yes` is
+// an unknown flag: pinned here so the test isn't mistaken for more than
+// it is. M10 adds the flag for its trust-cache confirmation; from then on
+// the same run reaches the conflict, and must be refused, not answered.
+#[test]
+fn yes_does_not_resolve_conflicts() {
+    let env = Env::new();
+    let (path, _, _remote) = conflicting_vault(&env);
+    let before = head(&path);
+    let r = env.run(&["sync", "--yes"]);
+    assert_eq!(r.code, Code::Usage, "M10 flips this: {}", r.stderr);
+    assert!(r.stderr.contains("--yes"), "{}", r.stderr);
+    assert_eq!(head(&path), before, "`sync --yes` resolved a conflict");
+}
+
+// Skipping ends with exit Conflict, the conflict named, nothing pushed.
+#[test]
+fn sync_with_a_skip_exits_conflict_and_pushes_nothing() {
+    let env = Env::new();
+    let (path, alpha, _remote) = conflicting_vault(&env);
+    let before = head(&path);
+    let p = unlocks().with_resolutions(&[Resolution::Skip]);
+    let r = env.run_with(&["sync"], &p);
+    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert!(r.stderr.contains("1 of 1"), "{}", r.stderr);
+    assert!(r.stderr.contains(&alpha.to_string()), "{}", r.stderr);
+    assert_eq!(head(&path), before);
+}
+
+// Go: TestPluralEntries (sync_cli_test.go), moved from M8a2: the
+// "resolved N entries" line is its only caller. "1 entry", not "1 entries".
+#[test]
+fn plural_entries() {
+    for (n, want) in [(0, "0 entries"), (1, "1 entry"), (2, "2 entries")] {
+        assert_eq!(entry_count(n), want);
+    }
+    let env = Env::new();
+    env.init_with_remote("personal");
+    let vault = env.vault("personal");
+    let line = |resolved| {
+        sync_line(
+            &vault,
+            &SyncReport {
+                merged: true,
+                pushed: true,
+                resolved,
+                ..SyncReport::default()
+            },
+        )
+    };
+    assert!(line(1).contains("resolved 1 entry in"), "{}", line(1));
+    assert!(line(3).contains("resolved 3 entries in"), "{}", line(3));
+    assert!(
+        line(0).contains("merged origin's changes into"),
+        "{}",
+        line(0)
+    );
+}
+
+/// A prompt stream a test can read after handing it to the prompter.
+#[derive(Clone, Default)]
+struct SharedOut(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+
+impl SharedOut {
+    fn text(&self) -> String {
+        String::from_utf8(self.0.borrow().clone()).unwrap()
+    }
+}
+
+impl std::io::Write for SharedOut {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.borrow_mut().write(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 // --- clone ------------------------------------------------------------------

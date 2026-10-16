@@ -14,7 +14,7 @@ use crate::{remoteauth, syncerr};
 mod merge;
 mod remote;
 
-pub use merge::{MergeResult, PendingMerge, merge_remote, prepare_merge};
+pub use merge::{MergeResult, MergeSide, PendingMerge, merge_remote, prepare_merge};
 pub use remote::{
     REMOTE_OP_TIMEOUT, RemoteOptions, RemoteState, ahead_count, clone, compare, fast_forward,
     fetch, push,
@@ -96,6 +96,10 @@ pub enum Error {
         "gitrepo: refusing to merge with {0} unanswered: every conflicting path needs a choice"
     )]
     Unanswered(String),
+    /// A merge was asked to add a file at a path that exists, or that the
+    /// merge itself writes. Adds create; they never replace.
+    #[error("gitrepo: refusing to add {0}: it already exists")]
+    AddWouldOverwrite(String),
     /// A filesystem step of a merge or reset failed.
     #[error("gitrepo: {op} {path}: {source}")]
     Io {
@@ -124,6 +128,7 @@ impl HasCode for Error {
             | Error::AmbiguousBranch { .. }
             | Error::NothingFetched { .. }
             | Error::Unanswered(_)
+            | Error::AddWouldOverwrite(_)
             | Error::Io { .. } => Code::Internal,
         }
     }

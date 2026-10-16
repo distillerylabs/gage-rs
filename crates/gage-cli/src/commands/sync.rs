@@ -1,14 +1,17 @@
 //! `gage pull`, `push` and `sync`: the manual sync verbs. Each resolves its
 //! vault without unlocking it. A fast-forward, and a merge whose two sides
 //! touched different entries, decrypt nothing, so a passphrase asked for up
-//! front would be one most syncs never use. Resolving a real conflict, the
-//! one thing that needs plaintext, is M8b's. What sync does lives in the
-//! library (`remotesync`); this is flags, vault resolution and rendering.
+//! front would be one most syncs never use. `sync` unlocks lazily, only
+//! when an entry conflict needs decrypting to be resolved, and a session
+//! hands over the key it already holds. What sync does lives in the
+//! library (`remotesync`, `syncresolve`); this is flags, vault resolution
+//! and rendering.
 
 use clap::{Arg, ArgMatches};
 use gage::exitcode::Code;
 use gage::gitrepo;
 use gage::remotesync::{ConflictKind, SyncError, SyncReport};
+use gage::syncresolve::entry_count;
 use gage::vault::Vault;
 
 use super::entry::{open_vault, use_flag, use_name};
@@ -54,11 +57,27 @@ pub fn push(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
     })
 }
 
-/// Catch up, then publish.
+/// Catch up, merge, resolve each entry conflict by asking, then publish.
+/// One-shot mode unlocks on the spot if a conflict needs it, and the key
+/// is dropped with the command; a session uses the key it holds.
 pub fn sync(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
-    with_sync_vault(matches, io, keys, |io, vault| {
-        finish(io, vault, vault.sync())
-    })
+    match keys {
+        Keys::OneShot(prompter) => {
+            let prompter = *prompter;
+            let vault = open_vault(matches, io)?;
+            let result = vault.sync_resolving(prompter, &mut || vault.unlock(prompter));
+            finish(io, &vault, result)
+        }
+        Keys::Session(session) => {
+            let result = session
+                .sync_resolving(use_name(matches))
+                .map_err(session_failure)?;
+            let vault = session
+                .vault_without_unlocking(use_name(matches))
+                .map_err(session_failure)?;
+            finish(io, vault, result)
+        }
+    }
 }
 
 /// The one-line outcome, or the failure with its conflicting paths named
@@ -117,6 +136,12 @@ pub(crate) fn sync_line(vault: &Vault, r: &SyncReport) -> String {
         return format!("gage: {name:?} is local-only; there is no remote to sync with");
     }
     match (r.merged, r.pulled, r.pushed) {
+        // The one outcome a human produced: they answered the questions,
+        // and the line says so rather than describing it as gage's doing.
+        (true, _, true) if r.resolved > 0 => format!(
+            "gage: resolved {} in {name:?}, merged origin's changes and pushed",
+            entry_count(r.resolved)
+        ),
         (true, _, true) => format!("gage: merged origin's changes into {name:?} and pushed"),
         (_, true, true) => format!("gage: caught {name:?} up with origin and pushed"),
         (_, _, true) => format!("gage: pushed {name:?} to origin"),

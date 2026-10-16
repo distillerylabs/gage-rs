@@ -22,10 +22,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
-use crate::entry::{LockError, WRITE_LOCK_TIMEOUT};
+use crate::entry::{self, LockError, WRITE_LOCK_TIMEOUT};
 use crate::exitcode::{Code, HasCode};
 use crate::gitrepo::{self, MergeResult, RemoteOptions, RemoteState};
-use crate::prompter::Prompter;
+use crate::identityfile::UnlockError;
+use crate::prompter::{PromptError, Prompter};
 use crate::syncerr::Kind;
 use crate::vault::Vault;
 use crate::xdgpaths::Dirs;
@@ -43,8 +44,8 @@ pub const UNPUSHED_WRITE_CLAUSE: &str = "the write is committed locally but not 
 
 /// The two files whose divergence is more serious than an entry's: they
 /// define who can read the vault at all.
-const RECIPIENTS_FILE: &str = ".age-recipients";
-const VAULT_CONFIG_FILE: &str = ".gage/config.toml";
+pub(crate) const RECIPIENTS_FILE: &str = ".age-recipients";
+pub(crate) const VAULT_CONFIG_FILE: &str = ".gage/config.toml";
 
 /// The two operations of sync that touch the network. Everything else
 /// (comparing, fast-forwarding, merging) is local git work that runs for
@@ -118,7 +119,7 @@ impl std::fmt::Debug for SyncerSeam {
 pub(crate) struct PullObserver(Option<Arc<AtomicBool>>);
 
 impl PullObserver {
-    fn note(&self) {
+    pub(crate) fn note(&self) {
         if let Some(flag) = &self.0 {
             flag.store(true, Ordering::SeqCst);
         }
@@ -170,6 +171,16 @@ pub struct SyncReport {
     pub conflicts: Vec<String>,
     /// How many local commits the remote lacks, as of the report.
     pub ahead: usize,
+    /// How many conflicting entries a human's choice was applied to.
+    /// Zero on every automatic path. `u32`, as is `skipped`: every sync
+    /// result carries this report, and keeping it small keeps them cheap.
+    pub resolved: u32,
+    /// How many conflicts were left unanswered on purpose. Any skip means
+    /// nothing was applied and nothing pushed: a partial resolution would
+    /// turn a skipped entry's local version into a silent choice.
+    pub skipped: u32,
+    /// The human quit the resolution, which changes nothing.
+    pub aborted: bool,
 }
 
 impl SyncReport {
@@ -234,17 +245,36 @@ pub enum SyncCause {
     Local(gitrepo::Error),
     /// The vault's write lock.
     Lock(LockError),
+    /// The frontend gave no answer to a conflict: it has nobody to ask
+    /// ([`PromptError::NotInteractive`]), or asking failed. Nothing was
+    /// applied.
+    Prompt(PromptError),
+    /// The lazy unlock a conflict forced failed. Nothing was applied.
+    /// Boxed, as is `Entry`: both are large, and every sync result
+    /// carries this type.
+    Unlock(Box<UnlockError>),
+    /// A path that is not an entry changed on both sides, so there is no
+    /// version of it to choose. Refused before anything was unlocked.
+    NotAnEntry(String),
+    /// Decrypting a side of a conflict, or encrypting keep-both's copy,
+    /// failed. Nothing was applied.
+    Entry(Box<entry::Error>),
+    /// Conflicts were skipped (the report's `skipped` of `total`), so
+    /// nothing was applied or pushed.
+    Unresolved { total: usize },
+    /// The human quit the resolution; nothing was applied or pushed.
+    Aborted,
 }
 
 impl SyncError {
-    fn new(cause: SyncCause) -> SyncError {
+    pub(crate) fn new(cause: SyncCause) -> SyncError {
         SyncError {
             report: SyncReport::default(),
             cause,
         }
     }
 
-    fn with_report(mut self, report: SyncReport) -> SyncError {
+    pub(crate) fn with_report(mut self, report: SyncReport) -> SyncError {
         self.report = report;
         self
     }
@@ -253,10 +283,16 @@ impl SyncError {
     /// is [`Kind::Diverged`] too, so one question covers both "the push
     /// was rejected" and "the rejection turned out to be a conflict"
     /// (Go's `errors.Is(err, syncerr.ErrDiverged)`).
+    ///
+    /// A resolution that was skipped or aborted is still diverged: the
+    /// divergence it declined to resolve is there, as it was before anyone
+    /// was asked (Go's `resolutionRefusal`).
     pub fn remote_kind(&self) -> Option<Kind> {
         match &self.cause {
             SyncCause::Remote(gitrepo::Error::Sync(e)) => Some(e.kind()),
-            SyncCause::Conflict => Some(Kind::Diverged),
+            SyncCause::Conflict | SyncCause::Unresolved { .. } | SyncCause::Aborted => {
+                Some(Kind::Diverged)
+            }
             _ => None,
         }
     }
@@ -283,6 +319,23 @@ impl std::fmt::Display for SyncError {
             }
             SyncCause::Remote(e) | SyncCause::Local(e) => e.fmt(f),
             SyncCause::Lock(e) => e.fmt(f),
+            SyncCause::Prompt(e) => e.fmt(f),
+            SyncCause::Unlock(e) => write!(f, "gage: unlocking to resolve a conflict: {e}"),
+            SyncCause::Entry(e) => e.fmt(f),
+            SyncCause::NotAnEntry(path) => write!(
+                f,
+                "gage: {path:?} changed on both sides and is not an entry, so there is no version of it to choose; \
+                 the vault is an ordinary git repository"
+            ),
+            SyncCause::Unresolved { total } => write!(
+                f,
+                "gage: {} of {total} conflicting entries left unresolved, so nothing was applied and \
+                 nothing was pushed; run `gage sync` again to finish",
+                self.report.skipped
+            ),
+            SyncCause::Aborted => {
+                f.write_str("gage: resolution aborted; nothing was changed and nothing was pushed")
+            }
         }
     }
 }
@@ -293,7 +346,13 @@ impl std::error::Error for SyncError {
         match &self.cause {
             SyncCause::Remote(e) | SyncCause::Local(e) => e.source(),
             SyncCause::Lock(e) => e.source(),
-            SyncCause::Conflict => None,
+            SyncCause::Prompt(e) => e.source(),
+            SyncCause::Unlock(e) => Some(e.as_ref()),
+            SyncCause::Entry(e) => e.source(),
+            SyncCause::Conflict
+            | SyncCause::NotAnEntry(_)
+            | SyncCause::Unresolved { .. }
+            | SyncCause::Aborted => None,
         }
     }
 }
@@ -308,6 +367,13 @@ impl HasCode for SyncError {
             // A dirty tree is Conflict; anything else here is Internal.
             SyncCause::Local(e) => e.code(),
             SyncCause::Lock(e) => e.code(),
+            // Nobody to ask is Conflict; a broken terminal is Internal.
+            SyncCause::Prompt(e) => e.code(),
+            SyncCause::Unlock(e) => e.code(),
+            SyncCause::Entry(e) => e.code(),
+            SyncCause::NotAnEntry(_) | SyncCause::Unresolved { .. } | SyncCause::Aborted => {
+                Code::Conflict
+            }
         }
     }
 }
@@ -318,11 +384,11 @@ impl From<LockError> for SyncError {
     }
 }
 
-fn remote(err: gitrepo::Error) -> SyncError {
+pub(crate) fn remote(err: gitrepo::Error) -> SyncError {
     SyncError::new(SyncCause::Remote(err))
 }
 
-fn local(err: gitrepo::Error) -> SyncError {
+pub(crate) fn local(err: gitrepo::Error) -> SyncError {
     SyncError::new(SyncCause::Local(err))
 }
 
@@ -344,25 +410,29 @@ impl Vault {
 
     /// Catches up, then publishes, under one lock acquisition, so nothing
     /// can land between the two. The push is what merges a divergence;
-    /// resolving a real conflict is M8b's.
+    /// a real conflict is reported, with nothing changed. Resolving one
+    /// is [`Vault::sync_resolving`]'s.
     pub fn sync(&self) -> Result<SyncReport, SyncError> {
-        self.under_write_lock(|deadline| {
-            let pulled = self.pull_locked(deadline)?;
-            // The pull's findings survive into the combined report: a
-            // fast-forward before a failed push still happened.
-            let merge = |mut report: SyncReport| {
-                report.pulled |= pulled.pulled;
-                report.diverged |= pulled.diverged;
-                report
-            };
-            match self.push_locked(deadline) {
-                Ok(report) => Ok(merge(report)),
-                Err(mut err) => {
-                    err.report = merge(err.report);
-                    Err(err)
-                }
+        self.under_write_lock(|deadline| self.sync_locked(deadline))
+    }
+
+    /// The sync, with the write lock already held.
+    pub(crate) fn sync_locked(&self, deadline: Instant) -> Result<SyncReport, SyncError> {
+        let pulled = self.pull_locked(deadline)?;
+        // The pull's findings survive into the combined report: a
+        // fast-forward before a failed push still happened.
+        let merge = |mut report: SyncReport| {
+            report.pulled |= pulled.pulled;
+            report.diverged |= pulled.diverged;
+            report
+        };
+        match self.push_locked(deadline) {
+            Ok(report) => Ok(merge(report)),
+            Err(mut err) => {
+                err.report = merge(err.report);
+                Err(err)
             }
-        })
+        }
     }
 
     /// The same vault, fetching and pushing through `syncer`. Tests only:
@@ -431,7 +501,7 @@ impl Vault {
 
     /// Runs a sync operation holding the write lock, with one remote
     /// deadline for the whole of it, started once the lock is held.
-    fn under_write_lock(
+    pub(crate) fn under_write_lock(
         &self,
         f: impl FnOnce(Instant) -> Result<SyncReport, SyncError>,
     ) -> Result<SyncReport, SyncError> {
@@ -548,7 +618,7 @@ impl Vault {
         gitrepo::has_remote(&self.path).map_err(local)
     }
 
-    fn syncer(&self) -> Arc<dyn RemoteSyncer> {
+    pub(crate) fn syncer(&self) -> Arc<dyn RemoteSyncer> {
         match &self.syncer.0 {
             Some(injected) => Arc::clone(injected),
             None => Arc::new(GitSyncer {

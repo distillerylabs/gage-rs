@@ -27,6 +27,7 @@
 //! the session installed on that vault, and the index is dropped before
 //! anything is served from it again.
 
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,6 +41,7 @@ use crate::identity::Identity;
 use crate::identityfile::UnlockError;
 use crate::index::Index;
 use crate::prompter::{PromptError, Prompter};
+use crate::remotesync::{SyncError, SyncReport};
 use crate::search::{SearchResult, matches_body, sort_results};
 use crate::vault::Vault;
 
@@ -261,6 +263,44 @@ impl<'a> Session<'a> {
         self.enter();
         let name = self.target(name)?;
         Ok(&self.hold(&name)?.vault)
+    }
+
+    /// `gage sync` with interactive resolution in a vault (`None` is the
+    /// current one), through this session's prompter. A conflict reuses
+    /// the identity the session already holds, so nobody is asked twice; a
+    /// vault not yet unlocked is unlocked once, through the session's own
+    /// path, and only if a conflict needs it, and then stays unlocked like
+    /// any other. A fast-forward or a disjoint merge unlocks nothing.
+    ///
+    /// The outer error is the vault lookup; the inner one is the sync's,
+    /// with its report.
+    pub fn sync_resolving(
+        &mut self,
+        name: Option<&str>,
+    ) -> Result<Result<SyncReport, SyncError>, SessionError> {
+        self.enter();
+        let name = self.target(name)?;
+        let prompter = self.prompter;
+        let now = (self.now)();
+        let held = self.hold(&name)?;
+        // The vault and its cached identity borrowed together: both are
+        // shared borrows of one held vault.
+        let (vault, cached) = (&held.vault, held.identity.as_ref());
+        let unlocked = OnceCell::new();
+        let result = vault.sync_resolving_with(prompter, &mut || {
+            if let Some(identity) = cached.or(unlocked.get()) {
+                return Ok(identity);
+            }
+            let identity = vault.unlock(prompter)?;
+            Ok(unlocked.get_or_init(|| identity))
+        });
+        if let Some(identity) = unlocked.into_inner() {
+            held.identity = Some(identity);
+        }
+        if held.identity.is_some() {
+            held.last_used = Some(now);
+        }
+        Ok(result)
     }
 
     /// A vault and its unlocked identity, unlocking first if needed.

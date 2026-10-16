@@ -199,8 +199,9 @@ are in [Addressing entries](addressing-entries.md).
 Each write is one git commit: its message is the entry's id and nothing
 else (a title in a commit message would leak what a secret is called to
 anyone who can read the repository), and its author and committer are
-`gage <gage@localhost>` whatever your own git configuration says. The
-commit is local. Pushing is a later phase.
+`gage <gage@localhost>` whatever your own git configuration says. If the
+vault has a remote, the commit is pushed straight after; being offline
+costs a warning, never the write (see [Sync and conflicts](sync.md)).
 
 Every write holds the vault's lock for the whole read-check-write-commit
 sequence, so two `gage` processes writing to one vault take turns instead

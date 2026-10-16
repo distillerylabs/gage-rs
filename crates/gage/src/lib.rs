@@ -35,6 +35,7 @@ pub mod session;
 #[cfg(test)]
 mod session_tests;
 pub mod syncerr;
+pub mod syncresolve;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testsupport;
 pub mod vault;

@@ -13,6 +13,7 @@ use std::io::{Read, Write};
 
 use gage::entry::CandidateList;
 use gage::prompter::{Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse};
+use gage::syncresolve::{ConflictSide, EntryConflict, Resolution};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -31,6 +32,11 @@ pub const MAX_PASSPHRASE_ATTEMPTS: u32 = 3;
 /// giving up. Same shape and reason as the passphrase policy: the library
 /// hands over a list and has no opinion on how often a human may answer.
 pub const MAX_CHOOSE_ATTEMPTS: u32 = 3;
+
+/// How many times the conflict menu re-asks an answer it doesn't
+/// recognize before giving up without choosing (Go's
+/// `maxConflictAttempts`).
+pub const MAX_CONFLICT_ATTEMPTS: u32 = 5;
 
 /// Where masked secrets come from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +59,13 @@ pub struct TerminalPrompter<R: Read, W: Write> {
     input: RefCell<R>,
     out: RefCell<W>,
     secrets: SecretInput,
+    /// Whether a human is at the other end of `input`. Only conflict
+    /// resolution consults it: every other prompt has a sensible answer
+    /// from a script (a passphrase can be piped, a confirmation defaults to
+    /// no), while "which version of this secret do you keep" has none.
+    /// Set by `main` from whether stdin is a terminal, not probed per call,
+    /// so tests drive both halves without one.
+    interactive: bool,
 }
 
 impl<R: Read, W: Write> TerminalPrompter<R, W> {
@@ -61,7 +74,15 @@ impl<R: Read, W: Write> TerminalPrompter<R, W> {
             input: RefCell::new(input),
             out: RefCell::new(out),
             secrets,
+            interactive: false,
         }
+    }
+
+    /// The same prompter, with (`true`) or without a human at the other
+    /// end. Without one, it refuses to resolve a conflict.
+    pub fn interactive(mut self, interactive: bool) -> TerminalPrompter<R, W> {
+        self.interactive = interactive;
+        self
     }
 }
 
@@ -241,14 +262,71 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
     fn warn(&self, msg: &str) {
         self.say(&format!("{msg}\n"));
     }
+
+    /// The design doc's `[l/r/b/s/q]` menu ("Resolving an entry
+    /// conflict"). Both versions arrive decrypted, but neither value is
+    /// printed: the choice is made on provenance, who wrote each and when,
+    /// and printing two passwords on a shared screen to ask which to keep
+    /// would be its own disclosure.
+    ///
+    /// Without a human at the other end it refuses rather than choosing,
+    /// before drawing anything or reading a line.
+    fn resolve_conflict(&self, c: &EntryConflict) -> Result<Resolution, PromptError> {
+        if !self.interactive {
+            return Err(PromptError::NotInteractive);
+        }
+        self.say(&format!(
+            "Entry conflicts: {:?}\n\n  local    {}\n  remote   {}\n\n\
+             \x20 [l] keep local     [r] keep remote\n\
+             \x20 [b] keep both      [s] skip this entry     [q] abort sync\n",
+            c.title(),
+            provenance(&c.local),
+            provenance(&c.remote),
+        ));
+        for _ in 0..MAX_CONFLICT_ATTEMPTS {
+            let answer = self.ask("Which? [l/r/b/s/q]: ")?;
+            match answer.trim().to_lowercase().as_str() {
+                "l" => return Ok(Resolution::KeepLocal),
+                "r" => return Ok(Resolution::KeepRemote),
+                "b" => return Ok(Resolution::KeepBoth),
+                "s" => return Ok(Resolution::Skip),
+                "q" => return Ok(Resolution::Abort),
+                // No default: an unrecognized keystroke is how a secret
+                // gets discarded by someone who meant the key next to it.
+                _ => self.say("gage: answer l, r, b, s or q.\n"),
+            }
+        }
+        Err(PromptError::NoResolution(MAX_CONFLICT_ATTEMPTS))
+    }
+}
+
+/// One side's line of the conflict menu: when and by which device it was
+/// written, or that it deleted the entry.
+fn provenance(side: &ConflictSide) -> String {
+    let Some(e) = &side.entry else {
+        return "deleted this entry".to_string();
+    };
+    // UTC, to the minute: two edits to one entry are routinely made on the
+    // same day, so the day alone would distinguish nothing.
+    let when = e.updated.map_or_else(
+        || "-".to_string(),
+        |t| t.as_jiff().strftime("%Y-%m-%d %H:%M").to_string(),
+    );
+    let by = if e.updated_by.is_empty() {
+        "-"
+    } else {
+        &e.updated_by
+    };
+    format!("updated {when}  by {by}")
 }
 
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
 
-    use gage::entry::Candidate;
+    use gage::entry::{Candidate, Entry};
     use gage::exitcode::{Code, HasCode};
+    use gage::syncresolve::{ConflictSide, EntryConflict, Resolution};
 
     use super::*;
 
@@ -581,6 +659,148 @@ mod tests {
         let (p, _) = prompter("");
         let err = p.choose(&mail_candidates()).unwrap_err();
         assert!(matches!(err, PromptError::Cancelled), "{err}");
+    }
+
+    // --- conflict resolution ------------------------------------------------
+
+    /// A prompter with a human at the other end, reading `input`.
+    fn interactive(
+        input: &str,
+    ) -> (
+        TerminalPrompter<std::io::Cursor<Vec<u8>>, SharedBuf>,
+        SharedBuf,
+    ) {
+        let (p, out) = prompter(input);
+        (p.interactive(true), out)
+    }
+
+    /// A conflict built by hand, for the tests of the menu alone (Go's
+    /// `sampleConflict`).
+    fn sample_conflict() -> EntryConflict {
+        let side = |updated: &str, by: &str, value: &str| ConflictSide {
+            entry: Some(Entry {
+                title: "ProtonMail".into(),
+                updated: Some(updated.parse().unwrap()),
+                updated_by: by.into(),
+                value: value.into(),
+                ..Entry::default()
+            }),
+        };
+        EntryConflict {
+            id: Uuid::nil(),
+            path: "entries/4b9d7710-0000-0000-0000-000000000000.age".into(),
+            local: side("2026-08-30T14:22:00Z", "laptop-1", "my-rotated-password"),
+            remote: side("2026-08-29T09:03:00Z", "phone", "their-rotated-password"),
+        }
+    }
+
+    // Go: TestConflictPromptRendersTheDesignDocsMenu. The title, both sides'
+    // provenance and the five options; never either secret value.
+    #[test]
+    fn conflict_prompt_renders_the_design_docs_menu() {
+        let (p, out) = interactive("l\n");
+        p.resolve_conflict(&sample_conflict()).unwrap();
+        let shown = out.text();
+        for want in [
+            "\"ProtonMail\"",
+            "local",
+            "remote",
+            "laptop-1",
+            "phone",
+            "2026-08-30 14:22",
+            "2026-08-29 09:03",
+            "[l] keep local",
+            "[r] keep remote",
+            "[b] keep both",
+            "[s] skip this entry",
+            "[q] abort sync",
+            "[l/r/b/s/q]",
+        ] {
+            assert!(shown.contains(want), "{want:?} missing from:\n{shown}");
+        }
+        for secret in ["my-rotated-password", "their-rotated-password"] {
+            assert!(!shown.contains(secret), "printed {secret:?}:\n{shown}");
+        }
+    }
+
+    // Go: TestConflictPromptMapsEveryKey
+    #[test]
+    fn conflict_prompt_maps_every_key() {
+        for (typed, want) in [
+            ("l", Resolution::KeepLocal),
+            ("r", Resolution::KeepRemote),
+            ("b", Resolution::KeepBoth),
+            ("s", Resolution::Skip),
+            ("q", Resolution::Abort),
+            (" B ", Resolution::KeepBoth),
+        ] {
+            let (p, _) = interactive(&format!("{typed}\n"));
+            assert_eq!(
+                p.resolve_conflict(&sample_conflict()).unwrap(),
+                want,
+                "{typed:?}"
+            );
+        }
+    }
+
+    // Go: TestConflictPromptReAsksOnAnUnknownAnswer. No default: a guessed
+    // keystroke is how a secret gets discarded.
+    #[test]
+    fn conflict_prompt_re_asks_on_an_unknown_answer() {
+        let (p, out) = interactive("x\n\nb\n");
+        assert_eq!(
+            p.resolve_conflict(&sample_conflict()).unwrap(),
+            Resolution::KeepBoth
+        );
+        assert_eq!(
+            out.text().matches("[l/r/b/s/q]").count(),
+            3,
+            "{}",
+            out.text()
+        );
+        assert!(
+            out.text().contains("answer l, r, b, s or q"),
+            "{}",
+            out.text()
+        );
+
+        // And it gives up, without choosing, after its retry policy.
+        let (p, _) = interactive(&"x\n".repeat(MAX_CONFLICT_ATTEMPTS as usize));
+        let err = p.resolve_conflict(&sample_conflict()).unwrap_err();
+        assert!(matches!(err, PromptError::NoResolution(_)), "{err}");
+        assert_eq!(err.code(), Code::Conflict);
+        // End of input is no answer either.
+        let (p, _) = interactive("");
+        let err = p.resolve_conflict(&sample_conflict()).unwrap_err();
+        assert!(matches!(err, PromptError::Cancelled), "{err}");
+    }
+
+    // Go: TestDeleteModifyPromptSaysOneSideDeletedIt
+    #[test]
+    fn delete_modify_prompt_says_one_side_deleted_it() {
+        let (p, out) = interactive("r\n");
+        let mut c = sample_conflict();
+        c.local = ConflictSide { entry: None };
+        assert_eq!(p.resolve_conflict(&c).unwrap(), Resolution::KeepRemote);
+        let shown = out.text();
+        assert!(shown.contains("local    deleted this entry"), "{shown}");
+        assert!(
+            shown.contains("\"ProtonMail\""),
+            "named by the survivor:\n{shown}"
+        );
+    }
+
+    // Go: TestNonInteractivePrompterRefusesToResolve. Refused by the
+    // frontend, before any menu is drawn or any input read.
+    #[test]
+    fn non_interactive_prompter_refuses_to_resolve() {
+        let (p, out) = prompter("l\n");
+        let err = p.resolve_conflict(&sample_conflict()).unwrap_err();
+        assert!(matches!(err, PromptError::NotInteractive), "{err}");
+        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(out.text(), "", "a refusing prompter rendered a menu");
+        // The line it was given is still there for whoever reads next.
+        assert_eq!(&*p.value("x").unwrap(), "l");
     }
 
     // Go: TestRealPrompterReadsAPassphraseWithoutEchoing. One of the few
