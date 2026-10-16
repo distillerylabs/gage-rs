@@ -356,7 +356,8 @@ Write each task's tests first, at task granularity.
   - §3 M10
   - §4 `sync --yes`, `recipient_verify` `--repair`
   - §2 E0, the trust-cache half
-- [ ] Mark M10 `[x]` in the [P5 index](index.md) after CI.
+- [x] Mark M10 `[x]` in the [P5 index](index.md) after CI (green on
+      Linux, macOS and Windows at `522c9dd`, [#49](https://github.com/distillerylabs/gage-rs/pull/49)).
 
 ## Definition of done
 
