@@ -192,26 +192,53 @@ task 4, and 2 that each task ports half of.)
 
 - [x] A `p6_log_and_history_have_their_go_fixture_flags_and_descriptions`
       test over `tests/fixtures/go/help/log.txt` and `history.txt`.
-- [ ] **Opus review (⚑)** of task 1's merge rows and the extra row. For
+- [x] **Opus review (⚑)** of task 1's merge rows and the extra row. For
       each, name the mutation it kills and record the table here:
   - comparing against the previous commit in the walk instead of the
     parents
   - comparing only bytes, not presence
   - "changed if it differs from *any* parent" instead of every parent
 
-      The mutations were applied to `gitrepo::log`, the `log` tests rerun,
-      and the file restored (by the implementing session; the Opus review
-      of this table is still to do):
+      Opus review: each mutation was written as a minimal, faithful edit
+      to `gitrepo::log` (everything else unchanged), then
+      `cargo test -p gage history` and `cargo test -p gage-cli log` were
+      run and the file restored. Every mutant was killed. This table
+      replaces the implementing session's, which credited the linear rows
+      against the neighbour mutation and three extra rows against the
+      bytes-only one. Those kills came from cruder mutations that also
+      broke the root rule; they don't hold for the faithful forms.
 
       | Mutation | Killed by |
       |---|---|
-      | Compare against the previous commit in the walk, not the parents | `log_across_a_merge_of_unrelated_edits`, `log_across_a_conflict_resolved_by_taking_a_side` (and the linear rows, because the crude form also mishandles roots) |
-      | Compare bytes only, so absent equals empty | `log_tells_an_empty_file_from_an_absent_one`, `log_reports_a_deletion_once`, `log_on_a_path_git_has_never_seen_is_empty`, `log_across_a_merge_of_unrelated_edits` |
+      | Compare against the next-older commit in the walk, not the parents (the walk's last commit is a change when the path is present) | `log_across_a_merge_of_unrelated_edits`, `log_across_a_conflict_resolved_by_taking_a_side`. No linear row fails. |
+      | Compare bytes only, so absent equals empty (root rule kept, or changed to "non-empty") | `log_tells_an_empty_file_from_an_absent_one` only |
       | "Changed if it differs from *any* parent" | `log_across_a_merge_of_unrelated_edits`, `log_across_a_conflict_resolved_by_taking_a_side` |
+      | Beyond the list: compare against the first parent only | `log_across_a_merge_of_unrelated_edits`, `log_across_a_conflict_resolved_by_taking_a_side` |
+      | Beyond the list: a merge is never a change | `log_reports_a_merge_that_resolved_to_a_blob_neither_parent_has` only |
+      | Beyond the list: `Sort::TIME` without `TOPOLOGICAL` | `log_reports_each_real_change_once`, `log_reports_a_deletion_once`, `log_across_a_conflict_resolved_by_taking_a_side`, and three `Vault` rows (same-second commits tie) |
+      | Beyond the list: a root commit is never / always a change | five `gitrepo` rows / nine `gage` rows and seven `gage-cli` rows |
 
-      `log_reports_a_merge_that_resolved_to_a_blob_neither_parent_has` is
-      the extra row: it fails on any rule that drops a merge which really
-      resolved a conflict by hand.
+      Kills that don't depend on how ties sort:
+      `log_across_a_merge_of_unrelated_edits` asserts both sides' files,
+      so the neighbour mutation fails it whichever side the walk puts
+      next to the merge. The same test catches any-parent and
+      first-parent through the merge's other parent, whatever the
+      timestamps. The taking-a-side row's neighbour kill does depend on
+      walk order: it relies on our commit sorting ahead of theirs, which
+      only `TIME | TOPOLOGICAL` and commit order give. Nothing rests on
+      that alone.
+
+      `log_reports_a_merge_that_resolved_to_a_blob_neither_parent_has`
+      is the only test that kills "a merge is never a change", which is
+      the case the every-parent rule exists to keep. Presence-versus-bytes
+      also rests on a single row (`log_tells_an_empty_file_from_an_absent_one`).
+      That is enough, since gage never writes an empty `.age` file.
+
+      Not covered at this level: author time versus committer time.
+      `commit_file` signs both with the same time, so swapping
+      `commit.author()` for `commit.committer()` survives. That is a
+      field choice taken from Go, not part of the walk rule, so it is not
+      a gap in the merge rows.
 - [x] Parity ledger: §3 M12 (`log`/`history`) and §4 `log`, `history`.
 - [ ] Mark M12a `[x]` in the [P6 index](index.md) after CI.
 
