@@ -58,12 +58,18 @@ fn move_removes_from_source_and_decrypts_at_destination() {
         .unwrap();
 
     assert_eq!(r.source_id, id);
+    assert!(matches!(
+        src.read(id, &src.identity()),
+        Err(crate::entry::Error::EntryNotFound { .. })
+    ));
     assert!(titles(&src).is_empty());
     assert!(src.vault.entry_ids().unwrap().is_empty());
     assert_eq!(dst.vault.decrypt_count(), 0, "the destination was unlocked");
     let got = dst.read(r.dest_id, &dst.identity()).unwrap();
     assert_eq!(got.title, "GitHub");
     assert_eq!(got.value, "hunter2");
+    assert_eq!(got.description, "the description");
+    assert_eq!(got.fields.get("user").map(String::as_str), Some("me"));
     assert!(
         dst.read(r.dest_id, &src.identity()).is_err(),
         "the copy is encrypted to the destination's list, not the source's"
@@ -83,6 +89,11 @@ fn copy_leaves_source_and_adds_decryptable_copy() {
         .unwrap();
 
     assert_eq!(src.vault.entry_ids().unwrap(), vec![id]);
+    let original = src.read(id, &src.identity()).unwrap();
+    assert_eq!(
+        (original.title.as_str(), original.value.as_str()),
+        ("GitHub", "hunter2")
+    );
     assert_eq!(titles(&dst), vec!["GitHub".to_string()]);
     assert_eq!(
         dst.read(r.dest_id, &dst.identity()).unwrap().value,
@@ -241,6 +252,24 @@ fn move_checks_the_destinations_trust_cache_not_the_sources() {
     assert_eq!(asked[0].vault, "shared");
 }
 
+// Go (the first half of TestMoveChecksTheDestinationsTrustCacheNotTheSources):
+// a destination this device has never looked at has nothing to compare
+// against, so the first move into it asks nothing.
+#[test]
+fn the_first_move_into_an_unseen_destination_asks_nothing() {
+    let (s, d) = (TrustVault::new(), TrustVault::new());
+    let id = s.unlock(&unlocking());
+    s.insert(&id, "GitHub", &unlocking());
+    assert!(d.cache().is_none());
+
+    // No recipient answers scripted: a question would fail the test.
+    let p = unlocking();
+    s.vault.copy_to("GitHub", &d.vault, &id, &p).unwrap();
+
+    assert!(p.recipient_changes().is_empty());
+    assert_eq!(d.vault.entry_ids().unwrap().len(), 1);
+}
+
 // Go: TestMoveDecliningTheTrustCheckAbortsTheWholeOperation. The source
 // is untouched and nothing is written to the destination.
 #[test]
@@ -311,6 +340,41 @@ fn two_vault_locks_are_acquired_in_one_deterministic_order() {
     drop(hi_holder);
 }
 
+// Go's version of TestTwoVaultLocksAreAcquiredInOneDeterministicOrder,
+// kept as a second angle: opposite-direction callers racing. Each
+// `flock` is on its own open file description, so threads contend as
+// processes do. A pair that took the locks in argument order would each
+// hold one and wait on the other until the (short) timeout, and the
+// timeout is an error here.
+#[test]
+fn opposite_direction_callers_never_deadlock() {
+    let (x, y) = (Fixture::new(), Fixture::new());
+    std::thread::scope(|s| {
+        for _ in 0..25 {
+            let forward = s.spawn(|| {
+                Vault::with_two_vault_locks(
+                    &x.vault,
+                    &y.vault,
+                    Duration::from_secs(5),
+                    &FakePrompter::new(),
+                    || Ok::<(), MoveError>(()),
+                )
+            });
+            let backward = s.spawn(|| {
+                Vault::with_two_vault_locks(
+                    &y.vault,
+                    &x.vault,
+                    Duration::from_secs(5),
+                    &FakePrompter::new(),
+                    || Ok::<(), MoveError>(()),
+                )
+            });
+            forward.join().unwrap().unwrap();
+            backward.join().unwrap().unwrap();
+        }
+    });
+}
+
 // Go: TestTwoVaultLocksBothHeldForTheWholeOperation. From the window
 // between the two writes, another process finds both locks taken: that is
 // what kills releasing the first lock early.
@@ -361,7 +425,13 @@ fn move_crash_between_the_two_writes_leaves_a_recoverable_duplicate() {
     assert_eq!(src.vault.entry_ids().unwrap(), vec![id]);
     assert_eq!(src.head(), src_head);
     assert_eq!(src.commits(), src_commits);
-    assert_eq!(titles(&dst), vec!["GitHub".to_string()]);
+    let copies = dst.vault.entry_ids().unwrap();
+    assert_eq!(copies.len(), 1, "exactly the duplicate");
+    let dup = dst.read(copies[0], &dst.identity()).unwrap();
+    assert_eq!(
+        (dup.title.as_str(), dup.value.as_str()),
+        ("GitHub", "hunter2")
+    );
     assert!(dst.is_clean() && src.is_clean());
     // The locks died with the unwind: a retry is not blocked.
     assert!(!lock_is_held_elsewhere(

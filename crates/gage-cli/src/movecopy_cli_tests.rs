@@ -41,6 +41,8 @@ fn mv_through_the_cli_moves_entry_between_vaults() {
     let got = env.cmd_ok(&["show", "GitHub", "--use", "shared"]);
     assert!(got.stdout.contains("hunter2"), "{}", got.stdout);
     assert!(!env.titles_in("personal").contains("GitHub"));
+    let cat = env.cmd_ok(&["cat", "GitHub", "--use", "shared"]);
+    assert!(cat.stdout.contains("value: hunter2"), "{}", cat.stdout);
     assert_eq!(
         env.cmd(&["show", "GitHub", "--use", "personal"]).code,
         Code::NotFound
@@ -169,6 +171,11 @@ fn mv_declining_the_trust_check_aborts_through_the_cli() {
         before
     );
     assert!(env.titles_in("personal").contains("GitHub"));
+    assert_eq!(
+        env.cmd(&["show", "GitHub", "--use", "shared"]).code,
+        Code::NotFound,
+        "the destination has the entry after a declined mv"
+    );
     assert!(gitrepo::is_clean(&shared).unwrap());
 }
 
@@ -190,10 +197,14 @@ fn mv_in_a_session_never_unlocks_the_destination() {
 
     assert_eq!(passphrase_prompts(&r), 1, "{}{}", r.stdout, r.stderr);
     assert!(r.stdout.contains("moved"), "{}", r.stdout);
-    // The second `ls` ran from the updated index: the entry is gone from it.
-    let (first, second) = r.stdout.split_once("moved").unwrap();
-    assert!(first.contains("GitHub"), "{first}");
-    assert!(!second.lines().any(|l| l.starts_with("GitHub")), "{second}");
+    assert!(r.stdout.contains("shared"), "{}", r.stdout);
+    // The second `ls` ran from the updated index: the entry's row (a
+    // title followed by its column gap) is gone after the "moved" line, and
+    // was there before it.
+    let (first, rest) = r.stdout.split_once("moved").unwrap();
+    let second = rest.split_once('\n').unwrap().1;
+    assert!(first.contains("GitHub  "), "{first}");
+    assert!(!second.contains("GitHub  "), "{second}");
     let got = env.cmd_ok(&["show", "GitHub", "--use", "shared"]);
     assert!(got.stdout.contains("hunter2"), "{}", got.stdout);
 }

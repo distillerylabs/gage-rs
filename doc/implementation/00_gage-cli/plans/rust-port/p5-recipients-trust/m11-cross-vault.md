@@ -276,6 +276,69 @@ Notes from the review, none of which needs a change:
 - A failed second acquire releases the first lock (`Lock`'s `Drop`). The
   order test asserts this after each iteration.
 
+### Row reconciliation
+
+All 20 `tests/fixtures/go/test-inventory.tsv` rows for `move_test.go`
+(13 library, 7 CLI) are ported; none is excused. Each Rust test carries a
+`// Go: <name>` comment, and its assertions were compared line by line
+against the Go test at the pinned SHA.
+
+| Go row | Rust test |
+|---|---|
+| `TestMoveRemovesFromSourceAndDecryptsAtDestination` | `movecopy_tests::move_removes_from_source_and_decrypts_at_destination` |
+| `TestCopyLeavesSourceAndAddsDecryptableCopy` | `copy_leaves_source_and_adds_decryptable_copy` |
+| `TestMoveProducesOneCommitInEachVault` | `move_produces_one_commit_in_each_vault` |
+| `TestMoveGivesTheDestinationCopyFreshProvenance` | `move_gives_the_destination_copy_fresh_provenance` |
+| `TestMoveAllowsATitleCollisionInTheDestination` | `move_allows_a_title_collision_in_the_destination` |
+| `TestMoveRejectsTheSourceVaultAsItsOwnDestination` | `move_rejects_the_source_vault_as_its_own_destination` |
+| `TestMoveRejectsTwoRegistrationsOfOneVault…` | `move_rejects_two_registrations_of_one_vault` |
+| `TestMoveChecksTheDestinationsTrustCacheNotTheSources` | `move_checks_the_destinations_trust_cache_not_the_sources` + `the_first_move_into_an_unseen_destination_asks_nothing` (Go's two halves) |
+| `TestMoveDecliningTheTrustCheckAbortsTheWholeOperation` | `move_declining_the_trust_check_aborts_the_whole_operation` |
+| `TestTwoVaultLocksAreAcquiredInOneDeterministicOrder` | `two_vault_locks_are_acquired_in_one_deterministic_order` (child process holds the higher lock) + `opposite_direction_callers_never_deadlock` (Go's racing-callers shape) |
+| `TestTwoVaultLocksBothHeldForTheWholeOperation` | `two_vault_locks_are_both_held_for_the_whole_operation` (probes both from a child process) |
+| `TestMoveCrashBetweenTheTwoWritesLeavesARecoverableDuplicate` | `move_crash_between_the_two_writes_leaves_a_recoverable_duplicate` |
+| `TestSessionIndexUpdatesBothVaultsWithoutARebuild` | `session_tests::a_move_updates_both_indexes_without_a_rebuild` |
+| `TestMvThroughTheCLIMovesEntryBetweenVaults` | `movecopy_cli_tests::mv_through_the_cli_moves_entry_between_vaults` |
+| `TestCpThroughTheCLILeavesOriginalAndAddsCopy` | `cp_through_the_cli_leaves_original_and_adds_copy` |
+| `TestMvRequiresToVaultFlag` | `mv_requires_the_to_vault_flag` |
+| `TestMvToUnregisteredVaultFailsCleanly` | `mv_to_an_unregistered_vault_fails_cleanly` |
+| `TestMvToItsOwnSourceVaultIsRejected` | `mv_to_its_own_source_vault_is_rejected` (adds the by-id case) |
+| `TestMvDecliningTheTrustCheckAbortsThroughTheCLI` | `mv_declining_the_trust_check_aborts_through_the_cli` |
+| `TestMvInASessionNeverUnlocksTheDestination` | `mv_in_a_session_never_unlocks_the_destination` (+ the library's `the_destination_of_a_move_is_held_but_never_unlocked`) |
+
+Differences from Go, none of them behavioral:
+
+- "Nothing is decrypted" (`TestMvToUnregisteredVaultFailsCleanly`) is
+  asserted as no unlock request, since the CLI tests can't reach
+  `decrypt_count`. The source is never unlocked, so nothing is decrypted.
+- Go's trust test moves twice into one destination; mine splits it into the
+  silent first use and a destination-changed/source-changed pair, which
+  also proves the source's own change is not asked about.
+- Go bootstraps with a hand-built `Identity`; mine uses real unlocks
+  (`TrustVault`) for the trust rows.
+- Not in Go and added: the dirty-tree reset of the destination under the
+  two locks has no test (no Go row either); the destination's reset is
+  exercised only through `with_two_vault_locks` itself.
+
+**Mutation check of the remaining tests.** Applied by hand and reverted:
+no `SameVault` check; trust check against the source; trust check after the
+destination write; stale provenance; destination commit named by the source
+id; `cp` that removes the source; destination commit skipped; lock order by
+argument (killed by the racing-callers test as well); CLI without the
+pre-unlock same-vault check; session without `forget_entry`; session that
+unlocks the destination; session that doesn't hold the destination. All
+were killed. Two findings:
+
+- The session CLI test passed with `forget_entry` removed: its "row is
+  gone" check matched on line starts, and `ls` rows follow the prompt. Fixed
+  and re-checked.
+- A title-collision refusal can't be mutated in: it would have to decrypt
+  the destination, which `move_to` never unlocks. The collision test pins
+  the behavior, and the structure makes the opposite impossible.
+
+The lock-order, lock-held and crash tests ran 20 times in a row without a
+failure.
+
 ### 5. User docs and ledger
 
 - [x] `doc/cli/identities-and-recipients.md` and `doc/cli/sharing.md`,

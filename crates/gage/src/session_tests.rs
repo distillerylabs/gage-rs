@@ -995,13 +995,15 @@ fn a_move_updates_both_indexes_without_a_rebuild() {
         let (src, identity, dest) = s.vault_and_destination(None, "shared").unwrap();
         src.move_to("AWS", dest, identity, prompter).unwrap()
     };
-    s.forget_entry(None, r.source_id);
-    s.note_entry(Some("shared"), r.dest_id, &r.entry);
-
+    // The baseline is taken here, after the move's own reads and before
+    // the index is told: the update itself must decrypt nothing.
     let base = (
         d.vaults["personal"].decrypt_count(),
         d.vaults["shared"].decrypt_count(),
     );
+    s.forget_entry(None, r.source_id);
+    s.note_entry(Some("shared"), r.dest_id, &r.entry);
+
     let personal: Vec<_> = s
         .list(Some("personal"))
         .unwrap()
@@ -1016,6 +1018,19 @@ fn a_move_updates_both_indexes_without_a_rebuild() {
         .collect();
     assert_eq!(personal, ["GitHub"]);
     assert_eq!(shared, ["AWS", "Wifi"]);
+    let ids: Vec<_> = s
+        .list(Some("shared"))
+        .unwrap()
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    assert!(ids.contains(&r.dest_id));
+    assert!(
+        !s.list(Some("personal"))
+            .unwrap()
+            .iter()
+            .any(|e| e.id == r.source_id)
+    );
     assert_eq!(
         (
             d.vaults["personal"].decrypt_count(),
