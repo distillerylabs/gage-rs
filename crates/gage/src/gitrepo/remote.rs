@@ -17,6 +17,27 @@ use crate::xdgpaths::Dirs;
 /// deadline its progress callbacks check.
 pub const REMOTE_OP_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Which redirects a remote operation follows (Q-REMOTE-AUTH).
+///
+/// libgit2's own HTTP client honors `Initial` as named: only the first
+/// request's redirect, and the token is offered only through the
+/// `credentials` callback, which checks the host. Its WinHTTP backend
+/// (Windows) does neither. It reads any mode but `None` as "follow to
+/// another host, on every request", and once a credential is accepted it
+/// attaches it to every later request without looking at the host. An
+/// origin that took the token and then redirected to another `https://`
+/// host would hand the token over. So on Windows no redirect to another
+/// host is followed at all; a same-host one still is.
+pub const REDIRECTS: git2::RemoteRedirect = if cfg!(windows) {
+    git2::RemoteRedirect::None
+} else {
+    git2::RemoteRedirect::Initial
+};
+
+/// [`REDIRECTS`] as `http.followRedirects` spells it, for the one
+/// connection that takes it from config rather than from options.
+pub(super) const REDIRECTS_CONFIG: &str = if cfg!(windows) { "false" } else { "initial" };
+
 /// What a remote operation needs beyond the repository: where tokens are
 /// stored, and how long it may take. Every operation starts its own
 /// deadline from `timeout`.
@@ -87,7 +108,7 @@ pub fn fetch(dir: &Path, opts: &RemoteOptions) -> Result<bool, Error> {
     let mut fetch = git2::FetchOptions::new();
     fetch
         .remote_callbacks(op.callbacks())
-        .follow_redirects(git2::RemoteRedirect::Initial)
+        .follow_redirects(REDIRECTS)
         .download_tags(git2::AutotagOption::None);
     match remote.fetch::<&str>(&[], Some(&mut fetch), None) {
         Ok(()) => Ok(op.updated.get()),
@@ -113,7 +134,7 @@ pub fn push(dir: &Path, opts: &RemoteOptions) -> Result<bool, Error> {
     let op = Op::new(&method, &url, opts.timeout);
     let mut push = git2::PushOptions::new();
     push.remote_callbacks(op.callbacks())
-        .follow_redirects(git2::RemoteRedirect::Initial);
+        .follow_redirects(REDIRECTS);
     if let Err(e) = remote.push(&[format!("{branch}:{branch}")], Some(&mut push)) {
         return Err(op.fail(e, Direction::Push, "pushing", dir));
     }
@@ -142,7 +163,7 @@ pub fn clone(url: &str, dir: &Path, opts: &RemoteOptions) -> Result<(), Error> {
     let mut fetch = git2::FetchOptions::new();
     fetch
         .remote_callbacks(op.callbacks())
-        .follow_redirects(git2::RemoteRedirect::Initial)
+        .follow_redirects(REDIRECTS)
         .download_tags(git2::AutotagOption::None);
     git2::build::RepoBuilder::new()
         .branch(&branch)
@@ -171,7 +192,23 @@ pub(crate) fn remote_branch(
             Path::new(url),
         )
     };
-    let mut remote = git2::Remote::create_detached(url).map_err(classify)?;
+    // git2's connect takes no redirect option, and a detached remote gets
+    // libgit2's built-in `Initial`, which WinHTTP reads as "anywhere". An
+    // anonymous remote on a scratch repository reads the policy from that
+    // repository's config instead, on every platform alike.
+    let scratch = tempfile::tempdir().map_err(|source| Error::Io {
+        op: "creating a scratch repository for",
+        path: url.to_string(),
+        source,
+    })?;
+    let repo = git2::Repository::init_bare(scratch.path())
+        .and_then(|repo| {
+            repo.config()?
+                .set_str("http.followRedirects", REDIRECTS_CONFIG)?;
+            Ok(repo)
+        })
+        .map_err(fail("preparing a scratch repository in", scratch.path()))?;
+    let mut remote = repo.remote_anonymous(url).map_err(classify)?;
     let connection = remote
         .connect_auth(git2::Direction::Fetch, Some(op.callbacks()), None)
         .map_err(classify)?;

@@ -20,7 +20,7 @@
 //! | loopback port refusing connections | `Net` (`Os` under WinHTTP) | `GenericError` | unreachable |
 //! | `.invalid` host (RFC 6761, fails without a network) | `Net` (`Os` under WinHTTP) | `GenericError` | unreachable |
 //! | gage's own deadline abort | (none: gage's flag) | | unreachable |
-//! | HTTP 401, no credentials offered | `Http` | `Auth` | auth |
+//! | HTTP 401, no credentials offered | `Http` | `Auth` (`GenericError` under WinHTTP) | auth |
 //! | HTTP 401 after the stored token, refused again | (none: gage's flag) | | auth |
 //! | HTTP 403, HTTP 404 | `Http` | `GenericError` | auth |
 //! | local path that doesn't exist | `Net` ("unsupported URL protocol") | `GenericError` | unreachable |
@@ -31,10 +31,11 @@
 //! Three of these depart from the plan's table, and are recorded in
 //! Q-SYNC-CLASSIFY. libgit2 takes a remote for a local path only when the
 //! path exists, so a missing one (an unmounted drive) is unreachable where
-//! Go says auth; gitrepo names the path in the message. libgit2 types only
-//! a 401: both of its HTTP
-//! backends report every other non-200 status as class `Http` with
-//! `GenericError` and the status only in the message text. So the whole
+//! Go says auth; gitrepo names the path in the message. libgit2 types at
+//! most a 401, and only in its own HTTP client: the WinHTTP backend
+//! (Windows) reports even that one generically. Both backends report every
+//! other non-200 status as class `Http` with `GenericError` and the status
+//! only in the message text. So the whole
 //! `Http` class is auth. That covers 403 and 404 (Go folds a repository
 //! that isn't there into auth too), and also a 5xx or a page that isn't a
 //! git repository, which the message names. Nothing here reads message

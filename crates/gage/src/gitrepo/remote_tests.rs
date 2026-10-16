@@ -519,13 +519,21 @@ fn a_token_is_not_offered_to_a_host_it_was_not_stored_for() {
 
     let err = fetch(dir.path(), &opts).unwrap_err();
     assert_eq!(sync_kind(&err), Kind::Auth, "{err}");
-    assert!(
-        recorder
-            .requests()
-            .iter()
-            .any(|r| r.host.starts_with("localhost")),
-        "the redirect was never followed, so nothing was tested"
-    );
+    let reached_localhost = recorder
+        .requests()
+        .iter()
+        .any(|r| r.host.starts_with("localhost"));
+    if cfg!(windows) {
+        // WinHTTP follows a redirect to another host only to https://, and
+        // REDIRECTS turns even that off; a plain-http one is replayed to
+        // the same server until libgit2 gives up.
+        assert!(!reached_localhost, "WinHTTP followed an offsite redirect");
+    } else {
+        assert!(
+            reached_localhost,
+            "the redirect was never followed, so nothing was tested"
+        );
+    }
     let leaked: Vec<_> = recorder
         .authorizations()
         .into_iter()
@@ -550,15 +558,27 @@ fn a_redirect_after_the_token_does_not_carry_it_to_another_host() {
 
     let err = fetch(dir.path(), &opts).unwrap_err();
     assert_eq!(sync_kind(&err), Kind::Auth, "{err}");
-    assert!(err.to_string().contains("localhost asked"), "{err}");
-    assert_eq!(origin.authorizations(), [gittest::basic("gage", TOKEN)]);
-    assert!(
-        elsewhere
-            .requests()
-            .iter()
-            .any(|r| r.host.starts_with("localhost")),
-        "the redirect was never followed, so nothing was tested"
-    );
+    let token = gittest::basic("gage", TOKEN);
+    let reached_elsewhere = elsewhere
+        .requests()
+        .iter()
+        .any(|r| r.host.starts_with("localhost"));
+    if cfg!(windows) {
+        // WinHTTP re-sends the accepted token with every replay, but only
+        // to the origin it was accepted by: the plain-http redirect is
+        // replayed there until libgit2 gives up, and never followed.
+        assert!(!reached_elsewhere, "WinHTTP followed an offsite redirect");
+        let sent = origin.authorizations();
+        assert!(!sent.is_empty(), "the token was never offered");
+        assert!(sent.iter().all(|a| *a == token), "{sent:?}");
+    } else {
+        assert!(err.to_string().contains("localhost asked"), "{err}");
+        assert_eq!(origin.authorizations(), [token]);
+        assert!(
+            reached_elsewhere,
+            "the redirect was never followed, so nothing was tested"
+        );
+    }
     let leaked: Vec<_> = elsewhere
         .requests()
         .into_iter()
@@ -598,4 +618,19 @@ fn a_missing_local_remote_is_unreachable_and_named() {
     let err = fetch(dir.path(), &opts()).unwrap_err();
     assert_eq!(sync_kind(&err), Kind::Unreachable, "{err}");
     assert!(err.to_string().contains("gone.git"), "{err}");
+}
+
+// Q-REMOTE-AUTH: under WinHTTP no offsite redirect is followed, since it
+// would carry an accepted token with it; libgit2's own client follows the
+// initial request's only. The branch listing takes the same policy from
+// its scratch repository's config, spelled as git spells it.
+#[test]
+fn the_redirect_policy_matches_the_http_backend() {
+    if cfg!(windows) {
+        assert!(matches!(remote::REDIRECTS, git2::RemoteRedirect::None));
+        assert_eq!(remote::REDIRECTS_CONFIG, "false");
+    } else {
+        assert!(matches!(remote::REDIRECTS, git2::RemoteRedirect::Initial));
+        assert_eq!(remote::REDIRECTS_CONFIG, "initial");
+    }
 }

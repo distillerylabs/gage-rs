@@ -66,7 +66,15 @@ fn classify_push_sorts_the_three_buckets() {
 
     let recorder = HttpRecorder::start(Answer::Challenge);
     let unauthorized = connect_error(&recorder.url("me/vault.git"));
-    assert_class(&unauthorized, &[Class::Http], C::Auth);
+    // libgit2's own HTTP client types a 401; its WinHTTP backend (Windows)
+    // reports it, with no credentials callback installed, as the generic
+    // "request failed with status code: 401". Same class, so same bucket.
+    let unauthorized_code = if cfg!(windows) {
+        C::GenericError
+    } else {
+        C::Auth
+    };
+    assert_class(&unauthorized, &[Class::Http], unauthorized_code);
     let mut refusals = Vec::new();
     for status in [403, 404] {
         let recorder = HttpRecorder::start(Answer::Status(status));
