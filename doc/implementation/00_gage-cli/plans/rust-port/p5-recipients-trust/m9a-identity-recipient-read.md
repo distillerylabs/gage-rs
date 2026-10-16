@@ -242,7 +242,7 @@ and fix whatever they find.
   - §4: the `identity*`, `recipient`, `recipient_list` and
     `recipient_verify` fixtures are matched
   - §3 M9: `[~]`
-- [ ] Mark M9a `[x]` in the [P5 index](index.md) after CI.
+- [x] Mark M9a `[x]` in the [P5 index](index.md) after CI.
 
 ## Definition of done
 
