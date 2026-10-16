@@ -66,6 +66,16 @@ pub fn remote_options() -> RemoteOptions {
     })
 }
 
+/// An `http://127.0.0.1:<port>/...` URL nothing listens on: a port that
+/// was free a moment ago, so a connection is refused at once. How a test
+/// is offline with no network at all.
+pub fn refused_url() -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("gittest: binding a port");
+    let port = listener.local_addr().expect("gittest: port").port();
+    drop(listener);
+    format!("http://127.0.0.1:{port}/me/vault.git")
+}
+
 /// A throwaway clone of a remote standing in for another device: the
 /// states that exist only because two machines share a vault (remote
 /// commits to pull, and with a local commit, real divergence). Not a gage

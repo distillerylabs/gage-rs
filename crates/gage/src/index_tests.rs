@@ -54,6 +54,7 @@ fn insert(s: &mut Session, title: &str, description: &str, value: &str) -> Uuid 
             ..NewEntry::default()
         },
         true,
+        &FakePrompter::new(),
     )
     .unwrap()
 }
@@ -244,7 +245,13 @@ fn session_resolve_sees_a_rename_after_note_entry() {
     let renamed = {
         let (v, ident) = s.vault(None).unwrap();
         let id = v
-            .rename(ident, &ids[0].to_string(), "New Title", false)
+            .rename(
+                ident,
+                &ids[0].to_string(),
+                "New Title",
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         v.read_entry(id, ident).unwrap()
     };
@@ -270,7 +277,8 @@ fn forget_entry_removes_from_index() {
 
     {
         let (v, ident) = s.vault(None).unwrap();
-        v.remove(ident, &ids[0].to_string()).unwrap();
+        v.remove(ident, &ids[0].to_string(), &FakePrompter::new())
+            .unwrap();
     }
     s.forget_entry(None, ids[0]);
 
@@ -484,6 +492,7 @@ fn index_arena_never_holds_a_secret_value() {
                 ..NewEntry::default()
             },
             false,
+            &FakePrompter::new(),
         )
         .unwrap();
     }

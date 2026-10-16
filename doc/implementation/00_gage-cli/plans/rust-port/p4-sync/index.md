@@ -94,8 +94,8 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 | # | Milestone | Model | Depends on | Inventory rows | Status |
 |---|---|---|---|---|---|
 | M8a1 | [Remote primitives & auth](m8a1-remote-primitives.md) ([#33](https://github.com/distillerylabs/gage-rs/issues/33)) | **Opus** | P3 | 57 | `[~]` (local green; CI pending) |
-| M8a2 | [Sync wiring](m8a2-sync-wiring.md) ([#34](https://github.com/distillerylabs/gage-rs/issues/34)) | **Opus** | M8a1 | 54 | `[ ]` |
-| M8b | [Conflict resolution](m8b-conflict-resolution.md) ([#35](https://github.com/distillerylabs/gage-rs/issues/35)) | **Opus** | M8a2 | 48 | `[ ]` |
+| M8a2 | [Sync wiring](m8a2-sync-wiring.md) ([#34](https://github.com/distillerylabs/gage-rs/issues/34)) | **Opus** | M8a1 | 53 | `[~]` (local green; CI pending) |
+| M8b | [Conflict resolution](m8b-conflict-resolution.md) ([#35](https://github.com/distillerylabs/gage-rs/issues/35)) | **Opus** | M8a2 | 49 | `[ ]` |
 
 Each milestone runs on Opus throughout, so there is no separate `⚑`
 review pass. Each milestone doc names the tests that most need a second
@@ -109,14 +109,16 @@ look at the end:
 
 P4 owned 172 rows of `tests/fixtures/go/test-inventory.tsv`. Planning
 re-tagged 6 of them to P6, which leaves 166. P1 · M1 already claimed 7 of
-those. The other 159 are claimed by M8a1 (57), M8a2 (54) and M8b (48).
+those. The other 159 are claimed by M8a1 (57), M8a2 (53) and M8b (49).
+M8a2 moved `TestPluralEntries` to M8b, whose resolved-count line is its
+only caller.
 By file:
 
 | Milestone | Files (rows) |
 |---|---|
 | M8a1 | `gitrepo_test` (1 of 8), `remote_test` (15), `reset_test` (4), `worktree_state_test` (4), `syncerr` (6), `remoteauth` (11), `auth_wiring` (4), `auth` CLI (12) |
-| M8a2 | `remotesync` (18), `sync_index` (3), `sync_cli` (16), `clone` CLI (13), `init_remote_auth` (4) |
-| M8b | `syncresolve` (30), `syncresolve_cli` (8), `merge_test` (10) |
+| M8a2 | `remotesync` (18), `sync_index` (3), `sync_cli` (15 of 16), `clone` CLI (13), `init_remote_auth` (4) |
+| M8b | `syncresolve` (30), `syncresolve_cli` (8), `merge_test` (10), `sync_cli` (1 of 16: `TestPluralEntries`) |
 
 Rows already claimed by an earlier phase:
 

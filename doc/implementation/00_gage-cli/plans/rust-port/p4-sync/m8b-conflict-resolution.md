@@ -223,7 +223,7 @@ Write each task's tests first, at task granularity.
       deadline. Beyond Go's rows: a slow answer doesn't make the push
       fail. Prove it with an injected deadline, not real time.
 
-### 5. The terminal menu and `gage sync` — 8 rows
+### 5. The terminal menu and `gage sync` — 9 rows
 
 - [ ] `TerminalPrompter::resolve_conflict` renders the design doc's
       `[l/r/b/s/q]` menu: the title, both sides' `updated` and
@@ -243,6 +243,9 @@ Write each task's tests first, at task granularity.
   - `TestSyncWithoutATerminalRefusesRatherThanChoosing`
   - `TestYesDoesNotResolveConflicts`: as in Go before M10, `sync --yes`
     is an unknown flag. Pin that, and leave a note for M10 to flip it.
+  - `TestPluralEntries` (`sync_cli_test.go`), moved from M8a2: its only
+    caller is the "resolved N entries" line this task adds. Go's
+    `pluralEntries` spells "1 entry", not "1 entries".
 
 ### 6. User docs
 

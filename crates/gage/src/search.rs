@@ -78,6 +78,7 @@ impl Vault {
 mod tests {
     use super::*;
     use crate::entry::NewEntry;
+    use crate::prompter::FakePrompter;
     use crate::session_tests::{Device, unlocks};
 
     // Go: TestSearchMatchesFieldValueAndReportsMatchedBody. A match only in
@@ -109,6 +110,7 @@ mod tests {
                     ..NewEntry::default()
                 },
                 false,
+                &FakePrompter::new(),
             )
             .unwrap();
         }

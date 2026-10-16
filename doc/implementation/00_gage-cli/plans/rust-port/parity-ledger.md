@@ -69,10 +69,10 @@ before `distillerylabs/gage`; the commit is the stable reference.
 |---|---|---|---|---|
 | `4604dc5`…`4c23f99` | — | Milestones M0–M12 as planned | See §3 | — |
 | `db2731f` | #27 | Usage rejection prints the command's own usage block | P1 · M0b | `[x]` (session half: P3 · M6 `[x]` `session_wrong_arg_count_shows_command_usage`, through the interactive session; the `--stdin` spelling is P6 · M12's) |
-| `386c57e` | #38 | `init --remote` solicits an HTTPS token inline | P4 · M8a2 ([plan](p4-sync/m8a2-sync-wiring.md)) | `[ ]` |
+| `386c57e` | #38 | `init --remote` solicits an HTTPS token inline | P4 · M8a2 ([plan](p4-sync/m8a2-sync-wiring.md)) | `[x]` asked only for a token-candidate host with no stored token, before the push; blank skips; checked at the loopback recorder (`init_solicits_a_token_when_none_is_stored` and its three siblings) |
 | `a0920b0`, `0a1beeb` | #39 | `vault remove` orphaned-identity cleanup (later revised by E0: compare public keys, `Confirm`, default keep) | P6 · M12 | `[ ]` |
 | `c433791` | — | `make reset-local-state` developer helper (`scripts/resetlocalstate`) | P1 · M0b (a separate binary, never a `gage` subcommand; needs `xdgpaths`) | `[x]` |
-| `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[x]` errors (M0b); `[~]` warnings: M2's (page lock, identity reuse) name gage once through `Prompter::warn`; P4 · M8a2's push and pull-on-unlock warnings add theirs |
+| `ddce8b1` | — | No doubled `gage: gage:` error prefix | P1 · M0b (`errorprefix_test.go`) | `[x]` errors (M0b); warnings: M2's (page lock, identity reuse) and P4 · M8a2's (push after a write, pull on unlock) name gage once through `Prompter::warn` (`no_sync_failure_or_warning_doubles_gages_own_prefix`) |
 | `a1572d5` | — | `ls` shows title and `updated_by` | P2 · M4 | `[x]` `render_ls` prints title, short id, created, updated, `updated_by` |
 | `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 ([plan](p3-query-session/m5-query-resolution.md)) | `[x]` `resolve_query` runs both title stages before either UUID stage; `resolve_exact_title_wins_over_uuid_match`, `cat_resolves_by_exact_title_even_when_query_is_also_a_uuid_substring` |
 | `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[x]` `memlock::LockedBuf` gives each key its own pages; `alloc_gives_each_buffer_its_own_page`, `unlocking_one_buffer_leaves_another_locked` |
@@ -102,7 +102,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M3 | P2 · M3 | `[x]` ([#14](https://github.com/distillerylabs/gage-rs/issues/14)) |
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
 | | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[x]` |
-| | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[~]` M8a1 ([#33](https://github.com/distillerylabs/gage-rs/issues/33)) |
+| | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[~]` M8a1 ([#33](https://github.com/distillerylabs/gage-rs/issues/33)), M8a2 ([#34](https://github.com/distillerylabs/gage-rs/issues/34)) |
 | | M9 (+ A19), M10, M11 | P5 | `[ ]` |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
 | | "Post-plan changes" section | Rows in §2 | — |
@@ -128,7 +128,7 @@ to match Cobra's layout.
 | `show`, `edit`, `rename`, `generate` | P3 · M5 `[x]` (all fixture flags but `-c`/`-q` on `show` and `generate`, which are P6 · M12; checked by `m5_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `search`, `reindex` | P3 · M7 `[x]` (name, alias `grep`, group, arguments and `-u/--use` match; checked by `m7_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 · M8a1 `[x]` (name, group Git-specific, both modes, `--host`, `login`'s long help; checked by `p4_auth_commands_have_their_go_fixture_flags_and_descriptions`) |
-| `clone`, `sync`, `pull`, `push` | P4: `clone`, `sync`, `pull`, `push` and `init --remote` in M8a2; `sync`'s resolving half in M8b (`clone`'s enrollment offer is P7's; `sync --yes` arrives with P5 · M10) |
+| `clone`, `sync`, `pull`, `push` | P4 · M8a2 `[x]` `clone` (one-shot, `--name`/`--dir`/`--device`), `sync`/`pull`/`push` (group Sync, both modes, `-u/--use`), `init --remote` (checked by `p4_sync_commands_have_their_go_fixture_flags_and_descriptions`); `sync`'s resolving half in M8b (`clone`'s enrollment offer is P7's; `sync --yes` arrives with P5 · M10) |
 | `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5 |
 | `log`, `history` (and the output flags `--clip`, `--qr`, `--script`; `show --field` itself is P3 · M5) | P6 |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |

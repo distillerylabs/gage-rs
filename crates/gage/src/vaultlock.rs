@@ -95,28 +95,11 @@ impl Lock {
     /// still gives up rather than hang a terminal forever. A zero timeout
     /// tries exactly once.
     pub fn acquire(path: &Path, timeout: Duration) -> Result<Lock, Error> {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(path)
-            .map_err(|source| Error::Open {
-                path: path.to_path_buf(),
-                source,
-            })?;
+        let mut file = open(path)?;
         let deadline = Instant::now() + timeout;
         loop {
             match file.try_lock() {
-                Ok(()) => {
-                    // Best-effort, like reading it back: it only ever
-                    // feeds a human-facing message.
-                    let _ = write_holder(&mut file);
-                    return Ok(Lock {
-                        file: Some(file),
-                        path: path.to_path_buf(),
-                    });
-                }
+                Ok(()) => return Ok(Lock::held(file, path)),
                 Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
                     std::thread::sleep(POLL_INTERVAL);
                 }
@@ -133,6 +116,33 @@ impl Lock {
                     });
                 }
             }
+        }
+    }
+
+    /// Takes the lock at `path` only if it is free right now: `None` when
+    /// someone else holds it, after one attempt and no waiting. For a
+    /// caller with something better to do than queue: pull on unlock skips
+    /// its catch-up rather than make a read wait behind a write.
+    pub fn try_acquire(path: &Path) -> Result<Option<Lock>, Error> {
+        let file = open(path)?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(Lock::held(file, path))),
+            Err(TryLockError::WouldBlock) => Ok(None),
+            Err(TryLockError::Error(source)) => Err(Error::Lock {
+                path: path.to_path_buf(),
+                source,
+            }),
+        }
+    }
+
+    /// A lock just taken on `file`, with this process recorded as its
+    /// holder. Best-effort, like reading it back: the record only ever
+    /// feeds a human-facing message.
+    fn held(mut file: File, path: &Path) -> Lock {
+        let _ = write_holder(&mut file);
+        Lock {
+            file: Some(file),
+            path: path.to_path_buf(),
         }
     }
 
@@ -156,6 +166,20 @@ impl Drop for Lock {
             let _ = file.unlock();
         }
     }
+}
+
+/// Opens (creating if needed) the lock file at `path`.
+fn open(path: &Path) -> Result<File, Error> {
+    OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(path)
+        .map_err(|source| Error::Open {
+            path: path.to_path_buf(),
+            source,
+        })
 }
 
 fn write_holder(file: &mut File) -> std::io::Result<()> {
@@ -409,6 +433,46 @@ mod tests {
         let lock = Lock::acquire(&path, Duration::ZERO).unwrap();
         lock.release().unwrap();
         let _again = Lock::acquire(&path, Duration::ZERO).unwrap();
+    }
+
+    // try_acquire answers "busy" at once while another process holds the
+    // lock (pull on unlock skips rather than queueing behind a write), and
+    // takes the lock once it is free.
+    #[test]
+    fn try_acquire_answers_busy_without_waiting() {
+        let (_dir, path) = lock_path();
+        let mut holder = Holder::spawn(&path);
+
+        let start = Instant::now();
+        assert!(
+            Lock::try_acquire(&path).unwrap().is_none(),
+            "held elsewhere"
+        );
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "try_acquire waited {:?}",
+            start.elapsed()
+        );
+
+        holder.release();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let lock = loop {
+            if let Some(lock) = Lock::try_acquire(&path).unwrap() {
+                break lock;
+            }
+            assert!(Instant::now() < deadline, "never free after release");
+            std::thread::sleep(POLL_INTERVAL);
+        };
+        // Held for real: a second try from here is busy too.
+        assert!(Lock::try_acquire(&path).unwrap().is_none());
+        lock.release().unwrap();
+    }
+
+    #[test]
+    fn try_acquire_open_failure_is_an_error_not_busy() {
+        let (dir, _) = lock_path();
+        let err = Lock::try_acquire(&dir.path().join("missing/vault.lock")).unwrap_err();
+        assert!(matches!(err, Error::Open { .. }), "{err:?}");
     }
 
     #[test]

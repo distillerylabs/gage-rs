@@ -29,6 +29,7 @@ pub mod paths;
 pub mod prompter;
 pub mod recipients;
 pub mod remoteauth;
+pub mod remotesync;
 pub mod search;
 pub mod session;
 #[cfg(test)]
@@ -41,5 +42,7 @@ pub mod vaultconfig;
 pub mod vaultlock;
 pub mod xdgpaths;
 
+#[cfg(test)]
+mod sync_index_tests;
 #[cfg(test)]
 mod unlock_tests;

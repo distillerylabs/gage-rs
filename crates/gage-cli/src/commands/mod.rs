@@ -17,9 +17,11 @@ use crate::Io;
 use crate::error::CliError;
 
 mod auth;
+mod clone;
 mod entry;
 mod git;
 mod init;
+mod sync;
 mod vault;
 
 #[cfg(test)]
@@ -27,11 +29,15 @@ pub(crate) use entry::{parse_field_flags, render_ls, trim_one_trailing_newline, 
 pub(crate) use entry::{session_failure, short_id};
 #[cfg(test)]
 pub(crate) use init::resolve_device_name;
+#[cfg(test)]
+pub(crate) use sync::{report_conflicts, sync_line};
 
 /// The flags of the command registered as `name`, beyond its positionals.
 pub fn flags(name: &str) -> Vec<Arg> {
     match name {
         "init" => init::flags(),
+        "clone" => clone::flags(),
+        "sync" | "pull" | "push" => sync::flags(),
         "insert" | "show" | "cat" | "edit" | "rename" | "generate" | "rm" | "ls" | "search"
         | "reindex" => entry::flags(name),
         "auth login" | "auth status" | "auth logout" => auth::flags(),
@@ -44,6 +50,9 @@ pub fn flags(name: &str) -> Vec<Arg> {
 pub fn long_about(name: &str) -> Option<&'static str> {
     match name {
         "init" => Some(init::LONG_ABOUT),
+        "clone" => Some(clone::LONG_ABOUT),
+        "pull" => Some(sync::PULL_LONG_ABOUT),
+        "sync" => Some(sync::SYNC_LONG_ABOUT),
         "ls" => Some(entry::LS_LONG_ABOUT),
         "auth login" => Some(auth::LOGIN_LONG_ABOUT),
         _ => None,
@@ -85,6 +94,10 @@ pub fn run(
 ) -> Option<Result<(), CliError>> {
     Some(match name {
         "init" => init::run(matches, io, keys.prompter()),
+        "clone" => clone::run(matches, io),
+        "sync" => sync::sync(matches, io, keys),
+        "pull" => sync::pull(matches, io, keys),
+        "push" => sync::push(matches, io, keys),
         "insert" => entry::insert(matches, io, keys),
         "show" => entry::show(matches, io, keys),
         "cat" => entry::cat(matches, io, keys),

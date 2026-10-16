@@ -49,7 +49,7 @@ impl Env {
         let day_ago = Timestamp::from_unix(e.created.unwrap().as_unix() - 86_400);
         e.created = day_ago;
         e.updated = day_ago;
-        vault.update(id, &e).unwrap();
+        vault.update(id, &e, &FakePrompter::new()).unwrap();
     }
 
     /// Inserts `title` with a value and fields, through `insert -e` (Go's

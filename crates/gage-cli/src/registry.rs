@@ -133,6 +133,15 @@ pub fn registry() -> Registry {
                 GROUP_VAULT,
                 OneShotOnly,
             ),
+            // One-shot only, like init: it creates a vault rather than
+            // operating on one.
+            command(
+                "clone",
+                "<remote-url>",
+                "Clone an existing vault from a remote",
+                GROUP_VAULT,
+                OneShotOnly,
+            ),
             command(
                 "vault list",
                 "",
@@ -218,6 +227,27 @@ pub fn registry() -> Registry {
                 "",
                 "Force a session's cached metadata index to rebuild",
                 GROUP_ENTRY,
+                Both,
+            ),
+            command(
+                "sync",
+                "",
+                "Pull, merge what can be merged, then push",
+                GROUP_SYNC,
+                Both,
+            ),
+            command(
+                "pull",
+                "",
+                "Fast-forward this vault from its remote",
+                GROUP_SYNC,
+                Both,
+            ),
+            command(
+                "push",
+                "",
+                "Publish this vault's commits to its remote",
+                GROUP_SYNC,
                 Both,
             ),
             command(

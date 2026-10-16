@@ -6,7 +6,9 @@
 //! lock. See "Entry CRUD" and "Concurrent processes and the vault lock" in
 //! the design doc.
 //!
-//! The commit is local; pushing is P4's.
+//! After the commit, still under the lock, the write is pushed (P4 ·
+//! M8a2). A failed push warns through the prompter the caller passes and
+//! never fails the write: the commit is already durable locally.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -16,6 +18,7 @@ use uuid::Uuid;
 use super::{Entry, Error, Extra, Timestamp, new_id};
 use crate::exitcode::{Code, HasCode};
 use crate::identity::Identity;
+use crate::prompter::Prompter;
 use crate::vault::Vault;
 use crate::{gitrepo, paths, vaultlock};
 
@@ -260,14 +263,16 @@ impl Vault {
     /// one commit named by its id. A title another entry already has is
     /// refused unless `force`. The lock is held from before that check to
     /// after the commit, so two processes can't both pass the check, and
-    /// can't interleave their commits.
+    /// can't interleave their commits. The push follows the commit inside
+    /// the same lock; a push that fails is reported through `prompter`.
     pub fn insert(
         &self,
         identity: &Identity,
         new: NewEntry,
         force: bool,
+        prompter: &dyn Prompter,
     ) -> Result<Uuid, WriteError> {
-        self.insert_within(WRITE_LOCK_TIMEOUT, identity, new, force)
+        self.insert_within(WRITE_LOCK_TIMEOUT, identity, new, force, prompter)
     }
 
     pub(crate) fn insert_within(
@@ -276,6 +281,7 @@ impl Vault {
         identity: &Identity,
         new: NewEntry,
         force: bool,
+        prompter: &dyn Prompter,
     ) -> Result<Uuid, WriteError> {
         self.with_write_lock(timeout, || {
             if !force
@@ -305,6 +311,7 @@ impl Vault {
             // A failed commit leaves the entry file in the working tree, as
             // Go: the next write's commit picks it up.
             gitrepo::commit_all(&self.path, &id.to_string())?;
+            self.push_after_write(prompter);
             Ok(id)
         })
     }
@@ -313,8 +320,13 @@ impl Vault {
     /// write lock. The query is resolved inside the lock: resolving first
     /// and locking after would let a concurrent write change what the
     /// query means.
-    pub fn remove(&self, identity: &Identity, query: &str) -> Result<Uuid, WriteError> {
-        self.remove_within(WRITE_LOCK_TIMEOUT, identity, query)
+    pub fn remove(
+        &self,
+        identity: &Identity,
+        query: &str,
+        prompter: &dyn Prompter,
+    ) -> Result<Uuid, WriteError> {
+        self.remove_within(WRITE_LOCK_TIMEOUT, identity, query, prompter)
     }
 
     pub(crate) fn remove_within(
@@ -322,6 +334,7 @@ impl Vault {
         timeout: Duration,
         identity: &Identity,
         query: &str,
+        prompter: &dyn Prompter,
     ) -> Result<Uuid, WriteError> {
         self.with_write_lock(timeout, || {
             let id = resolve_query(query, &self.titles(identity)?)?;
@@ -332,6 +345,7 @@ impl Vault {
                 source,
             })?;
             gitrepo::commit_all(&self.path, &id.to_string())?;
+            self.push_after_write(prompter);
             Ok(id)
         })
     }
@@ -342,12 +356,13 @@ impl Vault {
     /// the original `created`), so it can rewrite an entry as-is.
     ///
     /// Unlike Go's `Update` it takes no identity: the entry is encrypted to
-    /// the vault's recipients, not to the writer, and Go's only other use
-    /// for it, reporting the automatic push, is P4's.
-    pub fn update(&self, id: Uuid, e: &Entry) -> Result<(), WriteError> {
+    /// the vault's recipients, not to the writer. Go's other use for the
+    /// identity, reporting the automatic push, is `prompter` here.
+    pub fn update(&self, id: Uuid, e: &Entry, prompter: &dyn Prompter) -> Result<(), WriteError> {
         self.with_write_lock(WRITE_LOCK_TIMEOUT, || {
             self.write_entry(id, e)?;
             gitrepo::commit_all(&self.path, &id.to_string())?;
+            self.push_after_write(prompter);
             Ok(())
         })
     }
@@ -364,6 +379,7 @@ impl Vault {
         query: &str,
         new_title: &str,
         force: bool,
+        prompter: &dyn Prompter,
     ) -> Result<Uuid, WriteError> {
         self.with_write_lock(WRITE_LOCK_TIMEOUT, || {
             let titles = self.titles(identity)?;
@@ -384,33 +400,87 @@ impl Vault {
             e.updated_by = identity.device().to_string();
             self.write_entry(id, &e)?;
             gitrepo::commit_all(&self.path, &id.to_string())?;
+            self.push_after_write(prompter);
             Ok(id)
         })
     }
 
     /// Runs `f` holding the vault's write lock, waiting up to `timeout` for
     /// it. The lock is released on every path out, including an error.
-    fn with_write_lock<T>(
+    /// Every write takes it, and so does every sync verb, since a
+    /// fast-forward or a merge moves the working tree as a write does.
+    pub(crate) fn with_write_lock<T, E: From<LockError>>(
         &self,
         timeout: Duration,
-        f: impl FnOnce() -> Result<T, WriteError>,
-    ) -> Result<T, WriteError> {
-        // The path (and with it the vault id) is validated before anything
-        // is created or locked.
-        let path = self.lock_file_path()?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| WriteError::Io {
-                action: "creating",
-                path: parent.to_path_buf(),
-                source,
-            })?;
-        }
-        let lock = vaultlock::Lock::acquire(&path, timeout)?;
+        f: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        let lock = vaultlock::Lock::acquire(&self.prepare_lock_file()?, timeout)
+            .map_err(LockError::from)?;
         let result = f();
         match (result, lock.release()) {
             (Ok(v), Ok(())) => Ok(v),
             (Err(e), _) => Err(e),
-            (Ok(_), Err(e)) => Err(e.into()),
+            (Ok(_), Err(e)) => Err(LockError::from(e).into()),
+        }
+    }
+
+    /// The write lock if it is free right now, `None` if another process
+    /// holds it. Never waits: for pull on unlock, which skips its catch-up
+    /// rather than make a read queue behind a write.
+    pub(crate) fn try_write_lock(&self) -> Result<Option<vaultlock::Lock>, LockError> {
+        Ok(vaultlock::Lock::try_acquire(&self.prepare_lock_file()?)?)
+    }
+
+    /// The lock file's path, with its directory created. The path (and
+    /// with it the vault id) is validated before anything is created.
+    fn prepare_lock_file(&self) -> Result<std::path::PathBuf, LockError> {
+        let path = self.lock_file_path()?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|source| LockError::Io {
+                path: parent.to_path_buf(),
+                source,
+            })?;
+        }
+        Ok(path)
+    }
+}
+
+/// Why the vault's write lock couldn't be taken or released. A write
+/// reports it as the matching [`WriteError`] variant.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum LockError {
+    #[error(transparent)]
+    Path(#[from] paths::Error),
+    #[error(transparent)]
+    Lock(#[from] vaultlock::Error),
+    #[error("gage: creating {path}: {source}")]
+    Io {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+    },
+}
+
+impl HasCode for LockError {
+    fn code(&self) -> Code {
+        match self {
+            LockError::Path(e) => e.code(),
+            LockError::Lock(e) => e.code(),
+            LockError::Io { .. } => Code::Internal,
+        }
+    }
+}
+
+impl From<LockError> for WriteError {
+    fn from(err: LockError) -> WriteError {
+        match err {
+            LockError::Path(e) => WriteError::Path(e),
+            LockError::Lock(e) => WriteError::Lock(e),
+            LockError::Io { path, source } => WriteError::Io {
+                action: "creating",
+                path,
+                source,
+            },
         }
     }
 }
@@ -424,6 +494,7 @@ mod tests {
     use std::time::Instant;
 
     use super::*;
+    use crate::prompter::FakePrompter;
     use crate::testsupport::fast_scrypt;
     use crate::vault::CreateSpec;
     use crate::xdgpaths::Dirs;
@@ -526,6 +597,7 @@ mod tests {
                     extra: [("x-future".to_string(), Extra::Plain("kept".into()))].into(),
                 },
                 false,
+                &FakePrompter::new(),
             )
             .unwrap();
         let e = f.vault.read_entry(id, &f.identity()).unwrap();
@@ -546,7 +618,12 @@ mod tests {
         let before = f.commits();
         let id = f
             .vault
-            .insert(&f.identity(), new_entry("a title", "v"), false)
+            .insert(
+                &f.identity(),
+                new_entry("a title", "v"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         assert_eq!(f.commits(), before + 1);
         let head = f.head();
@@ -563,12 +640,22 @@ mod tests {
         let f = Fixture::new();
         let first = f
             .vault
-            .insert(&f.identity(), new_entry("dup", "1"), false)
+            .insert(
+                &f.identity(),
+                new_entry("dup", "1"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         let before = f.commits();
         let err = f
             .vault
-            .insert(&f.identity(), new_entry("dup", "2"), false)
+            .insert(
+                &f.identity(),
+                new_entry("dup", "2"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap_err();
         assert!(
             matches!(&err, WriteError::DuplicateTitle { id, .. } if *id == first),
@@ -584,10 +671,20 @@ mod tests {
     fn insert_duplicate_title_allowed_with_force() {
         let f = Fixture::new();
         f.vault
-            .insert(&f.identity(), new_entry("dup", "1"), false)
+            .insert(
+                &f.identity(),
+                new_entry("dup", "1"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         f.vault
-            .insert(&f.identity(), new_entry("dup", "2"), true)
+            .insert(
+                &f.identity(),
+                new_entry("dup", "2"),
+                true,
+                &FakePrompter::new(),
+            )
             .unwrap();
         assert_eq!(f.vault.entry_ids().unwrap().len(), 2);
     }
@@ -599,11 +696,19 @@ mod tests {
         let f = Fixture::new();
         let id = f
             .vault
-            .insert(&f.identity(), new_entry("gone soon", "v"), false)
+            .insert(
+                &f.identity(),
+                new_entry("gone soon", "v"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         let before = f.commits();
 
-        let removed = f.vault.remove(&f.identity(), &id.to_string()).unwrap();
+        let removed = f
+            .vault
+            .remove(&f.identity(), &id.to_string(), &FakePrompter::new())
+            .unwrap();
 
         assert_eq!(removed, id);
         assert!(!f.vault.entry_path(id).exists());
@@ -636,7 +741,12 @@ mod tests {
 
         let err = f
             .vault
-            .insert(&f.identity(), new_entry("x", "v"), false)
+            .insert(
+                &f.identity(),
+                new_entry("x", "v"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap_err();
 
         assert!(matches!(err, WriteError::Git(_)), "{err}");
@@ -647,7 +757,12 @@ mod tests {
         assert!(!gitrepo::is_clean(&f.vault.path).unwrap());
 
         f.vault
-            .insert(&f.identity(), new_entry("y", "v"), false)
+            .insert(
+                &f.identity(),
+                new_entry("y", "v"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         assert_eq!(f.commits(), before + 1);
         assert!(gitrepo::is_clean(&f.vault.path).unwrap());
@@ -659,10 +774,18 @@ mod tests {
     fn remove_unknown_query_fails() {
         let f = Fixture::new();
         f.vault
-            .insert(&f.identity(), new_entry("keep", "v"), false)
+            .insert(
+                &f.identity(),
+                new_entry("keep", "v"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         let before = f.commits();
-        let err = f.vault.remove(&f.identity(), "nope").unwrap_err();
+        let err = f
+            .vault
+            .remove(&f.identity(), "nope", &FakePrompter::new())
+            .unwrap_err();
         assert!(
             matches!(&err, WriteError::Resolve(ResolveError::NotFound { query }) if query == "nope"),
             "{err}"
@@ -757,7 +880,12 @@ mod tests {
         let f = Fixture::new();
         let id = f
             .vault
-            .insert(&f.identity(), new_entry("findme", "v"), false)
+            .insert(
+                &f.identity(),
+                new_entry("findme", "v"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         let (got, e) = f.vault.resolve(&f.identity(), "findme").unwrap();
         assert_eq!((got, e.value.as_str()), (id, "v"));
@@ -775,7 +903,12 @@ mod tests {
         /// `insertNamed`).
         fn insert_named(&self, title: &str) -> Uuid {
             self.vault
-                .insert(&self.identity(), new_entry(title, "v"), true)
+                .insert(
+                    &self.identity(),
+                    new_entry(title, "v"),
+                    true,
+                    &FakePrompter::new(),
+                )
                 .unwrap()
         }
 
@@ -990,7 +1123,7 @@ mod tests {
         let mut e = f.vault.read_entry(id, &f.identity()).unwrap();
         e.value = "rotated-secret".into();
 
-        f.vault.update(id, &e).unwrap();
+        f.vault.update(id, &e, &FakePrompter::new()).unwrap();
 
         assert_eq!(f.commits(), before + 1);
         assert_eq!(f.head().message, id.to_string());
@@ -1014,6 +1147,7 @@ mod tests {
                     ..NewEntry::default()
                 },
                 false,
+                &FakePrompter::new(),
             )
             .unwrap();
         let old = backdate(&f, id);
@@ -1023,7 +1157,13 @@ mod tests {
 
         let got = f
             .vault
-            .rename(&f.identity(), "Old Title", "New Title", false)
+            .rename(
+                &f.identity(),
+                "Old Title",
+                "New Title",
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
 
         assert_eq!(got, id);
@@ -1051,7 +1191,13 @@ mod tests {
         let id = f.insert_named("Old Title");
         let before = f.commits();
         f.vault
-            .rename(&f.identity(), "Old Title", "New Title", false)
+            .rename(
+                &f.identity(),
+                "Old Title",
+                "New Title",
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         assert_eq!(f.commits(), before + 1);
         assert_eq!(f.head().message, id.to_string());
@@ -1068,7 +1214,13 @@ mod tests {
 
         let err = f
             .vault
-            .rename(&f.identity(), "Entry B", "Entry A", false)
+            .rename(
+                &f.identity(),
+                "Entry B",
+                "Entry A",
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap_err();
 
         assert!(
@@ -1080,7 +1232,13 @@ mod tests {
         assert_eq!(f.resolve("Entry B").unwrap().0, b, "B is unrenamed");
 
         f.vault
-            .rename(&f.identity(), "Entry B", "Entry A", true)
+            .rename(
+                &f.identity(),
+                "Entry B",
+                "Entry A",
+                true,
+                &FakePrompter::new(),
+            )
             .unwrap();
         assert!(matches!(
             f.resolve("Entry A"),
@@ -1095,7 +1253,7 @@ mod tests {
         let id = f.insert_named("Same");
         assert_eq!(
             f.vault
-                .rename(&f.identity(), "Same", "Same", false)
+                .rename(&f.identity(), "Same", "Same", false, &FakePrompter::new())
                 .unwrap(),
             id
         );
@@ -1109,7 +1267,13 @@ mod tests {
         let before = f.commits();
         let err = f
             .vault
-            .rename(&f.identity(), "no such entry", "New Title", false)
+            .rename(
+                &f.identity(),
+                "no such entry",
+                "New Title",
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap_err();
         assert!(
             matches!(&err, WriteError::Resolve(ResolveError::NotFound { .. })),
@@ -1129,7 +1293,13 @@ mod tests {
         let before = f.commits();
         let err = f
             .vault
-            .rename(&f.identity(), "aws", "Whatever", false)
+            .rename(
+                &f.identity(),
+                "aws",
+                "Whatever",
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap_err();
         assert_eq!(err.code(), Code::Ambiguous);
         assert_eq!(f.commits(), before);
@@ -1159,7 +1329,9 @@ mod tests {
         let id = f.identity();
         assert!(f.vault.list(&id).unwrap().is_empty());
         for t in ["b", "a", "b"] {
-            f.vault.insert(&id, new_entry(t, "v"), true).unwrap();
+            f.vault
+                .insert(&id, new_entry(t, "v"), true, &FakePrompter::new())
+                .unwrap();
         }
         let rows = f.vault.list(&id).unwrap();
         let titles: Vec<&str> = rows.iter().map(|r| r.title.as_str()).collect();
@@ -1175,7 +1347,12 @@ mod tests {
         let mut vault = f.vault.clone();
         vault.id = String::new();
         let err = vault
-            .insert(&f.identity(), new_entry("x", "v"), false)
+            .insert(
+                &f.identity(),
+                new_entry("x", "v"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap_err();
         assert!(matches!(err, WriteError::Path(_)), "{err}");
         assert!(!f.dirs.state.exists(), "no lock directory was created");
@@ -1220,6 +1397,7 @@ mod tests {
                         &identity,
                         new_entry(&var("GAGE_CRUD_TEST_TITLE"), "v"),
                         false,
+                        &FakePrompter::new(),
                     )
                     .unwrap();
                 eprintln!("INSERTED");
@@ -1308,6 +1486,7 @@ mod tests {
                 &f.identity(),
                 new_entry("x", "v"),
                 false,
+                &FakePrompter::new(),
             )
             .unwrap_err();
         assert!(
@@ -1328,6 +1507,7 @@ mod tests {
                 &Identity::for_tests(&key),
                 new_entry("waited", "v"),
                 false,
+                &FakePrompter::new(),
             );
             let _ = tx.send(r.is_ok());
         });
@@ -1346,7 +1526,12 @@ mod tests {
         let f = Fixture::new();
         let id = f
             .vault
-            .insert(&f.identity(), new_entry("readable", "v"), false)
+            .insert(
+                &f.identity(),
+                new_entry("readable", "v"),
+                false,
+                &FakePrompter::new(),
+            )
             .unwrap();
         let _holder = Holder::spawn(&f);
 

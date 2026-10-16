@@ -43,7 +43,7 @@ const SHORT_ID_LEN: usize = 8;
 /// What `ls` shows where an entry has no value for a column.
 const MISSING: &str = "-";
 
-fn use_flag() -> Arg {
+pub(super) fn use_flag() -> Arg {
     Arg::new("use")
         .short('u')
         .long("use")
@@ -135,7 +135,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
 
 /// The vault `--use` names, or the current one. An unregistered name (or no
 /// current vault) fails here, before anything is prompted for.
-fn open_vault(matches: &ArgMatches, io: &Io) -> Result<Vault, CliError> {
+pub(super) fn open_vault(matches: &ArgMatches, io: &Io) -> Result<Vault, CliError> {
     let (_, global) = load_global(io)?;
     let given = matches.get_one::<String>("use").map(String::as_str);
     let name = global.name_or_current(given)?;
@@ -148,7 +148,7 @@ fn open_vault(matches: &ArgMatches, io: &Io) -> Result<Vault, CliError> {
 
 /// `--use`, if given: in a session, the vault a command uses without
 /// changing which one is current.
-fn use_name(matches: &ArgMatches) -> Option<&str> {
+pub(super) fn use_name(matches: &ArgMatches) -> Option<&str> {
     matches.get_one::<String>("use").map(String::as_str)
 }
 
@@ -332,6 +332,7 @@ pub fn insert(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
                     ..NewEntry::default()
                 },
                 matches.get_flag("force"),
+                prompter,
             )
             .map_err(write_failure)
     })?;
@@ -353,6 +354,7 @@ fn insert_edit(
     keys: &mut Keys,
     title: &str,
 ) -> Result<(), CliError> {
+    let prompter = keys.prompter();
     let (id, title) = keys.with_vault(matches, io, |io, vault, identity| {
         let now = Timestamp::now();
         let stub = Entry {
@@ -385,6 +387,7 @@ fn insert_edit(
                     extra: e.extra,
                 },
                 matches.get_flag("force"),
+                prompter,
             )
             .map_err(write_failure)?;
         Ok((id, e.title))
@@ -511,11 +514,12 @@ pub fn cat(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cli
 /// `updated`/`updated_by` stamped fresh whatever the file says.
 pub fn edit(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = arg(matches, "query");
+    let prompter = keys.prompter();
     let (id, edited) =
         keys.with_resolved(matches, io, query, |io, vault, identity, id, original| {
             let mut edited = editor::edit_yaml(io.editor.as_deref(), &original)?.entry;
             edited.restamp_after_edit(&original, identity);
-            vault.update(id, &edited).map_err(write_failure)?;
+            vault.update(id, &edited, prompter).map_err(write_failure)?;
             Ok((id, edited))
         })?;
     keys.note(matches, id, &edited);
@@ -534,9 +538,16 @@ pub fn edit(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
 pub fn rename(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = keys.mutation_query(matches, arg(matches, "query"))?;
     let new_title = arg(matches, "new-title");
+    let prompter = keys.prompter();
     let id = keys.with_vault(matches, io, |_, vault, identity| {
         vault
-            .rename(identity, &query, new_title, matches.get_flag("force"))
+            .rename(
+                identity,
+                &query,
+                new_title,
+                matches.get_flag("force"),
+                prompter,
+            )
             .map_err(write_failure)
     })?;
     keys.refresh(matches, id);
@@ -552,8 +563,11 @@ pub fn rename(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
 
 pub fn rm(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = keys.mutation_query(matches, arg(matches, "query"))?;
+    let prompter = keys.prompter();
     let id = keys.with_vault(matches, io, |_, vault, identity| {
-        vault.remove(identity, &query).map_err(write_failure)
+        vault
+            .remove(identity, &query, prompter)
+            .map_err(write_failure)
     })?;
     keys.forget(matches, id);
     out(io, &[format!("gage: removed {id}")]);
@@ -573,6 +587,7 @@ pub fn generate(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<()
         length: matches.get_one::<usize>("length").copied().unwrap_or(0),
         no_symbols: matches.get_flag("no-symbols"),
     })?);
+    let prompter = keys.prompter();
     let id = keys.with_vault(matches, io, |_, vault, identity| {
         vault
             .insert(
@@ -587,6 +602,7 @@ pub fn generate(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<()
                     ..NewEntry::default()
                 },
                 matches.get_flag("force"),
+                prompter,
             )
             .map_err(write_failure)
     })?;

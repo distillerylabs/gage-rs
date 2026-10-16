@@ -272,6 +272,13 @@ what M1 actually does.
 identity, `--recipient` is optional and additive (this device's key first),
 and the help says so. The `--remote` half still waits for P4 · M8a.
 
+*P4 · M8a2:* the `--remote` half is done. `--remote` sets `origin`,
+records it in the registration, and publishes the new vault at once,
+asking for the host's token first if none is stored (#38). A failed
+publish leaves the vault created and registered. Offline is a warning and
+exit 0; anything else fails, saying to create the repository and run
+`gage push`.
+
 ### `[x]` Q-HELP-RENDER — Who renders help and usage errors? {#q-help-render}
 
 **Resolved: clap, with grouping and availability from the registry.** The
@@ -773,6 +780,23 @@ against a loopback HTTP recorder.**
   the `Authorization` header of the retry, and then fails. It can also
   answer 403 or 404 for the classification tests. This observes the token
   on the wire, which is a stronger check than Go's recorder.
+
+### `[x]` Q-SYNC-PUSHED — Does a push with nothing to send report a push? {#q-sync-pushed}
+
+**Resolved in P4 · M8a2: no. A deliberate deviation from Go, fixing Go's
+known bug F2.** Go's `RemoteSyncer.Push` returns only an error and
+discards `gitrepo.Push`'s "was anything sent", so `gage sync` on a vault
+already in sync says it pushed. Go pins the bug in
+`TestSyncReportsAPushEvenWhenNothingWasSent`, written to go red once it
+is fixed.
+
+gage-rs's `RemoteSyncer::push` returns `Result<bool, _>`, and
+`SyncReport::pushed` is what it returned. So an in-sync `sync`, `push`
+or `pull` says the vault "is already in sync with origin". The Go row is
+ported with its assertion flipped
+(`sync_reports_no_push_when_nothing_was_sent`), and
+`TestSyncLineSaysAlreadyInSyncWhenThereWasNothingToDo` runs end to end,
+as Go's comment asks once F2 is fixed.
 
 ### `[x]` Q-CONFLICT-PROMPTER — How does a frontend opt in to resolving conflicts? {#q-conflict-prompter}
 

@@ -89,8 +89,9 @@ and left alone. M8b resolves it.
 
 ## Decisions to make first
 
-These are the recommended answers. Confirm them when this plan is
-reviewed.
+These were the recommended answers, confirmed when the P4 plan was
+reviewed. Implementation settled the points the plan left open; they
+follow under "Resolved in M8a2".
 
 - **Where pull on unlock hooks in.** Inside `Vault::unlock`, as in Go,
   with no change to its signature. That is the one point both
@@ -154,32 +155,86 @@ reviewed.
   found" from the auth bucket at init time says to create the
   repository.
 
+### Resolved in M8a2
+
+Points the plan left open, settled before the code that depends on them:
+
+- **How a write reaches a human.** Go's writes warn through the
+  prompter the identity was unlocked with (`id.warnTo()`). A Rust
+  `Identity` holds no prompter, and `Vault::update` takes no identity.
+  Each write method (`insert`, `remove`, `update`, `rename`) gains a
+  trailing `prompter: &dyn Prompter`, the same advisory channel `unlock`
+  already takes. A future GUI passes the same prompter it unlocked with.
+  The P2 and P3 call sites gain that argument and nothing else (task 8).
+- **`RemoteSyncer`'s error type** is `gitrepo::Error`. Its `Sync`
+  variant carries `syncerr`'s buckets, so a fake builds an unreachable
+  failure as `gitrepo::Error::Sync(syncerr::Error::new(..))` without
+  touching git2. The git-backed implementation passes through `gitrepo`'s
+  own errors (`RemoteAuth`, and `Git` for a failure in no bucket).
+- **`SyncError` carries the report.** Go returns a report next to an
+  error, and both `gage push` and `gage sync` print a report's conflicts
+  on failure. `SyncError { report, cause }`, where `cause` is one of:
+  - `Remote`: fetch or push failed
+  - `Conflict`: a real conflict, rendered as the report's summary
+  - `Local`: compare, fast-forward, merge or count failed. A dirty tree
+    is the expected case, and is `Conflict` (1).
+  - `Lock`: the write lock
+
+  `SyncError::remote_kind()` answers Go's `errors.Is(err,
+  syncerr.ErrDiverged)`: a `Conflict` cause is `Diverged` too.
+- **No lock file for a vault with no remote.** Pull on unlock checks for
+  a remote before it tries the lock. Without the check, every unlock of
+  a local-only vault would create `$GAGE_STATE/locks/<id>.lock`, and a
+  registration with an invalid id would warn on unlock before failing.
+  `pull` re-checks under the lock, so the early check only avoids work.
+- **The vault-name checks live in the library**, as `vault::name_from_url`
+  and `vault::check_name`. Go keeps them in `cmd/gage`. A cloned vault's
+  name can be inferred from the URL, so it is attacker-influenced input
+  on its way to becoming a directory. Like `devicename`, the check is a
+  security boundary, and a GUI's clone needs it as much as the CLI's.
+- **`TestPluralEntries` moves to M8b.** Its only caller is `sync`'s
+  "resolved N entries" line, which M8b's resolution produces. Porting it
+  here would mean shipping an unused function.
+- **At `init`, a local remote path that doesn't exist is a missing
+  repository, not an outage.** Q-SYNC-CLASSIFY classifies a missing local
+  path as unreachable, since for a sync it is most likely an unmounted
+  drive. At `init` that would turn Go's
+  `TestInitAgainstAMissingRepositorySaysToCreateIt` into "could not reach
+  it, will publish later", exit 0. gage never creates a repository, so at
+  init time a path that isn't there is one nobody has made yet. `init`
+  reports it as Go does, with "create an empty one there, then run
+  `gage push`" and `LockedOrAuth` (Go's bucket for it). Every other
+  unreachable remote at init warns and exits 0, as in Go.
+- **`clone`'s access message points at `gage identity add` and
+  `gage recipient add`** (both P5). Go's other lines (`identity enroll`,
+  `recovery enroll`) arrive with those commands in P7 and P8.
+
 ## Tasks
 
 Write each task's tests first, at task granularity.
 
 ### 1. `RemoteSyncer`, `SyncReport` and the fake — 2 rows
 
-- [ ] The `RemoteSyncer` trait, its git-backed implementation, and the
+- [x] The `RemoteSyncer` trait, its git-backed implementation, and the
       injection point.
-- [ ] `SyncReport`, with `ahead`, `pulled`, `pushed`, `merged`,
+- [x] `SyncReport`, with `ahead`, `pulled`, `pushed`, `merged`,
       `diverged`, `conflicts` and `conflict_kind`, and its summary
       text. Port Go's wording: "origin has diverged — N local commits
       pending, run `gage sync`".
-- [ ] Rows:
+- [x] Rows:
   - `TestTheInjectedOfflineErrorIsWhatVaultTreatsAsUnreachable`
   - `TestDivergenceIsReportedDifferentlyFromBeingOffline`
 
 ### 2. Pull on unlock — 5 + 3 rows
 
-- [ ] `vaultlock::Lock::try_acquire`, with a test in a child process
+- [x] `vaultlock::Lock::try_acquire`, with a test in a child process
       showing that a held lock answers "busy" without waiting.
-- [ ] `Vault::unlock` runs the automatic pull. It warns once and carries
+- [x] `Vault::unlock` runs the automatic pull. It warns once and carries
       on when the remote is unreachable, or on any other failure, and
       warns on divergence. A vault with no remote does nothing.
-- [ ] The pull observer, and `Session`'s index invalidation. `use` on a
+- [x] The pull observer, and `Session`'s index invalidation. `use` on a
       vault that is already unlocked pulls.
-- [ ] `remotesync` rows:
+- [x] `remotesync` rows:
   - `TestUnlockFastForwardsFromTheRemote`
   - `TestUnlockPullsWithoutASessionCoversTheOneShotPath`
   - `TestUnlockWarnsOnceAndProceedsWhenTheRemoteIsUnreachable`
@@ -187,26 +242,26 @@ Write each task's tests first, at task granularity.
   - `TestUnlockDoesNotQueueBehindAConcurrentWrite`: a child process
     holds the lock, and the unlock must finish well within
     `WRITE_LOCK_TIMEOUT`.
-- [ ] `sync_index` rows:
+- [x] `sync_index` rows:
   - `TestUseFetchesAndFastForwards`
   - `TestPullDuringASessionInvalidatesTheIndex`
   - `TestPullThatBringsNothingLeavesTheIndexAlone`
 
 ### 3. Push on write — 3 rows
 
-- [ ] Every write in `entry/crud.rs` (insert, update, remove, rename)
+- [x] Every write in `entry/crud.rs` (insert, update, remove, rename)
       pushes inside its own lock, after the commit. If the push fails,
       it warns and the write still succeeds. Rows:
   - `TestWritePushesToTheRemote`
   - `TestOfflinePushKeepsTheCommitAndRetriesLater`
   - `TestWriteDoesNotDeadlockOnItsOwnPush`
-- [ ] Beyond Go's rows: every write command pushes, checked through a
+- [x] Beyond Go's rows: every write command pushes, checked through a
       table over insert, edit, rename, rm and generate. Go names only
       one.
 
 ### 4. `pull`, `push` and `sync` in the library — 8 rows
 
-- [ ] `Vault::pull`, `Vault::push` and `Vault::sync`, each under the
+- [x] `Vault::pull`, `Vault::push` and `Vault::sync`, each under the
       waited lock:
   - **pull:** fetch, then fast-forward only. A divergence is reported,
     never merged.
@@ -215,7 +270,7 @@ Write each task's tests first, at task granularity.
   - **sync:** fetch, then fast-forward or merge, then push.
 
   A dirty working tree maps to Conflict.
-- [ ] Rows:
+- [x] Rows:
   - `TestDisjointDivergenceMergesAndPushes`
   - `TestConflictingDivergenceIsDetectedAndLeftAlone`
   - `TestRecipientFileDivergenceConflictsRatherThanUnioning`: the
@@ -230,18 +285,18 @@ Write each task's tests first, at task granularity.
   - `TestSyncReportsADirtyWorkTreeAsAConflictNotAnInternalError`
   - `TestAPendingMergeStillReportsWhatIsPending`: a merge whose push then
     fails reports 2, not 0.
-- [ ] Beyond Go's rows: a merge sets the pull observer, and a fast-forward
+- [x] Beyond Go's rows: a merge sets the pull observer, and a fast-forward
       inside `sync` sets it too.
 
-### 5. `gage pull`, `push` and `sync` — 14 rows
+### 5. `gage pull`, `push` and `sync` — 13 rows (1 moved to M8b)
 
-- [ ] Register `sync`, `pull` and `push`, each with `-u/--use`, in the
+- [x] Register `sync`, `pull` and `push`, each with `-u/--use`, in the
       sync group and available in both modes. Descriptions come from the
       fixtures. Each resolves its vault without unlocking it.
-- [ ] Exit codes: diverged is `Conflict` (1), offline is `Unreachable` (7),
+- [x] Exit codes: diverged is `Conflict` (1), offline is `Unreachable` (7),
       auth is `LockedOrAuth` (5) with the auth hint, and a dirty tree is
       `Conflict`.
-- [ ] Rows:
+- [x] Rows:
   - `TestPushPublishesAndPullCatchesUp`
   - `TestOneShotCommandPullsOnItsImplicitUnlock`
   - `TestWriteReachesTheRemoteWithoutAnyoneAskingIt`
@@ -255,24 +310,24 @@ Write each task's tests first, at task granularity.
   - `TestSyncLineSaysAlreadyInSyncWhenThereWasNothingToDo`
   - `TestSyncReportsAPushEvenWhenNothingWasSent`: ported with the
     assertion flipped, per the F2 decision (Q-SYNC-PUSHED).
-  - `TestPluralEntries`
+  - ~~`TestPluralEntries`~~: moved to M8b (see "Resolved in M8a2").
   - `TestReportConflictsSaysRecipientFilesAreNeverMerged`
-- [ ] `p4_sync_commands_have_their_go_fixture_flags_and_descriptions`.
+- [x] `p4_sync_commands_have_their_go_fixture_flags_and_descriptions`.
       Add the sync verbs and the push warnings to the `errorprefix`
       table. That closes ledger row `ddce8b1`'s `[~]`.
 
 ### 6. `gage clone` — 13 rows
 
-- [ ] `vault_name_from_url` infers a name from every URL spelling, and
+- [x] `vault_name_from_url` infers a name from every URL spelling, and
       `check_vault_name` validates it. An inferred name always goes
       through the check.
-- [ ] `clone` with `--name`, `--dir` and `--device`:
+- [x] `clone` with `--name`, `--dir` and `--device`:
   1. clone through `gitrepo::clone`
   2. read and check `.gage/config.toml` (format version, vault id)
   3. register the vault
   4. report "not a recipient yet, run `gage identity add`" when this
      device can't decrypt anything
-- [ ] Rows:
+- [x] Rows:
   - `TestCloneProducesARegisteredWorkingVault`
   - `TestCloneInfersTheNameFromTheURLAndNameOverridesIt`
   - `TestCloneWithoutDirLandsUnderGageData`
@@ -286,17 +341,17 @@ Write each task's tests first, at task granularity.
   - `TestVaultNameFromURLHandlesEverySpelling`
   - `TestCheckVaultNameRefusesAnythingThatIsNotOnePathComponent`
   - `TestInferredNamesStillGoThroughCheckVaultName`
-- [ ] Beyond Go's rows: a clone that is refused leaves no registration
+- [x] Beyond Go's rows: a clone that is refused leaves no registration
       and no half-made vault directory.
 
 ### 7. `init --remote` — 2 + 4 rows
 
-- [ ] Add `--remote` to `init`, with the fixture's help text. It sets
+- [x] Add `--remote` to `init`, with the fixture's help text. It sets
       `origin` through `CreateSpec.remote` and publishes with an
       immediate push. Rows:
   - `TestInitPublishesTheNewVault`
   - `TestInitAgainstAMissingRepositorySaysToCreateIt`
-- [ ] Inline token. The token is requested before the push, only when
+- [x] Inline token. The token is requested before the push, only when
       `token_host` names a host and no token is stored for it. The
       prompt is `Prompter::value`, the same prompt as `auth login`. A
       blank answer stores nothing and the push goes ahead anonymously.
@@ -306,23 +361,71 @@ Write each task's tests first, at task granularity.
   - `TestInitSkipsTheTokenWhenTheAnswerIsBlank`
   - `TestInitDoesNotPromptWhenATokenAlreadyExists`
   - `TestInitDoesNotPromptForALocalRemote`
-- [ ] Close the `--remote` half of Q-INIT-INTERIM, and ledger §2
+- [x] Close the `--remote` half of Q-INIT-INTERIM, and ledger §2
       `386c57e`.
 
 ### 8. Review, unmodified earlier tests, ledger
 
-- [ ] Review again, on a fresh read, with a mutation check on each:
+- [x] Review again, on a fresh read, with a mutation check on each:
   - try-lock on unlock
   - the push inside the write lock
   - the waited lock on manual sync
   - the observer that invalidates the index
-- [ ] P2 and P3 tests pass with no assertion changed. Every vault they
+- [x] P2 and P3 tests pass with no assertion changed. Every vault they
       use has no remote, so neither sync path runs. List any setup edit
       here with its reason.
-- [ ] Parity ledger:
+- [x] Parity ledger:
   - §2 `386c57e` and `ddce8b1`
   - §4 `clone`, `sync`, `pull`, `push`
-- [ ] P4 index status column.
+- [x] P4 index status column.
+
+### Review record (task 8)
+
+**Where the tests live.** Library rows are in `remotesync_tests.rs` (18
+rows, plus the extra cases) and `sync_index_tests.rs` (3 rows, plus two).
+`vault.rs` holds the four name rows. The CLI rows are in
+`gage-cli/src/sync_tests.rs`. Each test names its Go row.
+
+**Mutation check.** Each property below was broken on purpose, and at
+least one test went red each time:
+
+| Property | Mutation | Red |
+|---|---|---|
+| Try-lock on unlock | `try_pull` waits on the lock with `WRITE_LOCK_TIMEOUT` | `unlock_does_not_queue_behind_a_concurrent_write` |
+| Push inside the write's lock | `push_after_write` calls the locked `push()` | `write_does_not_deadlock_on_its_own_push` |
+| Waited lock on manual sync | `under_write_lock` runs without the lock | `sync_takes_the_write_lock` |
+| Observer, raising side | a fast-forward doesn't raise the flag | `a_merge_and_a_fast_forward_inside_sync_raise_the_observer`, `pull_during_a_session_invalidates_the_index`, `a_sync_verb_needs_no_unlock_and_still_invalidates_the_index` |
+| Observer, reading side | `settle` lowers the flag without discarding | `pull_during_a_session_invalidates_the_index`, `a_merge_inside_a_sessions_write_invalidates_the_index`, `a_sync_verb_needs_no_unlock_and_still_invalidates_the_index` |
+
+**Found during review.** The CLI `Env` runs commands with a
+`FakePrompter`, which records warnings rather than printing them. A
+"no sync friction on stderr" assertion therefore passed vacuously. The
+CLI tests check `FakePrompter::warnings()` instead, and
+`offline_warnings_reach_the_terminal` drives the real `TerminalPrompter`
+to prove the warnings reach stderr.
+
+**Earlier tests.** No P2 or P3 test changed an assertion, except one P1
+help test:
+
+- `init_help_describes_this_milestone` pinned "no `--remote` yet". Its
+  absence list loses `--remote`, which joins the present list, because
+  this milestone adds the flag.
+
+Setup edits, with no assertion changed:
+
+- Every call to `insert`, `remove`, `update` and `rename` in the P2 and
+  P3 tests gains the new `prompter` argument (`&FakePrompter::new()`).
+  This affects `entry/crud.rs`, `index_tests.rs`, `session_tests.rs`,
+  `search.rs` and `gage-cli/src/query_tests.rs`.
+- `vault.rs`'s two struct-literal comparisons gain the new `syncer` and
+  `pulled` fields.
+
+Those vaults have no remote, so neither sync path runs.
+
+**Order of work.** `remotesync.rs`'s library code went in as one module
+before its tests went green. The tests-first convention was kept at the
+CLI tasks and the name functions. The mutation check above is what
+stands in for the library tasks' red-first step.
 
 ## Definition of done
 
