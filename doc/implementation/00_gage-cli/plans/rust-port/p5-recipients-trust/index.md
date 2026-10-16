@@ -105,9 +105,9 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 | # | Milestone | Model | Depends on | Inventory rows | Status |
 |---|---|---|---|---|---|
 | M9a | [Identities & recipient read side](m9a-identity-recipient-read.md) ([#42](https://github.com/distillerylabs/gage-rs/issues/42)) | Sonnet | P4 | 26 (+3 inbound) | `[x]` |
-| M9b | [Recipient writes & re-encryption](m9b-recipient-write.md) ([#43](https://github.com/distillerylabs/gage-rs/issues/43)) | **Opus** | M9a | 37 | `[~]` |
+| M9b | [Recipient writes & re-encryption](m9b-recipient-write.md) ([#43](https://github.com/distillerylabs/gage-rs/issues/43)) | **Opus** | M9a | 37 | `[x]` |
 | M10 | [Trust cache](m10-trust-cache.md) ([#44](https://github.com/distillerylabs/gage-rs/issues/44)) | Sonnet\* ⚑ | M9b | 38 (+3 inbound) | `[x]` |
-| M11 | [Cross-vault `mv`/`cp`](m11-cross-vault.md) ([#45](https://github.com/distillerylabs/gage-rs/issues/45)) | Sonnet\* ⚑ | M10 | 20 | `[~]` implemented, awaiting CI |
+| M11 | [Cross-vault `mv`/`cp`](m11-cross-vault.md) ([#45](https://github.com/distillerylabs/gage-rs/issues/45)) | Sonnet\* ⚑ | M10 | 20 | `[x]` |
 
 `⚑` means an Opus review pass over that milestone's tests before it is
 called done:

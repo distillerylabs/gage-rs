@@ -292,8 +292,9 @@ Notes from the review, none of which needs a change:
   - §3 M9/M10/M11: `[x]`
   - §4 the P5 row
   - §6 `identities-and-recipients.md`, `sharing.md`
-- [ ] Mark M11 and P5 `[x]` in the [P5 index](index.md) and the
-      [port plan](../index.md) after CI. Tick P5 on the roadmap issue.
+- [x] Mark M11 and P5 `[x]` in the [P5 index](index.md) and the
+      [port plan](../index.md) after CI (green on Linux, macOS and Windows
+      at `6ce4d07` and `c3717b7`, [#50](https://github.com/distillerylabs/gage-rs/pull/50)). Tick P5 on the roadmap issue.
 
 ## Definition of done
 

@@ -467,7 +467,8 @@ all, parse the list, write the entries, write `.age-recipients`, write
   - §3 M9: M9b recorded as implemented. It becomes `[x]` after CI.
   - §4 `recipient_add`, `recipient_remove`: matched by the parity test,
     awaiting CI
-- [ ] Mark M9b `[x]` in the [P5 index](index.md) after CI.
+- [x] Mark M9b `[x]` in the [P5 index](index.md) after CI (green on
+      Linux, macOS and Windows at `8f00cbb`, [#48](https://github.com/distillerylabs/gage-rs/pull/48)).
 
 ## Definition of done
 
