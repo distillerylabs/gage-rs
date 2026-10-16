@@ -19,6 +19,7 @@ use super::{Entry, Error, Extra, Timestamp, new_id};
 use crate::exitcode::{Code, HasCode};
 use crate::identity::Identity;
 use crate::prompter::Prompter;
+use crate::trustcache::TrustError;
 use crate::vault::Vault;
 use crate::{gitrepo, paths, vaultlock};
 
@@ -122,6 +123,10 @@ pub enum WriteError {
     Lock(#[from] vaultlock::Error),
     #[error(transparent)]
     Git(#[from] gitrepo::Error),
+    /// The trust cache's blocking check refused, or couldn't run: a
+    /// recipient list this device never reviewed (M10).
+    #[error(transparent)]
+    Trust(#[from] TrustError),
     #[error("gage: {action} {path}: {source}")]
     Io {
         action: &'static str,
@@ -139,6 +144,7 @@ impl HasCode for WriteError {
             WriteError::Path(e) => e.code(),
             WriteError::Lock(e) => e.code(),
             WriteError::Git(e) => e.code(),
+            WriteError::Trust(e) => e.code(),
             WriteError::Io { .. } => Code::Internal,
         }
     }
@@ -283,7 +289,7 @@ impl Vault {
         force: bool,
         prompter: &dyn Prompter,
     ) -> Result<Uuid, WriteError> {
-        self.with_vault_write(timeout, prompter, || {
+        self.with_encrypting_write(timeout, prompter, || {
             if !force
                 && let Some((id, _)) = self
                     .titles(identity)?
@@ -359,7 +365,7 @@ impl Vault {
     /// the vault's recipients, not to the writer. Go's other use for the
     /// identity, reporting the automatic push, is `prompter` here.
     pub fn update(&self, id: Uuid, e: &Entry, prompter: &dyn Prompter) -> Result<(), WriteError> {
-        self.with_vault_write(WRITE_LOCK_TIMEOUT, prompter, || {
+        self.with_encrypting_write(WRITE_LOCK_TIMEOUT, prompter, || {
             self.write_entry(id, e)?;
             gitrepo::commit_all(&self.path, &id.to_string())?;
             self.push_after_write(prompter);
@@ -381,7 +387,7 @@ impl Vault {
         force: bool,
         prompter: &dyn Prompter,
     ) -> Result<Uuid, WriteError> {
-        self.with_vault_write(WRITE_LOCK_TIMEOUT, prompter, || {
+        self.with_encrypting_write(WRITE_LOCK_TIMEOUT, prompter, || {
             let titles = self.titles(identity)?;
             let id = resolve_query(query, &titles)?;
             if !force
@@ -443,6 +449,35 @@ impl Vault {
     ) -> Result<T, E> {
         self.with_write_lock(timeout, || {
             self.reset_dirty_work_tree(prompter)?;
+            f()
+        })
+    }
+
+    /// [`Vault::with_vault_write`] for the writes that produce ciphertext:
+    /// the same lock and reset, plus M10's blocking trust-cache check
+    /// before `f` writes anything (Go's `withEncryptingWrite`).
+    ///
+    /// Here rather than in each verb, so "nothing is encrypted to a list
+    /// this device never reviewed" is structural, as the reset is. The
+    /// order is the point: the question runs under the lock and before the
+    /// first byte, so a no leaves nothing to undo, and the cache exactly
+    /// where it was.
+    ///
+    /// `remove` doesn't go through it: deleting an entry encrypts nothing,
+    /// and asking anyway would make the question a tax on every write
+    /// rather than a question about the one thing it asks about. M11's
+    /// `mv`/`cp` run the check against the destination.
+    pub(crate) fn with_encrypting_write<
+        T,
+        E: From<LockError> + From<gitrepo::Error> + From<TrustError>,
+    >(
+        &self,
+        timeout: Duration,
+        prompter: &dyn Prompter,
+        f: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        self.with_vault_write(timeout, prompter, || {
+            self.confirm_recipient_trust(prompter)?;
             f()
         })
     }

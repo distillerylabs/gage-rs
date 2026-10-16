@@ -7,7 +7,9 @@
 
 use clap::{Arg, ArgAction, ArgMatches};
 use gage::exitcode::Code;
+use gage::prompter::Prompter;
 use gage::recipient::RecipientChange;
+use gage::vault::Vault;
 
 use super::entry::use_flag;
 use super::sync::with_resolved_vault;
@@ -22,6 +24,16 @@ can read the vault's whole history — there is no way to add a recipient who
 can read only part of it. All of it lands in a single commit or none of it
 does. Adding a recipient therefore requires being able to read every entry
 yourself; run it from a device that can.";
+
+pub const VERIFY_LONG_ABOUT: &str = "Check .age-recipients and config.toml still agree.
+
+--repair rewrites .age-recipients from .gage/config.toml's list and commits it,
+after naming every key it drops and every key it adds. It is the exit from the
+divergence `recipient add`/`remove` refuse to run over. It does not clear the
+trust cache — repairing the split between the two files says nothing about
+whether the recipient list itself is one you approve, so the next write still
+shows you the change — and it takes no --reencrypt, since rewriting a plaintext
+key list says nothing about whether existing ciphertext should be rewritten.";
 
 pub const REMOVE_LONG_ABOUT: &str = "Revoke a recipient and re-encrypt the vault without its key.
 
@@ -51,6 +63,13 @@ pub fn flags(name: &str) -> Vec<Arg> {
                 .long("reencrypt")
                 .action(ArgAction::SetTrue)
                 .help("re-encrypt every entry to the reduced recipient list (required)"),
+            use_flag(),
+        ],
+        "recipient verify" => vec![
+            Arg::new("repair")
+                .long("repair")
+                .action(ArgAction::SetTrue)
+                .help("rewrite .age-recipients from .gage/config.toml and commit it, after confirming what that drops"),
             use_flag(),
         ],
         _ => vec![use_flag()],
@@ -136,7 +155,11 @@ pub fn list(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
 /// Exit 0 and "in sync" when `.age-recipients` and `config.toml` list the
 /// same keys; exit 1 (Conflict) with each difference named otherwise.
 pub fn verify(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    let prompter = keys.prompter();
     with_resolved_vault(matches, io, keys, |io, vault| {
+        if matches.get_flag("repair") {
+            return repair(io, vault, prompter);
+        }
         let verdict = vault.verify_recipients()?;
         if verdict.in_sync {
             out(
@@ -170,4 +193,42 @@ pub fn verify(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
             "recipient files disagree: .age-recipients and .gage/config.toml list different keys",
         ))
     })
+}
+
+/// `recipient verify --repair`: the exit the refusal in `add`/`remove`
+/// ships with. Like `verify`, it never unlocks: the files it rewrites are
+/// plaintext.
+///
+/// It says what it dropped rather than only that it succeeded: the keys it
+/// removes could read everything written while they were listed, so
+/// "repaired" alone would be the least useful true thing to print.
+fn repair(io: &mut Io, vault: &Vault, prompter: &dyn Prompter) -> Result<(), CliError> {
+    let repair = vault.repair_recipients(prompter)?;
+    let Some(commit) = repair.commit else {
+        out(
+            io,
+            &[format!(
+                "gage: {:?}'s recipient files are already in sync; nothing to repair",
+                vault.name
+            )],
+        );
+        return Ok(());
+    };
+    let lines: Vec<String> = repair
+        .dropped
+        .iter()
+        .map(|k| format!("gage: dropped {k} from .age-recipients"))
+        .chain(
+            repair
+                .added
+                .iter()
+                .map(|k| format!("gage: added {k} to .age-recipients")),
+        )
+        .chain(std::iter::once(format!(
+            "gage: rewrote .age-recipients from .gage/config.toml; committed locally as {}",
+            short_hash(&commit)
+        )))
+        .collect();
+    out(io, &lines);
+    Ok(())
 }

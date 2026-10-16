@@ -210,7 +210,9 @@ pub(crate) fn hide_one_entry(f: &Fixture) -> Uuid {
             pubkey: new_key().to_public().to_string(),
         }],
     );
-    // force, so the duplicate-title check doesn't decrypt anything.
+    // force, so the duplicate-title check doesn't decrypt anything. The
+    // list just changed under this device, so the insert asks, and is
+    // told yes, as Go's trust prompter answers.
     let hidden = f
         .vault
         .insert(
@@ -221,7 +223,7 @@ pub(crate) fn hide_one_entry(f: &Fixture) -> Uuid {
                 ..NewEntry::default()
             },
             true,
-            &FakePrompter::new(),
+            &FakePrompter::new().with_recipient_answers(&[true]),
         )
         .unwrap();
     commit_recipient_files(&f.vault, &original);

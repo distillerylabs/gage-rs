@@ -135,10 +135,11 @@ to `.age-recipients`.
     destination. `rm` encrypts nothing and doesn't use it.
   - **Opportunistic:** in `Vault::unlock` after `sync_on_unlock` and only
     once the unlock has succeeded (a wrong passphrase must not bootstrap
-    the cache), and in `Vault::sync` after a successful sync.
-  - Confirm the session path: `Session::use_vault` re-runs
-    `sync_on_unlock` for a held vault. Decide whether it warns there too,
-    as Go's unlock hook does on every unlock.
+    the cache), and in `sync_resolving` once its pull has succeeded (see
+    "Resolved at the start of implementation": not `Vault::sync`).
+  - The session path: `Session::use_vault` re-runs `sync_on_unlock` for
+    a held vault but does not warn, as Go's `Session.Use` doesn't
+    (resolved below).
 - **The order inside add/remove** is:
   1. `with_vault_write`
   2. `require_recipients_in_sync` (nobody is asked to approve an
@@ -160,15 +161,61 @@ to `.age-recipients`.
   - A half-written pair reads as "no record", so it is bootstrapped again.
   - The mismatch-seen record follows Go's `noteRecipientMismatchSeen`.
 
+### Resolved at the start of implementation
+
+Reading Go's code at the pin settled the points above and turned up five
+the plan left open or got wrong. Each is recorded in
+[Q-RECIPIENT-PROMPT](../open-questions.md#q-recipient-prompt) or
+[Q-TRUST-CACHE-PATH](../open-questions.md#q-trust-cache-path).
+
+- **The sync hook is in `sync_resolving`, after the pull, not in
+  `Vault::sync`.** The plan put it in `Vault::sync`. Go's code puts it in
+  `SyncResolving`, between the pull and the push, and leaves `Vault.Sync`
+  alone because it takes no prompter. The same holds here: `Vault::sync`
+  takes none, and `gage sync` goes through `sync_resolving` in both modes.
+  The warning runs once the pull has succeeded, whatever the push does
+  next: the list worth warning about is the one that just landed.
+- **Re-selecting a held vault in a session does not warn.** Go's
+  `Session.Use` re-runs `syncOnUnlock` for a held vault but not
+  `warnRecipientTrust`. The unlock already warned, and a change that a
+  re-`use` pulls in is still caught by the blocking check before the next
+  encrypt. gage-rs ports Go's behavior.
+- **`TerminalPrompter::confirm_recipient_change` refuses when it isn't
+  interactive**, before drawing anything or reading a line, exactly as
+  its `resolve_conflict` does. Go's renders and reads a line regardless.
+  On piped input that line belongs to someone else: `printf 'pass\nvalue'
+  | gage insert x --value-stdin` would spend the value as the answer.
+  Refusing keeps the outcome Go's bare-Enter default gives (no write,
+  exit Conflict) without consuming input. `--yes` is how a script says
+  yes. Recorded as a deliberate deviation in Q-RECIPIENT-PROMPT.
+- **`--yes` with no script mode.** Go lets `--yes` through in a
+  `--script`/`--stdin` session, since CI is the case the flag exists for.
+  gage-rs has no script mode yet: every session is a terminal session,
+  so both refusals apply unconditionally. Whoever ports script mode adds
+  Go's exception with it.
+- **Errors.** A new `trustcache` module owns `TrustError`:
+  - `ChangeDeclined { vault }`: the answer was no.
+  - `Unconfirmable { vault, source: PromptError }`: nobody could answer,
+    including the trait default's `NotInteractive`. This is the port of
+    Go's nil-prompter `ErrRecipientChangeDeclined`.
+  - `OutOfSync { vault, verification }`: add/remove refused, naming
+    every difference and pointing at `--repair`.
+  - plus the I/O, TOML, config and verify failures.
+
+  All three refusals exit Conflict, as Go's do. `WriteError` and
+  `RecipientError` each gain a `Trust(TrustError)` variant. Repair
+  returns `RecipientError` with a new `RepairDeclined { vault }` variant
+  (Conflict).
+
 ## Tasks
 
 Write each task's tests first, at task granularity.
 
 ### 1. Cache storage, the warning value and the diff — 6 rows
 
-- [ ] Load and store under `trust_cache_dir`. `RecipientChangeWarning`
+- [x] Load and store under `trust_cache_dir`. `RecipientChangeWarning`
       and the diff.
-- [ ] Rows:
+- [x] Rows:
   - `TestTrustCacheStoresBothHalves`
   - `TestTrustCacheLivesUnderStateAndIsNeverCommitted`: `git status` is
     clean after a regeneration.
@@ -179,9 +226,9 @@ Write each task's tests first, at task granularity.
 
 ### 2. The blocking check — 7 rows
 
-- [ ] `confirm_recipient_change` on `Prompter`, `with_encrypting_write`,
+- [x] `confirm_recipient_change` on `Prompter`, `with_encrypting_write`,
       and the two-outcome rule.
-- [ ] Rows:
+- [x] Rows:
   - `TestBlockingCheckHooksEveryEncryptingVaultMethod`: `insert`,
     `update`, `generate` and `rename`, with no `Session` involved.
   - `TestRecipientsFileEditAloneStillWarns`
@@ -195,14 +242,15 @@ Write each task's tests first, at task granularity.
 
 ### 3. The opportunistic checks — 2 rows
 
-- [ ] Hook `Vault::unlock` (success only) and `Vault::sync`.
-- [ ] Rows:
+- [x] Hook `Vault::unlock` (success only) and `sync_resolving` (after
+      its pull).
+- [x] Rows:
   - `TestUnlockWarnsOpportunisticallyWithoutBlocking`
   - `TestSyncWarnsOnACleanFastForward`: no unlock happens.
 
 ### 4. Recipient verbs: refusal, trust and regeneration — 5 rows
 
-- [ ] Rows:
+- [x] Rows:
   - `TestRecipientAddAndRemoveRefuseOverAFailingVerify`: both verbs, with
     both files byte-identical afterwards, nothing committed or pushed,
     and the cache unchanged.
@@ -215,11 +263,11 @@ Write each task's tests first, at task granularity.
 
 ### 5. `verify --repair` — 5 library rows + 2 CLI rows
 
-- [ ] `Vault::repair_recipients(&self, prompter) -> Result<RecipientRepair, _>`:
+- [x] `Vault::repair_recipients(&self, prompter) -> Result<RecipientRepair, _>`:
       under `with_vault_write`, behind `confirm` (naming every key
       dropped and added), committed as `gage: recipient repair`, with no
       cache regeneration.
-- [ ] Rows:
+- [x] Rows:
   - `TestRepairRewritesTheRecipientsFileFromConfig`
   - `TestRepairDeclinedWritesNothing`
   - `TestRepairWithNoPrompterRefuses`
@@ -232,11 +280,11 @@ Write each task's tests first, at task granularity.
 
 ### 6. CLI: `--yes`, rendering, `vault remove` — 11 rows, 3 inbound, 2 P4 follow-ups
 
-- [ ] Root `--yes`, the wrapper prompter, and both session refusals.
+- [x] Root `--yes`, the wrapper prompter, and both session refusals.
       `TerminalPrompter::confirm_recipient_change` renders the diff and
       `[y/N]` on stderr.
-- [ ] `vault remove` deletes `trust_cache_dir`.
-- [ ] `trustcache_cli` rows:
+- [x] `vault remove` deletes `trust_cache_dir`.
+- [x] `trustcache_cli` rows:
   - `TestInsertBlocksOnAnUnreviewedRecipientChange`
   - `TestReadsWarnOpportunisticallyInOneShotMode`: `ls` and `show` warn
     on stderr, stdout carries only the entry, and nothing blocks, asks
@@ -251,14 +299,14 @@ Write each task's tests first, at task granularity.
   - `TestYesDoesNotAnswerTheSelfRemovalConfirmation`
   - `TestYesDoesNotRegenerateTheCacheOnAMismatch`
   - `TestYesIsRefusedInASession`: on a line and on the way in.
-- [ ] Inbound:
+- [x] Inbound:
   - `prompter` `TestConfirmRecipientChangeNamesBothDirectionsOfAMismatch`
     (from P2)
   - `prompter` `TestRecipientChangeCountSummarizesEveryShape` (from P2)
   - `vaultid_keying` `TestTwoVaultsUnderOneLocalNameShareNeitherDirectory`
     (from P1): neither the identities nor the trust cache are shared
     between two vaults registered under one local name.
-- [ ] P4 follow-ups:
+- [x] P4 follow-ups:
   - `yes_does_not_resolve_conflicts` (M8b): with `--yes` now a real root
     flag, it must still not resolve a conflict. Update the test's
     premise, not just its parse, and record that in M8b's doc.
@@ -266,12 +314,12 @@ Write each task's tests first, at task granularity.
     at what Go's `sync` does with a recipient-file conflict once M10 is
     in (`syncresolve.go`), and port that. If Go still refuses, keep the
     refusal and make the summary name what to do next, citing Go.
-- [ ] Extend the P5 fixture-parity test: `recipient verify --repair`, and
+- [x] Extend the P5 fixture-parity test: `recipient verify --repair`, and
       `--yes` on the root.
 
 ### 7. Opus review and ledger
 
-- [ ] **Opus review (⚑)** of the tests in task 4, the session refusals in
+- [x] **Opus review (⚑)** of the tests in task 4, the session refusals in
       task 6, and `TestReencryptRefusalHappensBeforeAnyEntryIsRewritten`.
       For each one, name the mutation it kills, as M8b did:
   - the regeneration moved before the confirmation
@@ -280,7 +328,31 @@ Write each task's tests first, at task granularity.
   - the cache written on a failed unlock
 
   Record the table here.
-- [ ] Parity ledger:
+
+  Each mutation was applied to the source, the suites run, and the file
+  restored. Every one fails at least the test named:
+
+  | Mutation | Killed by |
+  |---|---|
+  | The regeneration moved before the confirmation | `declining_the_recipient_change_aborts_the_write`, `recipient_add_does_not_launder_someone_elses_change` |
+  | The in-sync check moved after the re-encryption pass | `reencrypt_refusal_happens_before_any_entry_is_rewritten`, `recipient_add_and_remove_refuse_over_a_failing_verify` |
+  | `--yes` answering `confirm` | `yes_does_not_answer_the_self_removal_confirmation` |
+  | `--yes` answering `resolve_conflict` | `yes_does_not_resolve_conflicts` (P4, premise updated) |
+  | The cache written on a failed unlock (check before the passphrase) | `a_failed_unlock_does_not_bootstrap_the_cache` |
+  | A session line's `--yes` honored | `yes_is_refused_in_a_session` (on a line) |
+  | `gage --yes` let into a session | `yes_is_refused_in_a_session` (on the way in) |
+  | A confirmed mismatch regenerating the cache | `confirming_a_mismatched_change_does_not_clear_the_cache` |
+  | `add`/`remove` skipping the trust question | `recipient_add_does_not_launder_someone_elses_change`, `confirming_lets_the_add_through_and_regenerates_once`, `recipient_remove_asks_about_an_unreviewed_change_before_anything_else` |
+  | `--repair` regenerating the cache | `repair_does_not_regenerate_the_trust_cache` |
+
+  Tests beyond Go's rows, each for a property the rows leave implicit:
+  `removing_an_entry_asks_nothing`, `a_failed_unlock_does_not_bootstrap_the_cache`,
+  `a_half_written_cache_reads_as_no_record`, `an_unparseable_trust_record_is_an_error`,
+  `summary_says_what_to_do_next`,
+  `recipient_remove_asks_about_an_unreviewed_change_before_anything_else`,
+  `recipient_verify_repair_declined_writes_nothing`, and
+  `non_interactive_prompter_refuses_the_recipient_question`.
+- [x] Parity ledger:
   - §3 M10
   - §4 `sync --yes`, `recipient_verify` `--repair`
   - §2 E0, the trust-cache half

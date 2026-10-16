@@ -176,14 +176,25 @@ impl Vault {
         self.under_write_lock(|deadline| {
             // Everything resolution might do is first something the
             // automatic paths do alone, decrypting nothing.
-            let err = match self.sync_locked(deadline) {
+            //
+            // M10's opportunistic check has its own hook here, not only on
+            // unlock: a clean fast-forward never unlocks anything, so a
+            // recipient change it pulled in would otherwise arrive in
+            // silence. After the pull, as the unlock hook runs after
+            // sync_on_unlock: the list worth warning about is the one that
+            // just landed. `Vault::sync` takes no prompter and is left
+            // alone; `gage sync` comes through here in both modes.
+            let warn = &mut || self.warn_recipient_trust(prompter);
+            let err = match self.sync_locked_after_pull(deadline, warn) {
                 Ok(report) => return Ok(report),
                 Err(err) => err,
             };
             // Only an entry conflict is ours. A recipient-file conflict is
             // refused exactly as the automatic push refuses it: the merged
-            // file would be an access list neither device wrote (M10 adds
-            // its trust-cache confirmation). A push rejected twice, with no
+            // file would be an access list neither device wrote. Go keeps
+            // the refusal after M10 too; once a human has reconciled the
+            // files by hand, the trust cache's check before the next
+            // encrypt is what reviews the result. A push rejected twice, with no
             // conflict found, is the remote moving again.
             if !matches!(*err.cause, SyncCause::Conflict)
                 || err.report.conflict_kind() != ConflictKind::Entries

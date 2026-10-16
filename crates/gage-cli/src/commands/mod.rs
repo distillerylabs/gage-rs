@@ -66,6 +66,7 @@ pub fn long_about(name: &str) -> Option<&'static str> {
         "identity add" => Some(identity::ADD_LONG_ABOUT),
         "recipient add" => Some(recipient::ADD_LONG_ABOUT),
         "recipient remove" => Some(recipient::REMOVE_LONG_ABOUT),
+        "recipient verify" => Some(recipient::VERIFY_LONG_ABOUT),
         _ => None,
     }
 }

@@ -952,6 +952,29 @@ in. A session's writes ask through the prompter the session holds, so a
 that prompter for the session's whole life and silently approve every
 change.
 
+Settled at the start of M10 implementation:
+
+- **The terminal prompter refuses when nobody is at it** (a deliberate
+  deviation). Go's `ConfirmRecipientChange` renders and reads a line
+  regardless, so on piped input it spends whatever line comes next as the
+  answer: `printf 'pass\nvalue' | gage insert x --value-stdin` would
+  answer with the value. gage-rs refuses with `NotInteractive` before
+  drawing or reading anything, as its `resolve_conflict` does. The outcome
+  is Go's bare-Enter outcome (no write, exit Conflict) without consuming
+  input; `--yes` is how a script answers yes.
+- **No script-mode exception yet.** Go lets `--yes` through in a
+  `--script`/`--stdin` session, which is the CI case the flag exists for.
+  gage-rs has no script mode, so every session is a terminal one and both
+  refusals apply unconditionally. Script mode, when it is ported, brings
+  Go's exception with it.
+- **`--yes` is hidden from help.** Go's captured help lists no inherited
+  flag anywhere (`tests/fixtures/go/help/`), so the clap flag is global
+  and hidden to match. It is accepted before or after the command.
+- **The opportunistic sync hook is `sync_resolving`'s**, after its pull,
+  as in Go's code (the M10 plan said `Vault::sync`, which takes no
+  prompter). Re-selecting a held vault in a session does not warn, as
+  Go's `Session.Use` doesn't.
+
 ### `[x]` Q-TWO-VAULT-LOCK — How does `mv`/`cp` lock two vaults? {#q-two-vault-lock}
 
 **Resolved: both locks are held for the whole operation, acquired in
@@ -982,6 +1005,10 @@ port plan keys every per-vault local path by id from the start.
 `paths::trust_cache_dir` has existed since P1, but nothing calls it yet.
 A half-written pair reads as "no record", so it is bootstrapped again
 rather than trusted.
+
+`vault remove` deletes the files the cache owns by name, then the
+directory if it is empty, as Go's `RemoveTrustCache` does: a narrow
+delete needs no argument about what else might live there.
 
 ---
 

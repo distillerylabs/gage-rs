@@ -82,6 +82,13 @@ impl Prompter for EchoingPrompter<'_> {
         self.inner.resolve_conflict(conflict)
     }
 
+    fn confirm_recipient_change(
+        &self,
+        warning: &gage::trustcache::RecipientChangeWarning,
+    ) -> Result<bool, PromptError> {
+        self.inner.confirm_recipient_change(warning)
+    }
+
     fn warn(&self, msg: &str) {
         use std::io::Write;
         let _ = writeln!(self.stderr.clone(), "{msg}");

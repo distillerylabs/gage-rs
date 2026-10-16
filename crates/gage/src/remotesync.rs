@@ -199,12 +199,20 @@ impl SyncReport {
     /// The divergence in one line, in the design doc's own words ("origin
     /// has diverged — 2 local commits pending"), plus what conflicted and
     /// what to run.
+    ///
+    /// A recipient-file conflict names a different next step from Go's
+    /// "run `gage sync`": `sync` refuses it too, in Go and here (M10
+    /// settled P4's follow-up), so the summary says what actually resolves
+    /// it. Once a human has reconciled the files, the trust cache's check
+    /// before the next encrypt reviews the resulting list.
     pub fn summary(&self) -> String {
         match self.conflict_kind() {
             ConflictKind::Recipients => format!(
                 "origin has diverged on the files that define who can read this vault ({}) — \
-                 {} local commit(s) pending. These are never merged automatically: \
-                 review both sides and run `gage sync`",
+                 {} local commit(s) pending. These are never merged automatically, by `gage sync` \
+                 either: reconcile both sides by hand in the vault's git repository and commit, \
+                 then check the result with `gage recipient verify`; the next write here will \
+                 ask you to confirm the list",
                 self.conflicts.join(", "),
                 self.ahead
             ),
@@ -417,7 +425,18 @@ impl Vault {
 
     /// The sync, with the write lock already held.
     pub(crate) fn sync_locked(&self, deadline: Instant) -> Result<SyncReport, SyncError> {
+        self.sync_locked_after_pull(deadline, &mut || {})
+    }
+
+    /// [`Vault::sync_locked`], running `after_pull` once the pull has
+    /// succeeded and before the push: `sync_resolving`'s trust-cache hook.
+    pub(crate) fn sync_locked_after_pull(
+        &self,
+        deadline: Instant,
+        after_pull: &mut dyn FnMut(),
+    ) -> Result<SyncReport, SyncError> {
         let pulled = self.pull_locked(deadline)?;
+        after_pull();
         // The pull's findings survive into the combined report: a
         // fast-forward before a failed push still happened.
         let merge = |mut report: SyncReport| {

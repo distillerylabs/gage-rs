@@ -839,6 +839,14 @@ fn assert_recipient_file_conflicts(path: &str) {
         "{path} gained the other device's line unreviewed:\n{after}"
     );
     assert!(after.contains("added by this device"), "{after}");
+
+    // P4's follow-up, settled in M10: `gage sync` refuses this too (as Go's
+    // does), so the summary must not send anyone there. It says what to do
+    // instead, and what reviews the result.
+    let summary = err.report.summary();
+    assert!(!summary.contains("run `gage sync`"), "{summary}");
+    assert!(summary.contains("reconcile"), "{summary}");
+    assert!(summary.contains("gage recipient verify"), "{summary}");
 }
 
 // Go: TestInitWritesGitattributesForBothRecipientFiles, as content. gage's

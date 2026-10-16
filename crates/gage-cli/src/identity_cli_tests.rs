@@ -392,11 +392,10 @@ fn a_registration_without_an_id_fails_identity_list_before_any_path_is_built() {
 
 // --- parity -------------------------------------------------------------------
 
-// The help-fixture check for P5 · M9a: each command's description, long
-// help and flags as Go's help shows them. `recipient verify` is checked by
-// its first line and flags only: the rest of Go's text documents
-// `--repair`, which is M10's, and a help that describes a flag that
-// doesn't exist is wrong. M10 adds the full-text check.
+// The help-fixture check for P5 · M9a and M10: each command's description,
+// long help and flags as Go's help shows them, `recipient verify --repair`
+// included. The root `--yes` is checked at the end: accepted everywhere,
+// and listed nowhere, as Go's help lists no inherited flag.
 #[test]
 fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
     let env = Env::new();
@@ -434,8 +433,8 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
         (
             "recipient verify",
             include_str!("../../../tests/fixtures/go/help/recipient_verify.txt"),
-            false,
-            &["-u", "--use"][..],
+            true,
+            &["--repair", "-u", "--use"][..],
         ),
     ] {
         let args: Vec<&str> = name.split(' ').chain(["--help"]).collect();
@@ -451,11 +450,7 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
                 assert!(help.contains(line.trim()), "{name}: {line:?}\n{help}");
             }
         }
-        for line in fixture
-            .lines()
-            .filter(|l| l.trim_start().starts_with('-'))
-            .filter(|l| !l.contains("--repair"))
-        {
+        for line in fixture.lines().filter(|l| l.trim_start().starts_with('-')) {
             let text = line.split("   ").last().unwrap().trim();
             assert!(help.contains(text), "{name}: {text:?}\n{help}");
         }
@@ -463,11 +458,17 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
             assert!(help.contains(flag), "{name}: {flag}\n{help}");
         }
     }
-    assert!(
-        !env.ok(&["recipient", "verify", "--help"])
-            .stdout
-            .contains("--repair")
-    );
+    for help in [
+        env.ok(&["--help"]).stdout,
+        env.ok(&["insert", "--help"]).stdout,
+        env.ok(&["recipient", "remove", "--help"]).stdout,
+    ] {
+        assert!(!help.contains("--yes"), "{help}");
+    }
+    let r = env.run(&["--yes", "vault", "list"]);
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    let r = env.run(&["vault", "list", "--yes"]);
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
     assert!(
         !env.ok(&["recipient", "add", "--help"])
             .stdout

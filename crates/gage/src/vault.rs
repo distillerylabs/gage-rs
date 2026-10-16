@@ -497,6 +497,14 @@ impl Vault {
                  so this key may be written to swap. Raise the locked-memory limit (ulimit -l) to remove this warning."
             ));
         }
+        // M10's opportunistic check, and the first-use bootstrap with it.
+        // Here because this is the hook both modes share (a one-shot
+        // command's implicit unlock, a session's `use`); after
+        // sync_on_unlock, so it sees the list that was just pulled; and on
+        // the success path only, since a wrong passphrase is not a review
+        // and must never bootstrap an approval. It never asks and never
+        // regenerates: the blocking check before the next encrypt does.
+        self.warn_recipient_trust(prompter);
         Ok(identity)
     }
 

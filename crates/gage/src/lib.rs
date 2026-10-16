@@ -40,6 +40,7 @@ pub mod syncerr;
 pub mod syncresolve;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testsupport;
+pub mod trustcache;
 pub mod vault;
 pub mod vaultconfig;
 pub mod vaultlock;
@@ -51,6 +52,8 @@ mod recipient_tests;
 mod reencrypt_tests;
 #[cfg(test)]
 mod sync_index_tests;
+#[cfg(test)]
+mod trustcache_tests;
 #[cfg(test)]
 mod twodevice_tests;
 #[cfg(test)]

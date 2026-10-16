@@ -16,6 +16,7 @@ use gage::xdgpaths::{self, Dirs};
 
 // build.rs include!s it too; the crate itself only needs it for the test
 // that checks the Makefile exports the same names.
+mod assumeyes;
 #[cfg(test)]
 mod build_env;
 pub mod cli;
@@ -123,6 +124,15 @@ fn dispatch(
                     ),
                 ));
             }
+            // Wrapped here, once, rather than at each point a handler hands
+            // a prompter to the library: the same decision written out a
+            // dozen times would have a dozen chances to be forgotten.
+            let assume_yes = assumeyes::AssumeYes(prompter);
+            let prompter: &dyn Prompter = if assumeyes::given(&matches) {
+                &assume_yes
+            } else {
+                prompter
+            };
             commands::run(name, &matches, io, &mut Keys::OneShot(prompter)).unwrap_or_else(|| {
                 Err(CliError::new(
                     Code::Internal,
@@ -168,3 +178,5 @@ mod search_tests;
 mod sync_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod trustcache_cli_tests;

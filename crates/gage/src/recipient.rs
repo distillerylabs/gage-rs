@@ -17,6 +17,7 @@ use crate::entry::{self, LockError, WRITE_LOCK_TIMEOUT};
 use crate::exitcode::{Code, HasCode};
 use crate::identity::Identity;
 use crate::prompter::{PromptError, Prompter};
+use crate::trustcache::TrustError;
 use crate::vault::Vault;
 use crate::vaultconfig::{self, Recipient};
 use crate::{agekey, crypt, devicename, gitrepo, paths, recipients, vaultlock};
@@ -153,6 +154,16 @@ pub enum RecipientError {
     },
     #[error("gage: not removing {device:?}; nothing was written")]
     SelfRemovalDeclined { device: String },
+    /// `recipient verify --repair`, answered no.
+    #[error("gage: not repairing the recipient files of {vault:?}; nothing was written")]
+    RepairDeclined { vault: String },
+    /// `recipient verify --repair` with nobody to confirm what it drops:
+    /// never a silent repair.
+    #[error(
+        "gage: the recipient files of {vault:?} disagree, and the repair could not be confirmed ({}); nothing was written",
+        source.to_string().trim_start_matches("gage: ")
+    )]
+    RepairUnconfirmed { vault: String, source: PromptError },
     #[error(
         "gage: removing {device:?} would lock this device out of {vault:?}, and that could not be confirmed: {source}"
     )]
@@ -172,6 +183,11 @@ pub enum RecipientError {
         pubkey: String,
         source: crypt::Error,
     },
+    /// M10: the vault's two recipient files disagree (the verbs refuse to
+    /// rebuild one from the other), or a change this device never
+    /// reviewed wasn't confirmed.
+    #[error(transparent)]
+    Trust(#[from] TrustError),
     #[error(transparent)]
     Entry(#[from] entry::Error),
     #[error(transparent)]
@@ -206,11 +222,14 @@ impl HasCode for RecipientError {
             RecipientExists { .. }
             | LastRecipient { .. }
             | CannotGrantFullAccess { .. }
-            | SelfRemovalDeclined { .. } => Code::Conflict,
+            | SelfRemovalDeclined { .. }
+            | RepairDeclined { .. }
+            | RepairUnconfirmed { .. } => Code::Conflict,
             RecipientNotFound { .. } => Code::NotFound,
             Confirm { .. } => Code::LockedOrAuth,
             Reencrypt { source, .. } => source.code(),
             ReencryptTo { source, .. } => source.code(),
+            Trust(e) => e.code(),
             Entry(e) => e.code(),
             Config(e) => e.code(),
             Recipients(e) => e.code(),
@@ -338,6 +357,10 @@ impl Vault {
             return Err(RecipientError::ReencryptRequired);
         }
         self.with_vault_write(WRITE_LOCK_TIMEOUT, prompter, || {
+            // M10, first, as in add, and for the same reasons: ahead of the
+            // self-removal question, so nobody is asked to approve an
+            // operation about to be refused.
+            self.check_recipient_preconditions(prompter)?;
             let current = self.recipients()?;
             let Some(index) = current
                 .iter()
@@ -370,6 +393,9 @@ impl Vault {
                 identity,
                 prompter,
             )?;
+            // A list the operator changed here needs no second review at
+            // their next write.
+            self.note_recipients_reviewed()?;
             Ok(RecipientChange {
                 device: removed.device,
                 pubkey: removed.pubkey,
@@ -421,6 +447,7 @@ impl Vault {
         identity: &Identity,
         prompter: &dyn Prompter,
     ) -> Result<RecipientChange, RecipientError> {
+        self.check_recipient_preconditions(prompter)?;
         let current = self.recipients()?;
         // Re-validated here, the function that writes the list: a device
         // name in it becomes a path component, and a config carrying an
@@ -445,12 +472,36 @@ impl Vault {
         updated.push(add.clone());
         let (reencrypted, commit) =
             self.commit_recipient_list(&updated, message, identity, prompter)?;
+        // The operator just reviewed this list by typing the command, so
+        // the cache is regenerated as the last step, once. Without it the
+        // next write would warn them about their own add, the fastest way
+        // to teach someone to stop reading the warning.
+        self.note_recipients_reviewed()?;
         Ok(RecipientChange {
             device: add.device,
             pubkey: add.pubkey,
             commit,
             reencrypted,
         })
+    }
+
+    /// M10's two preconditions on add and remove, in this order, both
+    /// under the write lock and before the first byte (and so before the
+    /// re-encryption pass, not beside the recipient-file write):
+    ///
+    /// 1. The two recipient files agree. Both verbs rebuild
+    ///    `.age-recipients` from `config.toml`, which over a divergence
+    ///    would erase the stray key and commit it as an ordinary change.
+    ///    First, so nobody is asked to approve an operation about to be
+    ///    refused.
+    /// 2. The list is one this device reviewed. A change pulled from
+    ///    another device is consistent and still unreviewed here; without
+    ///    the question, the regeneration at the end of the verb would
+    ///    bless it along with the key the operator named, after rewriting
+    ///    every entry to it.
+    fn check_recipient_preconditions(&self, prompter: &dyn Prompter) -> Result<(), TrustError> {
+        self.require_recipients_in_sync()?;
+        self.confirm_recipient_trust(prompter)
     }
 
     /// The shared tail of add and remove: re-encrypt every entry to

@@ -50,6 +50,18 @@ pub fn build(reg: &Registry, build: &BuildInfo) -> Command {
                 .long("version")
                 .action(ArgAction::Version),
         )
+        // The first root persistent flag. Global, so it reaches every
+        // encrypting command wherever it's typed; hidden, as Go's help
+        // shows no inherited flags. What it answers is one question: see
+        // `assumeyes`.
+        .arg(
+            Arg::new(crate::assumeyes::FLAG)
+                .long("yes")
+                .action(ArgAction::SetTrue)
+                .global(true)
+                .hide(true)
+                .help("answer the recipient-change confirmation with yes, without showing it (for scripts and CI)"),
+        )
         .disable_help_subcommand(true)
         .override_help(render_root_help(reg))
         .subcommands(children(reg, ""));
@@ -251,6 +263,11 @@ pub fn parse(
         }
     };
     let Some((name, sub)) = matches.subcommand() else {
+        // Bare `gage --yes`: on the way into a session on a terminal, and
+        // Go refuses it the same way when there is none.
+        if crate::assumeyes::given(&matches) {
+            return Err(crate::assumeyes::refused_in_session());
+        }
         return Ok(if stdin_is_terminal {
             Outcome::Session
         } else {

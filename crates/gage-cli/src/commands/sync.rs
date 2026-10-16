@@ -168,6 +168,12 @@ pub(crate) fn report_conflicts(vault: &Vault, r: &SyncReport) -> Vec<String> {
             "gage: these define who can read this vault, so gage will never merge them for you."
                 .into(),
         );
+        // `gage sync` refuses them too, so say what does resolve them.
+        lines.push(
+            "gage: reconcile them by hand and commit, then run `gage recipient verify`; \
+             the next write here will ask you to confirm the resulting list."
+                .into(),
+        );
     }
     lines.push(format!(
         "gage: the vault is an ordinary git repository at {}",

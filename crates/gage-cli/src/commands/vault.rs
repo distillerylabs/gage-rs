@@ -4,6 +4,7 @@
 
 use clap::ArgMatches;
 use gage::config;
+use gage::trustcache;
 use gage::vault::Vault;
 
 use super::{arg, dirs, load_global, out};
@@ -59,10 +60,21 @@ pub fn info(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
 /// Forgets the registration only: the vault's own files are never
 /// touched. It reads nothing from the vault, so it works when the vault's
 /// files are gone, which is when it is most needed.
+///
+/// This device's trust cache for the vault goes with it. Keeping it would
+/// let a re-add silently inherit an approval of a list nobody looked at in
+/// between, the one thing the cache exists to prevent; dropping it makes a
+/// re-add a first use. It is keyed by the registration's own recorded id,
+/// not a resolved vault, for the reason above. A registration with no id
+/// has no cache to remove, and is no reason to fail: forgetting a
+/// registration must always be possible.
 pub fn remove(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
     let (path, mut global) = load_global(io)?;
-    global.unregister(arg(matches, "name"))?;
+    let entry = global.unregister(arg(matches, "name"))?;
     config::save(&path, &global)?;
+    if !entry.id.is_empty() {
+        trustcache::remove(&dirs(io)?, &entry.id)?;
+    }
     Ok(())
 }
 
