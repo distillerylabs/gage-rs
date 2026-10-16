@@ -20,7 +20,9 @@ mod auth;
 mod clone;
 mod entry;
 mod git;
+mod identity;
 mod init;
+mod recipient;
 mod sync;
 mod vault;
 
@@ -41,6 +43,8 @@ pub fn flags(name: &str) -> Vec<Arg> {
         "insert" | "show" | "cat" | "edit" | "rename" | "generate" | "rm" | "ls" | "search"
         | "reindex" => entry::flags(name),
         "auth login" | "auth status" | "auth logout" => auth::flags(),
+        "identity add" | "identity list" => identity::flags(name),
+        "recipient list" | "recipient verify" => recipient::flags(),
         _ => Vec::new(),
     }
 }
@@ -55,6 +59,7 @@ pub fn long_about(name: &str) -> Option<&'static str> {
         "sync" => Some(sync::SYNC_LONG_ABOUT),
         "ls" => Some(entry::LS_LONG_ABOUT),
         "auth login" => Some(auth::LOGIN_LONG_ABOUT),
+        "identity add" => Some(identity::ADD_LONG_ABOUT),
         _ => None,
     }
 }
@@ -116,6 +121,10 @@ pub fn run(
         "auth login" => auth::login(matches, io, keys),
         "auth status" => auth::status(matches, io),
         "auth logout" => auth::logout(matches, io),
+        "identity add" => identity::add(matches, io, keys),
+        "identity list" => identity::list(matches, io, keys),
+        "recipient list" => recipient::list(matches, io, keys),
+        "recipient verify" => recipient::verify(matches, io, keys),
         _ => return None,
     })
 }

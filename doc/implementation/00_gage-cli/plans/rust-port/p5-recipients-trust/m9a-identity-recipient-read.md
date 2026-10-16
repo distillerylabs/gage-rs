@@ -80,7 +80,27 @@ inspect a vault's recipients without unlocking it:
 
 ## Decisions to make first
 
-Confirm these when implementation starts:
+Resolved when implementation started (reviewed, "proceed as recommended"):
+
+- The library surface is as proposed below, with `VaultRecipient`
+  replaced by `vaultconfig::Recipient`. `identity_add.rs` and
+  `recipient.rs` hold the new `Vault` methods; errors are
+  `IdentityAddError`, `ListIdentitiesError` and `VerifyError`.
+  `RecipientVerification` compares key sets, so order and repeats do not
+  matter.
+- Global config is written by the CLI only.
+- The two-device fixture is `twodevice_tests.rs` (`Machine`,
+  `edit_recipients_file`, `edit_config_recipients`, over `SyncVault` as
+  device A) and, in `gage-cli`, `identity_cli_tests::TwoDevices` (two
+  `Env`s over one bare origin).
+- `recipients::read` has no line-length cap: the Go row exists only
+  because `bufio.Scanner` caps a token at 64 KiB. It is ported as
+  `read_returns_an_overlong_line_whole`, which pins that nothing is
+  silently truncated.
+- `recipient verify`'s long help carries only its first line until M10:
+  the rest of Go's text documents `--repair`, which does not exist yet.
+
+The original proposals, for reference:
 
 - **The library surface.** Proposed:
   - `Vault::add_identity(&self, device: &str, prompter: &dyn Prompter) -> Result<String, IdentityAddError>`.
@@ -120,7 +140,7 @@ Write each task's tests first, at task granularity.
 
 ### 1. The two-device fixture
 
-- [ ] Build it as above. One smoke test: device A inits and pushes,
+- [x] Build it as above. One smoke test: device A inits and pushes,
       device B clones and runs `add_identity`, and B has its own file
       under `$GAGE_DATA/identities/<vault-id>/` while A's is unaffected.
 
@@ -129,53 +149,53 @@ Write each task's tests first, at task granularity.
 `recipients::read` and `write` exist from M1. Port Go's tests against them
 and fix whatever they find.
 
-- [ ] `TestReadMissingFile`
-- [ ] `TestReadRejectsALineLongerThanTheScannerCanBuffer`: Go's
+- [x] `TestReadMissingFile`
+- [x] `TestReadRejectsALineLongerThanTheScannerCanBuffer`: Go's
       `bufio.Scanner` limit has no Rust equivalent. Decide whether
       `read` caps a line, and record the decision here, or excuse the row
       with the reason.
-- [ ] `TestReadSkipsBlankLines`
-- [ ] `TestRoundTrip`
-- [ ] `TestWriteHasNoFramingOnePerLine`
-- [ ] `TestWriteWrapsAnAtomicfileFailure`
+- [x] `TestReadSkipsBlankLines`
+- [x] `TestRoundTrip`
+- [x] `TestWriteHasNoFramingOnePerLine`
+- [x] `TestWriteWrapsAnAtomicfileFailure`
 
 ### 3. `recipients` and `verify_recipients` (library) — 4 rows
 
-- [ ] `TestRecipientListMatchesConfigExactly`
-- [ ] `TestVerifyReportsInSyncAndTheSpecificDifferences`, in both
+- [x] `TestRecipientListMatchesConfigExactly`
+- [x] `TestVerifyReportsInSyncAndTheSpecificDifferences`, in both
       directions: a key only in `.age-recipients`, and a key only in
       `config.toml`.
-- [ ] `TestVerifyNeedsNoIdentityFileOrPrompter`: a registration with no
+- [x] `TestVerifyNeedsNoIdentityFileOrPrompter`: a registration with no
       identity file at all, as right after `clone`.
-- [ ] `TestVerifyReadsNeitherIdentityNorPrompter`. The signature takes no
+- [x] `TestVerifyReadsNeitherIdentityNorPrompter`. The signature takes no
       `Prompter` and no `Identity`, so the compiler already proves part
       of this. Port it as the no-identity-file case, and note that in the
       test.
 
 ### 4. `add_identity` and `list_identities` (library) — 6 rows
 
-- [ ] `TestAddIdentityWritesItsOwnWrappedFileAndReturnsAPublicKey`
-- [ ] `TestEachDeviceHasItsOwnIdentityFile`: deleting one device's file
+- [x] `TestAddIdentityWritesItsOwnWrappedFileAndReturnsAPublicKey`
+- [x] `TestEachDeviceHasItsOwnIdentityFile`: deleting one device's file
       leaves the other able to decrypt.
-- [ ] `TestAddIdentityRejectsANameAlreadyRegisteredAsARecipient`:
+- [x] `TestAddIdentityRejectsANameAlreadyRegisteredAsARecipient`:
       `DeviceNameTaken`, with no file written.
-- [ ] `TestAddIdentityRejectsAnInvalidDeviceName`
-- [ ] `TestListIdentitiesReportsThisDevicesRegisteredIdentities`:
+- [x] `TestAddIdentityRejectsAnInvalidDeviceName`
+- [x] `TestListIdentitiesReportsThisDevicesRegisteredIdentities`:
       `current` marks the registered device.
-- [ ] `TestListIdentitiesSkipsSubdirectoriesAndInvalidlyNamedFiles`
+- [x] `TestListIdentitiesSkipsSubdirectoriesAndInvalidlyNamedFiles`
 - `TestRecoveringALostIdentityFileNeedsNoFileRestore` is M9b's, because
   it needs `recipient add`.
 
 ### 5. CLI: `identity` and `recipient list/verify` — 10 rows
 
-- [ ] Register the `identity` and `recipient` parents (`ParentInfo`,
+- [x] Register the `identity` and `recipient` parents (`ParentInfo`,
       groups Identity and Recipients), plus `identity add`,
       `identity list`, `recipient list` and `recipient verify`, all
       available in both modes. Each gets the three `commands/mod.rs`
       edits. Use the fixture's `Short` and long help (`identity add`'s
       long help names `gage recipient add <pubkey> --device NAME`
       without `--reencrypt`).
-- [ ] `identity add`:
+- [x] `identity add`:
   - `--device` defaults to the normalized hostname
   - `--method` defaults to the vault's `[method].default` and is checked
     against `ALLOWED_METHODS`
@@ -184,7 +204,7 @@ and fix whatever they find.
   - prints the public key and the next command
     `gage recipient add <pubkey> --device <device>`. M9b proves that
     command works.
-- [ ] Rows:
+- [x] Rows:
   - `TestIdentityAddRegistersADeviceAndPrintsItsPublicKey`
   - `TestIdentityAddDeviceFlagOverridesTheHostnameDefault`
   - `TestIdentityAddMethodDefaultsToTheVaultsAndStaysLocal`
@@ -197,7 +217,7 @@ and fix whatever they find.
   - `TestRecipientVerifyNamesAKeyMissingFromTheRecipientsFile`
   - `TestRecipientVerifyRunsWithNoIdentityAndNoPrompter`: run through
     `gage_cli::run` with a prompter that panics on any question.
-- [ ] Add `p5_identity_commands_have_their_go_fixture_flags_and_descriptions`
+- [x] Add `p5_identity_commands_have_their_go_fixture_flags_and_descriptions`
       for `identity`, `identity add`, `identity list`, `recipient`,
       `recipient list` and `recipient verify` (flags as they exist:
       `--repair` is M10's). `identity enroll` and the enrollment children
@@ -206,19 +226,19 @@ and fix whatever they find.
 
 ### 6. Inbound rows
 
-- [ ] `vaultid_keying` `TestInitAndIdentityAddRecordThePubkeyAndCloneDoesNot`.
+- [x] `vaultid_keying` `TestInitAndIdentityAddRecordThePubkeyAndCloneDoesNot`.
       The `init` half is already done (P2 · M2). Add the `identity add`
       half (the pubkey is recorded) and the `clone` half (it is not).
-- [ ] The `identity list` half of
+- [x] The `identity list` half of
       `TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath`: a registration
       with an empty id fails before any path is built.
-- [ ] M13's `TestSubcommandCandidatesListsIdentityChildren`: add the
+- [x] M13's `TestSubcommandCandidatesListsIdentityChildren`: add the
       `identity` form now that the parent has children, and record the
       substitution in [M13's doc](../p3-query-session/m13-tab-completion.md).
 
 ### 7. Ledger
 
-- [ ] Parity ledger:
+- [x] Parity ledger:
   - §4: the `identity*`, `recipient`, `recipient_list` and
     `recipient_verify` fixtures are matched
   - §3 M9: `[~]`

@@ -40,7 +40,7 @@ pub fn flags() -> Vec<Arg> {
 /// Fetch and fast-forward, never merge: a divergence is reported, as a
 /// conflict for a script to see.
 pub fn pull(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
-    with_sync_vault(matches, io, keys, |io, vault| {
+    with_resolved_vault(matches, io, keys, |io, vault| {
         let report = vault.pull()?;
         if report.diverged {
             return Err(fail(Code::Conflict, format!("gage: {}", report.summary())));
@@ -52,7 +52,7 @@ pub fn pull(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
 
 /// Publish, merging a divergence whose two sides touched different paths.
 pub fn push(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
-    with_sync_vault(matches, io, keys, |io, vault| {
+    with_resolved_vault(matches, io, keys, |io, vault| {
         finish(io, vault, vault.push())
     })
 }
@@ -106,7 +106,7 @@ fn finish(
 /// Runs `f` with the vault `--use` names (or the current one), never
 /// unlocked: one-shot from its registration, in a session through the
 /// session, so a pull still invalidates the session's index.
-fn with_sync_vault<T>(
+pub(super) fn with_resolved_vault<T>(
     matches: &ArgMatches,
     io: &mut Io,
     keys: &mut Keys,

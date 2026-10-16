@@ -151,6 +151,8 @@ mod complete_tests;
 #[cfg(test)]
 mod entry_tests;
 #[cfg(test)]
+mod identity_cli_tests;
+#[cfg(test)]
 mod init_identity_tests;
 #[cfg(test)]
 mod lifecycle_tests;

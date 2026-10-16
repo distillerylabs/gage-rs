@@ -170,6 +170,34 @@ pub fn registry() -> Registry {
                 GROUP_VAULT,
                 Both,
             ),
+            command(
+                "identity add",
+                "",
+                "Register this device's identity and print its public key",
+                GROUP_IDENTITY,
+                Both,
+            ),
+            command(
+                "identity list",
+                "",
+                "List the keys this machine holds for a vault",
+                GROUP_IDENTITY,
+                Both,
+            ),
+            command(
+                "recipient list",
+                "",
+                "List the keys this vault is encrypted to",
+                GROUP_RECIPIENT,
+                Both,
+            ),
+            command(
+                "recipient verify",
+                "",
+                "Check .age-recipients and config.toml still agree",
+                GROUP_RECIPIENT,
+                Both,
+            ),
             command("insert", "<title>", "Create a new entry", GROUP_ENTRY, Both),
             command(
                 "show",
@@ -283,6 +311,14 @@ pub fn registry() -> Registry {
             ParentInfo {
                 name: "vault",
                 short: "Manage registered vaults",
+            },
+            ParentInfo {
+                name: "identity",
+                short: "Manage this device's identities for a vault",
+            },
+            ParentInfo {
+                name: "recipient",
+                short: "Manage who can read this vault",
             },
             ParentInfo {
                 name: "git",
