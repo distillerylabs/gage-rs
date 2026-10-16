@@ -65,7 +65,7 @@ line up.
 | P2 Crypto & entries ([plan](p2-crypto-entries/index.md), [#12](https://github.com/distillerylabs/gage-rs/issues/12)) | M2 identity + memlock · M3 entry format · M4 CRUD | `[x]` | **Opus** for M2 ⚑; Sonnet for M3/M4 (⚑ Opus review of M4's lock tests) | P1 |
 | P3 Query & session ([plan](p3-query-session/index.md), [#21](https://github.com/distillerylabs/gage-rs/issues/21)) | M5 resolver · M6 session/REPL · M7 metadata index · M13 completion | `[x]` | Sonnet; Sonnet* for M6/M13 (⚑ Opus review of M5's scratch-file and M7's index tests) | P2 |
 | P4 Sync ([plan](p4-sync/index.md), [#32](https://github.com/distillerylabs/gage-rs/issues/32)) | M8a1 remote primitives & auth · M8a2 sync wiring · M8b conflict resolution | `[x]` | **Opus** | P3 |
-| P5 Recipients & trust | M9 recipients · M10 trust cache · M11 cross-vault | `[ ]` | **Opus** for M9; Sonnet* for M10/M11 | P4 |
+| P5 Recipients & trust ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)) | M9a identities + recipient read side · M9b recipient writes + re-encryption · M10 trust cache · M11 cross-vault | `[~]` | Sonnet for M9a; **Opus** for M9b; Sonnet* for M10/M11 (⚑ Opus review of M10's laundering and M11's lock-order tests) | P4 |
 | P6 Polish | M12 output modes, `log`/`history`, `--script` | `[ ]` | Sonnet | P5 |
 | P7 Enrollment | E1b · E2 · E3 · E4 | `[ ]` | **Opus** | P5 |
 | P8 Recovery key | R0–R5, regrouped into 3–4 milestones | `[ ]` | **Opus** for the R1/R3/R4 material | P7; P6 (R1 displays the key through M12's QR renderer) |
@@ -102,13 +102,13 @@ cover commands from every earlier phase.
 | M13 Tab completion | P3 · M13 | Depends only on M0/M6/M7 in Go; placed with them. |
 | M8a Sync transport | P4 · M8a1 + M8a2 | Split by layer: library primitives and `auth` (M8a1), then wiring into unlock, writes, the sync verbs, `clone` and `init --remote` with the inline token (#38) (M8a2). |
 | M8b Sync conflicts | P4 · M8b | |
-| M9 Recipients | P5 · M9 | A19/E1a folded in: no `--reencrypt` on `add`, `RequireFullAccess`. |
+| M9 Recipients | P5 · M9a + M9b | Split by risk ([Q-P5-SPLIT](open-questions.md#q-p5-split)): identities and the read side (M9a), then the writes, re-encryption atomicity and the dirty-tree reset (M9b). A19/E1a folded into M9b: no `--reencrypt` on `add`, `RequireFullAccess`. |
 | M10 Trust cache | P5 · M10 | Vault-id-keyed path from the start. |
 | M11 Cross-vault sharing | P5 · M11 | |
 | M12 Polish | P6 · M12 | Includes `vault remove` orphaned-identity cleanup by public key with `Confirm` (#39 as revised by E0), `ls -H/--header` (#54), and `cat`'s display-only short id, label alignment and flush-left multi-line values (#55) — Go records both under M12. |
 | E0 Vault-id keying | — | Folded into M1/M2/M10 and the vault lock (M0b/M1). |
 | E1a Unconditional re-encrypt | — | Folded into M9. |
-| E1b–E4 Enrollment | P7 · E1b, E2, E3, E4 | |
+| E1b–E4 Enrollment | P7 · E1b, E2, E3, E4 | E1b's `recipient_batch_test.go` was tagged P5 by file name; re-tagged to P7 ([Q-E1B-RETAG](open-questions.md#q-e1b-retag)). |
 | R0–R5 Recovery key | P8 | Go issue #7; sources are `plans/recovery-key/` and the TDD's "Recovery key at `init`". **Not listed in the Go core index.** |
 | Go test-coverage plan (R0/R1 coverage) | M0a | Coverage gating via `cargo-llvm-cov` from the first milestone, applied by every milestone after it. |
 | Pre-commit hook | M0a | Developer tooling, not CLI surface. |
@@ -249,8 +249,8 @@ Adapted from the Go plan's table. Milestone IDs are the Rust ones.
 | M7 | Session-scoped metadata index | M8a2 invalidates after a pull; M8b after each resolution; M11 updates both vaults |
 | M8a1 | `syncerr` buckets (unreachable 7 / auth 5 / diverged 1) and the file-level `prepare_merge` + `PendingMerge::commit` | M8a2's sync verbs; M8b's resolution; M9's push after re-encrypt |
 | M8a2 | `RemoteSyncer` seam; pull on unlock (try-lock) and push inside the write lock; the push-failure warning wording | Every later write path (M9, M11, E-phase, R-phase) |
-| M9 | Recipient list changes touch `.age-recipients` and `config.toml` together, in one commit, via one `commit_recipient_list` primitive | M10 diffs that pair; E4 and R3 build on the primitive |
-| M10 | `RecipientChangeWarning` typed value + cache regeneration rules | M11 (destination vault), E4, R4 |
+| M9b | Recipient list changes touch `.age-recipients` and `config.toml` together, in one commit, via one `commit_recipient_list` primitive; every write starts with the dirty-tree reset (`with_vault_write`) | M10 diffs that pair; E1b widens the primitive; E4 and R3 build on it |
+| M10 | `RecipientChangeWarning` typed value, `Prompter::confirm_recipient_change` + cache regeneration rules | M11 (destination vault), E4, R4 |
 
 ---
 

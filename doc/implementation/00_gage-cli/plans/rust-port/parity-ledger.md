@@ -103,7 +103,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M4 | P2 · M4 | `[x]` ([#15](https://github.com/distillerylabs/gage-rs/issues/15)) |
 | | M5, M6, M7, M13 | P3 ([#21](https://github.com/distillerylabs/gage-rs/issues/21)) | `[x]` |
 | | M8a, M8b | P4 ([#32](https://github.com/distillerylabs/gage-rs/issues/32)): M8a → M8a1 + M8a2, M8b → M8b | `[x]` M8a1 ([#33](https://github.com/distillerylabs/gage-rs/issues/33)), M8a2 ([#34](https://github.com/distillerylabs/gage-rs/issues/34)), M8b ([#35](https://github.com/distillerylabs/gage-rs/issues/35)) |
-| | M9 (+ A19), M10, M11 | P5 | `[ ]` |
+| | M9 (+ A19), M10, M11 | P5 ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)): M9 → M9a + M9b, M10, M11 | `[ ]` |
 | | M12 (+ post-plan items in §2) | P6 | `[ ]` |
 | | "Post-plan changes" section | Rows in §2 | — |
 | `gage-cli-init-design/` | E0, E1a | Folded (see §2) | `[ ]` |
@@ -129,7 +129,7 @@ to match Cobra's layout.
 | `search`, `reindex` | P3 · M7 `[x]` (name, alias `grep`, group, arguments and `-u/--use` match; checked by `m7_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `auth`, `auth_login`, `auth_status`, `auth_logout` | P4 · M8a1 `[x]` (name, group Git-specific, both modes, `--host`, `login`'s long help; checked by `p4_auth_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `clone`, `sync`, `pull`, `push` | P4 · M8a2 `[x]` `clone` (one-shot, `--name`/`--dir`/`--device`), `sync`/`pull`/`push` (group Sync, both modes, `-u/--use`), `init --remote` (checked by `p4_sync_commands_have_their_go_fixture_flags_and_descriptions`); `sync`'s resolving half: P4 · M8b `[x]` (the `[l/r/b/s/q]` menu, lazy unlock, refusal with nobody to ask; `sync --yes` stays an unknown flag, pinned by `yes_does_not_resolve_conflicts`) (`clone`'s enrollment offer is P7's; `sync --yes` arrives with P5 · M10) |
-| `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5 |
+| `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5: `identity*`, `recipient`, `recipient_list`, `recipient_verify` in M9a; `recipient_add`, `recipient_remove` in M9b; `recipient verify --repair` and the root `--yes` (with `sync --yes`'s meaning) in M10; `mv`, `cp` in M11 |
 | `log`, `history` (and the output flags `--clip`, `--qr`, `--script`; `show --field` itself is P3 · M5) | P6 |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7 |
 | `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8 |
@@ -150,9 +150,9 @@ an equivalent Rust test the milestone doc names) or excused in writing.
 | P2 | 193 | `agekey`, `memlock`, `vault` (`Identity` close and page lock), `crypt`, `unlock`, `identityfile_marker`, `init_identity`, `prompter`(`_pty`), `coredump`, `testsupport`; `entry`, `field`, `entry_crud`, `insert_field`, `insert_multiline_pty` |
 | P3 | 225 | `resolve`(`_cli`), `generate`, `rename`, `edit`, `show`, `session`, `shell`, `repl`, `session_pty`, `sessionhelp`, `index`, `search`, `complete`(`_pty`); `entry_edit`, `insert_edit`, `editor`, `scratchdir*` |
 | P4 | 166 | `gitrepo/*` (less `history`), `remoteauth`, `syncerr`, `remotesync`, `sync_index`, `syncresolve`(`_cli`), `sync_cli`, `clone`, `auth`, `init_remote_auth` |
-| P5 | 136 | `recipients`, `recipient`, `recipient_batch`, `reencrypt`, `recipient_cli`, `identity_add`, `identity_cli`, `trustcache`(`_cli`), `move` |
+| P5 | 121 | `recipients`, `recipient`, `reencrypt`, `recipient_cli`, `identity_add`, `identity_cli`, `trustcache`(`_cli`), `move` |
 | P6 | 87 | `clip`, `qr`, `log`, `history`, `script`, `cat`, `gitrepo/history` |
-| P7 | 186 | `enroll*`, `enrollment`, `approve_cli`, `approve_scope_cli`, `clone_enroll`, `enroll_cli`, `enroll_prompter` |
+| P7 | 201 | `enroll*`, `enrollment`, `approve_cli`, `approve_scope_cli`, `clone_enroll`, `enroll_cli`, `enroll_prompter`, `recipient_batch` (E1b) |
 | P8 | 92 | `recovery_key`, `recovery_enroll`, `recovery`, `init_recoverykey` |
 
 Known coarse spots to resolve when the phase is planned:
@@ -195,6 +195,15 @@ moved from M8a2), with M8b excusing one
 [Q-CONFLICT-PROMPTER](open-questions.md#q-conflict-prompter)). See the
 [P4 plan](p4-sync/index.md#inventory-accounting).
 
+Resolved in P5 planning: `recipient_batch_test.go` (15 rows) was re-tagged
+P7 in the phase map, because it tests E1b's N-recipient write, whose only
+consumer is E4 ([Q-E1B-RETAG](open-questions.md#q-e1b-retag)). The other
+121 are split M9a (26), M9b (37), M10 (38) and M11 (20). P5 also claims
+six rows left by earlier phases: two `vaultid_keying` rows, the
+`identity list` half of a third, M13's `identity` completion form and two
+`prompter` rows. See the
+[P5 plan](p5-recipients-trust/index.md#inventory-accounting).
+
 ## 6. User docs (Go `doc/cli/`)
 
 gage-rs ports these as the behavior lands, so docs describe shipped
@@ -207,7 +216,7 @@ behavior; each phase's last milestone updates the pages for its surface.
 | `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker; M7 `[x]` the index; M13 `[x]` the title completion source (enrollment ids are P7's) |
 | `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 `[x]` the metadata index and `reindex`; M13 `[x]` completion and abbreviation; `--script`/`--stdin` and `GAGE_PASSPHRASE` are P6 · M12's, enrollment's session behavior P7's |
 | `sync.md`, `git-and-auth.md` | P4 · M8b `[x]` (with `exit-codes.md`'s `Unreachable` and sync meanings of 1 and 5, and `configuration.md`'s tokens directory); describes P4 only: the recipient-change confirmation and enrollment exceptions arrive with P5 and P7 |
-| `identities-and-recipients.md`, `sharing.md` | P5 (+ P8 for the recovery sections) |
+| `identities-and-recipients.md`, `sharing.md` | P5 · M11 (+ P7 for enrollment, P8 for the recovery sections) |
 | `enrollment.md` | P7 |
 | `README.md`, `getting-started.md`, `command-reference.md` | Grown each phase; final pass in P9 |
 

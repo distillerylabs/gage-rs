@@ -10,7 +10,9 @@ function phase(f,  b) {
   if (f ~ /internal\/gage\/gitrepo\/history_test\.go$/) return "P6"
   if (f ~ /internal\/gage\/(gitrepo|remoteauth|syncerr)\//) return "P4"
   if (f ~ /internal\/gage\/recipients\//) return "P5"
-  if (b ~ /^(enroll|approve)/ || b=="clone_enroll") return "P7"
+  # recipient_batch tests E1b's N-recipient form of AddRecipient, whose
+  # only consumer is E4's batch approval (re-tagged in P5 planning).
+  if (b ~ /^(enroll|approve)/ || b=="clone_enroll" || b=="recipient_batch") return "P7"
   if (b ~ /^recovery/ || b=="init_recoverykey") return "P8"
   if (b ~ /^(paths|registry|help|usageerror|errorprefix|version|main_integration|vault_lifecycle|vaultid_keying|vault_create|init)$/) return "P1"
   # vault_test.go tests Identity close and page locking (M2), not the
@@ -23,7 +25,7 @@ function phase(f,  b) {
   # cat_test.go holds only #55's cat display tests, which are M12's.
   if (b == "cat") return "P6"
   if (b ~ /^(remotesync|sync_index|syncresolve|sync_cli|syncresolve_cli|clone|auth|init_remote_auth)$/) return "P4"
-  if (b ~ /^(recipient|recipient_batch|reencrypt|recipient_cli|identity_add|identity_cli|trustcache|trustcache_cli|move)$/) return "P5"
+  if (b ~ /^(recipient|reencrypt|recipient_cli|identity_add|identity_cli|trustcache|trustcache_cli|move)$/) return "P5"
   if (b ~ /^(clip|qr|log|history|script)$/) return "P6"
   return "UNMAPPED"
 }
