@@ -235,7 +235,7 @@ Write each task's tests first, at task granularity.
   - `TestMvToItsOwnSourceVaultIsRejected`
   - `TestMvDecliningTheTrustCheckAbortsThroughTheCLI`
   - `TestMvInASessionNeverUnlocksTheDestination`
-- [ ] **Opus review (⚑)** of `TestTwoVaultLocksAreAcquiredInOneDeterministicOrder`,
+- [x] **Opus review (⚑)** of `TestTwoVaultLocksAreAcquiredInOneDeterministicOrder`,
       `…BothHeldForTheWholeOperation` and the crash test. Name the
       mutation each one kills:
   - order by argument instead of by id
@@ -246,19 +246,35 @@ Write each task's tests first, at task granularity.
 
 ### Opus review table (⚑)
 
-Each test was run against the mutation named, and failed. The mutations
-were applied by hand to the real code and reverted.
+Reviewed by Opus. Each mutation was scripted against the real code, run
+against the whole `movecopy_tests` module (13 tests), and reverted; the
+files were checked byte-identical afterwards. Each mutation fails exactly
+the test named for it, and the other 12 pass.
 
 | Test | Mutation it kills | Result |
 |---|---|---|
-| `two_vault_locks_are_acquired_in_one_deterministic_order` | order by argument: `(first, second) = (a, b)` | fails; the other two pass |
-| `two_vault_locks_are_both_held_for_the_whole_operation` | the first lock isn't held across the operation (stands in for releasing it before the second write: the probe runs in that window) | fails, with the other two |
-| `move_crash_between_the_two_writes_leaves_a_recoverable_duplicate` | source removal and commit before the destination's write | fails |
+| `two_vault_locks_are_acquired_in_one_deterministic_order` | M1, order by argument: `(first, second) = (a, b)` | fails (the `(hi, lo)` iteration); 12 pass |
+| `two_vault_locks_are_both_held_for_the_whole_operation` | M2a, the helper calls `held_first.release()` before running `f` | fails; 12 pass |
+| `two_vault_locks_are_both_held_for_the_whole_operation` | M2b, `move_or_copy` takes two sequential single-vault locks (`with_vault_write` on the source to resolve and read, on the destination to write, on the source again to remove) | fails; 12 pass |
+| `move_crash_between_the_two_writes_leaves_a_recoverable_duplicate` | M3, the source removal, commit and push run before the destination's write (the hook stays between the two) | fails; 12 pass |
 
-The lock-held mutation was a lock on a throwaway path rather than an early
-`release()`, because the function owns the lock until the end; the probe
-sees the same thing. This review was done by the implementing model, not
-yet by Opus: the ⚑ review is still the user's to request.
+M2a and M2b replace the implementing model's earlier stand-in, a lock
+taken on a throwaway path. M2a is a literal early release. M2b is the
+regression most likely in practice: rewriting the move from the
+single-vault helpers.
+
+Notes from the review, none of which needs a change:
+
+- Both lock probes (`lock_is_held_elsewhere`, `Holder`) are child
+  processes running `lock_holder_trampoline`, so they test per-process
+  file-lock semantics rather than threads, as CLAUDE.md requires.
+- The order test only kills M1 because it runs both argument orders. The
+  `(lo, hi)` iteration alone would pass under M1. Keep the loop over both
+  orders.
+- The crash seam fires only on `move`. `copy` has one write, so it has no
+  window between writes to cover.
+- A failed second acquire releases the first lock (`Lock`'s `Drop`). The
+  order test asserts this after each iteration.
 
 ### 5. User docs and ledger
 
