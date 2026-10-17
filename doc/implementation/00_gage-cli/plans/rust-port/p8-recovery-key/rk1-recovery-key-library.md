@@ -221,7 +221,7 @@ Write each task's tests first. Library rows go in
 
 - [x] All 11 rows ported (10 from `recovery_key_test.go`, 1 reservation row), plus the beyond-Go rows.
 - [x] Ledger §1 #8 marked `[x]`. #7 is left `[ ]` until RK4.
-- [ ] `make lint`, `make test`; CI on Linux, macOS and Windows.
+- [x] `make lint`, `make test`; CI on Linux, macOS and Windows (PR [#80](https://github.com/distillerylabs/gage-rs/pull/80), run 39067750078: lint, test and audit all pass).
 
 ## Definition of done
 
