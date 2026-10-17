@@ -62,7 +62,7 @@ files handed to it.
 
 - **Options struct:** `RecipientWrite { message, delete_paths: &[String], push_clause: Option<&str> }`, taken by both `add_recipient_locked(adds: &[Recipient], &RecipientWrite, ..)` and `commit_recipient_list(updated, &RecipientWrite, ..)`. `delete_paths` is slash-separated vault-relative `String`s rather than `PathBuf`, because `gitrepo::safe_join` takes the tree-path form. All are resolved through `safe_join` before the first byte is written. `RecipientWrite::message(m)` is the ordinary write (no deletions, default clause); `remove_recipient` uses it.
 - **Push sibling:** `push_after_write_saying(prompter, clause)`; `push_after_write` delegates with `UNPUSHED_WRITE_CLAUSE`. The divergence branch ignores the clause.
-- **Deletion:** runs after `write_recipient_files` and before `commit_all`. `commit_all` already stages deletions (`update_all`), so no change there. `gitrepo::remove_if_present` became `pub(crate)`.
+- **Deletion:** runs after `reencrypt_to` and before `write_recipient_files`, Go's order (`deleteVaultPaths` before `writeRecipientFiles`), so the recipient files stay the last thing written before the commit, as `commit_recipient_list`'s crash-safety comment requires. (First shipped after `write_recipient_files`; moved by the Opus review, task 5.) `commit_all` already stages deletions (`update_all`), so no change there. `gitrepo::remove_if_present` became `pub(crate)`.
 - **Crash seam:** `ReencryptHook` gained a second callback, `after_delete(n)` (`Vault::with_delete_hook`), beside the per-entry one.
 - **Return shape:** `add_recipient_locked` returns `(reencrypted, commit)`; `add_recipient` builds its `RecipientChange` from that.
 
@@ -158,7 +158,32 @@ beside it, if that reads better).
 | `push_after_write_saying` ignores the clause | `failed_push_clause_is_the_callers_to_say` |
 | The clause replaces the divergence summary | `diverged_push_ignores_the_supplied_clause`, `divergence_is_reported_differently_from_being_offline` |
 
-Run mechanically by this milestone's implementer (Sonnet) against the full `gage` lib suite, restoring the source after each. The plan asks for an Opus review of the ⚑ rows; that pass is still the reviewer's to do, with this table as its starting point.
+Run mechanically by this milestone's implementer (Sonnet) against the full `gage` lib suite, restoring the source after each.
+
+**Opus review (done).** Re-ran the table above and added the mutations below, each against the full `gage` lib suite with the source restored afterwards. Then checked the write path against Go's `commitRecipientList`/`deleteVaultPaths` at the pinned SHA.
+
+| Mutation | Killed by |
+|---|---|
+| Deletions run before the re-encryption | `interrupted_batch_leaves_head_untouched` |
+| Deletions run after the recipient files (the order first shipped) | `a_batch_that_fails_after_deleting_commits_nothing` (the recipient-files assertion the review added) |
+| A deletion error is ignored | `a_batch_whose_deletion_fails_commits_nothing` |
+| A deletion removes a directory tree (Go's "never `RemoveAll`") | `a_batch_whose_deletion_fails_commits_nothing` |
+| The delete hook fires before the removal | `a_batch_that_fails_after_deleting_commits_nothing` |
+| Delete paths not passed through `safe_join` | `an_unsafe_delete_path_is_refused_before_anything_is_written` |
+| Delete paths ignored / only the first one deleted | `extra_paths_are_deleted_in_the_same_commit`, both deletion rows / `a_batch_whose_deletion_fails_commits_nothing` |
+| Only the first member validated | `add_recipients_locked_revalidates_every_batch_member` |
+| Within-batch key check, or name check, dropped (each separately) | `a_duplicate_within_the_batch_is_refused` |
+| Only the first member appended to the list | `several_recipients_land_in_one_commit` |
+| Cache regenerated before `commit_recipient_list` | **Equivalent.** `note_recipients_reviewed` snapshots the files on disk, which still hold the list the trust check just stored. |
+| Cache regenerated after the recipient files, before `commit_all` | **Survives; no seam reaches it, and benign.** Only a `commit_all` failure separates the two, and no seam injects one. If it happened, the cache would name the new list while HEAD keeps the old one. The next write's reset restores the old list, and its trust check then *asks* about the difference. Nothing is blessed silently. Not worth a new seam. |
+
+Findings:
+
+1. **Fixed: deletion order.** The deletions ran after `write_recipient_files`. That contradicted Go and `commit_recipient_list`'s own comment ("the recipient files last, just before the commit"). It also widened the window in which a crash leaves a recipient file naming a key no committed entry is encrypted to. They now run after the entries and before the recipient files. No row could tell the two orders apart, so `a_batch_that_fails_after_deleting_commits_nothing` now asserts that neither recipient file is dirty when the delete seam fires.
+2. **Fixed: a loose assertion.** `a_batch_whose_deletion_fails_commits_nothing` matched any `RecipientError::Git(_)`, and a `safe_join` refusal also produces that variant. It now matches `gitrepo::Error::Io { op: "removing", .. }`, so the row proves the failure came from the removal.
+3. **For E4: the within-batch duplicate message.** A pubkey or name repeated *within* the batch reports "this vault already lists that recipient", which is untrue. Go says "appears twice in this change". It is invisible until E4 surfaces approval errors, so E4 should split the variant (or add an `in_batch` flag) when it does.
+4. **For E4: delete paths.** `safe_join` refuses traversal, but it accepts `.git/…`, and it does not resolve a symlinked intermediate directory. E4 builds delete paths itself from validated request ids, so this is safe today. E4 must not pass anything taken from the tree unvalidated.
+5. **Noted, no action: the order of refusals.** Rust validates every member, then checks for duplicates. Go does both per member. Only a batch that is wrong in two ways sees a different first error.
 
 ### 6. Parity and ledger
 

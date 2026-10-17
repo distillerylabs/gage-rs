@@ -427,7 +427,14 @@ fn a_batch_whose_deletion_fails_commits_nothing() {
     )
     .unwrap_err();
 
-    assert!(matches!(err, RecipientError::Git(_)), "{err:?}");
+    // The removal itself failed, not the path check up front.
+    assert!(
+        matches!(
+            err,
+            RecipientError::Git(gitrepo::Error::Io { op: "removing", .. })
+        ),
+        "{err:?}"
+    );
     assert_eq!(f.head(), head, "HEAD moved");
     assert_eq!(f.commits(), commits, "something was committed");
     assert!(!f.is_clean(), "the failed batch left no dirty surface");
@@ -481,6 +488,16 @@ fn a_batch_that_fails_after_deleting_commits_nothing() {
         !f.vault.path.join("notes/pending.txt").exists(),
         "the deletion was undone, not left uncommitted"
     );
+    // The recipient files are written last, after the deletions: a crash
+    // here has not yet put a key no committed entry is encrypted to into
+    // either of them.
+    let dirty = gitrepo::dirty_paths(&f.vault.path).unwrap();
+    for file in [".age-recipients", ".gage/config.toml"] {
+        assert!(
+            !dirty.iter().any(|d| d == file),
+            "{file} written: {dirty:?}"
+        );
+    }
 
     let p = FakePrompter::new();
     let id = insert_one(&f, &p).unwrap();

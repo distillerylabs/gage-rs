@@ -570,14 +570,15 @@ impl Vault {
             .map(|p| Ok((p.as_str(), gitrepo::safe_join(&self.path, p)?)))
             .collect::<Result<Vec<_>, gitrepo::Error>>()?;
         let reencrypted = self.reencrypt_to(updated, identity)?;
-        self.write_recipient_files(updated)?;
-        // After the files and before the commit: a failure from here on
-        // leaves the deletions uncommitted, not undone, and the next
-        // write's dirty-tree reset restores them.
+        // After the entries and before the recipient files, which stay
+        // last (Go's order): a failure from here on leaves the deletions
+        // uncommitted, not undone, and the next write's dirty-tree reset
+        // restores them.
         for (done, (rel, full)) in doomed.iter().enumerate() {
             gitrepo::remove_if_present(full, rel)?;
             self.reencrypt_hook.after_delete(done + 1);
         }
+        self.write_recipient_files(updated)?;
         let commit = gitrepo::commit_all(&self.path, write.message)?;
         // A failed push is a publishing problem, not a half-done migration:
         // the guarantee is about HEAD, and HEAD already has all of it.
