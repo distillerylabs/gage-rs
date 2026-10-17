@@ -33,7 +33,7 @@ use crate::{BuildInfo, Io};
 /// One stream shared by the REPL's line reader and the prompter, so a
 /// script line goes to whichever asks next.
 #[derive(Clone)]
-struct SharedInput(Rc<RefCell<Cursor<Vec<u8>>>>);
+pub(crate) struct SharedInput(pub(crate) Rc<RefCell<Cursor<Vec<u8>>>>);
 
 impl Read for SharedInput {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
@@ -43,10 +43,10 @@ impl Read for SharedInput {
 
 /// An output buffer written by both the CLI and the prompter.
 #[derive(Clone, Default)]
-struct SharedOutput(Rc<RefCell<Vec<u8>>>);
+pub(crate) struct SharedOutput(Rc<RefCell<Vec<u8>>>);
 
 impl SharedOutput {
-    fn text(&self) -> String {
+    pub(crate) fn text(&self) -> String {
         String::from_utf8(self.0.borrow().clone()).unwrap()
     }
 }
@@ -115,7 +115,10 @@ impl Env {
                 dirs: &move || Ok(dirs.clone()),
                 hostname: &move || Ok(hostname.clone()),
                 editor: self.editor.lock().unwrap().clone(),
+                passphrase_env: None,
                 now,
+                clipboard: &self.clip.keeper(),
+                clipboard_wait: &|d| self.clip.wait(d),
             };
             crate::run(&[], &mut io, &prompter)
         };
@@ -143,7 +146,7 @@ impl Env {
         std::fs::read_to_string(self.dirs.state.join("history")).unwrap()
     }
 
-    fn set_shell(&self, shell: Shell) {
+    pub(crate) fn set_shell(&self, shell: Shell) {
         let mut g = self.global();
         g.shell = shell;
         self.save_global(&g);
@@ -231,7 +234,10 @@ fn with_io<T>(env: &Env, stdin: &str, f: impl FnOnce(&mut Io) -> T) -> (T, Strin
         dirs: &move || Ok(dirs.clone()),
         hostname: &|| panic!("a session test read the hostname"),
         editor: None,
+        passphrase_env: None,
         now: &Instant::now,
+        clipboard: &crate::clipboard::fake::unused(),
+        clipboard_wait: &|_| {},
     });
     let text = out.text();
     (got, text)
@@ -710,6 +716,7 @@ fn run_repl(
         prompt: shell::DEFAULT_PROMPT.into(),
         idle_timeout: None,
         history_file: env.dirs.state.join("history"),
+        clipboard_timeout: shell::DEFAULT_CLIPBOARD_TIMEOUT,
     };
     with_io(env, stdin, |io| {
         Repl {

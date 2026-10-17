@@ -148,10 +148,15 @@ gage --yes insert Token --value-stdin < token.txt
 are different decisions, and a flag that meant "yes to whatever you were
 going to ask" would answer them too. It also can't turn a mismatched
 change into a reviewed one, because that rule is applied inside the
-library from `verify`, not from who answered. It is refused in an
-*interactive* session: a human is sitting right there, and `gage --yes`
-entering a session would silently approve every recipient change for as
-long as the session lasted. It isn't listed in any command's `--help`.
+library from `verify`, not from who answered. It isn't listed in any
+command's `--help`.
+
+`--yes` is accepted in a [scripted session](session-mode.md#yes-in-a-script)
+(`gage --script deploy.gage --yes`, or `--stdin`), which is the CI case it
+exists for: it answers the question for every write the script makes. It
+is refused in an *interactive* session: a human is sitting right there,
+and `gage --yes` entering a session would silently approve every recipient
+change for as long as the session lasted.
 
 ## Sharing an entry with someone else
 

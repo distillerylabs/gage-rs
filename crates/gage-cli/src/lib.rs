@@ -8,7 +8,7 @@
 //! streams or exits.
 
 use std::io::{Read, Write};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gage::exitcode::Code;
 use gage::prompter::Prompter;
@@ -20,6 +20,7 @@ mod assumeyes;
 #[cfg(test)]
 mod build_env;
 pub mod cli;
+pub mod clipboard;
 mod commands;
 mod complete;
 pub mod coredump;
@@ -28,12 +29,15 @@ pub mod error;
 mod history;
 mod lineread;
 pub mod prompter;
+mod qr;
 pub mod registry;
 mod repl;
+pub mod scriptprompt;
 mod shell;
 pub mod version;
 
 use cli::Outcome;
+use clipboard::ClipboardKeeper;
 use commands::Keys;
 use error::{CliError, prefix_once};
 use registry::{Availability, Registry};
@@ -63,9 +67,23 @@ pub struct Io<'a> {
     /// `$EDITOR`, for `edit` and `insert -e`. `main` reads the variable;
     /// in-process tests, which share one process environment, set it here.
     pub editor: Option<String>,
+    /// `$GAGE_PASSPHRASE`, for a `--script`/`--stdin` run's unlocks.
+    /// `main` reads the variable once, as `Some` even when empty (set-but-
+    /// empty is still set); in-process tests, which share one process
+    /// environment, set it here. Nothing in the library learns it exists.
+    pub passphrase_env: Option<zeroize::Zeroizing<String>>,
     /// The clock a session's idle timeout reads. `main` passes
     /// `Instant::now`; tests step it instead of waiting.
     pub now: &'a dyn Fn() -> Instant,
+    /// Where `-c` copies to, and what clears it. `main` passes
+    /// [`ClipboardKeeper::system`]; tests pass one over a fake clipboard
+    /// and timer. One per run, so a session's copies share one keeper and
+    /// its exit clears whatever is pending.
+    pub clipboard: &'a ClipboardKeeper,
+    /// A one-shot `-c`'s wait for its timeout. `main` passes
+    /// [`clipboard::wait_for_clipboard`]; tests record the call instead of
+    /// waiting, and never install a signal handler.
+    pub clipboard_wait: &'a dyn Fn(Duration),
 }
 
 /// Runs one invocation (`args` without the program name) and returns its
@@ -102,6 +120,27 @@ fn dispatch(
     match cli::parse(reg, &io.build, args, io.stdin_is_terminal)? {
         Outcome::Print(text) => print(io, &text),
         Outcome::Session => repl::run_session(reg, io, prompter),
+        Outcome::Script(run) => {
+            // `--yes` innermost, so the script's passphrase policy sits
+            // over it and every question it doesn't answer reaches it.
+            let assume_yes = assumeyes::AssumeYes(prompter);
+            let base: &dyn Prompter = if run.assume_yes {
+                &assume_yes
+            } else {
+                prompter
+            };
+            // A human can be asked only when there is a terminal and the
+            // commands aren't arriving on it: `--script FILE` leaves stdin
+            // free to answer on, `--stdin` has spent it.
+            let can_prompt = run.source != cli::ScriptSource::Stdin && io.stdin_is_terminal;
+            // With nobody to ask, an ambiguous query fails with its list
+            // rather than reading a pick off the command stream.
+            let no_choose = scriptprompt::NoChoosePrompter(base);
+            let base: &dyn Prompter = if can_prompt { base } else { &no_choose };
+            let passphrase_env = io.passphrase_env.take();
+            let prompter = scriptprompt::for_script(base, passphrase_env.as_ref(), can_prompt);
+            repl::run_script(reg, io, &*prompter, &run.source)
+        }
         Outcome::Command("help", matches) => {
             let topic: Vec<String> = matches
                 .get_many::<String>("command")
@@ -157,6 +196,8 @@ fn print(io: &mut Io, text: &str) -> Result<(), CliError> {
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
+mod clip_tests;
+#[cfg(test)]
 mod complete_tests;
 #[cfg(test)]
 mod entry_tests;
@@ -167,13 +208,19 @@ mod init_identity_tests;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
+mod log_cli_tests;
+#[cfg(test)]
 mod movecopy_cli_tests;
+#[cfg(test)]
+mod qr_tests;
 #[cfg(test)]
 mod query_tests;
 #[cfg(test)]
 mod recipient_cli_tests;
 #[cfg(test)]
 mod repl_tests;
+#[cfg(test)]
+mod script_tests;
 #[cfg(test)]
 mod search_tests;
 #[cfg(test)]
@@ -182,3 +229,5 @@ mod sync_tests;
 mod tests;
 #[cfg(test)]
 mod trustcache_cli_tests;
+#[cfg(test)]
+mod vault_remove_tests;

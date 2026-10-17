@@ -194,3 +194,32 @@ vault's directory, its git repository, or its remote: if you want the data
 gone, delete those yourself. It reads nothing from the vault, so it works
 even when the vault's files have already been moved or deleted. Removing
 the default vault leaves no default until you set one.
+
+Afterwards it may offer to delete this device's identity file for the
+vault (the wrapped private key under `$GAGE_DATA/identities/`), but only
+when that file is orphaned: the vault's recipient list, read fresh from
+disk, no longer holds this device's **public key**. Keys are compared,
+never labels, so a device renamed in the list still counts as listed. The
+offer is always a `[y/N]` question, and a bare Enter keeps the file, so a
+scripted `vault remove` keeps it by construction:
+
+```
+laptop-1's key is no longer a recipient of "personal". Delete this device's identity file for it?
+  ~/.local/share/gage/identities/208a0837-.../laptop-1.age
+This is the only copy of that private key, and deleting it cannot be undone. [y/N]
+```
+
+Every other case keeps the file and says why on stderr, so a key that
+might still be the only way into a vault is never deleted quietly:
+
+- the key is still a recipient, under any label (the message names it and
+  how to remove it first, with `gage recipient remove ... --reencrypt`
+  from another device)
+- no public key is recorded for this device
+- the registration points at a different vault than the one on disk
+- the recipient list can't be read
+- you declined
+
+With no identity file, or no device or vault id recorded, there is
+nothing to say. The trust cache for the vault is always deleted, as
+before.

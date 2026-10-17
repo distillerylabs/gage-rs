@@ -53,7 +53,7 @@ impl LineReader for PlainLineReader {
 /// whatever follows belongs to the prompter, which reads the same stream
 /// (a passphrase on the line after `use personal`). A last line with no
 /// newline is still a line; end of input with nothing read is `None`.
-fn read_one_line(input: &mut dyn Read) -> std::io::Result<Option<String>> {
+pub(crate) fn read_one_line(input: &mut dyn Read) -> std::io::Result<Option<String>> {
     let mut bytes = Vec::new();
     let mut byte = [0u8; 1];
     loop {

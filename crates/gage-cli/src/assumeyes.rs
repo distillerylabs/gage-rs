@@ -75,8 +75,8 @@ pub fn given(matches: &clap::ArgMatches) -> bool {
 /// writes ask through the prompter the session holds, not through the
 /// flag) or far too much (wrapping that prompter for the session's whole
 /// life would approve every change silently). Both are worse than saying
-/// so. Go lets it through in a `--script`/`--stdin` session; gage-rs has no
-/// script mode yet, so every session is refused.
+/// so. A `--script`/`--stdin` session is the exception, the CI case the flag
+/// exists for, and never reaches this: it wraps its prompter for the run.
 pub fn refused_in_session() -> CliError {
     CliError::new(
         Code::Usage,

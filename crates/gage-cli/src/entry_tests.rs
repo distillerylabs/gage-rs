@@ -14,7 +14,10 @@ use gage::vault::Vault;
 use gage::{gitrepo, vaultlock};
 use uuid::Uuid;
 
-use crate::commands::{parse_field_flags, render_ls, short_id, trim_one_trailing_newline};
+use crate::commands::{
+    align_cat_output, pad_key_lines, parse_field_flags, render_ls, render_ls_table, short_id,
+    trim_one_trailing_newline,
+};
 use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE};
 
 /// The device name `Env` gives every vault it inits (its hostname,
@@ -729,6 +732,97 @@ fn ls_is_sorted_by_title_and_shows_the_real_writer() {
     assert_eq!(titles, ["Apple", "banana", "cherry"]);
 }
 
+// Go: TestLsDefaultOutputUnchangedByHeaderFeature. Plain `ls` is
+// byte-for-byte what it was before `-H` existed.
+#[test]
+fn ls_default_output_unchanged_by_header_feature() {
+    let env = env_with_vault();
+    env.insert_ok("v", &["ProtonMail"]);
+
+    let r = env.cmd_ok(&["ls"]);
+
+    assert!(!r.stdout.contains('|'), "{:?}", r.stdout);
+    assert_eq!(r.stdout.matches('\n').count(), 1, "{:?}", r.stdout);
+    let id = env.only_entry("personal").0.to_string();
+    assert_eq!(
+        r.stdout,
+        format!(
+            "ProtonMail  {}  {}  {}  {DEVICE}\n",
+            short_id(&id),
+            today(),
+            today()
+        )
+    );
+}
+
+// Go: TestLsHeaderPrintsLabelledPipeDelimitedTable
+#[test]
+fn ls_header_prints_labelled_pipe_delimited_table() {
+    let env = env_with_vault();
+    let full = env.insert_ok("v1", &["secret0"]).to_string();
+    env.insert_ok("v2", &["test@gmail.com backup codes"]);
+
+    for flag in ["--header", "-H"] {
+        let r = env.cmd_ok(&["ls", flag]);
+        let lines = ls_lines(&r);
+        assert_eq!(lines.len(), 4, "header + separator + 2 rows:\n{}", r.stdout);
+        let (header, sep, rows) = (lines[0], lines[1], &lines[2..]);
+
+        let labels: Vec<&str> = header.split(" | ").map(str::trim_end).collect();
+        assert_eq!(
+            labels,
+            ["title", "id", "created at", "updated at", "updated by"]
+        );
+
+        // Dashes and `+` only, as long as the header, broken under each `|`.
+        assert!(sep.chars().all(|c| c == '-' || c == '+'), "{sep:?}");
+        assert_eq!(sep.chars().count(), header.chars().count());
+        for (i, c) in header.chars().enumerate() {
+            if c == '|' {
+                assert_eq!(sep.chars().nth(i), Some('+'), "{header:?}\n{sep:?}");
+            }
+        }
+
+        let fields: Vec<&str> = rows[0].split(" | ").collect();
+        assert_eq!(fields.len(), 5, "{:?}", rows[0]);
+        assert_eq!(fields[0].trim_end(), "secret0");
+        let id = fields[1].trim_end();
+        assert!(full.starts_with(id) && id.len() < full.len(), "{id:?}");
+        assert_eq!(fields[2].trim_end(), today());
+        assert_eq!(fields[3].trim_end(), today());
+        assert_eq!(fields[4], DEVICE, "the last column is never padded");
+    }
+}
+
+// Not a Go row: the exact shape. Every column but the last is padded to its
+// widest cell (header included), and the last column's dashes are sized by
+// its label, since nothing follows it.
+#[test]
+fn ls_table_pads_all_but_the_last_column_and_sizes_its_dashes_from_the_label() {
+    let rows = [
+        row("héllo wörld", Some(0), "a-long-device-name"),
+        row("x", Some(0), ""),
+    ];
+    assert_eq!(
+        render_ls_table(&rows),
+        [
+            "title       | id       | created at | updated at | updated by",
+            "------------+----------+------------+------------+-----------",
+            "héllo wörld | 0123abcd | 1970-01-01 | -          | a-long-device-name",
+            "x           | 0123abcd | 1970-01-01 | -          | -",
+        ]
+    );
+    assert!(render_ls_table(&[]).is_empty(), "no rows, no table");
+}
+
+// Go: TestLsHeaderEmptyVaultNoOutput
+#[test]
+fn ls_header_empty_vault_no_output() {
+    let env = env_with_vault();
+    let r = env.cmd_ok(&["ls", "--header"]);
+    assert_eq!((r.stdout.as_str(), r.stderr.as_str()), ("", ""));
+}
+
 // Go: TestShortEntryIDLeavesShortStringsAlone
 #[test]
 fn short_entry_id_leaves_short_strings_alone() {
@@ -1089,4 +1183,301 @@ fn two_registrations_of_one_repository_share_one_lock() {
     });
     let _ = holder.wait();
     assert_eq!(env.entries("personal").len(), 1);
+}
+
+// --- cat's display pass -----------------------------------------------------
+
+const CAT_ID: &str = "0123abcd";
+
+fn aligned(e: &Entry) -> String {
+    let data = entry::marshal(e).unwrap();
+    String::from_utf8(align_cat_output(CAT_ID, &data)).unwrap()
+}
+
+fn cat_lines(out: &str) -> Vec<&str> {
+    out.trim_end_matches('\n').split('\n').collect()
+}
+
+fn colon(line: &str) -> usize {
+    line.find(':')
+        .unwrap_or_else(|| panic!("no colon in {line:?}"))
+}
+
+/// The one line of `lines` matching `pred`, failing unless exactly one does.
+fn only_line(lines: &[&str], pred: impl Fn(&str) -> bool) -> usize {
+    let hits: Vec<usize> = (0..lines.len()).filter(|&i| pred(lines[i])).collect();
+    assert_eq!(hits.len(), 1, "want exactly one match in {lines:#?}");
+    hits[0]
+}
+
+fn key_is(line: &str, key: &str) -> bool {
+    line.trim_start()
+        .strip_prefix(key)
+        .is_some_and(|rest| rest.trim_start().starts_with(':'))
+}
+
+fn simple(title: &str, value: &str) -> Entry {
+    Entry {
+        title: title.into(),
+        value: value.into(),
+        ..Entry::default()
+    }
+}
+
+fn with_fields(mut e: Entry, fields: &[(&str, &str)]) -> Entry {
+    e.fields = fields
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+    e
+}
+
+// Go: TestAlignCatOutputInsertsIDLineAfterTitle
+#[test]
+fn align_cat_output_inserts_id_line_after_title() {
+    let out = aligned(&simple("ProtonMail", "v"));
+    let lines = cat_lines(&out);
+    assert!(lines[0].starts_with("title"), "{lines:?}");
+    let (key, value) = lines[1].split_once(':').unwrap();
+    assert_eq!(key.trim_end(), "id", "{lines:?}");
+    assert_eq!(value, format!(" {CAT_ID}"));
+}
+
+// Go: TestAlignCatOutputAlignsTopLevelColumn. The column follows the
+// widest label present, not a fixed one.
+#[test]
+fn align_cat_output_aligns_top_level_column() {
+    let mut described = simple("X", "v");
+    described.description = "a description".into();
+    for e in [
+        simple("X", "v"),
+        described,
+        with_fields(simple("X", "v"), &[("username", "u"), ("totp_seed", "t")]),
+    ] {
+        let out = aligned(&e);
+        let cols: Vec<usize> = cat_lines(&out)
+            .into_iter()
+            .filter(|l| !l.is_empty() && !l.starts_with(' '))
+            .map(colon)
+            .collect();
+        assert!(cols.len() >= 3, "{out}");
+        assert!(cols.iter().all(|&c| c == cols[0]), "misaligned:\n{out}");
+    }
+}
+
+// Go: TestAlignCatOutputAlignsFieldsIndependently
+#[test]
+fn align_cat_output_aligns_fields_independently() {
+    let e = with_fields(simple("X", "v"), &[("username", "u"), ("totp_seed", "t")]);
+    let out = aligned(&e);
+    let lines = cat_lines(&out);
+    let cols: Vec<usize> = lines
+        .iter()
+        .filter(|l| l.starts_with(' '))
+        .map(|l| colon(l))
+        .collect();
+    assert_eq!(cols.len(), 2, "{out}");
+    assert_eq!(cols[0], cols[1], "{out}");
+    let top = colon(lines[0]);
+    assert_ne!(cols[0], top, "the fields column is its own:\n{out}");
+    // "totp_seed" is the widest sub-key: indent 2 + 9.
+    assert_eq!(cols[0], 2 + "totp_seed".len());
+}
+
+// Go: TestAlignCatOutputRoundTrips. Without the synthetic id line, what is
+// printed parses back to the same entry.
+#[test]
+fn align_cat_output_round_trips() {
+    let mut want = with_fields(
+        simple("ProtonMail", "correcthorsebatterystaple"),
+        &[
+            ("username", "me@proton.me"),
+            ("totp_seed", "JBSWY3DPEHPK3PXP"),
+        ],
+    );
+    want.description = "Personal email".into();
+    want.updated_by = "yubikey-5c-nfc-1".into();
+    let out = aligned(&want);
+    let stripped: String = out
+        .split_inclusive('\n')
+        .filter(|l| !key_is(l, "id"))
+        .collect();
+    assert_eq!(entry::unmarshal(stripped.as_bytes()).unwrap(), want);
+}
+
+// Go: TestAlignCatOutputDedentsMultilineValue
+#[test]
+fn align_cat_output_dedents_multiline_value() {
+    let value = "line one\nline two\nline three";
+    let out = aligned(&simple("X", value));
+    let lines = cat_lines(&out);
+    let at = only_line(&lines, |l| key_is(l, "value"));
+    assert!(lines[at].contains('|'), "{lines:?}");
+    assert_eq!(&lines[at + 1..], ["line one", "line two", "line three"]);
+}
+
+// Go: TestAlignCatOutputDedentsFieldsSubValue
+#[test]
+fn align_cat_output_dedents_fields_sub_value() {
+    let e = with_fields(simple("X", "v"), &[("note", "a\nb\nc")]);
+    let out = aligned(&e);
+    let lines = cat_lines(&out);
+    let at = only_line(&lines, |l| key_is(l, "note"));
+    assert!(lines[at].contains('|'), "{lines:?}");
+    assert_eq!(&lines[at + 1..], ["a", "b", "c"]);
+}
+
+// Go: TestAlignCatOutputDedentsValueFollowedByMoreKeys. The span ends at
+// its own content: `fields` follows right after, found and aligned.
+#[test]
+fn align_cat_output_dedents_value_followed_by_more_keys() {
+    let e = with_fields(simple("X", "alpha\nbeta"), &[("k", "v")]);
+    let out = aligned(&e);
+    let lines = cat_lines(&out);
+    let value = only_line(&lines, |l| key_is(l, "value"));
+    assert_eq!((lines[value + 1], lines[value + 2]), ("alpha", "beta"));
+    let fields = only_line(&lines, |l| key_is(l, "fields"));
+    assert_eq!(fields, value + 3, "{out}");
+    assert_eq!(lines[fields + 1], "  k: v");
+}
+
+// Go: TestAlignCatOutputSkipsAlignmentForQuotedKeys
+#[test]
+fn align_cat_output_skips_alignment_for_quoted_keys() {
+    let e = with_fields(
+        simple("X", "v"),
+        &[("weird: key", "val1"), ("username", "val2")],
+    );
+    let out = aligned(&e);
+    assert!(
+        out.contains("'weird: key': val1") || out.contains("\"weird: key\": val1"),
+        "{out}"
+    );
+    // The quoted key doesn't widen the bare ones: "username" is alone.
+    assert!(out.contains("  username: val2"), "{out}");
+    let stripped: String = out
+        .split_inclusive('\n')
+        .filter(|l| !key_is(l, "id"))
+        .collect();
+    assert_eq!(entry::unmarshal(stripped.as_bytes()).unwrap(), e);
+}
+
+// Go: TestAlignCatOutputLeavesMultilineValueContentAlone. Content that
+// looks like `key: value` is never padded or taken for a key, and its span
+// does not bleed into the `fields` block after it.
+#[test]
+fn align_cat_output_leaves_multiline_value_content_alone() {
+    let e = with_fields(
+        simple("X", "note: this looks like yaml\nsecond line"),
+        &[("username", "u")],
+    );
+    let out = aligned(&e);
+    let lines = cat_lines(&out);
+    let value = only_line(&lines, |l| key_is(l, "value"));
+    assert_eq!(lines[value + 1], "note: this looks like yaml");
+    assert_eq!(lines[value + 2], "second line");
+    let fields = only_line(&lines, |l| key_is(l, "fields"));
+    assert_eq!(fields, value + 3, "{out}");
+    assert_eq!(lines[fields + 1], "  username: u");
+}
+
+// Not a Go row: `id` is a key in the column, even when it is the widest.
+#[test]
+fn align_cat_output_counts_the_id_line_toward_the_column() {
+    let out = String::from_utf8(align_cat_output(CAT_ID, b"a: 1\nb: 2\n")).unwrap();
+    assert_eq!(out, format!("a : 1\nid: {CAT_ID}\nb : 2\n"));
+}
+
+// Go: TestAlignCatOutputLeavesNonMappingInputAlone
+#[test]
+fn align_cat_output_leaves_non_mapping_input_alone() {
+    for input in [
+        "- just\n- a sequence\n",
+        "a plain scalar\n",
+        "title: [this is not\nvalid: yaml\n",
+        "",
+    ] {
+        assert_eq!(align_cat_output(CAT_ID, input.as_bytes()), input.as_bytes());
+    }
+}
+
+// Go: TestPadKeyLinesWithNoKeysIsANoOp
+#[test]
+fn pad_key_lines_with_no_keys_is_a_no_op() {
+    let mut lines = vec!["one".to_string(), "two".to_string()];
+    pad_key_lines(&mut lines, &[]);
+    assert_eq!(lines, ["one", "two"]);
+}
+
+// Go: TestCatCommandPrintsIDLineThroughTheCLI
+#[test]
+fn cat_command_prints_id_line_through_the_cli() {
+    let env = env_with_vault();
+    let id = env.insert_ok("secret", &["ProtonMail"]);
+    let want = short_id(&id.to_string()).to_string();
+
+    let cat = env.cmd_ok(&["cat", "ProtonMail"]);
+
+    let id_line = cat
+        .stdout
+        .lines()
+        .find(|l| key_is(l, "id"))
+        .unwrap_or_else(|| panic!("no id line:\n{}", cat.stdout));
+    assert_eq!(id_line.split_once(':').unwrap().1.trim(), want);
+    // `ls` shows the same id for the entry.
+    assert!(env.cmd_ok(&["ls"]).stdout.contains(&want));
+    let stripped: String = cat
+        .stdout
+        .split_inclusive('\n')
+        .filter(|l| !key_is(l, "id"))
+        .collect();
+    let e = entry::unmarshal(stripped.as_bytes()).unwrap();
+    assert_eq!(
+        (e.title.as_str(), e.value.as_str()),
+        ("ProtonMail", "secret")
+    );
+}
+
+// Beyond Go's rows: M12b's commands keep Go's descriptions and flags (a
+// reference, not a byte gate: Q-COMPAT).
+#[test]
+fn p6_ls_cat_and_vault_remove_have_their_go_fixture_flags_and_descriptions() {
+    let env = Env::new();
+    for (args, fixture) in [
+        (
+            &["ls", "--help"][..],
+            include_str!("../../../tests/fixtures/go/help/ls.txt"),
+        ),
+        (
+            &["cat", "--help"][..],
+            include_str!("../../../tests/fixtures/go/help/cat.txt"),
+        ),
+        (
+            &["vault", "remove", "--help"][..],
+            include_str!("../../../tests/fixtures/go/help/vault_remove.txt"),
+        ),
+    ] {
+        let help = env.ok(args).stdout;
+        let name = args[..args.len() - 1].join(" ");
+        assert!(
+            help.starts_with(fixture.lines().next().unwrap()),
+            "{name}:\n{help}"
+        );
+        for line in fixture
+            .lines()
+            .skip(1)
+            .take_while(|l| !l.starts_with("Usage:"))
+            .filter(|l| !l.is_empty())
+        {
+            assert!(help.contains(line.trim()), "{name}: {line:?}\n{help}");
+        }
+        for line in fixture.lines().filter(|l| l.trim_start().starts_with('-')) {
+            let text = line.split("   ").last().unwrap().trim();
+            assert!(help.contains(text), "{name}: {text:?}\n{help}");
+        }
+    }
+    // `ls` alone gains `-H/--header`; plain `cat` takes no new flag.
+    let ls = env.ok(&["ls", "--help"]).stdout;
+    assert!(ls.contains("-H, --header"), "{ls}");
+    assert!(!env.ok(&["cat", "--help"]).stdout.contains("--header"));
 }

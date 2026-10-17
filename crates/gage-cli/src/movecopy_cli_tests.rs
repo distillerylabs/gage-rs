@@ -42,7 +42,14 @@ fn mv_through_the_cli_moves_entry_between_vaults() {
     assert!(got.stdout.contains("hunter2"), "{}", got.stdout);
     assert!(!env.titles_in("personal").contains("GitHub"));
     let cat = env.cmd_ok(&["cat", "GitHub", "--use", "shared"]);
-    assert!(cat.stdout.contains("value: hunter2"), "{}", cat.stdout);
+    // `cat` aligns its keys, so the colon is not right after `value`.
+    assert!(
+        cat.stdout
+            .lines()
+            .any(|l| l.starts_with("value") && l.ends_with(": hunter2")),
+        "{}",
+        cat.stdout
+    );
     assert_eq!(
         env.cmd(&["show", "GitHub", "--use", "personal"]).code,
         Code::NotFound

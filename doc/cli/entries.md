@@ -6,15 +6,12 @@ in the vault, encrypted to every recipient the vault lists, and every
 write is one git commit.
 
 > **Status.** gage-rs can `insert`, `generate`, `show`, `cat`, `edit`,
-> `rename`, `rm`, `mv`, `cp`, `ls` and `search` entries. Run one-shot, each command
-> unlocks the vault, does one thing and forgets the key; in a
-> [session](session-mode.md) they all reuse the key the session holds,
-> and `ls`, queries and `search` read its
-> [metadata index](session-mode.md#the-metadata-index). Sync arrives with
-> phase 4 of the
-> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md);
-> `show`/`generate`'s `-c`/`--clip` and `-q`/`--qr`, and `ls --header`,
-> with phase 6.
+> `rename`, `rm`, `mv`, `cp`, `ls`, `search`, `log` and `history --decrypt`
+> entries. Run one-shot, each command unlocks the vault, does one thing and
+> forgets the key; in a [session](session-mode.md) (or a
+> [script](session-mode.md#non-interactive-sessions-scripting)) they all
+> reuse the key the session holds, and `ls`, queries and `search` read its
+> [metadata index](session-mode.md#the-metadata-index).
 
 Every entry command takes `-u`/`--use NAME` to pick a vault. Without it,
 the current vault is used (see [Vaults](vaults.md)). A name that isn't
@@ -109,13 +106,77 @@ ends in one, so a multi-line value prints as stored.
 doesn't have exits `3` (`not-found`), listing the field names it does have
 (never their values), or saying it has none.
 
+`-c` and `-q` hand the value over instead of printing it; see
+[Copying and QR codes](#copying-and-qr-codes).
+
+### Copying and QR codes
+
+`show` and `generate` take two flags that deliver a secret without putting
+it in your scrollback. They are exclusive: nothing prints the value
+alongside either one, and `-c` with `-q` is refused (exit `2`). `generate`
+checks that before it writes anything, so a refused run never leaves a new
+secret in the vault.
+
+- **`-c`/`--clip`** copies the value to the clipboard and says so on
+  stderr; nothing reaches stdout. One-shot, it writes `gage: copied to
+  clipboard; clears in 45s — Ctrl-C to clear now.`, then waits out the
+  timeout, clears the clipboard and exits `0`; Ctrl-C during the wait
+  clears it at once and also exits `0` (you are done pasting, not
+  aborting). In a
+  [session](session-mode.md#everything-else-works-in-a-session-too) it
+  writes `gage: copied to clipboard; clears in 45s.`, the clear is
+  scheduled and the prompt comes straight back, and ending the session
+  clears anything pending.
+
+  The timeout is `[shell].clipboard_timeout`, 45 seconds by default (see
+  [Session mode](session-mode.md#shell-settings)). gage keeps only a
+  SHA-256 of what it copied, never the value, and clears only if the
+  clipboard still holds that: if you've copied something else since, it is
+  left alone, and so is a clipboard gage can't read. A second copy
+  replaces the first one's pending clear. A scheduled clear that fails is
+  reported on stderr, since "your secret is still on the clipboard" is
+  something you need to hear.
+
+  One limit: if gage is killed outright (`SIGKILL`) the value stays on the
+  clipboard, because nothing was left running to clear it. gage starts no
+  background process that outlives it.
+- **`-q`/`--qr`** renders a terminal QR code instead, in half-block
+  characters with a four-module quiet zone, to scan with a phone rather
+  than type or paste. With `show --field NAME -q` it encodes only that
+  field, so a structured note isn't dumped whole into a code when you
+  wanted one piece. An empty value, or one too long for a QR code, is
+  refused (exit `2`).
+
+With `-c`, `show --field NAME` copies that field, and `generate -c`
+copies the new value and still prints `gage: generated "<title>" (<id>)`.
+
 ## `gage cat <query>`
 
 Prints the entry's full decrypted contents as YAML, for scripting and
 piping: `title`, `description`, `created`, `updated`, `updated_by`,
-`value`, `fields`. It is the same text that is stored inside the
-ciphertext. (A later phase adds the short id and aligned labels for
-display.)
+`value`, `fields`. It is the stored text with three display-only changes:
+
+- an `id:` line, the entry's short id (the one `ls` prints), right after
+  `title`. It isn't part of what's stored.
+- the labels padded so every `:` lines up, with each `fields` mapping's
+  keys aligned independently.
+- a multi-line value printed flush left, with no added indentation, so it
+  copies and pastes cleanly.
+
+```
+title      : GitHub
+id         : 4245dddd
+description: code host
+created    : 2026-10-17T03:34:30Z
+updated    : 2026-10-17T03:34:30Z
+updated_by : laptop-1
+value      : hunter2
+```
+
+That makes `cat` display-only for scripts that parse it: `grep '^value:'`
+and `cut -d: -f2` need to allow for the padding, and an entry with a
+multi-line value no longer parses back as strict YAML. Use `gage show`
+(optionally `--field`) when a script needs the raw value.
 
 ## `gage edit <query>`
 
@@ -169,6 +230,22 @@ The columns are title, short id (the first 8 characters), created,
 updated (both UTC, to the day) and `updated_by`. `-` stands in for any
 value an entry doesn't have. An empty vault prints nothing.
 
+`-H`/`--header` prints a labelled table instead, for a human reading a
+terminal rather than a script: a header row, a row of dashes under it
+broken with `+` at each column boundary, and rows delimited by ` | `. The
+last column is never padded.
+
+```
+$ gage ls --header
+title  | id       | created at | updated at | updated by
+-------+----------+------------+------------+-----------
+GitHub | 4245dddd | 2026-10-17 | 2026-10-17 | laptop-1
+```
+
+Plain `ls` is unchanged and stays the greppable form, and both shapes
+print the same in a session as one-shot. An empty vault still prints
+nothing.
+
 ## `gage search <pattern>` (alias `grep`)
 
 Finds entries whose title, description, value or any field value contains
@@ -186,6 +263,52 @@ secret, and that stays out of scrollback. No match prints nothing at all,
 so `gage search x | wc -l` counts matches. Like `ls`, it decrypts the
 whole vault one-shot; in a session, titles and descriptions come from the
 index and only the body half is decrypted.
+
+## `gage log [query]`
+
+When an entry changed, newest first: one line per commit with the local
+time and the short commit hash.
+
+```
+2026-10-16 20:35:44 -0700  032ad60  3a001757
+2026-10-16 20:34:59 -0700  4ce297b  bfaedc52
+```
+
+With no query it is every entry the vault holds now, as one timeline, with
+each line's short entry id at the end. With a query it is that entry's
+commits, without the id. A commit that deleted the entry is marked
+`(deleted)`.
+
+Nothing decrypted reaches the output, and commit messages are never
+printed (they are the entry's UUID and would only repeat the id). `log`
+still asks for your passphrase, because resolving a title means decrypting
+the entries. A removed entry's history is reached by its full id, after
+ordinary resolution finds nothing; a substring never matches a removed
+entry, and a vault-wide `log` doesn't list removed ones. An entry with no
+commits says so on stderr and exits `0`.
+
+## `gage history --decrypt <query>`
+
+Decrypts every past revision of one entry and shows what changed, oldest
+first, each revision as a diff against the one before it:
+
+```
+== 2026-10-16 20:34:30 -0700  6f2eec5
++ title: GitHub
++ description: code host
++ value: hunter2
++ updated_by: laptop-1
+```
+
+A header per revision (time, hash, and ` (deleted)` where it removed the
+entry), then one line for each compared part of the entry, marked `+`,
+`-` or a space. A deleted revision prints its header and no body.
+
+This is a separate command, and `--decrypt` and the query are both
+mandatory, because it prints old secret values: more dangerous than seeing
+*when* something changed. It doesn't ask for confirmation and has no bulk
+form. A revision your identity can't decrypt is an error, never skipped.
+Like `log` it accepts a removed entry's full id.
 
 ## `gage reindex`
 

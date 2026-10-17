@@ -1,6 +1,6 @@
 # M11 — Cross-vault `mv`/`cp`
 
-[← M10](m10-trust-cache.md) · [P5 plan](index.md) · [#45](https://github.com/distillerylabs/gage-rs/issues/45) · next: P6 Polish
+[← M10](m10-trust-cache.md) · [P5 plan](index.md) · [#45](https://github.com/distillerylabs/gage-rs/issues/45) · next: [P6 Polish](../p6-polish/index.md)
 
 > **Recommended model: Sonnet\* ⚑.** A small milestone: M2's encrypt
 > primitive pointed at a second vault's recipients. The real wrinkles are

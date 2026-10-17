@@ -18,6 +18,10 @@ use crate::version::BuildInfo;
 
 const ROOT_ABOUT: &str = "gage — a git-backed, age-encrypted secret & notes manager";
 
+/// The ids of the two script flags, as clap registers them on the root.
+const SCRIPT_FLAG: &str = "script";
+const STDIN_FLAG: &str = "stdin";
+
 const ROOT_FOOTER: &str = r#"Use "gage help <command>" (or "gage <command> --help") for more information about a command."#;
 
 /// Per-command help: description, usage, then children, arguments and
@@ -34,6 +38,25 @@ pub enum Outcome {
     Session,
     /// A registered leaf command, by full name, with its matches.
     Command(&'static str, ArgMatches),
+    /// `--script FILE` or `--stdin` on bare `gage`: a whole session's
+    /// commands from somewhere that isn't a prompt. It wins over the
+    /// terminal check, so a script run from a terminal is still a script.
+    Script(ScriptRun),
+}
+
+/// A non-interactive session to run: where its lines come from, and
+/// whether `--yes` was given for the whole run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptRun {
+    pub source: ScriptSource,
+    pub assume_yes: bool,
+}
+
+/// Where a non-interactive session's command lines come from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScriptSource {
+    File(String),
+    Stdin,
 }
 
 /// The full one-shot command tree for `reg`.
@@ -61,6 +84,26 @@ pub fn build(reg: &Registry, build: &BuildInfo) -> Command {
                 .global(true)
                 .hide(true)
                 .help("answer the recipient-change confirmation with yes, without showing it (for scripts and CI)"),
+        )
+        // The other two root persistent flags: only ever meaningful on
+        // bare `gage`, where they choose a whole session's input. Global
+        // and hidden like `--yes`, so clap accepts them wherever typed and
+        // `parse` can refuse the combinations that mean two things.
+        .arg(
+            Arg::new(SCRIPT_FLAG)
+                .long("script")
+                .value_name("FILE")
+                .global(true)
+                .hide(true)
+                .help("run session commands from a file instead of a prompt"),
+        )
+        .arg(
+            Arg::new(STDIN_FLAG)
+                .long("stdin")
+                .action(ArgAction::SetTrue)
+                .global(true)
+                .hide(true)
+                .help("run session commands read from stdin instead of a prompt"),
         )
         .disable_help_subcommand(true)
         .override_help(render_root_help(reg))
@@ -262,7 +305,17 @@ pub fn parse(
             };
         }
     };
+    let script = script_source(&matches)?;
     let Some((name, sub)) = matches.subcommand() else {
+        if let Some(source) = script {
+            // `--yes` is for a run with nobody to show a recipient diff
+            // to, which is exactly this; it is refused only where a human
+            // is at the session.
+            return Ok(Outcome::Script(ScriptRun {
+                source,
+                assume_yes: crate::assumeyes::given(&matches),
+            }));
+        }
         // Bare `gage --yes`: on the way into a session on a terminal, and
         // Go refuses it the same way when there is none.
         if crate::assumeyes::given(&matches) {
@@ -274,7 +327,35 @@ pub fn parse(
             Outcome::Print(render_root_help(reg))
         });
     };
+    if script.is_some() {
+        // They choose where a whole session's lines come from, so with a
+        // command they ask for a session and a one-shot in one breath.
+        // Refusing beats picking one and ignoring half of what was typed.
+        return Err(CliError::new(
+            Code::Usage,
+            format!(
+                "gage: --script/--stdin run a whole session's commands, so they can't be \
+                 combined with the {name:?} command; put {name} on a line in the script instead"
+            ),
+        ));
+    }
     resolve(&cli, reg, vec![name.to_string()], sub)
+}
+
+/// The script source the flags name, if any. Both at once has no answer:
+/// there would be two command streams.
+fn script_source(matches: &ArgMatches) -> Result<Option<ScriptSource>, CliError> {
+    let file = matches.get_one::<String>(SCRIPT_FLAG);
+    let stdin = matches.get_flag(STDIN_FLAG);
+    match (file, stdin) {
+        (Some(_), true) => Err(CliError::new(
+            Code::Usage,
+            "gage: --script and --stdin are mutually exclusive",
+        )),
+        (Some(file), false) => Ok(Some(ScriptSource::File(file.clone()))),
+        (None, true) => Ok(Some(ScriptSource::Stdin)),
+        (None, false) => Ok(None),
+    }
 }
 
 /// Descends to the leaf the matches name. A parent with no subcommand

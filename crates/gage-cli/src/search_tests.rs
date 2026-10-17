@@ -228,6 +228,22 @@ fn ls_renders_identically_in_both_modes() {
     assert_eq!(session_rows(&session.stdout), want);
 }
 
+// Go: entry TestLsHeaderRendersIdenticallyInBothModes: the labelled table
+// goes through the same renderer in a session as it does one-shot.
+#[test]
+fn ls_header_renders_identically_in_both_modes() {
+    let env = env_with_vault();
+    for title in ["AWS root account", "a", "Café"] {
+        env.add("personal", title, &format!("v-{title}"));
+    }
+
+    let one_shot = env.cmd_ok(&["ls", "--header"]).stdout;
+    let session = env.session_ok(&["use personal", PASSPHRASE, "ls --header", "exit"]);
+    let want: Vec<&str> = one_shot.lines().collect();
+    assert_eq!(want.len(), 5, "header + separator + 3 rows");
+    assert_eq!(session_rows(&session.stdout), want);
+}
+
 // `search` in a session agrees with one-shot through the CLI too, and a
 // second search in the session decrypts again rather than reading a cache
 // (observable only as the same answer; the count is the library's test).

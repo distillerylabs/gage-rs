@@ -11,7 +11,8 @@ extends it. For everything gage will do, see [Go gage's documentation](https://g
 - [Addressing entries](addressing-entries.md): how a query finds an entry,
   and what happens when it finds more than one.
 - [Session mode](session-mode.md): `gage` with no command, which unlocks
-  each vault once for many commands.
+  each vault once for many commands, and `--script`/`--stdin`, which run
+  a list of commands the same way with nobody at the prompt.
 - [Identities and recipients](identities-and-recipients.md): who can read a
   vault, adding and removing recipients, `recipient verify`, the local
   trust cache and the recipient-change confirmation.

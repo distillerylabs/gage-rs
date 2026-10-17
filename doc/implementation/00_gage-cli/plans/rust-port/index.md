@@ -66,7 +66,7 @@ line up.
 | P3 Query & session ([plan](p3-query-session/index.md), [#21](https://github.com/distillerylabs/gage-rs/issues/21)) | M5 resolver · M6 session/REPL · M7 metadata index · M13 completion | `[x]` | Sonnet; Sonnet* for M6/M13 (⚑ Opus review of M5's scratch-file and M7's index tests) | P2 |
 | P4 Sync ([plan](p4-sync/index.md), [#32](https://github.com/distillerylabs/gage-rs/issues/32)) | M8a1 remote primitives & auth · M8a2 sync wiring · M8b conflict resolution | `[x]` | **Opus** | P3 |
 | P5 Recipients & trust ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)) | M9a identities + recipient read side · M9b recipient writes + re-encryption · M10 trust cache · M11 cross-vault | `[x]` | Sonnet for M9a; **Opus** for M9b; Sonnet* for M10/M11 (⚑ Opus review of M10's laundering and M11's lock-order tests) | P4 |
-| P6 Polish | M12 output modes, `log`/`history`, `--script` | `[ ]` | Sonnet | P5 |
+| P6 Polish ([plan](p6-polish/index.md), [#52](https://github.com/distillerylabs/gage-rs/issues/52)) | M12a `log`/`history` · M12b `cat`, `ls -H`, orphan cleanup · M12c `-c`/`-q` · M12d `--script`/`--stdin` | `[x]` | Sonnet; Sonnet* for M12c (⚑ Opus review of M12a's merge-walk, M12b's never-delete and M12d's passphrase-source tests) | P5 |
 | P7 Enrollment | E1b · E2 · E3 · E4 | `[ ]` | **Opus** | P5 |
 | P8 Recovery key | R0–R5, regrouped into 3–4 milestones | `[ ]` | **Opus** for the R1/R3/R4 material | P7; P6 (R1 displays the key through M12's QR renderer) |
 | P9 Parity sign-off | Ledger closed, every test-inventory row ported or excused, user docs complete | `[ ]` | **Opus** review | P8 |
@@ -105,7 +105,7 @@ cover commands from every earlier phase.
 | M9 Recipients | P5 · M9a + M9b | Split by risk ([Q-P5-SPLIT](open-questions.md#q-p5-split)): identities and the read side (M9a), then the writes, re-encryption atomicity and the dirty-tree reset (M9b). A19/E1a folded into M9b: no `--reencrypt` on `add`, `RequireFullAccess`. |
 | M10 Trust cache | P5 · M10 | Vault-id-keyed path from the start. |
 | M11 Cross-vault sharing | P5 · M11 | |
-| M12 Polish | P6 · M12 | Includes `vault remove` orphaned-identity cleanup by public key with `Confirm` (#39 as revised by E0), `ls -H/--header` (#54), and `cat`'s display-only short id, label alignment and flush-left multi-line values (#55) — Go records both under M12. |
+| M12 Polish | P6 · M12a–M12d | Split by layer ([Q-P6-SPLIT](open-questions.md#q-p6-split)). Includes `vault remove` orphaned-identity cleanup by public key with `Confirm` (#39 as revised by E0), `ls -H/--header` (#54), and `cat`'s display-only short id, label alignment and flush-left multi-line values (#55) — Go records both under M12. |
 | E0 Vault-id keying | — | Folded into M1/M2/M10 and the vault lock (M0b/M1). |
 | E1a Unconditional re-encrypt | — | Folded into M9. |
 | E1b–E4 Enrollment | P7 · E1b, E2, E3, E4 | E1b's `recipient_batch_test.go` was tagged P5 by file name; re-tagged to P7 ([Q-E1B-RETAG](open-questions.md#q-e1b-retag)). |
@@ -160,8 +160,10 @@ planning settles what that phase uses. "First used" names the milestone that int
 | Line editing | `rustyline` 18 | decided ([Q-LINE-EDITOR](open-questions.md#q-line-editor)) | M6 | chzyer/readline |
 | `$EDITOR` lookup | `which` | decided ([Q-EDITOR](open-questions.md#q-editor)) | M5 | `exec.LookPath` |
 | Random values (`generate`) | `rand_core` 0.6 `OsRng` (already in the tree through `age`) | decided | M5 | crypto/rand |
-| Clipboard | `arboard` | likely | M12 | atotto/clipboard |
-| QR encoding | `qrcode` (encoding only; half-block rendering is gage's own) | likely | M12 | rsc.io/qr |
+| Clipboard | `arboard` (`gage-cli` only, no default features, `wayland-data-control`) | decided ([Q-CLIPBOARD](open-questions.md#q-clipboard)) | M12c | atotto/clipboard |
+| Ctrl-C during `show -c`'s wait | `ctrlc` (one-shot `-c` path only) | decided ([Q-CLIPBOARD](open-questions.md#q-clipboard)) | M12c | os/signal |
+| Clipboard clear's digest | `sha2` 0.10 + `subtle` (both already in the tree through the library and `age`) | decided ([Q-CLIPBOARD](open-questions.md#q-clipboard)) | M12c | crypto/sha256, crypto/subtle |
+| QR encoding | `qrcode` (no default features; encoding only; half-block rendering is gage's own) | decided ([Q-QR-CRATE](open-questions.md#q-qr-crate)) | M12c | rsc.io/qr |
 | CLI test harness | `assert_cmd` (binary smoke tests only) | likely | M0a | `os/exec` in tests |
 
 As in Go: no host-specific code paths or dependencies, no OAuth broker, no

@@ -8,9 +8,6 @@
 //! session's picker in a session. In a session, reads that need every
 //! entry's metadata (`ls`, resolution, `search`'s title half) come from its
 //! metadata index, and every write tells the index what changed.
-//!
-//! `-c/--clip` and `-q/--qr` (on `show` and `generate`) and `ls
-//! -H/--header` are P6 · M12's.
 
 use std::collections::BTreeMap;
 
@@ -27,7 +24,8 @@ use gage::vault::Vault;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use super::{Keys, arg, dirs, fail, load_global, out};
+use super::secretout::{self, Destination, clip_flag, qr_flag};
+use super::{Keys, arg, catfmt, dirs, fail, load_global, out};
 use crate::Io;
 use crate::editor;
 use crate::error::CliError;
@@ -35,7 +33,8 @@ use crate::error::CliError;
 pub const LS_LONG_ABOUT: &str = "List entries with their ids, dates, and last writer.
 
 Columns: title, short id, created, updated, updated_by.
-Dates are UTC, to the day; `gage cat <query>` shows the full entry.";
+Dates are UTC, to the day; `gage cat <query>` shows the full entry.
+--header prints a labelled table instead of plain rows.";
 
 /// How many characters of an entry's UUID `ls` shows.
 const SHORT_ID_LEN: usize = 8;
@@ -101,14 +100,17 @@ pub fn flags(name: &str) -> Vec<Arg> {
                 .help("read the value verbatim from stdin (one trailing newline trimmed)"),
         ],
         "show" => vec![
+            clip_flag("copy to the clipboard instead of printing, and clear it after a timeout"),
             Arg::new("field")
                 .long("field")
                 .value_name("NAME")
                 .help("print one entry from fields instead of the value"),
+            qr_flag("render a QR code instead of printing the value"),
             use_flag(),
         ],
         "rename" => vec![force_flag("allow renaming to a duplicate title"), use_flag()],
         "generate" => vec![
+            clip_flag("copy the generated value to the clipboard, and clear it after a timeout"),
             description_flag(),
             force_flag("allow inserting a duplicate title"),
             Arg::new("length")
@@ -125,6 +127,15 @@ pub fn flags(name: &str) -> Vec<Arg> {
                 .long("no-symbols")
                 .action(ArgAction::SetTrue)
                 .help("draw from letters and digits only"),
+            qr_flag("render the generated value as a QR code"),
+            use_flag(),
+        ],
+        "ls" => vec![
+            Arg::new("header")
+                .short('H')
+                .long("header")
+                .action(ArgAction::SetTrue)
+                .help("print a labelled, |-delimited table instead of plain unlabelled rows"),
             use_flag(),
         ],
         _ => vec![use_flag()],
@@ -482,8 +493,11 @@ pub fn parse_field_flags(raw: &[String]) -> Result<BTreeMap<String, String>, Cli
 
 /// The entry's value alone, or with `--field NAME` one of its fields, for
 /// piping. Exactly one trailing newline: none is added to a value that
-/// already ends in one, so a multi-line value prints as stored.
+/// already ends in one, so a multi-line value prints as stored. `--field`
+/// picks which value and `-c`/`-q` where it goes: two decisions, composed
+/// through one emitter rather than four branches.
 pub fn show(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    let dest = Destination::from_matches(matches)?;
     let query = arg(matches, "query");
     let field = matches.get_one::<String>("field");
     let value = keys.with_resolved(matches, io, query, |_, _, _, _, e| {
@@ -493,18 +507,22 @@ pub fn show(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
         };
         Ok(Zeroizing::new(value.to_string()))
     })?;
-    let _ = io.stdout.write_all(value.as_bytes());
-    if !value.ends_with('\n') {
-        let _ = io.stdout.write_all(b"\n");
-    }
-    Ok(())
+    secretout::emit_secret(io, keys, &value, dest)
 }
 
-/// The entry's YAML exactly as it is stored inside the ciphertext.
+/// The entry's full plaintext YAML, for scripting and piping, with the
+/// display changes of [`catfmt`]: an `id` line, aligned keys, and block
+/// values flush left.
 pub fn cat(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = arg(matches, "query");
-    let yaml = keys.with_resolved(matches, io, query, |_, _, _, _, e| Ok(entry::marshal(&e)?))?;
-    let _ = io.stdout.write_all(&yaml);
+    let shown = keys.with_resolved(matches, io, query, |_, _, _, id, e| {
+        let yaml = entry::marshal(&e)?;
+        Ok(Zeroizing::new(catfmt::align_cat_output(
+            short_id(&id.to_string()),
+            &yaml,
+        )))
+    })?;
+    let _ = io.stdout.write_all(&shown);
     Ok(())
 }
 
@@ -578,9 +596,12 @@ pub fn rm(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliE
 
 /// Like `insert`, with the value drawn by the library. The confirmation
 /// never includes the value: a fresh secret nobody has read yet is the last
-/// thing that belongs in a scrollback (`-c`/`-q`, the ways to see it at
-/// creation, are P6's).
+/// thing that belongs in a scrollback. `-c` and `-q` are how it gets out
+/// without landing there.
 pub fn generate(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    // Asked before anything is drawn or written: failing after the commit
+    // would leave a new secret in the vault behind an error message.
+    let dest = Destination::from_matches(matches)?;
     let title = arg(matches, "title");
     // Drawn first, so a too-short length is refused before any unlock.
     let value = Zeroizing::new(generate::generate_value(GenerateOptions {
@@ -608,7 +629,12 @@ pub fn generate(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<()
     })?;
     keys.refresh(matches, id);
     out(io, &[format!("gage: generated \"{title}\" ({id})")]);
-    Ok(())
+    // Only when a destination was asked for, and after the confirmation,
+    // so a one-shot -c has said what it did before it blocks.
+    match dest {
+        Destination::Print => Ok(()),
+        dest => secretout::emit_secret(io, keys, &value, dest),
+    }
 }
 
 // --- ls ---------------------------------------------------------------------
@@ -622,7 +648,12 @@ pub fn ls(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliE
             keys.with_vault(matches, io, |_, vault, identity| Ok(vault.list(identity)?))?
         }
     };
-    out(io, &render_ls(&rows));
+    let lines = if matches.get_flag("header") {
+        render_ls_table(&rows)
+    } else {
+        render_ls(&rows)
+    };
+    out(io, &lines);
     Ok(())
 }
 
@@ -670,13 +701,10 @@ pub fn reindex(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(),
     Ok(())
 }
 
-/// One line per entry: title padded to the widest (counted in characters),
-/// short id, created and updated as UTC days, and the last writer. Two
-/// spaces between columns, no trailing spaces, `-` for anything missing.
-/// `rows` come sorted; an empty vault prints nothing.
-pub fn render_ls(rows: &[ListEntry]) -> Vec<String> {
-    let cells: Vec<[String; 5]> = rows
-        .iter()
+/// What `ls` shows per entry, in column order: title, short id, created,
+/// updated (UTC days) and the last writer, `-` for anything missing.
+fn ls_cells(rows: &[ListEntry]) -> Vec<[String; 5]> {
+    rows.iter()
         .map(|r| {
             let day = |t: Option<entry::Timestamp>| {
                 t.map(|t| t.to_string().chars().take(10).collect::<String>())
@@ -691,7 +719,15 @@ pub fn render_ls(rows: &[ListEntry]) -> Vec<String> {
                 or_dash(present(&r.updated_by)),
             ]
         })
-        .collect();
+        .collect()
+}
+
+/// One line per entry: title padded to the widest (counted in characters),
+/// short id, created and updated as UTC days, and the last writer. Two
+/// spaces between columns, no trailing spaces, `-` for anything missing.
+/// `rows` come sorted; an empty vault prints nothing.
+pub fn render_ls(rows: &[ListEntry]) -> Vec<String> {
+    let cells = ls_cells(rows);
     let width = cells
         .iter()
         .map(|c| c[0].chars().count())
@@ -706,6 +742,41 @@ pub fn render_ls(rows: &[ListEntry]) -> Vec<String> {
                 .to_string()
         })
         .collect()
+}
+
+/// `ls --header`: the same cells as a labelled table. A header row, a row
+/// of dashes broken with `+` where the `|` separators fall, then one
+/// ` | `-delimited row per entry. Every column but the last is padded to
+/// the widest value it holds, header included. The last is never padded
+/// (a long device name would leave trailing spaces on every shorter row),
+/// so its dashes are sized from its label alone. An empty vault still
+/// prints nothing: a header over zero rows is noise, not a table.
+pub fn render_ls_table(rows: &[ListEntry]) -> Vec<String> {
+    const COLUMNS: [&str; 5] = ["title", "id", "created at", "updated at", "updated by"];
+    if rows.is_empty() {
+        return Vec::new();
+    }
+    let cells = ls_cells(rows);
+    let mut width = COLUMNS.map(|c| c.chars().count());
+    for cell in &cells {
+        for (w, v) in width.iter_mut().zip(cell).take(COLUMNS.len() - 1) {
+            *w = (*w).max(v.chars().count());
+        }
+    }
+    let join = |row: &[String; 5]| -> String {
+        row.iter()
+            .enumerate()
+            .map(|(i, v)| match i {
+                i if i == COLUMNS.len() - 1 => v.clone(),
+                _ => format!("{v}{}", " ".repeat(width[i] - v.chars().count())),
+            })
+            .collect::<Vec<_>>()
+            .join(" | ")
+    };
+    let dashes: Vec<String> = width.iter().map(|&w| "-".repeat(w)).collect();
+    let mut lines = vec![join(&COLUMNS.map(String::from)), dashes.join("-+-")];
+    lines.extend(cells.iter().map(join));
+    lines
 }
 
 /// The leading [`SHORT_ID_LEN`] characters of `id`; anything shorter is

@@ -2,7 +2,6 @@
 //! template and its tokens, the idle timeout, and where history lives.
 //! CLI-terminal policy a GUI frontend wouldn't share, so it lives here
 //! rather than in the library (`config::Shell` is only the raw table).
-//! `clipboard_timeout` is P6 · M12's.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -24,10 +23,19 @@ pub const DEFAULT_PROMPT: &str = "{vault}{lock} gage> ";
 /// process stays and the next command re-prompts.
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
+/// How long `-c` leaves a secret on the clipboard. pass's long-standing
+/// default (`PASSWORD_STORE_CLIP_TIME`), so the number people coming from
+/// it already have a feel for.
+pub const DEFAULT_CLIPBOARD_TIMEOUT: Duration = Duration::from_secs(45);
+
+/// Below a second the clear races the paste it exists to allow, so a
+/// shorter `clipboard_timeout` is a config error, not a brisk setting.
+pub const MIN_CLIPBOARD_TIMEOUT: Duration = Duration::from_secs(1);
+
 pub const UNLOCKED_GLYPH: &str = "🔓";
 pub const LOCKED_GLYPH: &str = "🔒";
 
-/// `[shell]`, resolved: defaults filled in, the timeout parsed, the
+/// `[shell]`, resolved: defaults filled in, the timeouts parsed, the
 /// history path expanded.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ShellSettings {
@@ -35,6 +43,7 @@ pub struct ShellSettings {
     /// `None` disables the idle re-lock.
     pub idle_timeout: Option<Duration>,
     pub history_file: PathBuf,
+    pub clipboard_timeout: Duration,
 }
 
 /// Resolves the raw table. A malformed `idle_timeout` is a usage error,
@@ -74,6 +83,35 @@ pub fn resolve(
             }
         }
     };
+    // Refused rather than clamped, and with no "0 disables it": a clear
+    // that silently never fired, or one rounded up from what the human
+    // chose, would weaken the one guarantee -c makes. Turning the clear
+    // off is left un-takeable, as in Go; adding it later is additive.
+    let clipboard_timeout = if shell.clipboard_timeout.is_empty() {
+        DEFAULT_CLIPBOARD_TIMEOUT
+    } else {
+        let raw = &shell.clipboard_timeout;
+        match parse_duration(raw) {
+            Ok(d) if d >= MIN_CLIPBOARD_TIMEOUT => d,
+            Ok(_) | Err(DurationError::Negative) => {
+                return Err(CliError::new(
+                    Code::Usage,
+                    format!(
+                        "gage: [shell].clipboard_timeout {raw:?} is below the {} minimum",
+                        go_duration_string(MIN_CLIPBOARD_TIMEOUT)
+                    ),
+                ));
+            }
+            Err(DurationError::Malformed) => {
+                return Err(CliError::new(
+                    Code::Usage,
+                    format!(
+                        "gage: [shell].clipboard_timeout {raw:?} is not a duration (e.g. \"45s\")"
+                    ),
+                ));
+            }
+        }
+    };
     // The design doc writes the path with `$GAGE_STATE` in it, so the
     // default and a configured value go through the same expansion.
     let history_file = if shell.history_file.is_empty() {
@@ -85,7 +123,31 @@ pub fn resolve(
         prompt,
         idle_timeout,
         history_file,
+        clipboard_timeout,
     })
+}
+
+/// A duration as Go's `Duration.String` spells one at second scale and
+/// above: `45s`, `1m30s`, `1h0m0s`, `1.5s`.
+pub fn go_duration_string(d: Duration) -> String {
+    let secs = d.as_secs();
+    let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
+    let mut out = String::new();
+    if h > 0 {
+        out.push_str(&format!("{h}h"));
+    }
+    if h > 0 || m > 0 {
+        out.push_str(&format!("{m}m"));
+    }
+    out.push_str(&s.to_string());
+    let nanos = d.subsec_nanos();
+    if nanos > 0 {
+        let frac = format!("{nanos:09}");
+        out.push('.');
+        out.push_str(frac.trim_end_matches('0'));
+    }
+    out.push('s');
+    out
 }
 
 /// Expands the `$GAGE_CONFIG`, `$GAGE_DATA` and `$GAGE_STATE` names the
@@ -323,6 +385,55 @@ mod tests {
             .unwrap_err();
             assert_eq!(err.code(), Code::Usage, "{bad}: {err}");
             assert!(err.to_string().contains("idle_timeout"), "{err}");
+        }
+    }
+
+    // Go: TestResolveShellSettingsClipboardTimeout. The default, a
+    // configured value, and a malformed one. There is no "0 disables it":
+    // anything under the minimum is refused, not clamped.
+    #[test]
+    fn resolve_shell_settings_clipboard_timeout() {
+        let got = resolve_with(Shell::default()).unwrap();
+        assert_eq!(got.clipboard_timeout, DEFAULT_CLIPBOARD_TIMEOUT);
+        assert_eq!(got.clipboard_timeout, Duration::from_secs(45));
+
+        let got = resolve_with(Shell {
+            clipboard_timeout: "90s".into(),
+            ..Shell::default()
+        })
+        .unwrap();
+        assert_eq!(got.clipboard_timeout, Duration::from_secs(90));
+
+        let got = resolve_with(Shell {
+            clipboard_timeout: "1s".into(),
+            ..Shell::default()
+        })
+        .unwrap();
+        assert_eq!(got.clipboard_timeout, MIN_CLIPBOARD_TIMEOUT);
+
+        for bad in ["45sec", "200ms", "0", "-5s"] {
+            let err = resolve_with(Shell {
+                clipboard_timeout: bad.into(),
+                ..Shell::default()
+            })
+            .unwrap_err();
+            assert_eq!(err.code(), Code::Usage, "{bad}: {err}");
+            assert!(err.to_string().contains("clipboard_timeout"), "{err}");
+        }
+    }
+
+    // The clipboard notice says how long in Go's spelling, as Go's does.
+    #[test]
+    fn go_duration_string_matches_gos_spelling() {
+        for (d, want) in [
+            (Duration::from_secs(45), "45s"),
+            (Duration::from_secs(1), "1s"),
+            (Duration::from_secs(90), "1m30s"),
+            (Duration::from_secs(3600), "1h0m0s"),
+            (Duration::from_millis(1500), "1.5s"),
+            (Duration::from_millis(61_250), "1m1.25s"),
+        ] {
+            assert_eq!(go_duration_string(d), want, "{d:?}");
         }
     }
 

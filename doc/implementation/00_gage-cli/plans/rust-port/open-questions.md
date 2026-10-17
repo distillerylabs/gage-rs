@@ -962,11 +962,13 @@ Settled at the start of M10 implementation:
   drawing or reading anything, as its `resolve_conflict` does. The outcome
   is Go's bare-Enter outcome (no write, exit Conflict) without consuming
   input; `--yes` is how a script answers yes.
-- **No script-mode exception yet.** Go lets `--yes` through in a
-  `--script`/`--stdin` session, which is the CI case the flag exists for.
-  gage-rs has no script mode, so every session is a terminal one and both
-  refusals apply unconditionally. Script mode, when it is ported, brings
-  Go's exception with it.
+- **Script mode's exception shipped with M12d.** Go lets `--yes` through
+  in a `--script`/`--stdin` session, which is the CI case the flag exists
+  for. `--yes` on the command line wraps the script's prompter for the
+  whole run, and is still refused in an interactive session. A `--yes`
+  typed on a script line is accepted and adds nothing beside the run's
+  own: in Go it wraps `app.Prompter` for that line, but the session's
+  prompter is fixed when the run starts, so the same holds there.
 - **`--yes` is hidden from help.** Go's captured help lists no inherited
   flag anywhere (`tests/fixtures/go/help/`), so the clap flag is global
   and hidden to match. It is accepted before or after the command.
@@ -1009,6 +1011,214 @@ rather than trusted.
 `vault remove` deletes the files the cache owns by name, then the
 directory if it is empty, as Go's `RemoveTrustCache` does: a narrow
 delete needs no argument about what else might live there.
+
+---
+
+## Resolved in P6 planning
+
+Settled in [#52](https://github.com/distillerylabs/gage-rs/issues/52) and
+the [P6 plan](p6-polish/index.md). The crate decisions name what each
+milestone confirms against the crate before writing code; anything that
+confirmation changes is recorded here.
+
+### `[x]` Q-P6-SPLIT — How is Go's M12 split? {#q-p6-split}
+
+**Resolved: four milestones by layer. M12a (`log`/`history --decrypt`),
+M12b (`cat` display, `ls -H`, `vault remove` orphan cleanup), M12c
+(`-c/--clip`, `-q/--qr`) and M12d (`--script`/`--stdin`,
+`GAGE_PASSPHRASE`, the phase's docs).**
+
+Go's M12 is 87 rows here, plus 23 that earlier phases left to it. Go
+calls its items independent of each other, so the split follows what
+each one needs:
+
+- M12a is library work (a `gitrepo` history walk and two `Vault`
+  methods), so it goes first.
+- M12b holds the one irreversible operation in the phase (deleting an
+  identity file).
+- M12c brings the only new frontend crates and the only platform-specific
+  behavior, so a failure on one CI platform holds up nothing else.
+- M12d drives commands from every earlier milestone, including M12c's
+  `-c` in a scripted session, and writes the docs once everything has
+  shipped.
+
+### `[x]` Q-CLIPBOARD — Which clipboard crate, and how is the clear driven? {#q-clipboard}
+
+**Resolved: `arboard` in `gage-cli` only, with `default-features = false`
+and `wayland-data-control`, behind a `ClipboardPort` trait. One-shot
+Ctrl-C is caught with `ctrlc`.**
+
+Go uses `atotto/clipboard`, which drives `pbcopy`/`xclip`/`wl-copy` with
+the value on the child's stdin, and the user32 API on Windows. Its M12
+plan flagged that putting plaintext through a child process is a real
+trade-off.
+
+- `arboard` writes in-process on every platform (X11 and Wayland through
+  their protocols, AppKit, user32), so plaintext never passes through a
+  child process. Default features are off to drop `image-data`;
+  `wayland-data-control` keeps Go's Wayland support.
+- On Linux, contents last only while a `Clipboard` lives. That matches
+  Go's decision that the clear happens in the process that wrote the
+  value: a one-shot `-c` blocks holding it, and a session holds it for
+  its life.
+- `ctrlc` sets a process-wide handler once. It is installed only on the
+  one-shot `-c` path, just before the wait, and the process clears and
+  exits right after, so the handler never outlives its use. Tests replace
+  the wait and never install it.
+- The port, the timer, the wait and the report sink for a scheduled
+  clear's failure are seams in `gage-cli`, as Go's `clipboardPort`,
+  `newClipboardTimer` and `ClipboardWait` are. No test touches a real
+  clipboard; headless CI has none.
+
+M12c confirms the dependency tree, licenses and `Send`-ness before
+writing code, and records any new license here.
+
+**Confirmed in M12c:**
+
+- `arboard` 3.7, `qrcode` 0.14 and `ctrlc` 3.5 bring **no new license**:
+  `make audit` passes against the existing allowlist. The keeper's digest
+  uses `sha2` 0.10 and `subtle`, both already in the tree.
+- `arboard::Clipboard` is `Send + Sync` on every platform (the crate
+  asserts it in its own tests), so the session's timer thread clears
+  through the keeper directly.
+- The production port opens the clipboard on first copy, not at startup,
+  so a command that never copies never needs one. It then keeps the
+  clipboard open for the run.
+- **Deliberate additions beyond Go**, neither visible in gage's own
+  output:
+  - Each copy carries the platform's history-exclusion hint
+    (`exclude_from_history` on macOS and Linux, `exclude_from_monitoring`
+    on Windows). Without it a clipboard-history manager keeps the value
+    after gage has cleared it.
+  - A generation number per copy. A scheduled clear does nothing under a
+    later generation. This closes a race in Go's keeper, where a timer
+    that has fired but is waiting on the lock wipes a second copy early.
+- **Deviation:** `show -c -q` is refused before the unlock, as `generate`'s
+  is. Go's `show` asks for the passphrase and then refuses. The exit code
+  (Usage) is the same.
+- The timeout is read from global config when a copy happens, in both
+  modes, as in Go's `copySecret`.
+
+### `[x]` Q-QR-CRATE — Which QR crate, and how are the codes tested? {#q-qr-crate}
+
+**Resolved: `qrcode` with `default-features = false`, encoding only, at
+error correction level M with a 4-module quiet zone. The half-block
+renderer is gage's own.**
+
+Go uses `rsc.io/qr` and renders two modules per character cell. The
+`qrcode` crate's default features pull in `image` for rendering that
+gage doesn't use. Its module grid (`to_colors`) is all the renderer
+needs.
+
+Go's round-trip tests decode the rendered characters back to a grid and
+compare it with the encoder's own grid for the same value, leaving "does
+the encoder encode correctly" to the encoder. gage-rs does the same
+against `qrcode`, so no decoder dependency is added. P8's recovery-key
+display reuses this renderer.
+
+### `[x]` Q-SCRIPT-PASSPHRASE — How does `GAGE_PASSPHRASE` reach an unlock? {#q-script-passphrase}
+
+**Resolved: `main` reads the variable into an `Io` field, and three
+`gage-cli` wrapper prompters carry Go's policy.**
+
+- **`Io.passphrase_env`**, read once by `main`, as `editor` already is.
+  In-process tests share one process environment, and Go's tests use
+  `t.Setenv`. Setting the field instead keeps tests independent. Nothing
+  in `crates/gage` learns the variable exists, as in Go ("a `cmd/gage`
+  decorator, not a library concept").
+- **`EnvPrompter`, `RefusingPrompter`, `NoCreatePrompter`**, ports of
+  Go's `envPrompter`, `refusingPrompter` and `noCreatePrompter`, shaped
+  like `AssumeYes`. Each answers one thing and delegates every other
+  method. The source order, the unlock-purpose-only rule and the single
+  attempt are Go's M12 decision, unchanged.
+- **`TestTerminalPrompterOfWalksDecoratorChains` is excused.** Go needs
+  `terminalPrompterOf` so a session can hand its line editor to the
+  terminal prompter behind a decorator, because Go's line editor holds
+  the terminal for its whole life. gage-rs's terminal prompter reads
+  stdin directly between lines
+  ([Q-LINE-EDITOR](#q-line-editor)), so nothing ever unwraps a prompter.
+  M12d tests instead that every wrapper passes through each method it
+  doesn't answer.
+
+**Added while implementing M12d:**
+
+- **`PromptError::Refused(String)`.** The refusals need their own wording
+  (name the variable, say a human is needed) and exit 5. The existing
+  variants carry fixed text, so the library gains one variant for "the
+  frontend declined to ask, and says why", coded `LockedOrAuth`. The CLI
+  exit code on an unlock doesn't depend on it (`UnlockError::Prompter` is
+  `LockedOrAuth` whatever it wraps, Go's `requestPassphrase`
+  normalisation); it matters for a create-purpose refusal and for the
+  message.
+- **A refusal's message carries no `gage:` prefix.** `prefix_once` adds
+  it, and a refusal wrapped in `wrong passphrase: ...` would otherwise
+  read `gage:` twice.
+- **`NoChoosePrompter`, a fourth wrapper.** See
+  [Q-SCRIPT-CHOOSE](#q-script-choose).
+
+### `[x]` Q-SCRIPT-CHOOSE — What does an ambiguous query do in a script with nobody to pick? {#q-script-choose}
+
+**Resolved while implementing M12d: it fails with its candidate list, as
+one-shot does, and reads nothing.**
+
+A script line's query resolves through the session, which asks the
+prompter's `choose` on an ambiguous match. Under `--stdin` the terminal
+prompter's input is the command stream, so it would take the next command
+line for the pick number, ask again, and swallow up to five lines before
+giving up: the same failure the passphrase wrappers exist to prevent, one
+prompt over. Go's plan doesn't cover it (its `reportAmbiguous` in the
+script loop is for the error a one-shot-style failure returns).
+
+`NoChoosePrompter` answers `choose` with `Cancelled`, which the session
+already reads as "the human declined to pick": the query is unresolved and
+the error carries the candidates. It is installed under the same condition
+as the create refusal (no terminal, or `--stdin`); `--script FILE` on a
+terminal still lets the human pick. `confirm` and `value` are **not**
+covered: they follow Go and read the stream. Both have a reading that is
+sometimes wanted (`insert` taking its value from the next line), unlike a
+picker, so changing them is a separate decision.
+
+### `[x]` Q-ORPHAN-CLEANUP — Who decides that an identity file is orphaned? {#q-orphan-cleanup}
+
+**Resolved: the library assesses and returns a typed value; the CLI asks
+and renders.**
+
+Go's `removeOrphanedIdentity` is entirely in `cmd/gage`: it reads the
+recipient list, compares public keys, checks the registration against
+the vault on disk, and asks `Confirm`. The library/CLI rule puts the
+decision in `crates/gage`: a function over the registration returns
+`Nothing`, `Keep { path, reason }` or `Offer { path, device }`. `gage-cli`
+renders `Keep` on stderr and asks `confirm` on `Offer`. Deleting goes
+through the library's identity removal.
+
+A future GUI gets the same answer and asks its own way, and each keep
+reason is testable without the CLI. The behavior is Go's after E0:
+compare public keys, never names; always confirm, default no; keep and
+say why in every other case.
+
+### `[x]` Q-LOG-WALK — What do `log` and `history` walk, and how do they print? {#q-log-walk}
+
+**Resolved while implementing M12a: Go's behavior, with these choices where
+Go's code leaves room.**
+
+- **The walk** is `Revwalk` from HEAD sorted `TIME | TOPOLOGICAL`. Go uses
+  committer-time order alone; adding topological order keeps a child ahead
+  of its parent when a vault commits several times in one second. A commit
+  is a change when its blob at the path differs from *every* parent's, and
+  absent is a different state from empty.
+- **A vault-wide `log`** (no query) covers the entries the vault holds now.
+  A removed entry's history is reached by naming its full id; listing every
+  removed entry would mean diffing the whole history of the repository.
+- **`Vault::history` returns oldest first**, the order it prints in. `log`
+  returns newest first.
+- **`history` prints** `== <time>  <hash>[ (deleted)]` per revision, then
+  one line per compared part of the entry, marked `+`, `-` or a space. A
+  deleted revision prints its header and no body.
+- **Local time** needs a time zone database, so `gage-cli` takes `jiff`
+  with `tz-system` (and `tzdb-bundle-platform` on Windows, which has none).
+  The library keeps its instants zone-free.
+
+---
 
 ---
 

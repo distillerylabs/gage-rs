@@ -17,18 +17,25 @@ use crate::Io;
 use crate::error::CliError;
 
 mod auth;
+mod catfmt;
 mod clone;
 mod entry;
 mod git;
 mod identity;
 mod init;
+mod log;
 mod movecopy;
 mod recipient;
+mod secretout;
 mod sync;
 mod vault;
 
 #[cfg(test)]
-pub(crate) use entry::{parse_field_flags, render_ls, trim_one_trailing_newline, with_unlocked};
+pub(crate) use catfmt::{align_cat_output, pad_key_lines};
+#[cfg(test)]
+pub(crate) use entry::{
+    parse_field_flags, render_ls, render_ls_table, trim_one_trailing_newline, with_unlocked,
+};
 pub(crate) use entry::{session_failure, short_id};
 #[cfg(test)]
 pub(crate) use init::resolve_device_name;
@@ -45,6 +52,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
         "sync" | "pull" | "push" => sync::flags(),
         "insert" | "show" | "cat" | "edit" | "rename" | "generate" | "rm" | "ls" | "search"
         | "reindex" => entry::flags(name),
+        "log" | "history" => log::flags(name),
         "mv" | "cp" => movecopy::flags(),
         "auth login" | "auth status" | "auth logout" => auth::flags(),
         "identity add" | "identity list" => identity::flags(name),
@@ -64,6 +72,8 @@ pub fn long_about(name: &str) -> Option<&'static str> {
         "pull" => Some(sync::PULL_LONG_ABOUT),
         "sync" => Some(sync::SYNC_LONG_ABOUT),
         "ls" => Some(entry::LS_LONG_ABOUT),
+        "log" => Some(log::LOG_LONG_ABOUT),
+        "history" => Some(log::HISTORY_LONG_ABOUT),
         "auth login" => Some(auth::LOGIN_LONG_ABOUT),
         "identity add" => Some(identity::ADD_LONG_ABOUT),
         "recipient add" => Some(recipient::ADD_LONG_ABOUT),
@@ -124,9 +134,11 @@ pub fn run(
         "ls" => entry::ls(matches, io, keys),
         "search" => entry::search(matches, io, keys),
         "reindex" => entry::reindex(matches, io, keys),
+        "log" => log::log(matches, io, keys),
+        "history" => log::history(matches, io, keys),
         "vault list" => vault::list(io),
         "vault info" => vault::info(matches, io),
-        "vault remove" => vault::remove(matches, io),
+        "vault remove" => vault::remove(matches, io, keys.prompter()),
         "vault set-default" => vault::set_default(matches, io),
         "git set-remote" => git::set_remote(matches, io),
         "auth login" => auth::login(matches, io, keys),

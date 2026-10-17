@@ -53,8 +53,8 @@ and refuses if they differ (see [Vaults](vaults.md#when-vault-info-refuses)).
 
 Later phases add `pubkey` (the public key this device holds for the vault)
 to each vault. An optional `[shell]` table holds this device's session
-preferences: the prompt, the idle timeout and the history file (see
-[Session mode](session-mode.md#shell-settings)).
+preferences: the prompt, the idle timeout, the history file and the
+clipboard timeout (see [Session mode](session-mode.md#shell-settings)).
 
 This file is small, plaintext, and safe to keep under your own dotfiles
 management (`chezmoi`, `yadm`, and so on), which is why it holds nothing
@@ -139,3 +139,9 @@ nothing else, so the stock `age` CLI can use it directly
 recipient-defining files unmergeable, so two devices that each change the
 recipient list produce a conflict for a human to resolve rather than a
 silent union of two lists neither of them reviewed.
+
+## Environment variables
+
+| Variable | What it does |
+|---|---|
+| `GAGE_PASSPHRASE` | Supplies the passphrase that opens an *existing* identity under `gage --script FILE` or `gage --stdin`, and only there: an ordinary one-shot command ignores it and prompts. It answers once, so a wrong value fails without a retry. It is never used to create a key (`init`, `identity add`). See [Session mode](session-mode.md#where-the-passphrase-comes-from). |

@@ -104,6 +104,8 @@ pub(crate) struct Env {
     pub(crate) hostname: String,
     /// What the commands see as `$EDITOR`; unset unless a test sets one.
     pub(crate) editor: std::sync::Mutex<Option<String>>,
+    /// The clipboard every run copies to. Never the real one.
+    pub(crate) clip: crate::clipboard::fake::Harness,
 }
 
 impl Env {
@@ -120,6 +122,7 @@ impl Env {
             dirs,
             hostname: HOSTNAME.into(),
             editor: Default::default(),
+            clip: Default::default(),
         }
     }
 
@@ -171,7 +174,10 @@ impl Env {
             dirs: &move || Ok(dirs.clone()),
             hostname: &move || Ok(hostname.clone()),
             editor: self.editor.lock().unwrap().clone(),
+            passphrase_env: None,
             now: &std::time::Instant::now,
+            clipboard: &self.clip.keeper(),
+            clipboard_wait: &|d| self.clip.wait(d),
         };
         let code = crate::run(&args, &mut io, &prompter);
         CliResult {
