@@ -231,7 +231,7 @@ pub(crate) fn hide_one_entry(f: &Fixture) -> Uuid {
 }
 
 /// A counter the re-encryption hook bumps: how many entries were written.
-fn counting(vault: &Vault) -> (Vault, Arc<AtomicUsize>) {
+pub(crate) fn counting(vault: &Vault) -> (Vault, Arc<AtomicUsize>) {
     let n = Arc::new(AtomicUsize::new(0));
     let seen = Arc::clone(&n);
     let v = vault
@@ -241,7 +241,7 @@ fn counting(vault: &Vault) -> (Vault, Arc<AtomicUsize>) {
 }
 
 /// Everything a refused write must have left alone.
-struct Untouched {
+pub(crate) struct Untouched {
     head: String,
     commits: usize,
     recipients_file: Vec<String>,
@@ -249,7 +249,7 @@ struct Untouched {
 }
 
 impl Untouched {
-    fn of(f: &Fixture) -> Untouched {
+    pub(crate) fn of(f: &Fixture) -> Untouched {
         Untouched {
             head: f.head(),
             commits: f.commits(),
@@ -258,7 +258,7 @@ impl Untouched {
         }
     }
 
-    fn assert_still(&self, f: &Fixture) {
+    pub(crate) fn assert_still(&self, f: &Fixture) {
         assert_eq!(f.head(), self.head, "HEAD moved");
         assert_eq!(f.commits(), self.commits, "something was committed");
         assert_eq!(f.recipients_file(), self.recipients_file);

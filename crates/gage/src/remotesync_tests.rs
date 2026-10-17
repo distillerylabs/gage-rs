@@ -661,6 +661,87 @@ fn offline_push_keeps_the_commit_and_retries_later() {
     assert!(s.other().exists(&s.entry_file()));
 }
 
+/// A recipient-list write against `vault` that fails to push: through the
+/// batch form with `clause`, or `add_recipient` (which supplies none).
+fn recipient_write_warnings(
+    s: &SyncVault,
+    syncer: Arc<FakeSyncer>,
+    clause: Option<&str>,
+) -> Vec<String> {
+    let identity = s.unlock();
+    let vault = s.vault.clone().with_remote_syncer(syncer);
+    let p = FakePrompter::new();
+    let key = age::x25519::Identity::generate().to_public().to_string();
+    match clause {
+        Some(clause) => {
+            let add = vaultconfig::Recipient {
+                device: "phone-1".into(),
+                pubkey: key,
+            };
+            vault
+                .with_vault_write(crate::entry::WRITE_LOCK_TIMEOUT, &p, || {
+                    vault.add_recipient_locked(
+                        &[add],
+                        &crate::recipient::RecipientWrite {
+                            message: "gage: test",
+                            delete_paths: &[],
+                            push_clause: Some(clause),
+                        },
+                        &identity,
+                        &p,
+                    )
+                })
+                .unwrap();
+        }
+        None => {
+            vault.add_recipient("phone-1", &key, &identity, &p).unwrap();
+        }
+    }
+    p.warnings()
+}
+
+// Go: TestFailedPushClauseIsTheCallersToSay. A supplied clause reaches the
+// warning; `add_recipient`, which supplies none, says M9b's.
+#[test]
+fn failed_push_clause_is_the_callers_to_say() {
+    let own = "the approval is committed locally but not pushed";
+    let warnings = recipient_write_warnings(&SyncVault::new(), FakeSyncer::offline(), Some(own));
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].starts_with(&format!("gage: {own}: ")),
+        "{}",
+        warnings[0]
+    );
+    assert!(!warnings[0].contains(UNPUSHED_WRITE_CLAUSE));
+
+    let warnings = recipient_write_warnings(&SyncVault::new(), FakeSyncer::offline(), None);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].starts_with(&format!("gage: {UNPUSHED_WRITE_CLAUSE}: ")),
+        "{}",
+        warnings[0]
+    );
+}
+
+// Go: TestDivergedPushIgnoresTheSuppliedClause
+#[test]
+fn diverged_push_ignores_the_supplied_clause() {
+    let own = "the approval is committed locally but not pushed";
+    let diverged = || {
+        Arc::new(FakeSyncer {
+            push_err: Some(diverged_error()),
+            ..FakeSyncer::default()
+        })
+    };
+    let with = recipient_write_warnings(&SyncVault::new(), diverged(), Some(own));
+    let without = recipient_write_warnings(&SyncVault::new(), diverged(), None);
+
+    assert_eq!(with.len(), 1, "{with:?}");
+    assert!(with[0].contains("diverged"), "{}", with[0]);
+    assert!(!with[0].contains(own), "{}", with[0]);
+    assert_eq!(with, without, "the clause changed a divergence's warning");
+}
+
 // Go: TestWriteDoesNotDeadlockOnItsOwnPush. The automatic push runs
 // inside the write's own lock; taking it again would leave the write
 // waiting on itself until WRITE_LOCK_TIMEOUT.

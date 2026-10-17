@@ -503,6 +503,13 @@ impl Vault {
     /// warns, differently for being offline ("your commit is safe but
     /// unsent") and for a divergence ("run `gage sync`").
     pub(crate) fn push_after_write(&self, prompter: &dyn Prompter) {
+        self.push_after_write_saying(prompter, UNPUSHED_WRITE_CLAUSE);
+    }
+
+    /// [`Vault::push_after_write`] for a write that has its own account of
+    /// what went unpublished. A divergence says its own thing and ignores
+    /// `clause`.
+    pub(crate) fn push_after_write_saying(&self, prompter: &dyn Prompter, clause: &str) {
         match self.push_locked(Instant::now() + REMOTE_OP_TIMEOUT) {
             Ok(_) => {}
             // The divergence has its own sentence; what wasn't published
@@ -510,10 +517,7 @@ impl Vault {
             Err(err) if err.remote_kind() == Some(Kind::Diverged) => {
                 prompter.warn(&format!("gage: {}", err.report.summary()));
             }
-            Err(err) => prompter.warn(&format!(
-                "gage: {UNPUSHED_WRITE_CLAUSE}: {}",
-                offline_or_error(&err)
-            )),
+            Err(err) => prompter.warn(&format!("gage: {clause}: {}", offline_or_error(&err))),
         }
     }
 

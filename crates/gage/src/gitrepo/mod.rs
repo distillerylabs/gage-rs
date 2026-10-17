@@ -383,7 +383,7 @@ pub fn reset_hard(dir: &Path) -> Result<Vec<String>, Error> {
 }
 
 /// Removes a file, treating "already gone" as done.
-fn remove_if_present(full: &Path, path: &str) -> Result<(), Error> {
+pub(crate) fn remove_if_present(full: &Path, path: &str) -> Result<(), Error> {
     match std::fs::remove_file(full) {
         Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(Error::Io {
             op: "removing",

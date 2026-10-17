@@ -251,7 +251,7 @@ Adapted from the Go plan's table. Milestone IDs are the Rust ones.
 | M7 | Session-scoped metadata index | M8a2 invalidates after a pull; M8b after each resolution; M11 updates both vaults |
 | M8a1 | `syncerr` buckets (unreachable 7 / auth 5 / diverged 1) and the file-level `prepare_merge` + `PendingMerge::commit` | M8a2's sync verbs; M8b's resolution; M9's push after re-encrypt |
 | M8a2 | `RemoteSyncer` seam; pull on unlock (try-lock) and push inside the write lock; the push-failure warning wording | Every later write path (M9, M11, E-phase, R-phase) |
-| M9b | Recipient list changes touch `.age-recipients` and `config.toml` together, in one commit, via one `commit_recipient_list` primitive; every write starts with the dirty-tree reset (`with_vault_write`) | M10 diffs that pair; E1b widens the primitive; E4 and R3 build on it |
+| M9b | Recipient list changes touch `.age-recipients` and `config.toml` together, in one commit, via one `commit_recipient_list` primitive; every write starts with the dirty-tree reset (`with_vault_write`) | M10 diffs that pair; E1b widened the primitive (shipped: `add_recipient_locked` takes `&[Recipient]` and `commit_recipient_list` takes a `RecipientWrite` with `delete_paths` and `push_clause`); E4 and R3 build on it |
 | M10 | `RecipientChangeWarning` typed value, `Prompter::confirm_recipient_change` + cache regeneration rules | M11 (destination vault), E4, R4 |
 
 ---

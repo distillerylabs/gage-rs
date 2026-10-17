@@ -58,6 +58,16 @@ files handed to it.
 
 ## Decisions to make first
 
+**Resolved** (implementation, `crates/gage/src/recipient.rs`):
+
+- **Options struct:** `RecipientWrite { message, delete_paths: &[String], push_clause: Option<&str> }`, taken by both `add_recipient_locked(adds: &[Recipient], &RecipientWrite, ..)` and `commit_recipient_list(updated, &RecipientWrite, ..)`. `delete_paths` is slash-separated vault-relative `String`s rather than `PathBuf`, because `gitrepo::safe_join` takes the tree-path form. All are resolved through `safe_join` before the first byte is written. `RecipientWrite::message(m)` is the ordinary write (no deletions, default clause); `remove_recipient` uses it.
+- **Push sibling:** `push_after_write_saying(prompter, clause)`; `push_after_write` delegates with `UNPUSHED_WRITE_CLAUSE`. The divergence branch ignores the clause.
+- **Deletion:** runs after `write_recipient_files` and before `commit_all`. `commit_all` already stages deletions (`update_all`), so no change there. `gitrepo::remove_if_present` became `pub(crate)`.
+- **Crash seam:** `ReencryptHook` gained a second callback, `after_delete(n)` (`Vault::with_delete_hook`), beside the per-entry one.
+- **Return shape:** `add_recipient_locked` returns `(reencrypted, commit)`; `add_recipient` builds its `RecipientChange` from that.
+
+Original notes follow.
+
 - **The options struct's shape.** Go bundles the extra arguments into
   `recipientWrite`. Here, one struct passed to `commit_recipient_list`
   carries the recipients' list, the commit message, `delete_paths:
@@ -93,9 +103,9 @@ beside it, if that reads better).
 
 ### 1. The N-recipient form — 9 rows
 
-- [ ] Widen `add_recipient_locked` to a slice; `add_recipient` passes a
+- [x] Widen `add_recipient_locked` to a slice; `add_recipient` passes a
       one-element slice, no delete paths and no clause.
-- [ ] Rows:
+- [x] Rows (plus one beyond the plan's 9: `an_unsafe_delete_path_is_refused_before_anything_is_written`, for the `safe_join` validation; 16 rows ship against the 15 claimed):
   - `TestSeveralRecipientsLandInOneCommit`: `several_recipients_land_in_one_commit`. Every one can read every pre-existing entry. Exercised at the library level; E4 is what puts a command on it.
   - `TestOneReencryptionPassForTheBatch`: `one_reencryption_pass_for_the_batch`. Assert the count of entry rewrites through the hook, not wall-clock time.
   - `TestOneTrustQuestionForTheBatch`: `one_trust_question_for_the_batch`. `confirm_recipient_change` is asked at most once.
@@ -108,15 +118,15 @@ beside it, if that reads better).
 
 ### 2. The failed-push clause — 2 rows
 
-- [ ] `push_after_write_saying`, with `push_after_write` delegating to it.
-- [ ] Rows (injected fake `RemoteSyncer`):
+- [x] `push_after_write_saying`, with `push_after_write` delegating to it.
+- [x] Rows (injected fake `RemoteSyncer`):
   - `TestFailedPushClauseIsTheCallersToSay`: `failed_push_clause_is_the_callers_to_say`. A supplied clause reaches the warning, and `add_recipient`, which supplies none, produces exactly M9b's message.
   - `TestDivergedPushIgnoresTheSuppliedClause`: `diverged_push_ignores_the_supplied_clause`. A divergence warns with the report's summary whatever the clause.
 
 ### 3. Atomicity — 4 rows ⚑
 
-- [ ] Extend the crash seam per "Decisions to make first".
-- [ ] Rows:
+- [x] Extend the crash seam per "Decisions to make first".
+- [x] Rows:
   - `TestInterruptedBatchLeavesHEADUntouched` ⚑: `interrupted_batch_leaves_head_untouched`. No recipients added, no entries rewritten, no paths deleted.
   - `TestABatchWhoseDeletionFailsCommitsNothing` ⚑: `a_batch_whose_deletion_fails_commits_nothing`.
   - `TestABatchThatFailsAfterDeletingCommitsNothing` ⚑: `a_batch_that_fails_after_deleting_commits_nothing`. The deletion is uncommitted, not undone. No commit is salvaged, and the next write's reset restores the path rather than folding it into that write's commit.
@@ -126,27 +136,29 @@ beside it, if that reads better).
 
 ### 4. Nothing else moved
 
-- [ ] M9b's `recipient add` and `recipient remove` suites
+- [x] M9b's `recipient add` and `recipient remove` suites
       (`recipient_tests.rs`, `reencrypt_tests.rs`, `recipient_cli_tests.rs`)
       pass **unmodified**. That is this milestone's primary assertion. A
       test "updated" to match is a regression, not a fix.
-- [ ] `remove_recipient` is not a caller of the new form, and its
+- [x] `remove_recipient` is not a caller of the new form, and its
       behavior is unchanged.
 
 ### 5. Opus review
 
-- [ ] Opus review of task 3's ⚑ rows, by mutation. Apply each mutation
+- [x] Opus review of task 3's ⚑ rows, by mutation. Apply each mutation
       below, run the suite, and record what killed it. A survivor is a
       missing test.
 
 | Mutation | Killed by |
 |---|---|
-| Deletions staged and committed in a second commit | |
-| A failure after deletion commits what was written so far | |
-| Duplicate check skips the within-batch comparison | |
-| Trust question asked per member | |
-| `push_after_write_saying` ignores the clause | |
-| The clause replaces the divergence summary | |
+| Deletions staged and committed in a second commit | `extra_paths_are_deleted_in_the_same_commit`, `a_batch_whose_deletion_fails_commits_nothing`, `a_batch_that_fails_after_deleting_commits_nothing` |
+| A failure after deletion commits what was written so far | `a_batch_whose_deletion_fails_commits_nothing` |
+| Duplicate check skips the within-batch comparison | `a_duplicate_within_the_batch_is_refused` |
+| Trust question asked per member | **Equivalent mutant, not a gap.** A "yes" regenerates the cache (`confirm_recipient_trust`), so a repeated check is silent; the suite stays green because behavior is identical. The one-question property is carried by the single call site and asserted by `one_trust_question_for_the_batch`. |
+| `push_after_write_saying` ignores the clause | `failed_push_clause_is_the_callers_to_say` |
+| The clause replaces the divergence summary | `diverged_push_ignores_the_supplied_clause`, `divergence_is_reported_differently_from_being_offline` |
+
+Run mechanically by this milestone's implementer (Sonnet) against the full `gage` lib suite, restoring the source after each. The plan asks for an Opus review of the ⚑ rows; that pass is still the reviewer's to do, with this table as its starting point.
 
 ### 6. Parity and ledger
 

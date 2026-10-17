@@ -126,12 +126,28 @@ impl std::fmt::Debug for DecryptCounter {
 /// the simulated crash into ordinary cleanup, and the crash tests would
 /// quietly start proving something else.
 #[derive(Clone, Default)]
-pub(crate) struct ReencryptHook(#[cfg(test)] Option<Arc<dyn Fn(usize) + Send + Sync>>);
+pub(crate) struct ReencryptHook {
+    #[cfg(test)]
+    entry: Option<Arc<dyn Fn(usize) + Send + Sync>>,
+    #[cfg(test)]
+    delete: Option<Arc<dyn Fn(usize) + Send + Sync>>,
+}
 
 impl ReencryptHook {
     pub(crate) fn after_entry(&self, done: usize) {
         #[cfg(test)]
-        if let Some(hook) = &self.0 {
+        if let Some(hook) = &self.entry {
+            hook(done);
+        }
+        let _ = done;
+    }
+
+    /// Called after each path a recipient write deletes, with how many it
+    /// has deleted so far: the seam for dying between the deletions and
+    /// the commit.
+    pub(crate) fn after_delete(&self, done: usize) {
+        #[cfg(test)]
+        if let Some(hook) = &self.delete {
             hook(done);
         }
         let _ = done;
@@ -612,7 +628,18 @@ impl Vault {
         mut self,
         hook: impl Fn(usize) + Send + Sync + 'static,
     ) -> Vault {
-        self.reencrypt_hook = ReencryptHook(Some(Arc::new(hook)));
+        self.reencrypt_hook.entry = Some(Arc::new(hook));
+        self
+    }
+
+    /// The same vault, calling `hook` after each path a recipient write
+    /// deletes. This crate's tests only.
+    #[cfg(test)]
+    pub(crate) fn with_delete_hook(
+        mut self,
+        hook: impl Fn(usize) + Send + Sync + 'static,
+    ) -> Vault {
+        self.reencrypt_hook.delete = Some(Arc::new(hook));
         self
     }
 

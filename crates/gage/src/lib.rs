@@ -54,6 +54,8 @@ pub mod vaultlock;
 pub mod xdgpaths;
 
 #[cfg(test)]
+mod recipient_batch_tests;
+#[cfg(test)]
 mod recipient_tests;
 #[cfg(test)]
 mod reencrypt_tests;
