@@ -265,7 +265,17 @@ Write each task's tests first, at task granularity.
       decided, first used M12c (already so from planning; a row added for
       the keeper's `sha2`/`subtle`).
 - [x] Parity ledger: §3 M12 (`-c`, `-q`), §4 `show` and `generate`.
-- [ ] Mark M12c `[x]` in the [P6 index](index.md) after CI.
+- [ ] Mark M12c `[x]` in the [P6 index](index.md) after CI. **CI is
+      green** on PR #60 (lint and test on Linux, macOS and Windows; audit).
+      The index stays `[~]` until the manual clipboard check above is
+      recorded, which the definition of done requires.
+
+## Status
+
+Implementation, tests and docs are done, and CI is green on all three
+platforms: Lint, Test and Audit on PR #60, at `5b53135`. All 27 claimed
+rows and the 4 inbound ones are ported. **What remains is the manual
+clipboard check (task 6)** on a real machine.
 
 ## Definition of done
 
