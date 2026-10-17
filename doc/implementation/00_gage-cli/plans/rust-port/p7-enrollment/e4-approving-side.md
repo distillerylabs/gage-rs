@@ -260,9 +260,9 @@ recorded as [Q-APPROVE-SURFACE](../open-questions.md#q-approve-surface).
    - session: the existing `Session::vault(name)`, which reuses a cached
      identity with no prompt, or unlocks once and keeps it.
 
-   That is the one existing way an identity lands on `HeldVault`. A small
-   `Keys` helper (`with_late_unlock`) holds the two arms, so the handler
-   reads as one sequence.
+   That is the one existing way an identity lands on `HeldVault`. The
+   existing `Keys::with_vault` already holds the two arms, so the handler
+   reads as one sequence with no new helper.
 6. **The pre-check, the render and the confirmation**:
    - `--device` is validated first with `devicename::valid` (`Usage`).
    - After the open, `--device` against more than one opened request is
@@ -519,22 +519,25 @@ write not pruning (`deny_prunes_expired_requests_in_the_same_commit`,
 through the shared write), the no-op filter reading a stale list
 (`approving_a_key_that_is_already_a_recipient_is_a_no_op` and two more),
 a declined approve's code changed and a blank code re-prompting (their
-CLI rows). Five survived. Each weakens code that is right as shipped, so
-they are follow-up tests, not defects:
+CLI rows). Five survived. Each weakened code that was right as shipped,
+so each got the test it lacked, and each is now killed:
 
-| Surviving mutation | What it would let through | Missing test |
+| Mutation | What it would have let through | Killed by |
 |---|---|---|
-| The re-open compared on pubkey only | A re-seal keeping the key and changing the device name is recorded under a name nobody was shown | The seal-swap row, swapping only the device name |
-| Delete path rebuilt from the sealed expiry | A renamed epoch: approval grants and leaves the request pending | Rename to another live epoch, approve, assert the file is gone |
-| A refusal under the lock reported as `NoLongerPending` | Wrong error and exit code for a request that changed in the window | Swap in a same-code request for another vault; expect `WrongVault` |
-| The re-open filtering by liveness | A request that expired in the window reads as missing, not `Expired` | As above with an expired seal, if a clock seam allows it |
-| Unlock before the confirmation, session mode only | A never-unlocked session vault prompted before a "no" | A session copy of `declining_the_approval_costs_no_unlock` |
+| The re-open compared on pubkey only | A re-seal keeping the key and changing the device name, recorded under a name nobody was shown | `approval_refuses_a_request_whose_device_name_changed_after_it_was_shown` |
+| Delete path rebuilt from the sealed expiry | A renamed epoch: approval grants and leaves the request pending | `approval_deletes_the_file_it_verified_not_the_name_its_seal_implies` |
+| A refusal under the lock reported as `NoLongerPending` | The wrong error and exit code for a request that changed in the window | `a_refusal_under_the_lock_is_reported_as_itself`, `a_request_that_expired_in_the_window_is_reported_as_expired` |
+| The re-open filtering by liveness | A request that expired in the window reads as missing, not `Expired` | `a_request_that_expired_in_the_window_is_reported_as_expired` (no clock seam needed: an expired seal under an expired filename) |
+| Unlock before the confirmation, session mode only | A never-unlocked session vault prompted before a "no" | `declining_the_approval_in_a_session_costs_no_unlock` |
 
-Two readings with no mutant: the prompted-code path doesn't deduplicate
-by id as the `--code` path does (two copies of one request under
-different epochs show twice and are refused after the passphrase, writing
-nothing), and Resolution 5's `with_late_unlock` shipped as the existing
-`Keys::with_vault`.
+One reading had no mutant, and was a defect: the prompted-code path
+didn't deduplicate by id as the `--code` path did, so one request filed
+twice (a copy under a second live epoch) showed as two devices and was
+refused as a duplicate after the confirmation and the passphrase. Both
+paths now go through `keep_first_by_id`, pinned by
+`approve_with_a_prompted_code_opens_one_request_filed_twice_once`. The
+copy the re-open didn't read stays pending, and a later approval clears
+it as a no-op.
 
 ### 10. Parity and ledger
 

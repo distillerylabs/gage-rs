@@ -231,10 +231,8 @@ fn approval_scope(
 /// Each `--code` is tried on its own, which is what makes "every code must
 /// open something" checkable: a code that opens nothing fails the whole
 /// run rather than approving the subset that did, since a typo is likelier
-/// than a deliberately surplus code. One code given twice opens the same
-/// request twice, and only the first sighting is kept: a batch carrying it
-/// twice would show one device as two and then be refused under the lock
-/// as a duplicate, after the confirmation and the passphrase.
+/// than a deliberately surplus code. A request opened twice is kept once
+/// ([`keep_first_by_id`]), on this path and the prompted one.
 fn open_with_codes(
     vault: &Vault,
     scope: &[PendingRequest],
@@ -249,13 +247,22 @@ fn open_with_codes(
         let got = vault
             .open_enrollment(scope, std::slice::from_ref(code))
             .map_err(too_many_pending_advice)?;
-        for request in got {
-            if !opened.iter().any(|o| o.id == request.id) {
-                opened.push(request);
-            }
-        }
+        keep_first_by_id(&mut opened, got);
     }
     Ok((opened, typed))
+}
+
+/// Appends each of `got` not already in `opened` by id. One request can
+/// open more than once in a run: under two codes, or once per copy when a
+/// git writer filed it under a second epoch. Kept twice, it would show one
+/// device as two and be refused under the lock as a duplicate, after the
+/// confirmation and the passphrase.
+fn keep_first_by_id(opened: &mut Vec<OpenedRequest>, got: Vec<OpenedRequest>) {
+    for request in got {
+        if !opened.iter().any(|o| o.id == request.id) {
+            opened.push(request);
+        }
+    }
 }
 
 /// Reads a code through `Prompter::value` (no new prompter method,
@@ -282,7 +289,11 @@ fn prompt_for_code(
         match vault.open_enrollment(scope, &codes) {
             // The code travels on with what it opened: the re-open under
             // the lock needs it.
-            Ok(opened) => return Ok((opened, codes)),
+            Ok(got) => {
+                let mut opened = Vec::new();
+                keep_first_by_id(&mut opened, got);
+                return Ok((opened, codes));
+            }
             Err(EnrollmentError::CodeWrong) => prompter
                 .warn("gage: that code did not open any pending request; check it and try again."),
             Err(e) => return Err(too_many_pending_advice(e)),

@@ -317,6 +317,34 @@ fn approve_naming_one_request_twice_is_one_device() {
     assert!(!still_pending(e.a()));
 }
 
+// Beyond Go's rows, found in E4's second review: one request filed twice
+// (a git writer's copy under another live epoch) opens twice for one code.
+// The prompted path deduplicates by id as `--code` does, so it shows one
+// device and approves it, rather than refusing a duplicate after the
+// confirmation and the passphrase.
+#[test]
+fn approve_with_a_prompted_code_opens_one_request_filed_twice_once() {
+    let e = Enrolled::new("phone-1");
+    let dir = e.vault_path().join(".gage/pending");
+    let filed = std::fs::read_dir(&dir).unwrap().next().unwrap().unwrap();
+    let name = filed.file_name().into_string().unwrap();
+    let (id, epoch) = name.trim_end_matches(".age").rsplit_once('-').unwrap();
+    let copy = format!("{id}-{}.age", epoch.parse::<i64>().unwrap() - 60);
+    std::fs::copy(filed.path(), dir.join(copy)).unwrap();
+    gitrepo::commit_all(&e.vault_path(), "test: one request, filed twice").unwrap();
+    let p = approving().with_value(&e.code);
+
+    let r = e.a().approve(&[], &p);
+
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert!(
+        r.stdout.contains("opened 1 pending request."),
+        "{}",
+        r.stdout
+    );
+    assert_eq!(p.unlock_requests().len(), 1);
+}
+
 // Go: TestApproveWithADeviceFlagRelabels
 #[test]
 fn approve_with_a_device_flag_relabels() {

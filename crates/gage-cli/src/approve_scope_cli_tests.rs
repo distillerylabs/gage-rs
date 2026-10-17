@@ -125,6 +125,21 @@ fn approve_in_a_session_reuses_the_cached_identity() {
     assert!(!still_pending(e.a()));
 }
 
+// Beyond Go's rows, found in E4's second review: the late unlock holds in
+// a session too. A vault the session never unlocked stays locked through a
+// declined approval; only the one-shot path was pinned before.
+#[test]
+fn declining_the_approval_in_a_session_costs_no_unlock() {
+    let e = Enrolled::new("phone-1");
+    let approve = format!("recipient approve --code {}", e.code);
+
+    let r = e.a().session(&script(&[&approve, "n", "exit"]));
+
+    assert!(r.stderr.contains("nothing was approved"), "{}", r.stderr);
+    assert_eq!(passphrase_prompts(&r), 0, "{}\n{}", r.stdout, r.stderr);
+    assert!(still_pending(e.a()));
+}
+
 // Go: TestTheApproverAnswersTwoDistinctQuestions. "Let this device in" is
 // approve's; "do you trust the list" is M10's, asked here because another
 // device changed the list. Never collapsed, and declining the second

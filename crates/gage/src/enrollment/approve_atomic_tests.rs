@@ -7,6 +7,7 @@ use super::approve_tests::{
 };
 use super::fixtures_tests::{assert_enrollment_error, good_payload, hand_seal, hours, new_pubkey};
 use super::name::pending_file_name;
+use super::seal::Payload;
 use super::*;
 use crate::exitcode::Code;
 use crate::prompter::FakePrompter;
@@ -90,6 +91,172 @@ fn approval_writes_what_it_verified_under_the_lock_not_what_was_displayed() {
         None,
         "wrote what isn't there"
     );
+    assert_eq!(head(&a.vault), before);
+}
+
+/// Replaces the request `req` was filed as with `payload` sealed under its
+/// code and filed as `name`, and commits: a change made between the open
+/// and the lock, by the code-holder or a git writer who has the code.
+fn reseal_as(a: &SyncVault, req: &EnrollmentRequest, name: &str, payload: &Payload) {
+    let filed = a
+        .vault
+        .pending_dir()
+        .join(pending_file_name(&req.id, req.expires));
+    std::fs::remove_file(filed).unwrap();
+    super::fixtures_tests::write_pending(&a.vault, name, &hand_seal(payload, &req.code));
+    gitrepo::commit_all(
+        &a.vault.path,
+        "test: the request, changed after it was shown",
+    )
+    .unwrap();
+}
+
+// Beyond Go's rows, found in the review (task 9). The swap above changes
+// the key; this one keeps it and changes only the name, which a check
+// comparing keys alone would pass and then record under a name nobody was
+// shown. Consent was given for what was rendered, every field of it.
+#[test]
+fn approval_refuses_a_request_whose_device_name_changed_after_it_was_shown() {
+    let a = SyncVault::new();
+    insert_as(&a, "an entry");
+    let (_m, req) = enrolled(&a, "phone-1");
+    let opened = opened_for(&a.vault, &req.code);
+    let renamed = good_payload(
+        &a.vault,
+        &req.id,
+        "phone-2",
+        &opened.pubkey,
+        req.created,
+        req.expires,
+    );
+    reseal_as(&a, &req, &pending_file_name(&req.id, req.expires), &renamed);
+    let before = head(&a.vault);
+
+    assert_enrollment_error!(
+        approve_as(
+            &a,
+            &[Approval::new(opened.clone())],
+            &codes_of(&[&req]),
+            &unlocks()
+        ),
+        EnrollmentError::NoLongerPending { .. },
+        Code::NotFound
+    );
+    assert_eq!(key_listed_as(&a.vault, &opened.pubkey), None);
+    assert_eq!(head(&a.vault), before);
+}
+
+// Beyond Go's rows, found in the review (task 9). The commit deletes the
+// file the re-open read, not the name the sealed expiry implies: the
+// filename's epoch is unauthenticated, so a rebuilt path can miss, and an
+// approval that missed would grant access and leave the request pending.
+#[test]
+fn approval_deletes_the_file_it_verified_not_the_name_its_seal_implies() {
+    let a = SyncVault::new();
+    insert_as(&a, "an entry");
+    let (_m, req) = enrolled(&a, "phone-1");
+    let opened = opened_for(&a.vault, &req.code);
+    let payload = good_payload(
+        &a.vault,
+        &req.id,
+        "phone-1",
+        &opened.pubkey,
+        req.created,
+        req.expires,
+    );
+    let refiled = pending_file_name(&req.id, hours(1));
+    assert_ne!(refiled, pending_file_name(&req.id, req.expires));
+    reseal_as(&a, &req, &refiled, &payload);
+
+    approve_as(
+        &a,
+        &[Approval::new(opened.clone())],
+        &codes_of(&[&req]),
+        &unlocks(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        key_listed_as(&a.vault, &opened.pubkey).as_deref(),
+        Some("phone-1")
+    );
+    assert_eq!(pending_names(&a.vault), Vec::<String>::new());
+    assert!(!at_head(&a.vault, &format!("{PENDING_DIR}/{refiled}")));
+}
+
+// Beyond Go's rows, found in the review (task 9). A code that opens the
+// request under the lock and is refused there answers with that refusal,
+// not `NoLongerPending`: "approve it in the other vault" and "another
+// device resolved it" send a human to different places.
+#[test]
+fn a_refusal_under_the_lock_is_reported_as_itself() {
+    let a = SyncVault::new();
+    insert_as(&a, "an entry");
+    let (_m, req) = enrolled(&a, "phone-1");
+    let opened = opened_for(&a.vault, &req.code);
+    let mut elsewhere = good_payload(
+        &a.vault,
+        &req.id,
+        "phone-1",
+        &opened.pubkey,
+        req.created,
+        req.expires,
+    );
+    elsewhere.vault_id = uuid::Uuid::new_v4().to_string();
+    reseal_as(
+        &a,
+        &req,
+        &pending_file_name(&req.id, req.expires),
+        &elsewhere,
+    );
+    let before = head(&a.vault);
+
+    assert_enrollment_error!(
+        approve_as(
+            &a,
+            &[Approval::new(opened.clone())],
+            &codes_of(&[&req]),
+            &unlocks()
+        ),
+        EnrollmentError::WrongVault { .. },
+        Code::Conflict
+    );
+    assert_eq!(key_listed_as(&a.vault, &opened.pubkey), None);
+    assert_eq!(head(&a.vault), before);
+}
+
+// Beyond Go's rows, found in the review (task 9). The re-open finds the
+// file by its id without the liveness filter, so a request that expired
+// between the open and the lock is `Expired`, as its seal says, rather
+// than missing.
+#[test]
+fn a_request_that_expired_in_the_window_is_reported_as_expired() {
+    let a = SyncVault::new();
+    insert_as(&a, "an entry");
+    let (_m, req) = enrolled(&a, "phone-1");
+    let opened = opened_for(&a.vault, &req.code);
+    let lapsed = good_payload(
+        &a.vault,
+        &req.id,
+        "phone-1",
+        &opened.pubkey,
+        hours(-2),
+        hours(-1),
+    );
+    reseal_as(&a, &req, &pending_file_name(&req.id, hours(-1)), &lapsed);
+    let before = head(&a.vault);
+
+    assert_enrollment_error!(
+        approve_as(
+            &a,
+            &[Approval::new(opened.clone())],
+            &codes_of(&[&req]),
+            &unlocks()
+        ),
+        EnrollmentError::Expired { .. },
+        Code::Conflict
+    );
+    assert_eq!(key_listed_as(&a.vault, &opened.pubkey), None);
     assert_eq!(head(&a.vault), before);
 }
 
