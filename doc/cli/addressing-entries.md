@@ -60,6 +60,25 @@ candidate list becomes a numbered picker, and the entry you pick is the
 one the command uses. Same list, same order: the two modes differ only in
 what they do with it.
 
+## Enrollment request IDs reuse the same order
+
+`recipient approve <ID>` and `recipient deny <ID>` address a pending
+enrollment request rather than an entry, and they reuse this order rather
+than inventing one: exact UUID, then part of the UUID, then a candidate
+list (never a guess), then not found. The eight-character prefix
+`recipient pending` shows is the "part of the UUID" case. An ambiguous id
+lists each candidate's short id and expiry and exits `4`, in a session as
+well as one-shot: there is no picker for requests, because `deny` deletes.
+
+Two details are specific to requests. Matching runs against the **UUID
+part of the filename only**. A pending file is named
+`<uuid>-<expires-epoch>.age`, and a short numeric id like `1788` could
+otherwise match one request's expiry and another's id, with `deny`
+deleting whichever it hit. And there is no matching on device name: the
+name is sealed inside the request, which is the whole point of the
+filename scheme. Request ids are not offered by Tab completion. See
+[Adding a device](enrollment.md#addressing-a-request-by-id).
+
 ## Why addressing needs an unlock
 
 Titles live inside the encrypted entries, so resolving a query, even

@@ -67,7 +67,7 @@ line up.
 | P4 Sync ([plan](p4-sync/index.md), [#32](https://github.com/distillerylabs/gage-rs/issues/32)) | M8a1 remote primitives & auth · M8a2 sync wiring · M8b conflict resolution | `[x]` | **Opus** | P3 |
 | P5 Recipients & trust ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)) | M9a identities + recipient read side · M9b recipient writes + re-encryption · M10 trust cache · M11 cross-vault | `[x]` | Sonnet for M9a; **Opus** for M9b; Sonnet* for M10/M11 (⚑ Opus review of M10's laundering and M11's lock-order tests) | P4 |
 | P6 Polish ([plan](p6-polish/index.md), [#52](https://github.com/distillerylabs/gage-rs/issues/52)) | M12a `log`/`history` · M12b `cat`, `ls -H`, orphan cleanup · M12c `-c`/`-q` · M12d `--script`/`--stdin` | `[x]` | Sonnet; Sonnet* for M12c (⚑ Opus review of M12a's merge-walk, M12b's never-delete and M12d's passphrase-source tests) | P5 |
-| P7 Enrollment | E1b · E2 · E3 · E4 | `[ ]` | **Opus** | P5 |
+| P7 Enrollment ([plan](p7-enrollment/index.md), [#63](https://github.com/distillerylabs/gage-rs/issues/63)) | E1b shared recipient write · E2 sealed request · E3 joining side · E4 approving side | `[x]` | **Opus** for E2/E4; Sonnet\* for E1b/E3 (⚑ Opus review of every milestone's named tests) | P5 (P6 merged first) |
 | P8 Recovery key | R0–R5, regrouped into 3–4 milestones | `[ ]` | **Opus** for the R1/R3/R4 material | P7; P6 (R1 displays the key through M12's QR renderer) |
 | P9 Parity sign-off | Ledger closed, every test-inventory row ported or excused, user docs complete | `[ ]` | **Opus** review | P8 |
 
@@ -251,7 +251,7 @@ Adapted from the Go plan's table. Milestone IDs are the Rust ones.
 | M7 | Session-scoped metadata index | M8a2 invalidates after a pull; M8b after each resolution; M11 updates both vaults |
 | M8a1 | `syncerr` buckets (unreachable 7 / auth 5 / diverged 1) and the file-level `prepare_merge` + `PendingMerge::commit` | M8a2's sync verbs; M8b's resolution; M9's push after re-encrypt |
 | M8a2 | `RemoteSyncer` seam; pull on unlock (try-lock) and push inside the write lock; the push-failure warning wording | Every later write path (M9, M11, E-phase, R-phase) |
-| M9b | Recipient list changes touch `.age-recipients` and `config.toml` together, in one commit, via one `commit_recipient_list` primitive; every write starts with the dirty-tree reset (`with_vault_write`) | M10 diffs that pair; E1b widens the primitive; E4 and R3 build on it |
+| M9b | Recipient list changes touch `.age-recipients` and `config.toml` together, in one commit, via one `commit_recipient_list` primitive; every write starts with the dirty-tree reset (`with_vault_write`) | M10 diffs that pair; E1b widened the primitive (shipped: `add_recipient_locked` takes `&[Recipient]` and `commit_recipient_list` takes a `RecipientWrite` with `delete_paths` and `push_clause`); E4 and R3 build on it |
 | M10 | `RecipientChangeWarning` typed value, `Prompter::confirm_recipient_change` + cache regeneration rules | M11 (destination vault), E4, R4 |
 
 ---

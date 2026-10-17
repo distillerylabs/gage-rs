@@ -748,6 +748,9 @@ impl Prompter for Observing<'_> {
     fn confirm(&self, prompt: &str) -> Result<bool, PromptError> {
         self.inner.confirm(prompt)
     }
+    fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError> {
+        self.inner.confirm_default_yes(prompt)
+    }
     fn value(&self, title: &str) -> Result<zeroize::Zeroizing<String>, PromptError> {
         self.inner.value(title)
     }
@@ -886,6 +889,9 @@ fn non_interactive_prompter_refuses_on_the_first_conflict() {
             unreachable!("the fixture's identity is already unlocked")
         }
         fn confirm(&self, _: &str) -> Result<bool, PromptError> {
+            unreachable!()
+        }
+        fn confirm_default_yes(&self, _: &str) -> Result<bool, PromptError> {
             unreachable!()
         }
         fn value(&self, _: &str) -> Result<zeroize::Zeroizing<String>, PromptError> {

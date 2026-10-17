@@ -47,6 +47,48 @@ static SCRYPT_WORK_FACTOR: AtomicU8 = AtomicU8::new(SHIPPED_SCRYPT_WORK_FACTOR);
 /// doublings of headroom above what gage writes.
 pub const SCRYPT_MAX_WORK_FACTOR: u8 = 22;
 
+/// The log2 scrypt cost an enrollment request is sealed at. Deliberately
+/// **not** [`SHIPPED_SCRYPT_WORK_FACTOR`]: the two protect different things
+/// against different attacks. Do not merge them.
+///
+/// A work factor buys cost per guess, which is what a passphrase a human
+/// chose needs. An enrollment code is chosen by nobody: it is 16 Crockford
+/// characters from the OS RNG, 80 bits (D-ENROLL-CODE-FORMAT), and at 80
+/// bits the guess count is already the defence at any factor. The extra
+/// doublings would be paid in latency and buy nothing. Not zero, though:
+/// the licence is a property of the generator, and the factor should still
+/// hold up if a bug weakens it. 14 is about 32× cheaper than 19, and it is
+/// what keeps the honest case (a mistyped code against a full `pending/`)
+/// fast, which is the case D-ENROLL-SEAL-COST is calibrated for.
+///
+/// The coupling, recorded where someone would break it: the low factor is
+/// licensed by the code being generated, uniform and 80 bits. If a chosen
+/// code is ever accepted, or the code shortened, this goes back up in the
+/// same change. Raising it needs no migration (each blob records its own
+/// factor, and requests live a day), but it must stay at or below
+/// [`ENROLLMENT_SCRYPT_MAX_WORK_FACTOR`].
+pub const SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR: u8 = 14;
+
+/// The live copy of [`SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR`]: what sealing
+/// reads, and the only part a test can move (Q-ENROLL-SCRYPT-HOOK). Its own
+/// atomic and its own setter are what keep the two factors independent:
+/// sealing at [`SCRYPT_WORK_FACTOR`] would let a suite that lowered the
+/// identity factor silently lower the seal's, hiding the calibration
+/// D-ENROLL-SEAL-COST makes.
+///
+/// The only writer is [`set_enrollment_work_factor_for_tests`];
+/// `only_the_test_hooks_write_the_work_factors` enforces it.
+static ENROLLMENT_SCRYPT_WORK_FACTOR: AtomicU8 =
+    AtomicU8::new(SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR);
+
+/// The most work the enrollment open path will do on a request's *claimed*
+/// factor (Q-ENROLL-SCRYPT-CAP). Its own cap, not [`SCRYPT_MAX_WORK_FACTOR`]:
+/// the identity file is local, while `pending/` is writable by any git
+/// writer, and scrypt's memory is 1 KiB × N. At 22 one hostile file costs
+/// 4 GiB and seconds; at 18, four doublings above what gage seals at
+/// (age's own headroom), it costs 256 MiB and a third of a second.
+pub const ENROLLMENT_SCRYPT_MAX_WORK_FACTOR: u8 = 18;
+
 /// What a [`Recipient`] built for a passphrase renders as: it has no public
 /// spelling, and must never be mistaken for a key.
 pub const PASSPHRASE_SPELLING: &str = "<passphrase>";
@@ -58,6 +100,19 @@ pub const PASSPHRASE_SPELLING: &str = "<passphrase>";
 #[cfg(any(test, feature = "test-support"))]
 pub fn set_scrypt_work_factor_for_tests(n: u8) -> u8 {
     SCRYPT_WORK_FACTOR.swap(n, Ordering::SeqCst)
+}
+
+/// Overrides the live enrollment work factor for the rest of the process
+/// and returns the previous value: the twin of
+/// [`set_scrypt_work_factor_for_tests`], with the same test-only rule.
+#[cfg(any(test, feature = "test-support"))]
+pub fn set_enrollment_work_factor_for_tests(n: u8) -> u8 {
+    ENROLLMENT_SCRYPT_WORK_FACTOR.swap(n, Ordering::SeqCst)
+}
+
+/// The factor a new enrollment seal is written at right now.
+pub fn enrollment_scrypt_work_factor() -> u8 {
+    ENROLLMENT_SCRYPT_WORK_FACTOR.load(Ordering::SeqCst)
 }
 
 /// The factor a new passphrase recipient is built at right now.
@@ -169,8 +224,9 @@ impl Recipient {
     }
 
     /// The one constructor of an age scrypt recipient, with the factor
-    /// spelled out.
-    fn passphrase_at(passphrase: &str, work_factor: u8) -> Recipient {
+    /// spelled out: what lets enrollment seal at its own factor without
+    /// reading the identity file's.
+    pub(crate) fn passphrase_at(passphrase: &str, work_factor: u8) -> Recipient {
         let mut r = age::scrypt::Recipient::new(SecretString::from(passphrase.to_string()));
         r.set_work_factor(work_factor);
         Recipient {
@@ -277,6 +333,24 @@ pub(crate) fn decrypt_with(
     ciphertext: &[u8],
     identity: &dyn age::Identity,
 ) -> Result<Vec<u8>, DecryptFailure> {
+    decrypt_with_limit(ciphertext, identity, None)
+        .map(|plaintext| plaintext.expect("an unlimited read is never over its limit"))
+}
+
+/// [`decrypt_with`] holding at most `limit` bytes of plaintext. `Ok(None)`
+/// is a payload over the limit, reported apart from damage so the caller
+/// picks its own error; nothing partial is returned either way.
+///
+/// The limit exists for enrollment: age's plaintext isn't bounded by its
+/// ciphertext, and the party who can produce a large one is a code-holder,
+/// trusted enough to be granted access, not to be handed an unbounded
+/// allocation. It reads one byte past the limit, so a payload exactly on
+/// it is accepted and the first byte over is seen without reading the rest.
+pub(crate) fn decrypt_with_limit(
+    ciphertext: &[u8],
+    identity: &dyn age::Identity,
+    limit: Option<usize>,
+) -> Result<Option<Vec<u8>>, DecryptFailure> {
     let header = |cause, scrypt_only| DecryptFailure {
         scrypt_only,
         cause: Cause::Header(cause),
@@ -287,19 +361,39 @@ pub(crate) fn decrypt_with(
         .decrypt(std::iter::once(identity))
         .map_err(|e| header(e, scrypt_only))?;
     let mut out = Zeroizing::new(Vec::new());
-    reader.read_to_end(&mut out).map_err(|e| DecryptFailure {
+    let read = match limit {
+        Some(limit) => (&mut reader).take(limit as u64 + 1).read_to_end(&mut out),
+        None => reader.read_to_end(&mut out),
+    };
+    read.map_err(|e| DecryptFailure {
         scrypt_only,
         cause: Cause::Payload(e),
     })?;
-    Ok(std::mem::take(&mut *out))
+    if limit.is_some_and(|limit| out.len() > limit) {
+        return Ok(None);
+    }
+    Ok(Some(std::mem::take(&mut *out)))
 }
 
-/// The one constructor of an age scrypt identity in the library, so the
-/// cap is set in exactly one place: every passphrase decryption goes
-/// through here.
+/// An age scrypt identity for an identity file's passphrase, capped at
+/// [`SCRYPT_MAX_WORK_FACTOR`].
 pub(crate) fn scrypt_identity(passphrase: &str) -> age::scrypt::Identity {
+    capped_scrypt_identity(passphrase, SCRYPT_MAX_WORK_FACTOR)
+}
+
+/// An age scrypt identity for an enrollment code, capped at
+/// [`ENROLLMENT_SCRYPT_MAX_WORK_FACTOR`]: a hostile `pending/` file
+/// claiming more is refused before any KDF runs.
+pub(crate) fn enrollment_scrypt_identity(code: &str) -> age::scrypt::Identity {
+    capped_scrypt_identity(code, ENROLLMENT_SCRYPT_MAX_WORK_FACTOR)
+}
+
+/// The one constructor of an age scrypt identity in the library, so a cap
+/// is always set and set in one place: every passphrase decryption goes
+/// through here, with one of the two named caps.
+fn capped_scrypt_identity(passphrase: &str, max_work_factor: u8) -> age::scrypt::Identity {
     let mut id = age::scrypt::Identity::new(SecretString::from(passphrase.to_string()));
-    id.set_max_work_factor(SCRYPT_MAX_WORK_FACTOR);
+    id.set_max_work_factor(max_work_factor);
     id
 }
 
@@ -522,6 +616,20 @@ mod tests {
         assert_eq!(SCRYPT_MAX_WORK_FACTOR, 22);
     }
 
+    // Go: TestEnrollmentScryptWorkFactorIsDeliberate. The shipped
+    // constant, not the live value. 14 is licensed by the code being 80
+    // generated bits (D-ENROLL-SEAL-COST); the rest stop it being
+    // "simplified" into the identity file's, and keep gage able to open
+    // what it seals under its own cap (Q-ENROLL-SCRYPT-CAP).
+    #[test]
+    fn enrollment_scrypt_work_factor_is_deliberate() {
+        assert_eq!(SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR, 14);
+        const { assert!(SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR != SHIPPED_SCRYPT_WORK_FACTOR) };
+        assert_eq!(ENROLLMENT_SCRYPT_MAX_WORK_FACTOR, 18);
+        const { assert!(ENROLLMENT_SCRYPT_MAX_WORK_FACTOR >= SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR) };
+        const { assert!(ENROLLMENT_SCRYPT_MAX_WORK_FACTOR <= SCRYPT_MAX_WORK_FACTOR) };
+    }
+
     // Go: TestScryptWorkFactorIsActuallyApplied. The constant can be right
     // and never reach age: dropping the set_work_factor call would write
     // every file at age's calibrated default while everything else stayed
@@ -651,76 +759,93 @@ mod tests {
             .collect()
     }
 
-    // Go: TestOnlyTheTestHooksWriteTheWorkFactors, the identity-file half
-    // (enrollment's is P7's). The shipped constant can't move, but the
-    // live atomic can, and one stray `SCRYPT_WORK_FACTOR.store(10, ..)`
-    // in library code would ship a weakened KDF every other guard misses.
-    // So every mention of the static outside comments must be its one
-    // declaration (initialized from the shipped constant, which also
-    // catches a rewritten initializer), a `.load(` read, or inside the
+    // Go: TestOnlyTheTestHooksWriteTheWorkFactors, both halves. The
+    // shipped constants can't move, but the live atomics can, and one
+    // stray `SCRYPT_WORK_FACTOR.store(10, ..)` in library code would ship a
+    // weakened KDF every other guard misses. So every mention of each
+    // static outside comments must be its one declaration (initialized from
+    // its own shipped constant, which also catches a rewritten initializer
+    // or the two being cross-wired), a `.load(` read, or inside its own
     // test-only setter. A whitelist, not a pattern for writes: an alias
     // (`let f = &SCRYPT_WORK_FACTOR;`) is refused too.
     #[test]
     fn only_the_test_hooks_write_the_work_factors() {
-        const STATIC: &str = "SCRYPT_WORK_FACTOR";
-        const SETTER: &str = "set_scrypt_work_factor_for_tests";
-        let declaration =
-            "static SCRYPT_WORK_FACTOR: AtomicU8 = AtomicU8::new(SHIPPED_SCRYPT_WORK_FACTOR);";
-        let mut declarations = 0;
-        for (name, code) in library_sources() {
-            let setter = fn_body(&code, SETTER).map(|body| {
-                let start = body.as_ptr() as usize - code.as_ptr() as usize;
-                start..start + body.len()
-            });
-            for at in occurrences(&code, STATIC) {
-                let line_start = code[..at].rfind('\n').map_or(0, |i| i + 1);
-                let line = code[line_start..].lines().next().unwrap().trim();
-                if line.starts_with("//") {
-                    continue;
+        let hooks = [
+            (
+                "SCRYPT_WORK_FACTOR",
+                "set_scrypt_work_factor_for_tests",
+                "static SCRYPT_WORK_FACTOR: AtomicU8 = AtomicU8::new(SHIPPED_SCRYPT_WORK_FACTOR);",
+            ),
+            (
+                "ENROLLMENT_SCRYPT_WORK_FACTOR",
+                "set_enrollment_work_factor_for_tests",
+                "static ENROLLMENT_SCRYPT_WORK_FACTOR: AtomicU8 = \
+                 AtomicU8::new(SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR);",
+            ),
+        ];
+        let sources = library_sources();
+        let crypt = &sources.iter().find(|(n, _)| n == "crypt.rs").unwrap().1;
+        for (stat, setter, declaration) in hooks {
+            let mut declarations = 0;
+            for (name, code) in &sources {
+                let setter_body = fn_body(code, setter).map(|body| {
+                    let start = body.as_ptr() as usize - code.as_ptr() as usize;
+                    start..start + body.len()
+                });
+                for at in occurrences(code, stat) {
+                    let line_start = code[..at].rfind('\n').map_or(0, |i| i + 1);
+                    let line = code[line_start..].lines().next().unwrap().trim();
+                    if line.starts_with("//") {
+                        continue;
+                    }
+                    // The whole statement, whitespace collapsed, since
+                    // rustfmt wraps a long declaration.
+                    let stmt = &code[line_start..];
+                    let stmt = stmt[..stmt.find(';').map_or(stmt.len(), |i| i + 1)]
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    if stmt == declaration {
+                        declarations += 1;
+                        continue;
+                    }
+                    if code[at + stat.len()..].starts_with(".load(") {
+                        continue;
+                    }
+                    if setter_body.as_ref().is_some_and(|r| r.contains(&at)) && name == "crypt.rs" {
+                        continue;
+                    }
+                    panic!(
+                        "{name}: `{line}` touches {stat} outside {setter}; only the test hook may \
+                         write it, or a weakened KDF ships invisibly"
+                    );
                 }
-                if line == declaration {
-                    declarations += 1;
-                    continue;
-                }
-                if code[at + STATIC.len()..].starts_with(".load(") {
-                    continue;
-                }
-                if setter.as_ref().is_some_and(|r| r.contains(&at)) && name == "crypt.rs" {
-                    continue;
-                }
-                panic!(
-                    "{name}: `{line}` touches {STATIC} outside {SETTER}; only the test hook may \
-                     write it, or a weakened KDF ships invisibly"
-                );
             }
+            assert_eq!(
+                declarations, 1,
+                "want exactly one declaration of {stat}: `{declaration}`"
+            );
+            // And the setter really is test-only.
+            let at = crypt.find(&format!("pub fn {setter}(")).unwrap();
+            assert!(
+                crypt[..at]
+                    .trim_end()
+                    .ends_with(r#"#[cfg(any(test, feature = "test-support"))]"#),
+                "{setter} must exist only under cfg(any(test, feature = \"test-support\"))"
+            );
         }
-        assert_eq!(
-            declarations, 1,
-            "want exactly one declaration of {STATIC}, initialized from SHIPPED_SCRYPT_WORK_FACTOR"
-        );
-        // And the setter really is test-only.
-        let crypt = library_sources()
-            .into_iter()
-            .find(|(n, _)| n == "crypt.rs")
-            .unwrap()
-            .1;
-        let at = crypt.find(&format!("pub fn {SETTER}(")).unwrap();
-        assert!(
-            crypt[..at]
-                .trim_end()
-                .ends_with(r#"#[cfg(any(test, feature = "test-support"))]"#),
-            "{SETTER} must exist only under cfg(any(test, feature = \"test-support\"))"
-        );
     }
 
-    // Go: TestEveryScryptIdentityCapsItsWorkFactor, the identity-file half
-    // (enrollment's is P7's). A scrypt identity built without a cap
-    // inherits age's per-machine one, and the next decryption path would
-    // inherit a limit nobody chose. Rust's version is stricter than Go's
-    // per-function scan: there is exactly one construction site in the
-    // library, and that function sets the cap.
+    // Go: TestEveryScryptIdentityCapsItsWorkFactor, both halves. A scrypt
+    // identity built without a cap inherits age's per-machine one, and the
+    // next decryption path would inherit a limit nobody chose. Rust's
+    // version is stricter than Go's per-function scan: there is exactly one
+    // construction site in the library, it sets the cap it is given, and
+    // every call of it passes one of the two named caps
+    // (Q-ENROLL-SCRYPT-CAP): the identity file's, or the seal's.
     #[test]
     fn every_scrypt_identity_caps_its_work_factor() {
+        const CONSTRUCTOR: &str = "capped_scrypt_identity";
         let mut sites = Vec::new();
         for (name, code) in library_sources() {
             for at in code.match_indices("scrypt::Identity::new").map(|(i, _)| i) {
@@ -738,12 +863,42 @@ mod tests {
             sites.iter().map(|(n, ..)| n).collect::<Vec<_>>()
         );
         let (name, _, code) = &sites[0];
-        let body = fn_body(code, "scrypt_identity")
-            .unwrap_or_else(|| panic!("{name}: the construction is not in fn scrypt_identity"));
+        let body = fn_body(code, CONSTRUCTOR)
+            .unwrap_or_else(|| panic!("{name}: the construction is not in fn {CONSTRUCTOR}"));
         assert!(body.contains("scrypt::Identity::new"), "{name}: {body}");
         assert!(
-            body.contains("set_max_work_factor(SCRYPT_MAX_WORK_FACTOR)"),
-            "{name}: scrypt_identity builds an identity without capping its work factor"
+            body.contains("set_max_work_factor(max_work_factor)"),
+            "{name}: {CONSTRUCTOR} builds an identity without capping its work factor"
+        );
+
+        let mut calls = Vec::new();
+        for (name, code) in library_sources() {
+            for at in occurrences(&code, CONSTRUCTOR) {
+                let rest = &code[at + CONSTRUCTOR.len()..];
+                if code[..at].ends_with("fn ") || !rest.starts_with('(') {
+                    continue;
+                }
+                let args = &rest[..rest.find(')').unwrap()];
+                let cap = args.rsplit(',').next().unwrap().trim();
+                assert!(
+                    [
+                        "SCRYPT_MAX_WORK_FACTOR",
+                        "ENROLLMENT_SCRYPT_MAX_WORK_FACTOR"
+                    ]
+                    .contains(&cap),
+                    "{name}: {CONSTRUCTOR}({args}) caps at {cap:?}, not one of the named caps"
+                );
+                calls.push(cap.to_string());
+            }
+        }
+        calls.sort();
+        assert_eq!(
+            calls,
+            [
+                "ENROLLMENT_SCRYPT_MAX_WORK_FACTOR",
+                "SCRYPT_MAX_WORK_FACTOR"
+            ],
+            "want one capped constructor per decryption path: the identity file and the seal"
         );
     }
 

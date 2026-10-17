@@ -16,6 +16,8 @@ extends it. For everything gage will do, see [Go gage's documentation](https://g
 - [Identities and recipients](identities-and-recipients.md): who can read a
   vault, adding and removing recipients, `recipient verify`, the local
   trust cache and the recipient-change confirmation.
+- [Adding a device](enrollment.md): `identity enroll`, enrollment codes,
+  and the `recipient pending`/`approve`/`deny` flow.
 - [Sharing entries between vaults](sharing.md): `mv` and `cp` with
   `--to-vault`.
 - [Sync and conflicts](sync.md): the automatic pull and push, `sync`,

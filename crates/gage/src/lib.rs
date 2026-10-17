@@ -12,6 +12,7 @@ pub mod atomicfile;
 pub mod config;
 pub mod crypt;
 pub mod devicename;
+pub mod enrollment;
 pub mod entry;
 pub mod exitcode;
 pub mod generate;
@@ -53,6 +54,8 @@ pub mod vaultconfig;
 pub mod vaultlock;
 pub mod xdgpaths;
 
+#[cfg(test)]
+mod recipient_batch_tests;
 #[cfg(test)]
 mod recipient_tests;
 #[cfg(test)]

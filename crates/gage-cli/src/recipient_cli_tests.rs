@@ -49,7 +49,7 @@ impl Env {
     }
 
     /// `gage recipient add <key> --device <device>`, required to succeed.
-    fn add_recipient(&self, key: &str, device: &str) -> String {
+    pub(crate) fn add_recipient(&self, key: &str, device: &str) -> String {
         self.ok(&["recipient", "add", key, "--device", device])
             .stdout
     }

@@ -80,6 +80,7 @@ impl Env {
             now: &std::time::Instant::now,
             clipboard: &crate::clipboard::fake::unused(),
             clipboard_wait: &|_| {},
+            time_zone: jiff::tz::TimeZone::UTC,
         };
         let code = crate::run(&args, &mut io, &FakePrompter::new());
         CliResult {

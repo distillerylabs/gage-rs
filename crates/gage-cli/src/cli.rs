@@ -211,10 +211,14 @@ fn usage_args(usage: &str) -> Vec<Arg> {
     usage
         .split_whitespace()
         .map(|token| {
-            let many = token.ends_with("...");
-            let token = token.trim_end_matches("...");
+            // `...` may sit inside the brackets (`[ID...]`, Cobra's
+            // spelling) or after them.
             let required = token.starts_with('<');
-            let name = token.trim_matches(|c| matches!(c, '<' | '>' | '[' | ']'));
+            let inner = token
+                .trim_end_matches("...")
+                .trim_matches(|c| matches!(c, '<' | '>' | '[' | ']'));
+            let many = token.ends_with("...") || inner.ends_with("...");
+            let name = inner.trim_end_matches("...");
             Arg::new(name.to_string())
                 .required(required)
                 .action(if many {

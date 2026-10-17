@@ -5,24 +5,29 @@ vault** (recipients: a vault-wide list of public keys) and **how a
 particular device proves it holds the matching private key** (identity:
 decided independently by each device, never dictated by the vault).
 
-> **Not yet in gage-rs.** Enrolling a second device with a short code
-> (`identity enroll`, `recipient pending`, `approve` and `deny`) is phase
-> P7 of the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md),
-> and the recovery key (`gage recovery ...`, and the `recovery-paper-key`
-> recipient `init` will register) is P8. Until then a new device joins by
-> the hand-carried-key path below.
+> **Not yet in gage-rs.** The recovery key (`gage recovery ...`, and the
+> `recovery-paper-key` recipient `init` will register) is phase P8 of the
+> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
 
 ## Identity: how this device proves it can decrypt
 
 ```
-gage identity add  [--use NAME] [--method passphrase] [--device NAME]
-gage identity list [--use NAME]
+gage identity add    [--use NAME] [--method passphrase] [--device NAME]
+gage identity enroll [--use NAME] [--device NAME] [--ttl DURATION]
+gage identity list   [--use NAME]
 ```
 
 `identity add` registers how *this device* holds its private key and
 prints the resulting public key so it can be added as a recipient: either
 by you, if you're bootstrapping a new vault, or by an existing recipient
 adding you to theirs with `gage recipient add <pubkey> --device NAME`.
+
+`identity enroll` is the same thing plus publishing. It registers the
+identity *and* commits a sealed request to join into the vault itself,
+then prints a short code to hand to an existing recipient. That's the path
+most second devices should take; see [Adding a device](enrollment.md).
+`identity add` is still the answer when this device can only read the
+remote, not write to it, or for an air-gapped transfer.
 
 - **`--method`** is this device's own choice, not the vault's. Omitted, it
   takes the vault's configured default method. `passphrase` is the only
@@ -51,6 +56,8 @@ key, and have any other recipient add the printed key with
 `gage recipient add`. Neither verb overwrites an identity file that's
 still there; recovery means registering a *new* key, never restoring the
 old one from a backup.
+`gage identity enroll` works for this too, and spares you carrying the key
+by hand.
 
 ## Recipients: who can decrypt a vault
 
@@ -59,7 +66,16 @@ gage recipient add <pubkey> --device NAME [--use NAME]
 gage recipient remove <pubkey-or-name> --reencrypt [--use NAME]
 gage recipient list [--use NAME]
 gage recipient verify [--use NAME] [--repair]
+
+gage recipient pending [--use NAME]                       # enrollment requests
+gage recipient approve [ID...] [--code CODE ...] [--device NAME] [--use NAME]
+gage recipient deny <ID> [--use NAME]
 ```
+
+The last three belong to the enrollment flow and have their own page:
+[Adding a device](enrollment.md). The rest are the manual, hand-carried-key
+path. Every one of them that changes the recipient list (`add`, `remove`,
+`approve`) also deletes expired enrollment requests, in the same commit.
 
 - **`recipient add`** takes a bare public key and **requires `--device`**:
   a public key says nothing about whose it is, and the label is what every
@@ -144,8 +160,8 @@ gage --yes insert Token --value-stdin < token.txt
 ```
 
 `--yes` answers **only** this question. It is deliberately not a general
-"assume yes": removing this device's own key and resolving a sync conflict
-are different decisions, and a flag that meant "yes to whatever you were
+"assume yes": approving an enrollment request, removing this device's own
+key and resolving a sync conflict are different decisions, and a flag that meant "yes to whatever you were
 going to ask" would answer them too. It also can't turn a mismatched
 change into a reviewed one, because that rule is applied inside the
 library from `verify`, not from who answered. It isn't listed in any

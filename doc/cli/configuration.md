@@ -96,7 +96,8 @@ A `git`-type vault's repository, as `gage init` creates it:
 ```
 personal/                         # git repo root, on branch main
 ├── .gage/
-│   └── config.toml               # vault-level config: id, type, method, recipients (committed, plaintext)
+│   ├── config.toml               # vault-level config: id, type, method, recipients (committed, plaintext)
+│   └── pending/                  # sealed enrollment requests (created by the first enroll; often absent)
 ├── .age-recipients               # recipient public keys, one per line (committed, plaintext)
 ├── entries/                      # one encrypted file per entry (empty, so not yet committed)
 ├── .gitattributes                # marks .age-recipients and .gage/config.toml unmergeable
@@ -138,7 +139,10 @@ nothing else, so the stock `age` CLI can use it directly
 (`age -R .age-recipients -e file`). `.gitattributes` marks both
 recipient-defining files unmergeable, so two devices that each change the
 recipient list produce a conflict for a human to resolve rather than a
-silent union of two lists neither of them reviewed.
+silent union of two lists neither of them reviewed. It deliberately does
+**not** cover `.gage/pending/`: those files are inert and uniquely named,
+so two devices enrolling at once merge cleanly. For what's in `pending/`,
+see [Adding a device](enrollment.md#what-a-pending-request-is-on-disk).
 
 ## Environment variables
 

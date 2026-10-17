@@ -229,6 +229,18 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
         Ok(matches!(answer.trim().to_lowercase().as_str(), "y" | "yes"))
     }
 
+    /// A bare Enter means yes: the one question whose default is to go
+    /// ahead, rendered `[Y/n]` so the default is visible. Only Enter, `y`
+    /// and `yes` accept, as in Go: anything else, a typo included,
+    /// declines, since a yes here commits and pushes.
+    fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError> {
+        let answer = self.ask(&format!("{prompt} [Y/n] "))?;
+        Ok(matches!(
+            answer.trim().to_lowercase().as_str(),
+            "" | "y" | "yes"
+        ))
+    }
+
     /// Masked, like a passphrase: the value is a secret, and it is typed
     /// where a screen or a recording could see it.
     fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError> {
@@ -624,6 +636,30 @@ mod tests {
             let (p, _) = prompter(input);
             assert_eq!(p.confirm("do the thing?").unwrap(), want, "{input:?}");
         }
+    }
+
+    // Go: TestConfirmDefaultYesDefaultsToYes
+    #[test]
+    fn confirm_default_yes_defaults_to_yes() {
+        for (input, want) in [
+            ("\n", true),
+            ("y\n", true),
+            ("yes\n", true),
+            ("  \n", true),
+            ("garbage\n", false),
+            ("nope\n", false),
+            ("n\n", false),
+            (" NO \n", false),
+        ] {
+            let (p, _) = prompter(input);
+            assert_eq!(p.confirm_default_yes("enroll?").unwrap(), want, "{input:?}");
+        }
+        let (p, out) = prompter("\n");
+        assert!(p.confirm_default_yes("enroll?").unwrap());
+        assert!(out.text().contains("enroll? [Y/n] "), "{}", out.text());
+        // The default-no question is unchanged beside it.
+        let (p, _) = prompter("\n");
+        assert!(!p.confirm("enroll?").unwrap());
     }
 
     // Go: TestConfirmStillRendersDefaultNo

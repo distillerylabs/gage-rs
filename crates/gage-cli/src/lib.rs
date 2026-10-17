@@ -84,6 +84,11 @@ pub struct Io<'a> {
     /// [`clipboard::wait_for_clipboard`]; tests record the call instead of
     /// waiting, and never install a signal handler.
     pub clipboard_wait: &'a dyn Fn(Duration),
+    /// The zone local times render in: `recipient pending`'s expiries and
+    /// the approve screen. `main` passes the system zone; in-process
+    /// tests, which share one process environment, set it here rather than
+    /// `TZ` (Q-PENDING-TZ).
+    pub time_zone: jiff::tz::TimeZone,
 }
 
 /// Runs one invocation (`args` without the program name) and returns its
@@ -194,11 +199,19 @@ fn print(io: &mut Io, text: &str) -> Result<(), CliError> {
 }
 
 #[cfg(test)]
+mod approve_cli_tests;
+#[cfg(test)]
+mod approve_scope_cli_tests;
+#[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
 mod clip_tests;
 #[cfg(test)]
+mod clone_enroll_tests;
+#[cfg(test)]
 mod complete_tests;
+#[cfg(test)]
+mod enroll_cli_tests;
 #[cfg(test)]
 mod entry_tests;
 #[cfg(test)]

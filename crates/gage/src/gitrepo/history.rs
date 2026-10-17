@@ -25,6 +25,25 @@ pub struct Revision {
     pub content: Option<Vec<u8>>,
 }
 
+/// The committer time of HEAD's commit, or `None` for a repository with no
+/// commits yet. The committer's, not the author's: it is when the commit
+/// reached this history, which is what a clock-skew check compares against.
+pub fn head_committer_time(dir: &Path) -> Result<Option<jiff::Timestamp>, Error> {
+    let repo = open(dir)?;
+    let commit = match repo.head() {
+        Ok(head) => head
+            .peel_to_commit()
+            .map_err(fail("reading HEAD of", dir))?,
+        Err(e) if e.code() == git2::ErrorCode::UnbornBranch => return Ok(None),
+        Err(e) => return Err(fail("reading HEAD of", dir)(e)),
+    };
+    jiff::Timestamp::from_second(commit.committer().when().seconds())
+        .map(Some)
+        .map_err(|e| {
+            fail("reading the committer time of", dir)(git2::Error::from_str(&e.to_string()))
+        })
+}
+
 /// What a path is at one commit: the blob there, or `None` when absent.
 type Version = Option<git2::Oid>;
 

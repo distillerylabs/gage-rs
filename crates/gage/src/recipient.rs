@@ -13,10 +13,12 @@
 
 use uuid::Uuid;
 
+use crate::enrollment::EnrollmentError;
 use crate::entry::{self, LockError, WRITE_LOCK_TIMEOUT};
 use crate::exitcode::{Code, HasCode};
 use crate::identity::Identity;
 use crate::prompter::{PromptError, Prompter};
+use crate::remotesync::UNPUSHED_WRITE_CLAUSE;
 use crate::trustcache::TrustError;
 use crate::vault::Vault;
 use crate::vaultconfig::{self, Recipient};
@@ -101,6 +103,29 @@ pub struct RecipientChange {
     pub commit: String,
     /// Always the whole vault: both verbs re-encrypt every entry.
     pub reencrypted: usize,
+}
+
+/// What a recipient-list commit carries beyond the list itself.
+pub(crate) struct RecipientWrite<'a> {
+    /// The commit message.
+    pub(crate) message: &'a str,
+    /// Vault-relative, slash-separated paths deleted in the same commit.
+    pub(crate) delete_paths: &'a [String],
+    /// What a failed push's warning says went unpublished; `None` is
+    /// [`UNPUSHED_WRITE_CLAUSE`].
+    pub(crate) push_clause: Option<&'a str>,
+}
+
+impl<'a> RecipientWrite<'a> {
+    /// The ordinary write: this message, nothing deleted, the default
+    /// clause.
+    pub(crate) fn message(message: &'a str) -> RecipientWrite<'a> {
+        RecipientWrite {
+            message,
+            delete_paths: &[],
+            push_clause: None,
+        }
+    }
 }
 
 /// Why a recipient change was refused or failed. Every refusal is decided
@@ -254,9 +279,8 @@ impl From<LockError> for RecipientError {
 impl Vault {
     /// A19's pre-flight: can `identity` read every entry in this vault?
     ///
-    /// Public and standalone because two commands place it differently:
-    /// `recipient add` runs it before the lock, E4's approval later in its
-    /// own sequence. Either way the refusal never arrives mid-write on an
+    /// Public and standalone so approval can run it after its late unlock
+    /// and before its own lock, as `recipient add` runs it before its. Either way the refusal never arrives mid-write on an
     /// opaque entry id.
     ///
     /// It counts only entries `identity` is not a recipient of. One that
@@ -323,15 +347,23 @@ impl Vault {
             if !clean {
                 self.require_full_access(identity)?;
             }
-            self.add_recipient_locked(
-                Recipient {
-                    device: device.to_string(),
-                    pubkey: pubkey.to_string(),
-                },
-                &format!("gage: recipient add {device} (reencrypt)"),
+            let message = format!("gage: recipient add {device} (reencrypt)");
+            let add = Recipient {
+                device: device.to_string(),
+                pubkey: pubkey.to_string(),
+            };
+            let (reencrypted, commit) = self.add_recipient_locked(
+                std::slice::from_ref(&add),
+                &RecipientWrite::message(&message),
                 identity,
                 prompter,
-            )
+            )?;
+            Ok(RecipientChange {
+                device: add.device,
+                pubkey: add.pubkey,
+                commit,
+                reencrypted,
+            })
         })
     }
 
@@ -387,9 +419,10 @@ impl Vault {
                 "gage: removing {:?} revokes future access only — anything {} already read can't be unread.",
                 removed.device, removed.device
             ));
+            let message = format!("gage: recipient remove {} (reencrypt)", removed.device);
             let (reencrypted, commit) = self.commit_recipient_list(
                 &updated,
-                &format!("gage: recipient remove {} (reencrypt)", removed.device),
+                &RecipientWrite::message(&message),
                 identity,
                 prompter,
             )?;
@@ -437,52 +470,60 @@ impl Vault {
         }
     }
 
-    /// The add itself, with the write lock held. Split from
-    /// [`Vault::add_recipient`] so E1b can widen it to several recipients
-    /// and E4's approval can call it under a lock it took itself.
-    fn add_recipient_locked(
+    /// The add itself, for one recipient or several, with the write lock
+    /// held. Split from [`Vault::add_recipient`] so E4's approval can call
+    /// it under a lock it took itself: a batch is one trust question, one
+    /// re-encryption pass and one commit, which also carries whatever
+    /// `write` says to delete. Returns how many entries were rewritten and
+    /// the commit's id.
+    ///
+    /// Every member is validated here, the function that writes the list,
+    /// and checked against the vault's list and against the rest of the
+    /// batch before the first byte is written.
+    pub(crate) fn add_recipient_locked(
         &self,
-        add: Recipient,
-        message: &str,
+        adds: &[Recipient],
+        write: &RecipientWrite<'_>,
         identity: &Identity,
         prompter: &dyn Prompter,
-    ) -> Result<RecipientChange, RecipientError> {
+    ) -> Result<(usize, String), RecipientError> {
         self.check_recipient_preconditions(prompter)?;
         let current = self.recipients()?;
-        // Re-validated here, the function that writes the list: a device
-        // name in it becomes a path component, and a config carrying an
-        // invalid one is a vault nobody can open.
-        if !devicename::valid(&add.device) {
-            return Err(RecipientError::InvalidDeviceName(add.device));
+        // A device name in the list becomes a path component, and a config
+        // carrying an invalid one is a vault nobody can open.
+        for add in adds {
+            if !devicename::valid(&add.device) {
+                return Err(RecipientError::InvalidDeviceName(add.device.clone()));
+            }
+            agekey::validate_recipient(&add.pubkey)?;
         }
-        agekey::validate_recipient(&add.pubkey)?;
-        if let Some(existing) = current.iter().find(|r| r.pubkey == add.pubkey) {
-            return Err(RecipientError::RecipientExists {
-                device: existing.device.clone(),
-                pubkey: Some(existing.pubkey.clone()),
-            });
-        }
-        if current.iter().any(|r| r.device == add.device) {
-            return Err(RecipientError::RecipientExists {
-                device: add.device,
-                pubkey: None,
-            });
+        // The vault's list, then each member against those before it: a
+        // batch whose two members claim one key or one name is refused for
+        // the same reason a single add of either would be.
+        for (i, add) in adds.iter().enumerate() {
+            let earlier = current.iter().chain(&adds[..i]);
+            if let Some(existing) = earlier.clone().find(|r| r.pubkey == add.pubkey) {
+                return Err(RecipientError::RecipientExists {
+                    device: existing.device.clone(),
+                    pubkey: Some(existing.pubkey.clone()),
+                });
+            }
+            if earlier.into_iter().any(|r| r.device == add.device) {
+                return Err(RecipientError::RecipientExists {
+                    device: add.device.clone(),
+                    pubkey: None,
+                });
+            }
         }
         let mut updated = current;
-        updated.push(add.clone());
-        let (reencrypted, commit) =
-            self.commit_recipient_list(&updated, message, identity, prompter)?;
+        updated.extend_from_slice(adds);
+        let done = self.commit_recipient_list(&updated, write, identity, prompter)?;
         // The operator just reviewed this list by typing the command, so
         // the cache is regenerated as the last step, once. Without it the
         // next write would warn them about their own add, the fastest way
         // to teach someone to stop reading the warning.
         self.note_recipients_reviewed()?;
-        Ok(RecipientChange {
-            device: add.device,
-            pubkey: add.pubkey,
-            commit,
-            reencrypted,
-        })
+        Ok(done)
     }
 
     /// M10's two preconditions on add and remove, in this order, both
@@ -517,16 +558,41 @@ impl Vault {
     fn commit_recipient_list(
         &self,
         updated: &[Recipient],
-        message: &str,
+        write: &RecipientWrite<'_>,
         identity: &Identity,
         prompter: &dyn Prompter,
     ) -> Result<(usize, String), RecipientError> {
+        // Resolved before the first byte, so an unsafe path refuses with
+        // nothing written.
+        let doomed = write
+            .delete_paths
+            .iter()
+            .map(|p| Ok((p.as_str(), gitrepo::safe_join(&self.path, p)?)))
+            .collect::<Result<Vec<_>, gitrepo::Error>>()?;
         let reencrypted = self.reencrypt_to(updated, identity)?;
+        // After the entries and before the recipient files, which stay
+        // last (Go's order): a failure from here on leaves the deletions
+        // uncommitted, not undone, and the next write's dirty-tree reset
+        // restores them.
+        for (done, (rel, full)) in doomed.iter().enumerate() {
+            gitrepo::remove_if_present(full, rel)?;
+            self.reencrypt_hook.after_delete(done + 1);
+        }
+        // Expired enrollment requests ride this commit, at the deletions'
+        // crash position: "pruning rides the next recipient change", with
+        // no lock taken for housekeeping alone.
+        self.prune_pending_enrollments().map_err(|e| match e {
+            EnrollmentError::Io { path, source } => RecipientError::Io { path, source },
+            other => RecipientError::Io {
+                path: self.pending_dir(),
+                source: std::io::Error::other(other.to_string()),
+            },
+        })?;
         self.write_recipient_files(updated)?;
-        let commit = gitrepo::commit_all(&self.path, message)?;
+        let commit = gitrepo::commit_all(&self.path, write.message)?;
         // A failed push is a publishing problem, not a half-done migration:
         // the guarantee is about HEAD, and HEAD already has all of it.
-        self.push_after_write(prompter);
+        self.push_after_write_saying(prompter, write.push_clause.unwrap_or(UNPUSHED_WRITE_CLAUSE));
         Ok((reencrypted, commit))
     }
 

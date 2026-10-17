@@ -26,18 +26,18 @@ use crate::{BuildInfo, Io};
 
 /// What a run is given besides its arguments.
 #[derive(Default)]
-struct Run<'a> {
+pub(crate) struct Run<'a> {
     /// The command stream (`--stdin`) or whatever a prompt could read.
-    stdin: &'a str,
+    pub(crate) stdin: &'a str,
     /// Whether stdin is a terminal.
-    tty: bool,
+    pub(crate) tty: bool,
     /// `$GAGE_PASSPHRASE`.
-    passphrase_env: Option<&'a str>,
+    pub(crate) passphrase_env: Option<&'a str>,
 }
 
 impl Env {
     /// A script file of `lines`, returning its path.
-    fn script_file(&self, lines: &[&str]) -> String {
+    pub(crate) fn script_file(&self, lines: &[&str]) -> String {
         let path = self.root.path().join("commands.gage");
         std::fs::write(&path, script(lines)).unwrap();
         path.to_str().unwrap().to_string()
@@ -48,7 +48,7 @@ impl Env {
     }
 
     /// Runs `args` with an injected `prompter`.
-    fn script_run(&self, args: &[&str], run: Run, prompter: &dyn Prompter) -> CliResult {
+    pub(crate) fn script_run(&self, args: &[&str], run: Run, prompter: &dyn Prompter) -> CliResult {
         let input = SharedInput(Rc::new(RefCell::new(Cursor::new(
             run.stdin.as_bytes().to_vec(),
         ))));
@@ -57,7 +57,7 @@ impl Env {
 
     /// Runs `args` with the real terminal prompter reading the same input
     /// the commands arrive on, as `main` wires it.
-    fn script_run_real_prompter(&self, args: &[&str], run: Run) -> CliResult {
+    pub(crate) fn script_run_real_prompter(&self, args: &[&str], run: Run) -> CliResult {
         let input = SharedInput(Rc::new(RefCell::new(Cursor::new(
             run.stdin.as_bytes().to_vec(),
         ))));
@@ -96,6 +96,7 @@ impl Env {
                 now: &std::time::Instant::now,
                 clipboard: &self.clip.keeper(),
                 clipboard_wait: &|d| self.clip.wait(d),
+                time_zone: self.time_zone.lock().unwrap().clone(),
             };
             crate::run(&args, &mut io, prompter)
         };

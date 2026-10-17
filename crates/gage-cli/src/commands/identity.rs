@@ -75,17 +75,7 @@ pub fn add(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cli
 
         let pubkey = vault.add_identity(&device, prompter)?;
 
-        let (path, mut global) = load_global(io)?;
-        let entry = global.vaults.get_mut(&vault.name).ok_or_else(|| {
-            fail(
-                Code::NotFound,
-                format!("{:?} is not a registered vault", vault.name),
-            )
-        })?;
-        entry.device = device.clone();
-        entry.method = method;
-        entry.pubkey = pubkey.clone();
-        gage::config::save(&path, &global)?;
+        record_local_identity(io, &vault.name, &device, &method, &pubkey)?;
 
         let name = &vault.name;
         out(
@@ -100,6 +90,29 @@ pub fn add(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cli
         );
         Ok(())
     })
+}
+
+/// Records this device's name, method and key for a vault in global config,
+/// never in the vault: the library never writes global config.
+pub(super) fn record_local_identity(
+    io: &Io,
+    vault: &str,
+    device: &str,
+    method: &str,
+    pubkey: &str,
+) -> Result<(), CliError> {
+    let (path, mut global) = load_global(io)?;
+    let entry = global.vaults.get_mut(vault).ok_or_else(|| {
+        fail(
+            Code::NotFound,
+            format!("{vault:?} is not a registered vault"),
+        )
+    })?;
+    entry.device = device.to_string();
+    entry.method = method.to_string();
+    entry.pubkey = pubkey.to_string();
+    gage::config::save(&path, &global)?;
+    Ok(())
 }
 
 pub fn list(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
