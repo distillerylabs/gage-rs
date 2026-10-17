@@ -36,6 +36,17 @@ which = "8"
 tempfile = "3"
 uuid = "1"
 zeroize = "1"
+# `-c/--clip` (Q-CLIPBOARD): in-process on every platform, so the value
+# never passes through a child process. No image support; Wayland through
+# data-control, as Go's wl-copy.
+arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
+# A one-shot `-c`'s Ctrl-C, installed only for its wait.
+ctrlc = "3.5.2"
+# `-q/--qr` (Q-QR-CRATE): encoding only, no image rendering.
+qrcode = { version = "0.14.1", default-features = false }
+# The clipboard keeper remembers a digest of what it wrote, never the value.
+sha2 = "0.10"
+subtle = "2"
 
 [dev-dependencies]
 assert_cmd = "2"

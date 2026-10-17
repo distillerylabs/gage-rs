@@ -8,9 +8,6 @@
 //! session's picker in a session. In a session, reads that need every
 //! entry's metadata (`ls`, resolution, `search`'s title half) come from its
 //! metadata index, and every write tells the index what changed.
-//!
-//! `-c/--clip` and `-q/--qr` (on `show` and `generate`) and `ls
-//! -H/--header` are P6 · M12's.
 
 use std::collections::BTreeMap;
 
@@ -27,6 +24,7 @@ use gage::vault::Vault;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+use super::secretout::{self, Destination, clip_flag, qr_flag};
 use super::{Keys, arg, catfmt, dirs, fail, load_global, out};
 use crate::Io;
 use crate::editor;
@@ -102,14 +100,17 @@ pub fn flags(name: &str) -> Vec<Arg> {
                 .help("read the value verbatim from stdin (one trailing newline trimmed)"),
         ],
         "show" => vec![
+            clip_flag("copy to the clipboard instead of printing, and clear it after a timeout"),
             Arg::new("field")
                 .long("field")
                 .value_name("NAME")
                 .help("print one entry from fields instead of the value"),
+            qr_flag("render a QR code instead of printing the value"),
             use_flag(),
         ],
         "rename" => vec![force_flag("allow renaming to a duplicate title"), use_flag()],
         "generate" => vec![
+            clip_flag("copy the generated value to the clipboard, and clear it after a timeout"),
             description_flag(),
             force_flag("allow inserting a duplicate title"),
             Arg::new("length")
@@ -126,6 +127,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
                 .long("no-symbols")
                 .action(ArgAction::SetTrue)
                 .help("draw from letters and digits only"),
+            qr_flag("render the generated value as a QR code"),
             use_flag(),
         ],
         "ls" => vec![
@@ -491,8 +493,11 @@ pub fn parse_field_flags(raw: &[String]) -> Result<BTreeMap<String, String>, Cli
 
 /// The entry's value alone, or with `--field NAME` one of its fields, for
 /// piping. Exactly one trailing newline: none is added to a value that
-/// already ends in one, so a multi-line value prints as stored.
+/// already ends in one, so a multi-line value prints as stored. `--field`
+/// picks which value and `-c`/`-q` where it goes: two decisions, composed
+/// through one emitter rather than four branches.
 pub fn show(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    let dest = Destination::from_matches(matches)?;
     let query = arg(matches, "query");
     let field = matches.get_one::<String>("field");
     let value = keys.with_resolved(matches, io, query, |_, _, _, _, e| {
@@ -502,11 +507,7 @@ pub fn show(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
         };
         Ok(Zeroizing::new(value.to_string()))
     })?;
-    let _ = io.stdout.write_all(value.as_bytes());
-    if !value.ends_with('\n') {
-        let _ = io.stdout.write_all(b"\n");
-    }
-    Ok(())
+    secretout::emit_secret(io, keys, &value, dest)
 }
 
 /// The entry's full plaintext YAML, for scripting and piping, with the
@@ -595,9 +596,12 @@ pub fn rm(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliE
 
 /// Like `insert`, with the value drawn by the library. The confirmation
 /// never includes the value: a fresh secret nobody has read yet is the last
-/// thing that belongs in a scrollback (`-c`/`-q`, the ways to see it at
-/// creation, are P6's).
+/// thing that belongs in a scrollback. `-c` and `-q` are how it gets out
+/// without landing there.
 pub fn generate(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    // Asked before anything is drawn or written: failing after the commit
+    // would leave a new secret in the vault behind an error message.
+    let dest = Destination::from_matches(matches)?;
     let title = arg(matches, "title");
     // Drawn first, so a too-short length is refused before any unlock.
     let value = Zeroizing::new(generate::generate_value(GenerateOptions {
@@ -625,7 +629,12 @@ pub fn generate(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<()
     })?;
     keys.refresh(matches, id);
     out(io, &[format!("gage: generated \"{title}\" ({id})")]);
-    Ok(())
+    // Only when a destination was asked for, and after the confirmation,
+    // so a one-shot -c has said what it did before it blocks.
+    match dest {
+        Destination::Print => Ok(()),
+        dest => secretout::emit_secret(io, keys, &value, dest),
+    }
 }
 
 // --- ls ---------------------------------------------------------------------

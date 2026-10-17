@@ -77,6 +77,8 @@ impl Env {
             hostname: &move || Ok(hostname.clone()),
             editor: None,
             now: &std::time::Instant::now,
+            clipboard: &crate::clipboard::fake::unused(),
+            clipboard_wait: &|_| {},
         };
         let code = crate::run(&args, &mut io, &FakePrompter::new());
         CliResult {

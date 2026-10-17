@@ -8,7 +8,7 @@
 //! streams or exits.
 
 use std::io::{Read, Write};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use gage::exitcode::Code;
 use gage::prompter::Prompter;
@@ -20,6 +20,7 @@ mod assumeyes;
 #[cfg(test)]
 mod build_env;
 pub mod cli;
+pub mod clipboard;
 mod commands;
 mod complete;
 pub mod coredump;
@@ -28,12 +29,14 @@ pub mod error;
 mod history;
 mod lineread;
 pub mod prompter;
+mod qr;
 pub mod registry;
 mod repl;
 mod shell;
 pub mod version;
 
 use cli::Outcome;
+use clipboard::ClipboardKeeper;
 use commands::Keys;
 use error::{CliError, prefix_once};
 use registry::{Availability, Registry};
@@ -66,6 +69,15 @@ pub struct Io<'a> {
     /// The clock a session's idle timeout reads. `main` passes
     /// `Instant::now`; tests step it instead of waiting.
     pub now: &'a dyn Fn() -> Instant,
+    /// Where `-c` copies to, and what clears it. `main` passes
+    /// [`ClipboardKeeper::system`]; tests pass one over a fake clipboard
+    /// and timer. One per run, so a session's copies share one keeper and
+    /// its exit clears whatever is pending.
+    pub clipboard: &'a ClipboardKeeper,
+    /// A one-shot `-c`'s wait for its timeout. `main` passes
+    /// [`clipboard::wait_for_clipboard`]; tests record the call instead of
+    /// waiting, and never install a signal handler.
+    pub clipboard_wait: &'a dyn Fn(Duration),
 }
 
 /// Runs one invocation (`args` without the program name) and returns its
@@ -157,6 +169,8 @@ fn print(io: &mut Io, text: &str) -> Result<(), CliError> {
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
+mod clip_tests;
+#[cfg(test)]
 mod complete_tests;
 #[cfg(test)]
 mod entry_tests;
@@ -170,6 +184,8 @@ mod lifecycle_tests;
 mod log_cli_tests;
 #[cfg(test)]
 mod movecopy_cli_tests;
+#[cfg(test)]
+mod qr_tests;
 #[cfg(test)]
 mod query_tests;
 #[cfg(test)]

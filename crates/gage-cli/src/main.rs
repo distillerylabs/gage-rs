@@ -5,6 +5,7 @@
 use std::io::IsTerminal;
 
 use gage::xdgpaths::Dirs;
+use gage_cli::clipboard::{self, ClipboardKeeper};
 use gage_cli::prompter::{SecretInput, TerminalPrompter};
 use gage_cli::{BuildInfo, Io};
 
@@ -35,6 +36,8 @@ fn main() {
     // A conflict is resolved only with a human to ask: a script, a
     // `--stdin` session and CI are refused rather than answered.
     .interactive(stdin_is_terminal);
+    // Opens no clipboard until something is copied.
+    let keeper = ClipboardKeeper::system(Box::new(std::io::stderr()));
     let mut io = Io {
         stdin: &mut std::io::stdin(),
         stdout: &mut std::io::stdout().lock(),
@@ -46,6 +49,8 @@ fn main() {
         hostname: &|| Ok(hostname::get()?.to_string_lossy().into_owned()),
         editor: std::env::var("EDITOR").ok(),
         now: &std::time::Instant::now,
+        clipboard: &keeper,
+        clipboard_wait: &clipboard::wait_for_clipboard,
     };
     let code = gage_cli::run(&args, &mut io, &prompter);
     std::process::exit(code.as_i32());

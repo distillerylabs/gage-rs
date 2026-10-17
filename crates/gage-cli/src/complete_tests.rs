@@ -630,6 +630,8 @@ fn run_line(env: &Env, s: &mut Session, line: &str) -> (Result<bool, CliError>, 
             hostname: &|| panic!("read the hostname"),
             editor: None,
             now: &std::time::Instant::now,
+            clipboard: &crate::clipboard::fake::unused(),
+            clipboard_wait: &|_| {},
         };
         exec_line(&registry(), s, &mut io, line)
     };

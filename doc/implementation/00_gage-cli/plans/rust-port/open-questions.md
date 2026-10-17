@@ -1074,6 +1074,32 @@ trade-off.
 M12c confirms the dependency tree, licenses and `Send`-ness before
 writing code, and records any new license here.
 
+**Confirmed in M12c:**
+
+- `arboard` 3.7, `qrcode` 0.14 and `ctrlc` 3.5 bring **no new license**:
+  `make audit` passes against the existing allowlist. The keeper's digest
+  uses `sha2` 0.10 and `subtle`, both already in the tree.
+- `arboard::Clipboard` is `Send + Sync` on every platform (the crate
+  asserts it in its own tests), so the session's timer thread clears
+  through the keeper directly.
+- The production port opens the clipboard on first copy, not at startup,
+  so a command that never copies never needs one. It then keeps the
+  clipboard open for the run.
+- **Deliberate additions beyond Go**, neither visible in gage's own
+  output:
+  - Each copy carries the platform's history-exclusion hint
+    (`exclude_from_history` on macOS and Linux, `exclude_from_monitoring`
+    on Windows). Without it a clipboard-history manager keeps the value
+    after gage has cleared it.
+  - A generation number per copy. A scheduled clear does nothing under a
+    later generation. This closes a race in Go's keeper, where a timer
+    that has fired but is waiting on the lock wipes a second copy early.
+- **Deviation:** `show -c -q` is refused before the unlock, as `generate`'s
+  is. Go's `show` asks for the passphrase and then refuses. The exit code
+  (Usage) is the same.
+- The timeout is read from global config when a copy happens, in both
+  modes, as in Go's `copySecret`.
+
 ### `[x]` Q-QR-CRATE — Which QR crate, and how are the codes tested? {#q-qr-crate}
 
 **Resolved: `qrcode` with `default-features = false`, encoding only, at

@@ -107,9 +107,17 @@ impl Repl<'_, '_> {
     /// Reads, records and runs one line at a time until `exit` or end of
     /// input, then drops every key the session holds, on every way out,
     /// an error included.
+    ///
+    /// The clipboard too: a session's `-c` schedules its clear and hands
+    /// the prompt back, so the session's own end is what keeps a copy made
+    /// a second before `exit` from outliving the process that made it. A
+    /// failed clear is reported and doesn't change how the session ended.
     pub fn run(&mut self, io: &mut Io) -> Result<(), CliError> {
         let result = self.run_lines(io);
         self.session.borrow_mut().close();
+        if let Err(e) = io.clipboard.clear() {
+            report(io, &e);
+        }
         result
     }
 

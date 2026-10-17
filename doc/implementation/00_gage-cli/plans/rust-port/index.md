@@ -162,6 +162,7 @@ planning settles what that phase uses. "First used" names the milestone that int
 | Random values (`generate`) | `rand_core` 0.6 `OsRng` (already in the tree through `age`) | decided | M5 | crypto/rand |
 | Clipboard | `arboard` (`gage-cli` only, no default features, `wayland-data-control`) | decided ([Q-CLIPBOARD](open-questions.md#q-clipboard)) | M12c | atotto/clipboard |
 | Ctrl-C during `show -c`'s wait | `ctrlc` (one-shot `-c` path only) | decided ([Q-CLIPBOARD](open-questions.md#q-clipboard)) | M12c | os/signal |
+| Clipboard clear's digest | `sha2` 0.10 + `subtle` (both already in the tree through the library and `age`) | decided ([Q-CLIPBOARD](open-questions.md#q-clipboard)) | M12c | crypto/sha256, crypto/subtle |
 | QR encoding | `qrcode` (no default features; encoding only; half-block rendering is gage's own) | decided ([Q-QR-CRATE](open-questions.md#q-qr-crate)) | M12c | rsc.io/qr |
 | CLI test harness | `assert_cmd` (binary smoke tests only) | likely | M0a | `os/exec` in tests |
 

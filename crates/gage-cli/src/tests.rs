@@ -35,6 +35,8 @@ fn run_reg(reg: &Registry, args: &[&str], stdin_is_terminal: bool) -> CliResult 
         hostname: &|| panic!("a parsing test read the hostname"),
         editor: None,
         now: &std::time::Instant::now,
+        clipboard: &crate::clipboard::fake::unused(),
+        clipboard_wait: &|_| {},
     };
     let code = run_with(reg, &args, &mut io, &FakePrompter::new());
     CliResult {

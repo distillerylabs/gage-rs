@@ -26,6 +26,7 @@ mod init;
 mod log;
 mod movecopy;
 mod recipient;
+mod secretout;
 mod sync;
 mod vault;
 

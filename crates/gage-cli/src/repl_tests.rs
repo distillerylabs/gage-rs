@@ -116,6 +116,8 @@ impl Env {
                 hostname: &move || Ok(hostname.clone()),
                 editor: self.editor.lock().unwrap().clone(),
                 now,
+                clipboard: &self.clip.keeper(),
+                clipboard_wait: &|d| self.clip.wait(d),
             };
             crate::run(&[], &mut io, &prompter)
         };
@@ -143,7 +145,7 @@ impl Env {
         std::fs::read_to_string(self.dirs.state.join("history")).unwrap()
     }
 
-    fn set_shell(&self, shell: Shell) {
+    pub(crate) fn set_shell(&self, shell: Shell) {
         let mut g = self.global();
         g.shell = shell;
         self.save_global(&g);
@@ -232,6 +234,8 @@ fn with_io<T>(env: &Env, stdin: &str, f: impl FnOnce(&mut Io) -> T) -> (T, Strin
         hostname: &|| panic!("a session test read the hostname"),
         editor: None,
         now: &Instant::now,
+        clipboard: &crate::clipboard::fake::unused(),
+        clipboard_wait: &|_| {},
     });
     let text = out.text();
     (got, text)
@@ -710,6 +714,7 @@ fn run_repl(
         prompt: shell::DEFAULT_PROMPT.into(),
         idle_timeout: None,
         history_file: env.dirs.state.join("history"),
+        clipboard_timeout: shell::DEFAULT_CLIPBOARD_TIMEOUT,
     };
     with_io(env, stdin, |io| {
         Repl {

@@ -780,9 +780,9 @@ fn fixture_flags(help: &str) -> Vec<String> {
         .collect()
 }
 
-// Each command M5 touches has its Go fixture's flags, less `-c/--clip` and
-// `-q/--qr` (P6 · M12), with Go's description. A reference, not a byte
-// gate (Q-COMPAT).
+// Each command M5 touches has every flag of its Go fixture, with Go's
+// description: `show` and `generate` gained `-c/--clip` and `-q/--qr` in
+// P6 · M12c. A reference, not a byte gate (Q-COMPAT).
 #[test]
 fn m5_commands_have_their_go_fixture_flags_and_descriptions() {
     let fixtures = [
@@ -830,13 +830,27 @@ fn m5_commands_have_their_go_fixture_flags_and_descriptions() {
             .collect();
         assert_eq!(got, positionals, "{name}: {help_usage}");
         for flag in fixture_flags(fixture) {
-            if ["-c", "--clip", "-q", "--qr"].contains(&flag.as_str()) {
-                assert!(!help.contains(&format!("{flag} ")), "{name}: {flag} is P6");
-                continue;
-            }
             assert!(help.contains(&flag), "{name}: missing {flag}:\n{help}");
         }
     }
+    // -c and -q, with Go's help on each command.
+    let show = env.ok(&["show", "--help"]).stdout;
+    assert!(show.contains("-c, --clip"), "{show}");
+    assert!(show.contains("-q, --qr"), "{show}");
+    assert!(
+        show.contains("render a QR code instead of printing the value"),
+        "{show}"
+    );
+    let generate = env.ok(&["generate", "--help"]).stdout;
+    assert!(
+        generate
+            .contains("copy the generated value to the clipboard, and clear it after a timeout"),
+        "{generate}"
+    );
+    assert!(
+        generate.contains("render the generated value as a QR code"),
+        "{generate}"
+    );
     // The help for --field names -e as its exclusive partner again.
     let insert = env.ok(&["insert", "--help"]).stdout;
     assert!(
