@@ -473,9 +473,11 @@ The second review's survivors that were not gaps:
 
 - [x] No command exists yet, and none should. There is no fixture check
       in this milestone.
-- [ ] Parity ledger: §2 `798ed47` and `e52828a` (now fully `[x]`) and §3
-      E2, marked `[x]` after CI.
-- [ ] Mark E2 `[x]` in the [P7 index](index.md) after CI.
+- [x] Parity ledger: §2 `798ed47` and `e52828a` (now fully `[x]`) and §3
+      E2, marked `[x]` after CI. (§3's row covers E1b–E4 together, so it
+      stays `[ ]` until E4 ships.)
+- [x] Mark E2 `[x]` in the [P7 index](index.md) after CI. (CI green on
+      Linux, macOS and Windows at `0d12cea`.)
 
 ## Definition of done
 
