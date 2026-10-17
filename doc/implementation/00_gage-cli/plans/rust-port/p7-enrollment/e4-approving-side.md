@@ -556,7 +556,8 @@ it as a no-op.
   All marked `[x]` after CI.
 - [x] Mark E4 and P7 `[x]` in the [P7 index](index.md) and the
       [port plan](../index.md) after CI. (CI green on Linux, macOS and
-      Windows at `256d61d`.)
+      Windows at `256d61d`, and again at `1b3fbc5` with the second
+      review's tests and the prompted-path dedupe.)
 
 ## Definition of done
 

@@ -475,7 +475,7 @@ The second review's survivors that were not gaps:
       in this milestone.
 - [x] Parity ledger: §2 `798ed47` and `e52828a` (now fully `[x]`) and §3
       E2, marked `[x]` after CI. (§3's row covers E1b–E4 together, so it
-      stays `[ ]` until E4 ships.)
+      stayed `[ ]` until E4 shipped; now `[x]`.)
 - [x] Mark E2 `[x]` in the [P7 index](index.md) after CI. (CI green on
       Linux, macOS and Windows at `0d12cea`.)
 
