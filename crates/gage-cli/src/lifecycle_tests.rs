@@ -70,6 +70,10 @@ impl Prompter for EchoingPrompter<'_> {
         self.inner.confirm(prompt)
     }
 
+    fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError> {
+        self.inner.confirm_default_yes(prompt)
+    }
+
     fn value(&self, title: &str) -> Result<zeroize::Zeroizing<String>, PromptError> {
         self.inner.value(title)
     }

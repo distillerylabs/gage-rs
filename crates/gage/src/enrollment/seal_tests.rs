@@ -47,7 +47,7 @@ fn claim_work_factor(sealed: &[u8], log_n: u8) -> Vec<u8> {
 // share one process and run in parallel, so that would race every other
 // scrypt test; a child running one test alone may move factors freely.
 
-const CHILD_ENV: &str = "GAGE_ENROLL_TEST_CHILD";
+pub(crate) const CHILD_ENV: &str = "GAGE_ENROLL_TEST_CHILD";
 
 /// Runs `test` alone in a child test process with `CHILD_ENV` set, and
 /// returns its stderr. Panics if the child failed.

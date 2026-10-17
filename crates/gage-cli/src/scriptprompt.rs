@@ -40,6 +40,10 @@ macro_rules! delegate_the_rest {
             self.$inner.confirm(prompt)
         }
 
+        fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError> {
+            self.$inner.confirm_default_yes(prompt)
+        }
+
         fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError> {
             self.$inner.value(title)
         }
@@ -214,6 +218,10 @@ impl Prompter for NoChoosePrompter<'_> {
 
     fn confirm(&self, prompt: &str) -> Result<bool, PromptError> {
         self.0.confirm(prompt)
+    }
+
+    fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError> {
+        self.0.confirm_default_yes(prompt)
     }
 
     fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError> {
@@ -422,6 +430,7 @@ mod tests {
     fn scripted() -> FakePrompter {
         FakePrompter::new()
             .with_confirm(true)
+            .with_confirm_default_yes(true)
             .with_value("v")
             .with_choice(0)
             .with_resolutions(&[Resolution::KeepRemote])
@@ -432,6 +441,7 @@ mod tests {
     /// the inner prompter's, and that the inner was the one asked.
     fn assert_passes_the_rest_through(p: &dyn Prompter, inner: &FakePrompter) {
         assert!(p.confirm("remove it?").unwrap());
+        assert!(p.confirm_default_yes("enroll?").unwrap());
         assert_eq!(&*p.value("Router").unwrap(), "v");
         assert_eq!(p.choose(&candidates()).unwrap(), Uuid::from_u128(1));
         assert_eq!(
@@ -446,6 +456,10 @@ mod tests {
         p.warn("gage: careful");
 
         assert_eq!(inner.confirm_prompts(), vec!["remove it?".to_string()]);
+        assert_eq!(
+            inner.confirm_default_yes_prompts(),
+            vec!["enroll?".to_string()]
+        );
         assert_eq!(inner.value_prompts(), vec!["Router".to_string()]);
         assert_eq!(inner.choose_lists().len(), 1);
         assert_eq!(inner.conflicts_presented().len(), 1);
@@ -471,6 +485,35 @@ mod tests {
         assert_passes_the_rest_through(&NoCreatePrompter(&inner), &inner);
     }
 
+    // Go: TestNoNonInteractivePrompterAnswersConfirmDefaultYes. Clone's
+    // offer is a decision for a human: no wrapper, and not `--yes`, says
+    // yes for one, so over a base that declines every one returns no.
+    #[test]
+    fn no_non_interactive_prompter_answers_confirm_default_yes() {
+        fn check(p: &dyn Prompter, inner: &FakePrompter, who: &str) {
+            assert!(!p.confirm_default_yes("enroll?").unwrap(), "{who} said yes");
+            assert_eq!(inner.confirm_default_yes_prompts().len(), 1, "{who}");
+        }
+        let declining = || FakePrompter::new().with_confirm_default_yes(false);
+
+        let inner = declining();
+        check(&Passthrough(&inner), &inner, "Passthrough");
+        let inner = declining();
+        check(&env(&inner), &inner, "EnvPrompter");
+        let inner = declining();
+        check(
+            &RefusingPrompter::new(&inner, Box::new(Passthrough(&inner))),
+            &inner,
+            "RefusingPrompter",
+        );
+        let inner = declining();
+        check(&NoCreatePrompter(&inner), &inner, "NoCreatePrompter");
+        let inner = declining();
+        check(&NoChoosePrompter(&inner), &inner, "NoChoosePrompter");
+        let inner = declining();
+        check(&AssumeYes(&inner), &inner, "AssumeYes");
+    }
+
     // Beyond Go's rows (see M12d's decisions): with nobody to pick, an
     // ambiguous query is declined without a read, and nothing else changes.
     #[test]
@@ -490,6 +533,7 @@ mod tests {
         let inner = scripted();
         let p = NoChoosePrompter(&inner);
         assert!(p.confirm("remove it?").unwrap());
+        assert!(p.confirm_default_yes("enroll?").unwrap());
         assert_eq!(&*p.value("Router").unwrap(), "v");
         assert_eq!(
             p.resolve_conflict(&conflict()).unwrap(),

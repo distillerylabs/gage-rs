@@ -154,7 +154,7 @@ pub(crate) fn sample(title: &str) -> NewEntry {
 /// inject exactly this, so the warn-and-proceed path is reached through
 /// the same classification a real network failure goes through (Go's
 /// `unreachableError`).
-fn unreachable_error() -> syncerr::Error {
+pub(crate) fn unreachable_error() -> syncerr::Error {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("seed.txt"), "seed").unwrap();
     gitrepo::init_and_commit(dir.path(), "seed").unwrap();
@@ -167,7 +167,7 @@ fn unreachable_error() -> syncerr::Error {
 
 /// A push rejected for divergence, by the real classifier's elimination
 /// (Go's `ClassifyPush(errors.New("non-fast-forward update: ..."))`).
-fn diverged_error() -> syncerr::Error {
+pub(crate) fn diverged_error() -> syncerr::Error {
     syncerr::classify_push(&std::io::Error::other(
         "non-fast-forward update: refs/heads/main",
     ))
@@ -176,15 +176,15 @@ fn diverged_error() -> syncerr::Error {
 /// The injected [`RemoteSyncer`] for the one situation a local repository
 /// can't produce. Every other sync test runs the real one.
 #[derive(Default)]
-struct FakeSyncer {
-    fetch_err: Option<syncerr::Error>,
-    push_err: Option<syncerr::Error>,
-    fetches: AtomicUsize,
-    pushes: AtomicUsize,
+pub(crate) struct FakeSyncer {
+    pub(crate) fetch_err: Option<syncerr::Error>,
+    pub(crate) push_err: Option<syncerr::Error>,
+    pub(crate) fetches: AtomicUsize,
+    pub(crate) pushes: AtomicUsize,
 }
 
 impl FakeSyncer {
-    fn offline() -> Arc<FakeSyncer> {
+    pub(crate) fn offline() -> Arc<FakeSyncer> {
         Arc::new(FakeSyncer {
             fetch_err: Some(unreachable_error()),
             push_err: Some(unreachable_error()),

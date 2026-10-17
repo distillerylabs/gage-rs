@@ -181,6 +181,14 @@ pub trait Prompter {
     /// caller should abort what it was about to do.
     fn confirm(&self, prompt: &str) -> Result<bool, PromptError>;
 
+    /// Asks a yes/no question whose default is yes: a bare Enter accepts.
+    /// `clone`'s enrollment offer is the one such question in gage, which
+    /// is why it is not a flag on [`Prompter::confirm`], whose default-no
+    /// every other caller relies on. There is deliberately no default body:
+    /// every wrapper must delegate, and none may answer yes for a human
+    /// (Q-CONFIRM-DEFAULT-YES).
+    fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError>;
+
     /// Asks for the secret value of the entry titled `title`, without
     /// echoing it. It is its own call rather than an unlock request: it
     /// answers with free text the library never checks, and a GUI shows a
@@ -258,6 +266,7 @@ mod fake {
     pub struct FakePrompter {
         unlocks: Mutex<VecDeque<Result<UnlockResponse, PromptError>>>,
         confirms: Mutex<VecDeque<Result<bool, PromptError>>>,
+        confirms_default_yes: Mutex<VecDeque<Result<bool, PromptError>>>,
         values: Mutex<VecDeque<Result<String, PromptError>>>,
         choices: Mutex<VecDeque<Choice>>,
         /// `None` until a resolution is scripted: a fake nobody scripted
@@ -270,6 +279,7 @@ mod fake {
         asked_recipient: Mutex<Vec<RecipientChangeWarning>>,
         asked_unlock: Mutex<Vec<UnlockRequest>>,
         asked_confirm: Mutex<Vec<String>>,
+        asked_confirm_default_yes: Mutex<Vec<String>>,
         asked_value: Mutex<Vec<String>>,
         asked_choose: Mutex<Vec<CandidateList>>,
         asked_resolve: Mutex<Vec<EntryConflict>>,
@@ -326,6 +336,20 @@ mod fake {
         pub fn with_confirm(self, answer: bool) -> FakePrompter {
             self.confirms.lock().unwrap().push_back(Ok(answer));
             self
+        }
+
+        /// Answers the next default-yes confirmation.
+        pub fn with_confirm_default_yes(self, answer: bool) -> FakePrompter {
+            self.confirms_default_yes
+                .lock()
+                .unwrap()
+                .push_back(Ok(answer));
+            self
+        }
+
+        /// The default-yes questions asked, in order.
+        pub fn confirm_default_yes_prompts(&self) -> Vec<String> {
+            self.asked_confirm_default_yes.lock().unwrap().clone()
         }
 
         /// Fails the next confirmation with `err`.
@@ -452,6 +476,20 @@ mod fake {
                 .unwrap()
                 .pop_front()
                 .unwrap_or_else(|| panic!("FakePrompter: unscripted confirm {prompt:?}"))
+        }
+
+        fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError> {
+            self.asked_confirm_default_yes
+                .lock()
+                .unwrap()
+                .push(prompt.to_string());
+            self.confirms_default_yes
+                .lock()
+                .unwrap()
+                .pop_front()
+                .unwrap_or_else(|| {
+                    panic!("FakePrompter: unscripted default-yes confirm {prompt:?}")
+                })
         }
 
         fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError> {

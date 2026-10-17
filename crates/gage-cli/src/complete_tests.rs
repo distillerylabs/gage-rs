@@ -5,10 +5,8 @@
 //! test is the last one here; the real-terminal one is
 //! `tests/complete_pty.rs`.
 //!
-//! One difference from Go, until P7 registers `identity enroll`: Go's
-//! `identity` has `add`/`enroll`/`list` children, and here it has `add` and
-//! `list`. The `vault` parent keeps its own coverage beside the `identity`
-//! form (M13's substitution, undone in P5 · M9a).
+//! The `vault` parent keeps its own coverage beside the `identity` form
+//! (M13's substitution, undone in P5 · M9a).
 
 use std::sync::Arc;
 
@@ -303,7 +301,7 @@ fn flag_candidates_skips_hidden_flags() {
     assert!(!got.contains(&"--secret-debug".to_string()), "{got:?}");
 }
 
-// Go: TestSubcommandCandidatesListsIdentityChildren. `enroll` joins in P7.
+// Go: TestSubcommandCandidatesListsIdentityChildren
 #[test]
 fn subcommand_candidates_lists_identity_children() {
     let reg = registry();
@@ -311,7 +309,7 @@ fn subcommand_candidates_lists_identity_children() {
     let identity = root.find_subcommand("identity").unwrap();
     assert_eq!(
         sorted(subcommand_candidates(&reg, identity)),
-        ["add", "list"]
+        ["add", "enroll", "list"]
     );
 }
 
@@ -452,7 +450,7 @@ fn completing_subcommand_lists_identity_children() {
     let (reg, env) = (registry(), Env::new());
     assert_eq!(
         sorted(complete_at(&reg, &env, None, "identity ")),
-        ["add", "list"]
+        ["add", "enroll", "list"]
     );
 }
 

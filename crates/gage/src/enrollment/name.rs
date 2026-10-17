@@ -16,10 +16,6 @@ pub(crate) const PENDING_FILE_EXT: &str = ".age";
 /// machine" signal before anyone approved anything. The epoch is readable,
 /// the one exception to "a filename never encodes content", because it lets
 /// listing show a real expiry and pruning run as a string parse.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "E3's enroll files requests under it")
-)]
 pub(crate) fn pending_file_name(id: &str, expires: Timestamp) -> String {
     format!("{id}-{}{PENDING_FILE_EXT}", expires.as_second())
 }

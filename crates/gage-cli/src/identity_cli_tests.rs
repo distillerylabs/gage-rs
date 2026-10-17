@@ -475,15 +475,19 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
             .contains("--reencrypt")
     );
 
-    // The parents list only the children that exist: enroll and the
-    // enrollment children of `recipient` are later milestones'. `recipient
-    // add` takes no --reencrypt (A19); `remove` requires it.
+    // The parents list only the children that exist: the enrollment
+    // children of `recipient` are a later milestone's. `recipient add`
+    // takes no --reencrypt (A19); `remove` requires it.
     let identity = env.ok(&["identity"]).stdout;
     assert!(identity.starts_with("Manage this device's identities for a vault"));
     for (child, short) in [
         (
             "add",
             "Register this device's identity and print its public key",
+        ),
+        (
+            "enroll",
+            "Register this device's identity and publish a request to join",
         ),
         ("list", "List the keys this machine holds for a vault"),
     ] {

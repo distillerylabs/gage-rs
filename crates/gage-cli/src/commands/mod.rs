@@ -19,6 +19,7 @@ use crate::error::CliError;
 mod auth;
 mod catfmt;
 mod clone;
+mod enroll;
 mod entry;
 mod git;
 mod identity;
@@ -32,6 +33,8 @@ mod vault;
 
 #[cfg(test)]
 pub(crate) use catfmt::{align_cat_output, pad_key_lines};
+#[cfg(test)]
+pub(crate) use enroll::human_duration;
 #[cfg(test)]
 pub(crate) use entry::{
     parse_field_flags, render_ls, render_ls_table, trim_one_trailing_newline, with_unlocked,
@@ -56,6 +59,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
         "mv" | "cp" => movecopy::flags(),
         "auth login" | "auth status" | "auth logout" => auth::flags(),
         "identity add" | "identity list" => identity::flags(name),
+        "identity enroll" => enroll::flags(),
         "recipient add" | "recipient remove" | "recipient list" | "recipient verify" => {
             recipient::flags(name)
         }
@@ -76,6 +80,7 @@ pub fn long_about(name: &str) -> Option<&'static str> {
         "history" => Some(log::HISTORY_LONG_ABOUT),
         "auth login" => Some(auth::LOGIN_LONG_ABOUT),
         "identity add" => Some(identity::ADD_LONG_ABOUT),
+        "identity enroll" => Some(enroll::LONG_ABOUT),
         "recipient add" => Some(recipient::ADD_LONG_ABOUT),
         "recipient remove" => Some(recipient::REMOVE_LONG_ABOUT),
         "recipient verify" => Some(recipient::VERIFY_LONG_ABOUT),
@@ -118,7 +123,7 @@ pub fn run(
 ) -> Option<Result<(), CliError>> {
     Some(match name {
         "init" => init::run(matches, io, keys.prompter()),
-        "clone" => clone::run(matches, io),
+        "clone" => clone::run(matches, io, keys.prompter()),
         "sync" => sync::sync(matches, io, keys),
         "pull" => sync::pull(matches, io, keys),
         "push" => sync::push(matches, io, keys),
@@ -145,6 +150,7 @@ pub fn run(
         "auth status" => auth::status(matches, io),
         "auth logout" => auth::logout(matches, io),
         "identity add" => identity::add(matches, io, keys),
+        "identity enroll" => enroll::run(matches, io, keys),
         "identity list" => identity::list(matches, io, keys),
         "recipient add" => recipient::add(matches, io, keys),
         "recipient remove" => recipient::remove(matches, io, keys),

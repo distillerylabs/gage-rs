@@ -718,6 +718,9 @@ fn confirm_recipient_trust_with_no_prompter_refuses() {
         fn confirm(&self, _: &str) -> Result<bool, crate::prompter::PromptError> {
             unreachable!()
         }
+        fn confirm_default_yes(&self, _: &str) -> Result<bool, crate::prompter::PromptError> {
+            unreachable!()
+        }
         fn value(
             &self,
             _: &str,

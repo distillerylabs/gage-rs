@@ -3,17 +3,24 @@
 //! Cloning does not grant access. The vault is encrypted to its
 //! recipients, and a new device is not one of them, so the job here is a
 //! working, registered vault *and* saying plainly when this device can't
-//! read it yet. See "Vault lifecycle" in the design doc. The offer to
-//! enroll on the spot is P7's.
+//! read it yet. See "Vault lifecycle" in the design doc. Where a new
+//! passphrase can be answered, it also offers to enroll on the spot: there
+//! is deliberately no `--enroll` flag, because clone already detects this
+//! exact condition and reports it, so a flag opting into acting on a fact
+//! the tool just printed would carry no information, and enrolling commits
+//! and pushes ("Why there is no `--enroll` flag").
 
 use std::path::{Path, PathBuf};
 
 use clap::{Arg, ArgMatches};
 use gage::config::{GitMeta, VaultEntry};
+use gage::enrollment::DEFAULT_ENROLLMENT_TTL;
 use gage::exitcode::Code;
 use gage::gitrepo::{self, RemoteOptions};
+use gage::prompter::Prompter;
 use gage::{paths, vault, vaultconfig};
 
+use super::enroll::enroll_device;
 use super::init::resolve_device_name;
 use super::{arg, dirs, fail, load_global, out};
 use crate::Io;
@@ -42,7 +49,7 @@ pub fn flags() -> Vec<Arg> {
     ]
 }
 
-pub fn run(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
+pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
     let url = arg(matches, "remote-url");
     let flag = |id| matches.get_one::<String>(id).cloned();
 
@@ -101,32 +108,63 @@ pub fn run(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
     let file =
         vaultconfig::read(&path.join(".gage").join("config.toml")).map_err(|e| undo(e.into()))?;
 
-    global.register(
-        &name,
-        VaultEntry {
-            path: path.clone(),
-            id: file.vault.id.clone(),
-            vault_type: file.vault.vault_type.clone(),
-            device: device.clone(),
-            // A clone holds no identity, so there is no public key to
-            // record until `identity add` puts one here.
-            pubkey: String::new(),
-            // The vault's default is a suggestion for joining devices, and
-            // what a later `identity add` offers (Q-METHOD-SCOPE).
-            method: file.method.default.clone(),
-            git: GitMeta {
-                origin: url.to_string(),
-            },
+    let entry = VaultEntry {
+        path: path.clone(),
+        id: file.vault.id.clone(),
+        vault_type: file.vault.vault_type.clone(),
+        device: device.clone(),
+        // A clone holds no identity, so there is no public key to
+        // record until `identity add` puts one here.
+        pubkey: String::new(),
+        // The vault's default is a suggestion for joining devices, and
+        // what a later `identity add` offers (Q-METHOD-SCOPE).
+        method: file.method.default.clone(),
+        git: GitMeta {
+            origin: url.to_string(),
         },
-    )?;
+    };
+    global.register(&name, entry.clone())?;
     gage::config::save(&config_path, &global)?;
 
     out(
         io,
         &[format!("gage: cloned {name:?} to {}", path.display())],
     );
-    out(io, &access_lines(&dirs, &file.vault.id, &name, &device));
-    Ok(())
+    let lines = access_lines(&dirs, &file.vault.id, &name, &device);
+    if lines.is_empty() {
+        // This device already holds an identity for the vault. It was set
+        // up deliberately and gage can't cheaply tell whether it is
+        // already a recipient, so it is left alone: no message, and
+        // certainly no prompt.
+        return Ok(());
+    }
+    if !can_answer_new_passphrase(io) {
+        out(io, &lines);
+        return Ok(());
+    }
+    let yes = prompter.confirm_default_yes(&format!(
+        "This device holds no identity for {name:?}, so it can't read anything here yet.\nSet up an enrollment request now?"
+    ))?;
+    if !yes {
+        out(io, &lines);
+        return Ok(());
+    }
+    // Under the device name clone already resolved, not one derived a
+    // second time: `clone --device X` followed by a yes must publish a
+    // request naming X.
+    let vault = vault::Vault::from_registration(&dirs, &name, &entry)?;
+    enroll_device(io, &vault, &device, DEFAULT_ENROLLMENT_TTL, prompter)
+}
+
+/// Whether a brand-new identity's passphrase can be answered in this run:
+/// the one condition the offer is gated on, rather than a TTY test of its
+/// own. Enrolling on a device with no identity needs a `Purpose::Create`
+/// exchange, and offering to enroll where that must then be refused would
+/// ask a question whose only outcome is a failure. `clone` is one-shot
+/// only, so a script's `--stdin` and `--script` never reach here: a
+/// terminal is the whole of the rule.
+fn can_answer_new_passphrase(io: &Io) -> bool {
+    io.stdin_is_terminal
 }
 
 /// Whether this device can read what it just cloned, answered from whether
@@ -140,9 +178,12 @@ fn access_lines(dirs: &gage::xdgpaths::Dirs, id: &str, name: &str, device: &str)
             format!(
                 "gage: this device ({device:?}) has no identity for {name:?}, so it cannot decrypt anything in it yet."
             ),
-            "gage: run `gage identity add` here and have someone with access add the printed key"
+            "gage: run `gage identity enroll` here to generate a key and publish a request to join,"
                 .into(),
-            "gage: with `gage recipient add`.".into(),
+            "gage: then give the code it prints to someone who can already read the vault.".into(),
+            "gage: or, if this device cannot write to the remote: run `gage identity add` here and"
+                .into(),
+            "gage: have someone with access add the printed key with `gage recipient add`.".into(),
         ],
         _ => Vec::new(),
     }

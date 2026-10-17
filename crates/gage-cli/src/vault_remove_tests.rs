@@ -378,6 +378,29 @@ fn vault_remove_on_a_pending_enrollment_asks_before_deleting() {
     assert!(id_path.is_file(), "answering no deleted a pending key");
 }
 
+// Beyond Go's rows: the same guard against a *real* pending request, in
+// place of M12b's `identity add` simulation. The request is in flight, the
+// key is not yet a recipient, and the confirmation is all that stands
+// between the human and a key whose approval is on its way.
+#[test]
+fn vault_remove_with_a_real_pending_request_asks_before_deleting() {
+    let t = TwoDevices::new();
+    let r = t.b.run(&["identity", "enroll", "--device", B_DEVICE]);
+    assert_eq!(r.code, Code::Success, "identity enroll: {}", r.stderr);
+    let id_path = t.b.identity_file(VAULT, B_DEVICE);
+
+    let (_, p) = t.b.remove_answering(VAULT, false);
+
+    let prompts = p.confirm_prompts();
+    assert_eq!(prompts.len(), 1, "{prompts:?}");
+    assert!(
+        prompts[0].contains(id_path.to_str().unwrap()),
+        "{}",
+        prompts[0]
+    );
+    assert!(id_path.is_file(), "answering no deleted a pending key");
+}
+
 // Go: TestVaultRemoveLeavesTheVaultsOwnFilesUntouched. `vault remove`
 // forgets a local registration and never touches the store, even when the
 // identity file is deleted.

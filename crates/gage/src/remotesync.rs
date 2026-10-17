@@ -542,7 +542,7 @@ impl Vault {
     }
 
     /// The pull, with the write lock already held.
-    fn pull_locked(&self, deadline: Instant) -> Result<SyncReport, SyncError> {
+    pub(crate) fn pull_locked(&self, deadline: Instant) -> Result<SyncReport, SyncError> {
         if !self.has_remote()? {
             return Ok(SyncReport::default());
         }

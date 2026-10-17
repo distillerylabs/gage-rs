@@ -178,6 +178,13 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                "identity enroll",
+                "",
+                "Register this device's identity and publish a request to join",
+                GROUP_IDENTITY,
+                Both,
+            ),
+            command(
                 "identity list",
                 "",
                 "List the keys this machine holds for a vault",

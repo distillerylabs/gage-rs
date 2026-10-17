@@ -118,12 +118,32 @@ fn log_on_a_path_git_has_never_seen_is_empty() {
 }
 
 // Go: TestLogAndHeadCommitterTimeOnARepoWithNoCommitsYet, the Log half.
-// The HeadCommitterTime half is P7's.
 #[test]
 fn log_on_a_repo_with_no_commits_yet_is_empty() {
     let dir = tempfile::tempdir().unwrap();
     git2::Repository::init(dir.path()).unwrap();
     assert!(log(dir.path(), "a.txt").unwrap().is_empty());
+}
+
+// Go: TestLogAndHeadCommitterTimeOnARepoWithNoCommitsYet, the
+// HeadCommitterTime half.
+#[test]
+fn head_committer_time_on_a_repo_with_no_commits_yet() {
+    let dir = tempfile::tempdir().unwrap();
+    git2::Repository::init(dir.path()).unwrap();
+    assert_eq!(head_committer_time(dir.path()).unwrap(), None);
+
+    write(dir.path(), "a.txt", "one");
+    init_and_commit(dir.path(), "first").unwrap();
+    let got = head_committer_time(dir.path()).unwrap().expect("a commit");
+    let drift = (jiff::Timestamp::now().as_second() - got.as_second()).abs();
+    assert!(drift < 60, "{got}");
+}
+
+#[test]
+fn head_committer_time_of_a_directory_that_is_not_a_repository_is_an_error() {
+    let dir = tempfile::tempdir().unwrap();
+    assert!(head_committer_time(dir.path()).is_err());
 }
 
 #[test]

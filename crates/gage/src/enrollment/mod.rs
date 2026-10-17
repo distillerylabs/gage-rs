@@ -1,6 +1,7 @@
 //! Device enrollment, library side: the code, the seal, the filename
-//! scheme, listing, opening, resolution and pruning. No command is wired
-//! up here (P7 · E2); E3 seals and E4 approves through these.
+//! scheme, listing, opening, resolution and pruning (P7 · E2), and the
+//! joining device's `enroll` (E3). E4 approves through the same
+//! primitives.
 //!
 //! Listing, resolution and pruning are built from filenames alone (no git
 //! history, no unlock, no code), which is what D-ENROLL-EXPIRY-IN-NAME
@@ -10,6 +11,7 @@
 //! inert".
 
 mod code;
+mod enroll;
 mod name;
 mod seal;
 
@@ -21,9 +23,12 @@ use jiff::Timestamp;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+use crate::entry::LockError;
 use crate::exitcode::{Code, HasCode};
+use crate::remotesync::SyncError;
+use crate::syncerr::Kind;
 use crate::vault::Vault;
-use crate::{agekey, config, crypt, paths};
+use crate::{agekey, atomicfile, config, crypt, gitrepo, identityfile, paths, vaultconfig};
 use name::{expiry_live, parse_pending_file_name};
 use seal::Attempt;
 
@@ -190,6 +195,58 @@ pub enum EnrollmentError {
         path: PathBuf,
         source: std::io::Error,
     },
+    /// Enrollment publishes a request through the remote, so a vault with
+    /// none cannot be joined this way.
+    #[error(
+        "gage: {vault:?} has no remote, and enrollment publishes its request through one; configure one with `gage git set-remote`"
+    )]
+    NoRemote { vault: String },
+    /// The first thing enroll does with the network failed, before any
+    /// identity was created or anything was asked.
+    #[error("{0}")]
+    RemoteUnreachable(SyncError),
+    /// The remote has commits this vault doesn't and this vault has
+    /// commits the remote doesn't. A device that cannot decrypt anything
+    /// cannot resolve that, so the advice is for the other side.
+    #[error(
+        "gage: {vault:?} has diverged from its remote and nothing was changed; this device cannot reconcile it, so discard this copy (`gage vault remove {vault}`), `gage clone` it again, then run `gage identity enroll`"
+    )]
+    Diverged { vault: String },
+    /// A recipient already carries this device name with a different key.
+    #[error(
+        "gage: {vault:?} already has a recipient named {device:?} with a different key; pass --device with another name"
+    )]
+    DeviceNameTaken { device: String, vault: String },
+    /// A fetch that failed for a reason other than being unreachable.
+    #[error("{0}")]
+    Sync(SyncError),
+    /// The request was written and committed locally but not published. The
+    /// identity and the commit are kept; running enroll again is the way
+    /// forward.
+    #[error("{}", push_message(.0))]
+    Push(SyncError),
+    #[error(transparent)]
+    Identity(#[from] identityfile::UnlockError),
+    #[error(transparent)]
+    Lock(#[from] LockError),
+    #[error(transparent)]
+    Git(#[from] gitrepo::Error),
+    #[error(transparent)]
+    VaultConfig(#[from] vaultconfig::Error),
+    #[error("gage: writing the request: {0}")]
+    Write(#[from] atomicfile::Error),
+}
+
+/// What a failed publish says: the failure, then what survived it and what
+/// to run, naming `gage auth login` when the remote refused access.
+fn push_message(err: &SyncError) -> String {
+    let mut msg = format!(
+        "{err}; the request was not published, but this device's identity and the local commit are kept, so running `gage identity enroll` again is the way forward"
+    );
+    if err.remote_kind() == Some(Kind::Auth) && !msg.contains("gage auth login") {
+        msg.push_str(" (run `gage auth login` first)");
+    }
+    msg
 }
 
 impl HasCode for EnrollmentError {
@@ -208,9 +265,20 @@ impl HasCode for EnrollmentError {
             InvalidTtl { .. } | InvalidDevice { .. } | InvalidPubkey(_) | UnknownMethod { .. } => {
                 Code::Usage
             }
-            NoVaultId | Random(_) | CodeMismatch | Encode(_) | Seal(_) | Io { .. } => {
-                Code::Internal
-            }
+            NoVaultId
+            | Random(_)
+            | CodeMismatch
+            | Encode(_)
+            | Seal(_)
+            | Io { .. }
+            | VaultConfig(_)
+            | Write(_) => Code::Internal,
+            NoRemote { .. } => Code::Usage,
+            Diverged { .. } | DeviceNameTaken { .. } => Code::Conflict,
+            RemoteUnreachable(e) | Sync(e) | Push(e) => e.code(),
+            Identity(e) => e.code(),
+            Lock(e) => e.code(),
+            Git(e) => e.code(),
         }
     }
 }
@@ -468,6 +536,8 @@ fn read_pending_file(path: &Path) -> Option<Vec<u8>> {
 
 #[cfg(test)]
 mod code_tests;
+#[cfg(test)]
+mod enroll_tests;
 #[cfg(test)]
 mod expiry_tests;
 #[cfg(test)]

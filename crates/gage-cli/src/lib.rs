@@ -198,7 +198,11 @@ mod auth_tests;
 #[cfg(test)]
 mod clip_tests;
 #[cfg(test)]
+mod clone_enroll_tests;
+#[cfg(test)]
 mod complete_tests;
+#[cfg(test)]
+mod enroll_cli_tests;
 #[cfg(test)]
 mod entry_tests;
 #[cfg(test)]

@@ -77,10 +77,6 @@ impl Vault {
     /// `request_id` doesn't: a blob is readable to every reader of its
     /// vault, so moving it costs nothing, and the case needs no attacker,
     /// just one person with two vaults and two codes on screen.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "E3's enroll is its first caller")
-    )]
     pub(crate) fn seal_enrollment(
         &self,
         device: &str,

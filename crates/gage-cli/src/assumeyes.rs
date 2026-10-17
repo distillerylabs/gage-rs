@@ -40,6 +40,10 @@ impl Prompter for AssumeYes<'_> {
         self.0.confirm(prompt)
     }
 
+    fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError> {
+        self.0.confirm_default_yes(prompt)
+    }
+
     fn value(&self, title: &str) -> Result<Zeroizing<String>, PromptError> {
         self.0.value(title)
     }

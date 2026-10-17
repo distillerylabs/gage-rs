@@ -159,6 +159,64 @@ settles the prompter. What is left before code:
   (the sync verbs' route). The vault can't be `use`d, because this device
   holds no key it accepts.
 
+### Resolutions (proposed, awaiting review)
+
+Grounded in a read of `remotesync.rs`, `identityfile.rs`, `entry/crud.rs`
+and `enrollment/{mod,seal}.rs`. No code is written until these are
+accepted.
+
+1. **Remote route.** `enroll` runs inside `with_vault_write` (lock, then
+   dirty-tree reset). Step 1 is the cheap `has_remote` check
+   (`NoRemote`, `Usage`) before the lock. "Unreachable" is not a separate
+   pre-fetch: step 3's fetch is the first thing that touches the network,
+   and it precedes the identity (step 5) and every prompt, so the
+   `Unreachable` row holds without a second round trip. Only
+   `pull_locked` changes: from private to `pub(crate)`, so `enroll` can
+   call it. Its fetch error is mapped to `RemoteUnreachable`
+   (`Unreachable`) or the auth error as-is, never the warn-and-proceed of
+   `sync_on_unlock`. Divergence is read from the returned
+   `SyncReport.diverged`, not from an `Err`, which is what
+   `divergence_is_found_by_the_report_rather_than_an_error` pins. Never
+   `pull()`, `push()` or `try_pull` (they re-take the lock).
+2. **Push.** Use `push_locked` as is. A rejected push is fetched and
+   merged, which is safe here: the only new path is an inert
+   `pending/<id>-<epoch>.age` with a fresh UUID, so the two sides cannot
+   touch the same path (the union argument). A `Kind::Auth` failure
+   becomes an `EnrollmentError` whose message names `gage auth login`;
+   `push_after_write`'s warning is not used. The identity and the local
+   commit are kept on any push failure, and re-running enroll reuses the
+   identity and seals a fresh request.
+3. **Reuse path.** Confirmed in `identityfile::create`: an existing file
+   goes through `open`, which asks with `Purpose::Unlock` (retrying up to
+   `MAX_UNLOCK_ATTEMPTS`) and ends in `WrongPassphrase` (`LockedOrAuth`).
+   No change to `create`, and no second create path in `enroll`.
+   "Prompts once" means once when the passphrase is right.
+4. **Already-a-recipient check reads global config in the library**, via
+   `config::read(&paths::global_config_file(dirs))` keyed by the vault's
+   local name, the way `Vault`'s existing registration read does
+   (`vault.rs:579`). An unreadable or missing registration, or an empty
+   `pubkey`, skips the key check; it is never an error. The global-config
+   *write* stays in `gage-cli`.
+5. **`gitrepo::head_committer_time`** goes in `gitrepo/history.rs`: HEAD's
+   committer time as `jiff::Timestamp`, `None` on an unborn branch.
+6. **`seal_enrollment`** loses its `expect(dead_code)` now that `enroll`
+   calls it.
+7. **`--ttl`** reuses `shell::parse_duration`, made `pub(crate)`. The
+   printed-expiry rendering (`human_duration`) lives in the new
+   `commands/enroll.rs` beside the handler, since only enroll prints it.
+8. **Session route.** `identity enroll -u NAME` goes through
+   `with_resolved_vault` / `Session::vault_without_unlocking`, the sync
+   verbs' route.
+9. **Still to read, not decided:** how `clone` should tell "a
+   `Purpose::Create` can be answered here" without a TTY test. I will read
+   Go's `cmd/gage/clone.go` (`offerEnrollment`) and `script.go` at the
+   pinned SHA before task 8 and record the answer here, as a refinement
+   of this list, before writing that task's code.
+
+Accepting 1–8 needs a `Q-ENROLL-REMOTE-ROUTE` entry in the open-questions
+register; I will add it with the first commit-ready change, not before
+you've signed off.
+
 ## Tasks
 
 Write each task's tests first, at task granularity. Library rows go in
@@ -167,24 +225,24 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 1. `confirm_default_yes` — 1 row + 1 inbound ⚑
 
-- [ ] Add it to `Prompter` with no default body. Implement it on the
+- [x] Add it to `Prompter` with no default body. Implement it on the
       terminal prompter (`[Y/n]`, Enter accepts), `FakePrompter`,
       `delegate_the_rest!`, `NoChoosePrompter` and `AssumeYes`, each
       delegating.
-- [ ] Rows:
+- [x] Rows:
   - Inbound `TestConfirmDefaultYesDefaultsToYes`: `confirm_default_yes_defaults_to_yes`. The terminal prompter on a bare Enter, and the `[Y/n]` rendering.
   - `TestNoNonInteractivePrompterAnswersConfirmDefaultYes` ⚑: `no_non_interactive_prompter_answers_confirm_default_yes`. Covers `AssumeYes`, `EnvPrompter`, `RefusingPrompter`, `NoCreatePrompter` and `NoChoosePrompter`, each over a base that declines: none returns yes.
-- [ ] Extend M12d's `every_wrapper_passes_through_each_method_it_does_not_answer` with the new method.
+- [x] Extend M12d's `every_wrapper_passes_through_each_method_it_does_not_answer` with the new method.
 
 ### 2. `head_committer_time` — 1 inbound
 
-- [ ] `gitrepo::head_committer_time`.
-- [ ] Inbound: the `HeadCommitterTime` half, `head_committer_time_on_a_repo_with_no_commits_yet` in `gitrepo/history_tests.rs`. Drop that file's "P7's" note.
+- [x] `gitrepo::head_committer_time`.
+- [x] Inbound: the `HeadCommitterTime` half, `head_committer_time_on_a_repo_with_no_commits_yet` in `gitrepo/history_tests.rs`. Drop that file's "P7's" note.
 
 ### 3. `Vault::enroll`, the identity paths — 10 rows
 
-- [ ] `Vault::enroll` steps 2 and 4–7, against a reachable bare remote.
-- [ ] Rows (`enroll_test.go`):
+- [x] `Vault::enroll` steps 2 and 4–7, against a reachable bare remote.
+- [x] Rows (`enroll_test.go`):
   - `TestEnrollCreatesAnIdentityOnADeviceThatHoldsNone`: `enroll_creates_an_identity_on_a_device_that_holds_none`. `Purpose::Create`, asked twice.
   - `TestEnrollReusesAnExistingIdentityAndPromptsOnce`: `enroll_reuses_an_existing_identity_and_prompts_once`. Asserts the purpose and the prompt count, and that no second file is written.
   - `TestEnrollWithAWrongPassphraseOnTheReusePathPublishesNothing`: `enroll_with_a_wrong_passphrase_on_the_reuse_path_publishes_nothing`
@@ -198,8 +256,8 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 4. Collisions — 5 rows
 
-- [ ] The already-a-recipient check by key, then the name check.
-- [ ] Rows (`enrollcollide_test.go`):
+- [x] The already-a-recipient check by key, then the name check.
+- [x] Rows (`enrollcollide_test.go`):
   - `TestEnrollOnADeviceThatIsAlreadyARecipientIsASuccessThatDoesNoWork`: `enroll_on_a_device_that_is_already_a_recipient_is_a_success_that_does_no_work`. Built the way it happens: `identity add`, then `recipient add` of that key from another device, then enroll. Prompt count zero; not `DeviceNameTaken`.
   - `TestTheAlreadyARecipientCheckIsByKeyNotByName`: `the_already_a_recipient_check_is_by_key_not_by_name`. The key is listed under a different label.
   - `TestWithNoRecordedPubkeyTheKeyCheckIsSkipped`: `with_no_recorded_pubkey_the_key_check_is_skipped`
@@ -208,8 +266,8 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 5. The remote — 10 rows ⚑
 
-- [ ] Step 1, step 3, and the push's error surface.
-- [ ] Rows (`enrollremote_test.go`; injected `RemoteSyncer` for unreachable, never a real timeout):
+- [x] Step 1, step 3, and the push's error surface.
+- [x] Rows (`enrollremote_test.go`; injected `RemoteSyncer` for unreachable, never a real timeout):
   - `TestEnrollFetchesBeforeItCommits`: `enroll_fetches_before_it_commits`. The push is a fast-forward over a remote that moved ahead.
   - `TestEnrollWithAnUnreachableRemoteFailsBeforeAnythingIsCreated` ⚑: `enroll_with_an_unreachable_remote_fails_before_anything_is_created`. Prompt count zero, nothing under identities, nothing committed, `Unreachable`.
   - `TestEnrollWithNoRemoteFailsWithItsOwnError`: `enroll_with_no_remote_fails_with_its_own_error`. `NoRemote`, `Usage`.
@@ -223,7 +281,7 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 6. Crash-safety and two devices — 8 rows
 
-- [ ] Rows (`enrollcrash_test.go`, `enrollmerge_test.go`):
+- [x] Rows (`enrollcrash_test.go`, `enrollmerge_test.go`):
   - `TestAStrayPendingFileIsInert`: `a_stray_pending_file_is_inert`
   - `TestTheNextWriteDiscardsAStrayPendingFile`: `the_next_write_discards_a_stray_pending_file`. The warning names it, and it is absent from the commit.
   - `TestPendingEnrollmentsListsAStrayLocallyAndNowhereElse`: `pending_enrollments_lists_a_stray_locally_and_nowhere_else`
@@ -232,19 +290,19 @@ Write each task's tests first, at task granularity. Library rows go in
   - `TestConcurrentEnrollsMergeIntoAUnion`: `concurrent_enrolls_merge_into_a_union`
   - `TestMergedRequestsStillGrantNothing`: `merged_requests_still_grant_nothing`
   - `TestADivergenceInvolvingPendingIsReportedHonestly`: `a_divergence_involving_pending_is_reported_honestly`. Port Go's finding about which `pending/` divergences are reachable. If one can reach M8b's resolver as an "entry" conflict, this is where it stops being a surprise.
-- [ ] Beyond Go's rows: `vault remove` on a device with a real pending
+- [x] Beyond Go's rows: `vault remove` on a device with a real pending
       request asks before deleting the identity
       (`vault_remove_with_a_real_pending_request_asks_before_deleting`),
       in place of M12b's `identity add` simulation.
 
 ### 7. `identity enroll` — 18 rows
 
-- [ ] The command: registry entry (group Identity, `Availability::Both`),
+- [x] The command: registry entry (group Identity, `Availability::Both`),
       `commands/mod.rs`, `--device`, `--ttl` and `-u`. The global-config
       write, the two secrets' labels, and the session route.
-- [ ] Reword `identity add`'s and `identity list`'s descriptions if they
+- [x] Reword `identity add`'s and `identity list`'s descriptions if they
       don't already match their fixtures (D-ENROLL-VERBS).
-- [ ] Rows (`enroll_cli_test.go`):
+- [x] Rows (`enroll_cli_test.go`):
   - `TestIdentityEnrollPublishesARequestAndPrintsTheCode`: `identity_enroll_publishes_a_request_and_prints_the_code`
   - `TestIdentityEnrollRecordsThisDevicesPubkey`: `identity_enroll_records_this_devices_pubkey`
   - `TestIdentityEnrollHonorsTTLAndDefaultsTo24h`: `identity_enroll_honors_ttl_and_defaults_to_24h`
@@ -266,10 +324,10 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 8. `clone`'s offer — 8 rows
 
-- [ ] Thread the prompter into `clone::run`. The offer through
+- [x] Thread the prompter into `clone::run`. The offer through
       `confirm_default_yes`, enrolling under the name `clone` resolved.
       Reword `access_lines`.
-- [ ] Rows (`clone_enroll_test.go`):
+- [x] Rows (`clone_enroll_test.go`):
   - `TestInteractiveCloneOffersToEnrollAndYesPublishes`: `interactive_clone_offers_to_enroll_and_yes_publishes`. Same end state as `clone` then `identity enroll`.
   - `TestCloneOfferDefaultsToYes`: `clone_offer_defaults_to_yes`. A bare Enter enrolls; the prompt reads `[Y/n]`.
   - `TestConfirmsDefaultIsUnchangedEverywhereElse`: `confirms_default_is_unchanged_everywhere_else`. `recipient remove` of this device's own key still declines on Enter.
@@ -283,28 +341,38 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 9. Opus review
 
-- [ ] Opus review of the ⚑ rows, by mutation.
+- [x] Mutation pass over the ⚑ rows, run by the implementing model
+      (Sonnet). **The Opus review this milestone calls for has not been
+      done** and is still the user's call before merge; the table below is
+      its starting point, not a substitute.
 
 | Mutation | Killed by |
 |---|---|
-| `enroll` calls `pull()` (self-locking) instead of `pull_locked` | |
-| `with_write_lock` instead of `with_vault_write` | |
-| The divergence check removed (commit onto a diverged tip) | |
-| The lock taken after the pull | |
-| The remote check after the identity is created | |
-| The name check before the key check | |
-| `confirm_default_yes` wired to `confirm` | |
-| A wrapper answering `confirm_default_yes` with `Ok(true)` | |
-| The offer gated on a TTY test instead of create-ability | |
+| `enroll` calls `pull()` (self-locking) instead of `pull_locked` | 27 enroll rows, by contention with its own lock; `enroll_holds_the_write_lock_across_the_pull` among them |
+| `with_write_lock` instead of `with_vault_write` | `enroll_takes_the_dirty_tree_reset_before_it_pulls`, `the_next_write_discards_a_stray_pending_file`, `a_stray_does_not_wedge_the_joining_device` |
+| The divergence check removed (commit onto a diverged tip) | `enroll_refuses_a_diverged_pull`, `divergence_is_found_by_the_report_rather_than_an_error` |
+| The lock taken after the pull | Not separately killed. `enroll_holds_the_write_lock_across_the_pull` probes the lock from a child process during the fetch, which kills "no lock at all" and the `pull()` mutant, but a pre-lock `pull()` that takes its own lock would also pass it. Nothing observable sits between the pull and the commit to probe without a new seam (the identity prompt could host one). Open for the Opus review. |
+| The remote check after the identity is created | `enroll_with_no_remote_fails_with_its_own_error` (check removed outright; "moved after" is not separately mutated, and the unreachable row covers the fetch ordering) |
+| The name check before the key check | `enroll_on_a_device_that_is_already_a_recipient_is_a_success_that_does_no_work` |
+| `confirm_default_yes` wired to `confirm` | `confirm_default_yes_defaults_to_yes`, `clone_offer_defaults_to_yes` |
+| A wrapper answering `confirm_default_yes` with `Ok(true)` | `no_non_interactive_prompter_answers_confirm_default_yes` (`AssumeYes`), and the delegate macro by that row plus `every_wrapper_passes_through_each_method_it_does_not_answer` |
+| The offer gated on a TTY test instead of create-ability | `non_interactive_clone_never_offers_and_exits_zero`, `the_offer_tracks_where_a_create_can_be_answered` (gate forced open). See the clone note below. |
+
+Clone note: `clone` is one-shot only in gage-rs, so `--stdin` and
+`--script` never reach the offer, and the create-ability rule reduces to
+`stdin_is_terminal`. `the_offer_tracks_where_a_create_can_be_answered`
+asserts a terminal offers, no terminal doesn't, and a `--stdin` `clone` is
+refused before it could. Go's `--script FILE at a terminal` offer row has no
+Rust counterpart for that reason.
 
 ### 10. Parity, completion and ledger
 
-- [ ] Fixture parity for `identity enroll` (name, group, usage, flags and
+- [x] Fixture parity for `identity enroll` (name, group, usage, flags and
       defaults) and the `identity` child list, in a
       `p7_identity_enroll_has_its_go_fixture_flags_and_descriptions` test.
       Update `p5_identity_commands_have_their_go_fixture_flags_and_descriptions`'s
       child-list note.
-- [ ] Completion: `subcommand_candidates_lists_identity_children`
+- [x] Completion: `subcommand_candidates_lists_identity_children`
       expects `["add", "enroll", "list"]` (`complete_tests.rs`).
 - [ ] Parity ledger: §2 `c86ad4c`, §3 E3, §4 `clone`'s offer, §5
       `identity_enroll`, the P6 `HeadCommitterTime` row and the P2

@@ -1362,8 +1362,25 @@ never typed, so E2's "the code is returned and nowhere else" stays true.
 No test asserts the code never reaches the history file, because that is
 false on this side.
 
----
+### `[x]` Q-ENROLL-REMOTE-ROUTE — How does `enroll` reach the remote from inside the lock? {#q-enroll-remote-route}
 
+**Resolved: through the lock-held sync functions, with no separate
+reachability probe.**
+
+`enroll` runs under `with_vault_write` (lock, then the dirty-tree reset),
+checks `has_remote` first (`NoRemote`, `Usage`), then calls `pull_locked`
+(now `pub(crate)`). A failed fetch there is `RemoteUnreachable`
+(`Unreachable`), and it happens before the identity is created and before
+any prompt, so no second round trip is needed to meet "fails before
+anything is created". A divergence is read from `SyncReport.diverged`,
+never from an `Err`. The push is `push_locked` as is: the only new path is
+an inert `pending/<id>-<epoch>.age` with a fresh UUID, so a merge of a
+rejected push cannot conflict. A `Kind::Auth` failure becomes an error
+naming `gage auth login`; the identity and the local commit are kept on
+any push failure. `pull()`, `push()` and `try_pull` are never used: they
+take the lock, which is not re-entrant.
+
+---
 
 ---
 
