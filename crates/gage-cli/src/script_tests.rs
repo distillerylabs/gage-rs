@@ -712,33 +712,37 @@ fn an_empty_gage_passphrase_is_set_and_is_refused_as_empty() {
     assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
 }
 
-// Go: TestGagePassphraseIsIgnoredForANewIdentity, end to end: `init`
-// reaches the prompter underneath, not the variable.
+// Go: TestGagePassphraseIsIgnoredForANewIdentity, end to end: the variable
+// unlocks the vault, and `identity add`'s new passphrase still reaches the
+// prompter underneath. The run has to get as far as `identity add`, or the
+// request log is empty and proves nothing.
 #[test]
 fn gage_passphrase_is_ignored_for_a_new_identity() {
     let env = with_github();
-    let inner = unlocks();
+    let inner = FakePrompter::new().with_passphrase("chosen by a human");
     let file = env.script_file(&["use personal", "identity add --device other-box"]);
-    let r = env.script_run(
+    let r = ok(env.script_run(
         &["--script", &file],
         Run {
             tty: true,
-            passphrase_env: Some("from-env"),
+            passphrase_env: Some(PASSPHRASE),
             ..Run::default()
         },
         &inner,
-    );
-    // `use personal` is a wrong passphrase from the variable: the point is
-    // which requests reach the human.
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    ));
+    assert!(r.stdout.contains("other-box"), "{}", r.stdout);
+    let asked = inner.unlock_requests();
     assert!(
-        inner
-            .unlock_requests()
+        !asked.is_empty(),
+        "the variable answered the new identity's passphrase"
+    );
+    assert!(
+        asked
             .iter()
             .all(|q| q.purpose == gage::prompter::Purpose::Create),
-        "the variable's answer was bypassed for an unlock: {:?}",
-        inner.unlock_requests()
+        "the variable's answer was bypassed for an unlock: {asked:?}"
     );
+    assert_eq!(crate::identity_cli_tests::identity_files(&env).len(), 2);
 }
 
 // Go: TestScriptWithNoPassphraseSourceFailsFast. No variable and no

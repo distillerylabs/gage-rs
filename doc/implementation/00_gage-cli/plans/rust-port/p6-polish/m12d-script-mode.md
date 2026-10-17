@@ -242,12 +242,11 @@ Write each task's tests first, at task granularity.
       Sonnet session), so each named mutation was instead applied to the
       code, the library and CLI suites run, and the tests that failed
       recorded. A mutation nothing killed would have been a missing test;
-      none survived. **An Opus read of the ⚑ rows is still recommended
-      before M12d is marked done.**
+      none survived. The Opus read followed; see below.
 
 | Mutation | Killed by |
 |---|---|
-| `EnvPrompter` answering `Create` | `script_on_a_terminal_still_creates_identities_interactively`, `stdin_identity_add_does_not_eat_the_command_stream`, `stdin_refuses_to_create_an_identity_with_no_human`, `env_prompter_never_answers_a_new_identity`, `for_script_sends_a_new_identity_to_a_human_or_refuses_it` |
+| `EnvPrompter` answering `Create` | `gage_passphrase_is_ignored_for_a_new_identity` (after the Opus review's fix, below), `script_on_a_terminal_still_creates_identities_interactively`, `stdin_identity_add_does_not_eat_the_command_stream`, `stdin_refuses_to_create_an_identity_with_no_human`, `env_prompter_never_answers_a_new_identity`, `for_script_sends_a_new_identity_to_a_human_or_refuses_it` |
 | `EnvPrompter` answering attempt 2 | `wrong_gage_passphrase_fails_after_one_attempt`, `env_prompter_answers_once_then_refuses`, `a_refusal_never_prints_the_passphrase` |
 | `--stdin` falling through to the terminal prompter when stdin is a terminal | `stdin_never_prompts_even_on_a_terminal` |
 | `NoCreatePrompter` not installed under `--stdin` | `stdin_identity_add_does_not_eat_the_command_stream`, `stdin_refuses_to_create_an_identity_with_no_human`, `for_script_sends_a_new_identity_to_a_human_or_refuses_it` |
@@ -260,6 +259,37 @@ shape of it: an unlock failure exits 5 whatever the prompter's own code
 (`UnlockError::Prompter` is `LockedOrAuth`), so no CLI-level test can
 distinguish them. The CLI tests assert exit 5 anyway, for the user-visible
 contract.
+
+- [x] **Opus review of the ⚑ rows** (code and tests read against the
+      design's "Non-interactive session mode" and Go's rules).
+  - **One fix: the end-to-end `TestGagePassphraseIsIgnoredForANewIdentity`
+    port proved nothing.** Its variable was wrong, so `use personal`
+    failed on line 1, `identity add` never ran, and its `.all(Create)`
+    check passed over an empty request log. With `EnvPrompter` answering
+    `Create` it still passed. Now the variable unlocks the vault and the
+    test asserts that `identity add`'s request reached the human
+    (non-empty, all `Create`) and that the identity was written. It now
+    fails under that mutation.
+  - **Checked and sound:** the library has two passphrase call sites
+    only (`identityfile` create, `Create`, attempt 1; open, `Unlock`,
+    attempts from 1), and `Kind` has one variant, so the wrappers'
+    `Purpose`/`attempt` switches cover every request. A refused attempt
+    2 surfaces as `WrongPassphrase` (exit 5) and names the variable.
+    `can_prompt` is false for every `--stdin` run, so no `--stdin` path
+    reaches the base prompter's `unlock`: a non-create unlock is answered
+    by the variable or refused, and a create is refused by
+    `NoCreatePrompter`. `init` creates the identity before the vault, so
+    a refused create leaves nothing behind. The session's lines only see
+    the wrapped prompter (`run_script` is given nothing else), and
+    `read_one_line` never reads ahead, so the stream after a refused line
+    is intact (asserted byte for byte).
+  - **Noted, not changed (Go parity):** under `--stdin`, `confirm` and
+    `value` still read the command stream (Q-SCRIPT-CHOOSE), so an
+    `insert` with no value takes the next line as the secret. And
+    `GAGE_PASSPHRASE` stays in the process environment, which a spawned
+    `$EDITOR` inherits. The design doesn't ask for it to be unset (Go's
+    `script.go` was not re-read for this). Unsetting it in `main` after
+    the read would be a deliberate deviation needing its own `Q-` entry.
 
 ### 5. Docs
 
