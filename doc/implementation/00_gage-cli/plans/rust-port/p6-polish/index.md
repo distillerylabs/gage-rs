@@ -107,7 +107,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 |---|---|---|---|---|---|
 | M12a | [`log` / `history --decrypt`](m12a-log-history.md) ([#53](https://github.com/distillerylabs/gage-rs/issues/53)) | Sonnet ⚑ | P5 | 24 | `[x]` |
 | M12b | [`cat` display, `ls -H`, `vault remove` cleanup](m12b-display-cleanup.md) ([#54](https://github.com/distillerylabs/gage-rs/issues/54)) | Sonnet ⚑ | M12a | 10 (+18 inbound) | `[x]` |
-| M12c | [`-c/--clip`, `-q/--qr`](m12c-clip-qr.md) ([#55](https://github.com/distillerylabs/gage-rs/issues/55)) | Sonnet\* | M12b | 27 (+4 inbound) | `[~]` CI green on all three platforms; manual clipboard check pending |
+| M12c | [`-c/--clip`, `-q/--qr`](m12c-clip-qr.md) ([#55](https://github.com/distillerylabs/gage-rs/issues/55)) | Sonnet\* | M12b | 27 (+4 inbound) | `[x]` |
 | M12d | [`--script` / `--stdin`, `GAGE_PASSPHRASE`, docs](m12d-script-mode.md) ([#56](https://github.com/distillerylabs/gage-rs/issues/56)) | Sonnet ⚑ | M12c | 26 (+1 inbound) | `[ ]` |
 
 `⚑` means an Opus review pass over that milestone's named tests before it

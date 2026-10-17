@@ -247,11 +247,15 @@ Write each task's tests first, at task granularity.
 
 ### 6. Platform check, parity, ledger
 
-- [ ] **Manual check on each OS available** (not CI, which has no
+- [x] **Manual check on each OS available** (not CI, which has no
       clipboard): `show -c` copies, clears after a short configured
       timeout, Ctrl-C clears early, and a clipboard changed in the
       meantime survives. Record which platforms were checked here.
-      **Not yet done.** No platform checked so far. Automated: the
+      **Checked on macOS** (2026-10-16, by the maintainer, against
+      `target/debug/gage` built from this branch): copy, clear after a
+      short configured timeout, early clear on Ctrl-C, and a clipboard
+      changed in the meantime survives. **Linux and Windows were not
+      checked by hand**; no such machine was available. Automated: the
       platform-gated `SystemClipboard` code passes clippy with
       `-D warnings` for `x86_64-unknown-linux-gnu` and
       `x86_64-pc-windows-msvc` as well as macOS (in a scratch crate over
@@ -265,17 +269,16 @@ Write each task's tests first, at task granularity.
       decided, first used M12c (already so from planning; a row added for
       the keeper's `sha2`/`subtle`).
 - [x] Parity ledger: §3 M12 (`-c`, `-q`), §4 `show` and `generate`.
-- [ ] Mark M12c `[x]` in the [P6 index](index.md) after CI. **CI is
-      green** on PR #60 (lint and test on Linux, macOS and Windows; audit).
-      The index stays `[~]` until the manual clipboard check above is
-      recorded, which the definition of done requires.
+- [x] Mark M12c `[x]` in the [P6 index](index.md) after CI. CI is
+      green on PR #60 (lint and test on Linux, macOS and Windows; audit),
+      and the manual check is recorded above.
 
 ## Status
 
-Implementation, tests and docs are done, and CI is green on all three
-platforms: Lint, Test and Audit on PR #60, at `5b53135`. All 27 claimed
-rows and the 4 inbound ones are ported. **What remains is the manual
-clipboard check (task 6)** on a real machine.
+**Done.** CI is green on all three platforms (Lint, Test and Audit on
+PR #60, at `5b53135`). All 27 claimed rows and the 4 inbound ones are
+ported. The manual clipboard check passed on macOS; Linux and Windows
+were not checked by hand.
 
 ## Definition of done
 
