@@ -68,7 +68,7 @@ line up.
 | P5 Recipients & trust ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)) | M9a identities + recipient read side · M9b recipient writes + re-encryption · M10 trust cache · M11 cross-vault | `[x]` | Sonnet for M9a; **Opus** for M9b; Sonnet* for M10/M11 (⚑ Opus review of M10's laundering and M11's lock-order tests) | P4 |
 | P6 Polish ([plan](p6-polish/index.md), [#52](https://github.com/distillerylabs/gage-rs/issues/52)) | M12a `log`/`history` · M12b `cat`, `ls -H`, orphan cleanup · M12c `-c`/`-q` · M12d `--script`/`--stdin` | `[x]` | Sonnet; Sonnet* for M12c (⚑ Opus review of M12a's merge-walk, M12b's never-delete and M12d's passphrase-source tests) | P5 |
 | P7 Enrollment ([plan](p7-enrollment/index.md), [#63](https://github.com/distillerylabs/gage-rs/issues/63)) | E1b shared recipient write · E2 sealed request · E3 joining side · E4 approving side | `[x]` | **Opus** for E2/E4; Sonnet\* for E1b/E3 (⚑ Opus review of every milestone's named tests) | P5 (P6 merged first) |
-| P8 Recovery key | R0–R5, regrouped into 3–4 milestones | `[ ]` | **Opus** for the R1/R3/R4 material | P7; P6 (R1 displays the key through M12's QR renderer) |
+| P8 Recovery key ([plan](p8-recovery-key/index.md), [#74](https://github.com/distillerylabs/gage-rs/issues/74)) | RK1 recovery key library · RK2 recovery identity + swap · RK3 `init` + `recovery rotate` · RK4 `recovery enroll`/`verify`, hints, docs | `[ ]` | Sonnet\* for RK1; **Opus** for RK2–RK4 (⚑ Opus review of every milestone's named tests) | P7; P6 (RK3 displays the key through M12c's QR renderer) |
 | P9 Parity sign-off | Ledger closed, every test-inventory row ported or excused, user docs complete | `[ ]` | **Opus** review | P8 |
 
 `⚑` = run an Opus review pass over that milestone's *tests* before moving
@@ -109,7 +109,7 @@ cover commands from every earlier phase.
 | E0 Vault-id keying | — | Folded into M1/M2/M10 and the vault lock (M0b/M1). |
 | E1a Unconditional re-encrypt | — | Folded into M9. |
 | E1b–E4 Enrollment | P7 · E1b, E2, E3, E4 | E1b's `recipient_batch_test.go` was tagged P5 by file name; re-tagged to P7 ([Q-E1B-RETAG](open-questions.md#q-e1b-retag)). |
-| R0–R5 Recovery key | P8 | Go issue #7; sources are `plans/recovery-key/` and the TDD's "Recovery key at `init`". **Not listed in the Go core index.** |
+| R0–R5 Recovery key | P8 · RK1–RK4 | Go issue #7; sources are `plans/recovery-key/` and the TDD's "Recovery key at `init`". **Not listed in the Go core index.** Regrouped, and not in Go's order, so that no message names a command that doesn't exist yet and the label reservation lands with the first write of the label ([Q-P8-SPLIT](open-questions.md#q-p8-split)): RK1 = R0 + R5's reservation, RK2 = R3 + R5's library half, RK3 = R1 + R5's CLI, RK4 = R4 + R2 + docs. |
 | Go test-coverage plan (R0/R1 coverage) | M0a | Coverage gating via `cargo-llvm-cov` from the first milestone, applied by every milestone after it. |
 | Pre-commit hook | M0a | Developer tooling, not CLI surface. |
 | `make reset-local-state` | M0b | Developer tooling; needs M0b's `xdgpaths`, so not M0a. |
