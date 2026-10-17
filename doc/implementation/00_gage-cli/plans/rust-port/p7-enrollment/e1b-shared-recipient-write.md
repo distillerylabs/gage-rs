@@ -187,11 +187,13 @@ Findings:
 
 ### 6. Parity and ledger
 
-- [ ] Parity ledger §2 `045bf24`/`9d72384` and §3 E1b point at this
-      milestone, and are marked `[x]` after CI.
-- [ ] Update the port plan's cross-milestone contract row for M9b ("E1b
+- [x] Parity ledger §2 `045bf24`/`9d72384` and §3 E1b point at this
+      milestone, and are marked `[x]` after CI. (§3's row covers E1b–E4
+      together, so it stays `[ ]` until E4 ships.)
+- [x] Update the port plan's cross-milestone contract row for M9b ("E1b
       widens the primitive") to name what shipped.
-- [ ] Mark E1b `[x]` in the [P7 index](index.md) after CI.
+- [x] Mark E1b `[x]` in the [P7 index](index.md) after CI. (CI green on
+      Linux, macOS and Windows at `170eee5`.)
 
 ## Definition of done
 
