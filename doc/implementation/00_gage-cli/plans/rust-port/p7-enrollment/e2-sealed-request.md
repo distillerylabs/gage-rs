@@ -381,9 +381,27 @@ Write each task's tests first, at task granularity.
 | *Added:* clock skew folded into expiry | `clock_skew_is_its_own_error` |
 | *Added:* a refusal returned even though another request opened | **Survived Go's rows.** Killed by the new `a_refusal_does_not_displace_a_request_that_opened` |
 | *Added:* the open path follows symlinks and FIFOs | the new `symlinks_in_pending_are_never_followed` (Unix) |
+| *Second review:* half the code's random bytes filled (40 bits) | **Survived every row.** Killed by the new `generated_codes_use_every_character_in_every_position` |
+| *Second review:* four bits per character (64 bits, alphabet 0-F) | **Survived every row.** Killed by the same new row |
+| *Second review:* every character drawn from one random byte | `successive_codes_differ` |
+| *Second review:* the 32 bound refuses exactly 32 (`>=`) | `wrong_code_against_a_full_directory_is_fast`, the only row that hands in exactly 32 |
+| *Second review:* expired filenames not filtered at listing | `pending_enrollments_filters_expired_without_deleting`, `the_bound_counts_live_requests_only`, and three more |
+| *Second review:* pruning drops the ceiling half, or also prunes oversized live files | `prune_removes_expired_and_forged_expiries_only` |
+| *Second review:* pubkey or method not validated | `malformed_payloads_are_refused_as_malformed` |
+| *Second review:* the TTL ceiling refuses exactly 7 days | `seal_rejects_ttls_outside_the_ceiling` |
+| *Second review:* resolution skips the exact stage | `resolve_enrollment_follows_the_base_resolution_order` |
 
 The mutations were applied one at a time by a script, each followed by
 `cargo test -p gage --lib -- enrollment:: crypt::`.
+
+The second review's survivors that were not gaps:
+- Stripping `GAGE` at any length over 16 is an equivalent mutant: every
+  length other than 20 still fails the final length check.
+- Five one-unit boundaries survive and are accepted: skew at
+  `expires == created`, liveness at `expires == now` and at exactly
+  now + 7 days, and a file of exactly 16 KiB. None is a value gage
+  writes: a TTL is over zero, timestamps are whole seconds, and seals are
+  a few hundred bytes.
 
 - [x] An Opus read of the code and the ⚑ rows against the TDD's
       "reframe", "untrusted input" and `D-ENROLL-SEAL-COST` sections.
@@ -413,11 +431,43 @@ The mutations were applied one at a time by a script, each followed by
     (`the_bound_counts_live_requests_only`). Pruning is crate-private and
     unwired until E4.
 
+  Second review (a fresh Opus read and its own mutation pass, after the
+  commit):
+  - **No row saw the code's entropy.** Fixed. The shape, alphabet and
+    successive-codes rows all pass a generator that fills half its bytes
+    or reads four bits per character, and both mutations survived. This
+    is the bug the recommended-model note warns about, invisible to a
+    passing test. The new row requires every character in every
+    position over 2000 draws. Go has the same gap.
+  - **An epoch past i64 is a stray, not expired.** `parse_pending_file_name`'s
+    comment said every forged epoch is pruned; one too long to parse is
+    skipped, never listed or counted, and never pruned. The behavior
+    matches Go and costs nothing, so only the comment changed.
+  - **For E4: one request id can sit under two filenames.** A git writer
+    can copy a seal to a second epoch, because the id check compares only
+    the UUID half (as designed). Then a broad open returns the request
+    twice, and `resolve_enrollment` on the full id is `Ambiguous` between
+    two candidates the human can't tell apart. Go behaves the same.
+    Approval should dedupe by id, and deny-by-id should act on every
+    file with that id, rather than leave a request no id can name.
+  - **For E4: `agekey::validate_recipient` is shape-only**, so a sealed
+    pubkey can be an all-uppercase spelling or a plugin recipient. Both
+    are valid in `.age-recipients`, and both are Go's behavior. E4's
+    already-a-recipient check should compare keys case-insensitively,
+    or the uppercase spelling of an existing key gets added twice.
+  - Confirmed, no change: the seal reads only its own factor; the open
+    path's one capped constructor at 18; the bound and code validation
+    before any KDF run; payload limit enforced through age's reader; every
+    field validated before an `OpenedRequest` exists; the vault-id,
+    request-id, skew and ceiling ordering as the TDD gives it; `Zeroizing`
+    capacity in `generate_code` exact, so the code is never reallocated.
+
   Rows beyond Go's 55, each named in its file:
   - `claimed_factor_is_capped_at_the_enrollment_cap` (Q-ENROLL-SCRYPT-CAP)
   - `absent_payload_fields_are_malformed_not_unparseable`
   - `a_refusal_does_not_displace_a_request_that_opened`
   - `symlinks_in_pending_are_never_followed`
+  - `generated_codes_use_every_character_in_every_position` (second review)
 
 ### 9. Parity and ledger
 

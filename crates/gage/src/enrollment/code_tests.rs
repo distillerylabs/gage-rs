@@ -69,6 +69,31 @@ fn successive_codes_differ() {
     }
 }
 
+// Beyond Go (E2's second review): the code's entropy, which no other row
+// sees. Filling half the random bytes (40 bits) or reading four bits per
+// character (64 bits, alphabet 0-F) passes the shape, the alphabet and
+// successive_codes_differ. Every position must take every character: at
+// 2000 draws the chance an honest generator misses one of the 512
+// position-character pairs is below 2^-80.
+#[test]
+fn generated_codes_use_every_character_in_every_position() {
+    let mut seen = vec![HashSet::new(); CODE_LENGTH];
+    for _ in 0..2000 {
+        let code = code().strip_prefix("GAGE-").unwrap().replace('-', "");
+        for (i, c) in code.chars().enumerate() {
+            seen[i].insert(c);
+        }
+    }
+    for (i, chars) in seen.iter().enumerate() {
+        assert_eq!(
+            chars.len(),
+            32,
+            "position {i} took only {} of the 32 characters: the code has less than 80 bits",
+            chars.len()
+        );
+    }
+}
+
 const CANONICAL: &str = "7K4M9QX2P3RH8WVN";
 
 // Go: TestCodeNormalizationAcceptsHowPeopleRetypeCodes. Against the

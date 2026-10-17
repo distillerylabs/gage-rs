@@ -40,6 +40,8 @@ pub(crate) fn parse_pending_file_name(name: &str) -> Option<(String, Timestamp)>
     {
         return None;
     }
+    // Past i64 doesn't parse, and is a stray, as in Go: never listed or
+    // counted, just never pruned either.
     let seconds: i64 = epoch.parse().ok()?;
     // Past what a timestamp can hold is past the ceiling too: a forged
     // epoch is expired, not a stray, or pruning would never remove it.
