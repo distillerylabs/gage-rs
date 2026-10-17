@@ -1406,6 +1406,145 @@ of P7 · E4 ([plan](p7-enrollment/e4-approving-side.md#resolutions-accepted)).
 
 ---
 
+## Resolved in P8 planning
+
+Settled in [#74](https://github.com/distillerylabs/gage-rs/issues/74) and
+the [P8 plan](p8-recovery-key/index.md). Go's own recovery-key decisions
+(D1–D12, and each Go milestone doc's "Settled while implementing" and
+"Found by review") are in Go's `recovery-key/` plan and the copied TDD's
+"Recovery key at `init`". They are not repeated here.
+
+### `[x]` Q-P8-SPLIT — How is Go's recovery-key plan split? {#q-p8-split}
+
+**Resolved: four milestones, RK1–RK4, which regroup Go's R0–R5 and are
+not in Go's order.**
+
+| Rust | Go material |
+|---|---|
+| RK1 | The recovery key, library: R0, R4's label-returning `VerifyRecoveryKey`, R5's label reservation |
+| RK2 | The recovery identity and the swap, library: R3, R5's `RotateRecoveryKey` |
+| RK3 | `init` gains the key, and `recovery rotate`: R1, R5's CLI |
+| RK4 | `recovery enroll`, `recovery verify`, hints, docs: R4, R2, R5's docs |
+
+The milestones get their own IDs because each absorbs parts of several Go
+milestones, so a Go R-number would mean two different things.
+
+The order is forced by porting the current state
+([Q-PORT-STATE](#q-port-state)). Go's R1 and R4 shipped stopgap messages
+("`age-keygen` then `recipient add`"), because `recovery rotate` didn't
+exist yet. R5's label reservation makes that stopgap impossible:
+`recipient add --device recovery-paper-key` is refused. Two rules follow:
+
+- **Every command a message names exists in the same milestone.**
+  - `init`'s delivery-failure and refused-confirmation messages name
+    `recovery rotate`, so rotate ships with `init` (RK3).
+  - `verify`'s refusal and the `clone`/`use` hints name `recovery enroll`,
+    so they ship with enroll (RK4).
+- **The reservation lands in RK1.** That is the first milestone that writes
+  the label. Rotate's eviction is safe only because no device can sit
+  under the label.
+
+### `[x]` Q-RECOVERY-TERMINAL — How does the CLI know stderr is a terminal? {#q-recovery-terminal}
+
+**Resolved: `Io` gains `stderr_is_terminal`, beside `stdin_is_terminal`.**
+
+Go's R1 widened D2: the key goes to stderr and the re-type comes from
+stdin, so showing the key needs both streams to be terminals.
+`gage init foo 2>build.log` satisfies only one of them, and it is the run
+that would file a private key into a build log.
+
+- `main.rs` sets the flag from `std::io::stderr().is_terminal()`.
+- In-process tests default it to false, like `stdin_is_terminal`.
+- Go's `IsErrTerminal` falls back to `IsTerminal` when unset. gage-rs has no
+  unset state, so there is no fallback, and every `Io` constructor states
+  both flags.
+
+### `[x]` Q-RECOVERY-TEST-INIT — How do the existing tests survive a default-on, fail-closed key? {#q-recovery-test-init}
+
+**Resolved: the shared helpers opt out, and the literal calls say so.**
+
+Every in-process test runs without a terminal. So once RK3 lands, about
+190 existing `init` invocations would refuse: 122 through `Env::init`,
+about 70 literal `["init", …]` calls, and the piped-stdin `assert_cmd`
+tests. Go's R1 met the same problem at 57 call sites, and added
+`--no-recovery-key` to each one.
+
+Here:
+- `Env::init` and `sync_tests::init_with_remote` append `--no-recovery-key`
+  unless the test asks for a key.
+- Literal calls, and the binary tests, state the flag.
+- `init_vault_with_recovery_key_file` mirrors Go's helper for the tests
+  that need a real key.
+
+The change lands as RK3's first task, before any recovery behavior, so the
+behavior diff stays readable.
+
+### `[x]` Q-RECOVERY-NOCLOBBER — How is `--recovery-key-out` kept from overwriting a file? {#q-recovery-noclobber}
+
+**Resolved: an atomic no-clobber write, plus Go's up-front checks.**
+
+`atomicfile::write` always replaces its destination. Go checks with
+`os.Stat` and then writes through `atomicfile`, which leaves a window in
+which another file can appear at the destination.
+
+gage-rs adds `atomicfile::write_new`. It writes a temp file in the same
+directory, fsyncs it, sets mode 0600, then calls tempfile's
+`persist_noclobber`. An existing destination is refused atomically.
+
+The up-front existence check, the parent-directory checks and the
+writability probe stay. They run before anything is created, which is
+what lets a refusal leave nothing behind. `write_new` is the backstop.
+
+### `[x]` Q-RECOVERY-SECRET-MEMORY — How are the recovery secrets held? {#q-recovery-secret-memory}
+
+**Resolved: `Zeroizing` in the CLI, a `LockedBuf` in the library, and one
+recorded gap.**
+
+- `RecoveryKey.secret` is a `Zeroizing<String>`. The `SecretString` that age
+  returns is copied into it and then dropped.
+- A pasted key arrives as the `Zeroizing<String>` that `Prompter::value`
+  returns.
+- `render_qr` already returns `Zeroizing<String>`.
+- The key file's bytes are a `Zeroizing<Vec<u8>>`.
+- The library parses a pasted key with `KeyLine::parse`, into the same
+  page-locked `LockedBuf` an identity file uses. `Identity`'s `Drop`
+  zeroes it.
+- `recover_device` takes the secret **by value**. Go's "zeroes the caller's
+  buffer" (`TestRecoverDeviceZeroesTheSecretItWasHanded`) becomes
+  ownership: the buffer is dropped, and so zeroed, on every return. The
+  row is ported as a signature pin plus a no-copy source scan.
+
+This closes most of Go's accepted gap ("a Go string can't be zeroed").
+What remains is that the display copies are zeroed but not page-locked, so
+they can reach swap. Closing that would mean page-locking the QR
+renderer's output and stderr's buffering. That is out of scope, as it was
+for Go.
+
+### `[x]` Q-RECOVERY-DATA-DIR — Which destinations does `--recovery-key-out` refuse? {#q-recovery-data-dir}
+
+**Resolved: Go's three, in gage-rs's terms.**
+
+gage deletes from, or rewrites, three places:
+
+- **The vault being created.**
+- **Any ancestor directory holding `.gage/config.toml`,** registered or
+  not. The dirty-tree reset (`gitrepo::reset_hard`) deletes untracked
+  files, and `commit_all` would otherwise commit the key.
+- **Anything under `Dirs.data`.** Go's `$GAGE_DATA` is the XDG data dir
+  here, and `crates/reset-local-state` wipes it.
+
+How a path is compared:
+- It is made absolute against an explicit `cwd` parameter. That parameter
+  is the process's working directory in production, and a test-chosen
+  directory in tests. A relative path inside a vault was Go's R3 review
+  bug.
+- Symlinks are resolved as far as the path exists, so macOS's `/var` and
+  `/private/var` compare equal.
+- Paths are compared by component, never by string prefix.
+
+The guard runs before the existence and parent checks, because it is the
+only check that holds when nothing on the path exists yet.
+
 ---
 
 ## Withdrawn

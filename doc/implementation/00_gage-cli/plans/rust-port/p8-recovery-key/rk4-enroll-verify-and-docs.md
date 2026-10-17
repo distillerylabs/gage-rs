@@ -1,0 +1,315 @@
+# RK4 — `recovery enroll`, `recovery verify`, hints, docs
+
+[← RK3](rk3-init-and-rotate.md) · [P8 plan](index.md) · [#78](https://github.com/distillerylabs/gage-rs/issues/78) · next: P9 Parity sign-off
+
+> **Recommended model: Opus ⚑.** This is ordering and failure handling
+> around a key that can read everything: the same class of risk as RK3.
+> Go's R4 review found seven bugs after the milestone was first reported
+> done, including:
+> - a restore that could never restore
+> - a replacement key discarded when registration failed
+> - a hint pointing at a command that didn't exist
+> - a task ticked but never implemented
+>
+> Run an **Opus review of the step-ordering, backup-restore and
+> delivery-before-registration rows** (task 7) before calling it done.
+
+## Goal
+
+### `gage recovery enroll`
+
+`gage recovery enroll` takes a user to a working device identity. The user
+has lost their only identity file, or forgotten its passphrase, and holds
+the paper recovery key. The command retires the used key and puts a fresh
+recovery key in hand. It runs in this order, so nothing irreversible
+happens before it must:
+
+1. **Refuse everything that needs no secret.**
+   - Resolve the vault without unlocking it, and resolve the device name.
+   - Plan the new key with `plan_recovery_key("--no-new-recovery-key")`.
+     That applies the terminal rule. In file mode, check the destination
+     against RK3's guard.
+   - Refuse the reserved label, with that as the reason given.
+   - Refuse a name a recipient already uses, unless it is the
+     `--replaces` target.
+   - Refuse an existing local identity file for the device, without asking
+     for its passphrase (`LocalIdentityExists`, `Usage`). The exception is
+     `--replaces` naming that same device: then the file is backed up in
+     memory, to be replaced.
+2. **Paste the recovery key** through the masked `Prompter::value`. Check it
+   with `verify_recovery_key`, and require the `recovery-paper-key` label. A
+   wrong paste costs no passphrase entry.
+3. **Generate the replacement recovery key,** unless
+   `--no-new-recovery-key` was given.
+4. **Clear the backed-up file, if any, then create the device identity.**
+   This is the new-passphrase prompt. On failure, restore the backup.
+5. **`recover_device`.** On failure, remove the new identity and restore the
+   backup.
+6. **Deliver the new key, with any error held.** This happens *before*
+   anything that can still fail. The new key is committed and pushed by
+   now, and its private half exists only in this process.
+7. **`record_local_identity`.**
+8. **The summary,** and the no-recovery-key warning when there is no new
+   key. Then return. A delivery error outranks a registration error. A
+   registration error names `gage identity add --device <name>` as the
+   remedy.
+
+### `gage recovery verify`
+
+`gage recovery verify` checks a pasted key with no unlock, and reports two
+separate claims:
+
+- **"decrypts this vault":** true for any recipient's key, so it exits 0
+- **"`recovery enroll` will accept it":** true only for the
+  `recovery-paper-key` one
+
+### The rest
+
+- **The `recovery enroll` hints:**
+  - `clone`'s access message
+  - the missing-identity message that `unlock` and `use` surface
+  - `identity add`'s long help
+- **P8's user docs.**
+
+## Depends on
+
+- **RK1:** `verify_recovery_key` and the reservation.
+- **RK2:** `recover_device`, `RecoverSpec`, and the errors.
+- **RK3:**
+  - `commands/recoverykey.rs`: `plan_recovery_key`, the destination guard,
+    delivery, the re-type
+  - the `recovery` parent
+  - `init_vault_with_recovery_key_file`
+  - `Io.stderr_is_terminal`
+- **P5 · M9a:** `record_local_identity`; `identityfile::create` and
+  `identityfile::remove`.
+- **P4 · M8a2 / P7 · E3:** `clone`'s `access_lines`.
+
+## Design references
+
+- TDD "Recovery key at `init`": the bullets on `recovery verify`,
+  `recovery enroll`, "Retirement is future-only" and "An `age-key` unlock
+  method is deliberately not built".
+- Go plan `recovery-key/index.md`: D8–D10, D12, and "Design facts Phase 2
+  relies on", including R1's lessons applied again.
+
+## Go sources
+
+- Go plan `recovery-key/r4-recovery-enroll-cli.md`, all of it:
+  - the two resolved decisions: verify's two claims, and overwriting only
+    when `--replaces` names the same device
+  - "Settled while implementing":
+    - `plan_recovery_key` takes the opt-out flag's name
+    - verify returns the label
+    - the in-memory backup
+    - `ErrLocalIdentityExists` lives in the CLI
+  - the seven "Found by review" fixes, each carried here as a test
+- Go plan `recovery-key/r2-verify-and-docs.md`, all of it, including the
+  limit it recorded. That limit is now closed by enroll: the docs say what
+  the key can and can't do.
+- Go plan `recovery-key/r5-recovery-rotate-and-docs.md`: the docs tasks,
+  and "The R4 stopgap wording is gone".
+- Parity ledger:
+  - §1 #7, #10 (PR #15), #17 (PR #21)
+  - §4 `recovery`, `recovery_enroll`, `recovery_verify`
+  - §6 `identities-and-recipients.md` (P8's recovery sections) and
+    `vaults.md`
+- Go sources at the pinned SHA:
+  - `cmd/gage/recovery.go`: enroll and verify
+  - `cmd/gage/clone.go`, `cmd/gage/repl.go`: the hints
+  - Go's `doc/cli/identities-and-recipients.md` ("Storing your recovery
+    key", "Using it", "If it leaks", "Skipping it") and `doc/cli/vaults.md`
+- Help fixtures: `recovery.txt`, `recovery_enroll.txt`,
+  `recovery_verify.txt`.
+- Test inventory, 26 rows:
+  - `cmd/gage/recovery_enroll_test.go`, 19 rows: the 16
+    `TestRecoveryEnroll*` rows, `TestCloneAndSessionPointAtRecoveryEnroll`,
+    `TestNoRecoveryKeyWarningNamesARealCommand`, and
+    `TestRecoveryVerifyDistinguishesDecryptingFromEnrolling`
+  - `cmd/gage/recovery_test.go` (7)
+  - plus the `recovery enroll` subtest of RK3's
+    `no_command_lets_a_device_take_the_recovery_label`
+- Inbound: the hints, the `recovery` parent's full child list, the
+  identity-add help and the docs (see the
+  [index](index.md#inventory-accounting)).
+
+## Decisions to make first
+
+Settle these in this doc, and get them reviewed, before writing code.
+
+1. **Who owns the identity-file backup.**
+   - Go's `identityBackup` reads the file in `cmd/gage` and restores it
+     with `MkdirAll` plus `atomicfile`. Its review bug was the missing
+     `MkdirAll`.
+   - In gage-rs, `identityfile` owns the 0700 directory and 0600 file
+     rules (`make_private_dir`, private).
+   - Proposed: a small library pair in `identityfile`:
+     - `backup(dirs, vault_id, device) -> Result<Option<IdentityBackup>, _>`
+       holds the bytes as `Zeroizing<Vec<u8>>`
+     - `IdentityBackup::restore(&self, dirs)` recreates the directory and
+       the marker
+   - The *policy* stays in `gage-cli`, as Go settled: refuse unless
+     `--replaces` names the device. The library never decides to overwrite.
+2. **How `LocalIdentityExists` is matchable.**
+   - Go's test checks `errors.Is` against an exported sentinel. Go's review
+     bug was formatting it with `%v`.
+   - Proposed: a typed `LocalIdentityExists { path, device }` error in
+     `gage-cli`, carried inside `CliError` so a test can `downcast_ref` it.
+     It maps to `Usage`.
+3. **Verify's output and exit codes**, per Go's resolved decision:
+   - exit 0 for any recipient's key, naming the label it is registered
+     under
+   - on `recovery-paper-key`: "it can decrypt this vault, and
+     `gage recovery enroll` will accept it"
+   - on any other label: "it can decrypt this vault, but
+     `gage recovery enroll` will not accept it — only the key registered as
+     `recovery-paper-key` can"
+   - not a recipient: `LockedOrAuth`; malformed: `Usage`
+   - the pasted value is a `Zeroizing<String>` and is never echoed
+
+## Tasks
+
+Write each task's tests first. CLI rows go in
+`crates/gage-cli/src/recovery_cli_tests.rs`. Hint rows go in
+`clone_enroll_tests.rs` and `repl_tests.rs`, beside the hints they pin.
+
+### 1. `recovery verify` — 8 rows
+
+- [ ] Registry: `recovery verify`, group Recipients, one-shot only, with
+  `-u/--use`. Long help from `recovery_verify.txt`.
+- [ ] The command, per decision 3.
+- [ ] Rows (`recovery_test.go`, and one from `recovery_enroll_test.go`):
+  - `TestRecoveryVerifyAcceptsTheVaultsRecoveryKey`: `recovery_verify_accepts_the_vaults_recovery_key`
+  - `TestRecoveryVerifyToleratesPastedWhitespace`: `recovery_verify_tolerates_pasted_whitespace`
+  - `TestRecoveryVerifyNeedsNoUnlock`: `recovery_verify_needs_no_unlock`. No unlock request is recorded, and no lock is taken.
+  - `TestRecoveryVerifyRejectsAKeyThatIsNotARecipient`: `recovery_verify_rejects_a_key_that_is_not_a_recipient`. `LockedOrAuth`.
+  - `TestRecoveryVerifyRejectsAMalformedKey`: `recovery_verify_rejects_a_malformed_key`. `Usage`.
+  - `TestRecoveryVerifyNeverEchoesTheKey`: `recovery_verify_never_echoes_the_key`
+  - `TestRecoveryVerifyIsListedInHelp`: `recovery_verify_is_listed_in_help`
+  - `TestRecoveryVerifyDistinguishesDecryptingFromEnrolling`: `recovery_verify_distinguishes_decrypting_from_enrolling`. Three cases:
+    - the recovery key says both
+    - another recipient's key is honest about both, and names its label
+    - enroll really does refuse that key
+
+### 2. `recovery enroll`: refusals before the paste — 5 rows
+
+- [ ] Registry: `recovery enroll`, group Recipients, one-shot only. Flags
+  `--device`, `--replaces`, `--no-new-recovery-key`, `--recovery-key-out`,
+  `-u/--use`, with the help text from `recovery_enroll.txt`.
+- [ ] `identityfile::backup` and `restore` (decision 1), with library tests:
+  - `backup_of_a_missing_file_is_none`
+  - `restore_recreates_a_pruned_identity_directory`. This is Go's review
+    bug, tested where the fix lives.
+- [ ] Steps 1–2 of the goal's order.
+- [ ] Rows:
+  - `TestRecoveryEnrollWithoutATerminalRefusesBeforeAnything`: `recovery_enroll_without_a_terminal_refuses_before_anything`. `Usage`, naming `--recovery-key-out` and `--no-new-recovery-key`. No prompt is asked.
+  - `TestRecoveryEnrollRefusesACollidingNameBeforeThePaste`: `recovery_enroll_refuses_a_colliding_name_before_the_paste`. `RecipientExists` (`Conflict`). No value prompt, no passphrase.
+  - `TestRecoveryEnrollLocalIdentityErrorIsMatchable`: `recovery_enroll_local_identity_error_is_matchable`. The error downcasts to `LocalIdentityExists`, its exit is `Usage`, and the identity's passphrase is never asked for.
+  - `TestRecoveryEnrollChecksTheKeyBeforeTheNewPassphrase`: `recovery_enroll_checks_the_key_before_the_new_passphrase`. A wrong paste is refused with no `Purpose::Create` request recorded.
+  - `TestRecoveryEnrollIsListedInHelp`: `recovery_enroll_is_listed_in_help`
+- [ ] RK3's `no_command_lets_a_device_take_the_recovery_label` gains its
+  `recovery enroll` subtest. `Usage`, with the reservation as the reason
+  given.
+
+### 3. `recovery enroll`: the swap and its rollback — 7 rows ⚑
+
+- [ ] Steps 3–5, with the identity removed and the backup restored on every
+  failure after step 4.
+- [ ] Rows:
+  - `TestRecoveryEnrollGetsAWorkingDeviceBack`: `recovery_enroll_gets_a_working_device_back`. End to end:
+    1. `init --recovery-key-out`, then `insert`
+    2. lose the identity file
+    3. `recovery enroll`
+
+    The new passphrase opens the vault. The old key is no longer a recipient, and the new one is. The newly shown key decrypts an entry.
+  - `TestRecoveryEnrollWorksOnAFreshClone`: `recovery_enroll_works_on_a_fresh_clone`. A fresh XDG root plus `clone`.
+  - `TestRecoveryEnrollRebuildsADeviceWhosePassphraseIsForgotten`: `recovery_enroll_rebuilds_a_device_whose_passphrase_is_forgotten`. `--device laptop-1 --replaces laptop-1` with the file still present. The old passphrase is never asked for.
+  - `TestRecoveryEnrollReplacesADifferentLostDevice`: `recovery_enroll_replaces_a_different_lost_device`. `--replaces` removes the old device in the same commit.
+  - `TestRecoveryEnrollRollsBackTheIdentityWhenTheSwapFails`: `recovery_enroll_rolls_back_the_identity_when_the_swap_fails`. No orphan identity, no registration change, no commit.
+  - `TestRecoveryEnrollRestoresTheIdentityItDisplacedWhenAborted`: `recovery_enroll_restores_the_identity_it_displaced_when_aborted`.
+    - The identity is kept, not deleted first. Go's review noted that every earlier rollback test deleted it first, so the restore never ran.
+    - The abort happens at the new-passphrase prompt.
+    - The original bytes are back, the passphrase still opens them, and the vault's only identity directory is recreated.
+  - `TestRecoveryEnrollNoNewRecoveryKeyLeavesNone`: `recovery_enroll_no_new_recovery_key_leaves_none`. No key output, the warning is printed, and no `recovery-paper-key` recipient remains.
+
+### 4. `recovery enroll`: delivery, registration, hygiene — 5 rows ⚑
+
+- [ ] Steps 6–8.
+- [ ] Rows:
+  - `TestRecoveryEnrollShowsTheNewKeyEvenIfRegistrationFails`: `recovery_enroll_shows_the_new_key_even_if_registration_fails`.
+    - Registration is made to fail through the global config path. For example, the config file is made unreadable or replaced by a directory. No new seam is added.
+    - The key was delivered, and the error names `gage identity add --device`.
+  - `TestRecoveryEnrollStillPublishesWhenTheConfirmationFails`: `recovery_enroll_still_publishes_when_the_confirmation_fails`. `Conflict`; the remote has the commit; the key is not reprinted.
+  - `TestRecoveryEnrollKeyOutWritesAPrivateFile`: `recovery_enroll_key_out_writes_a_private_file`
+  - `TestRecoveryEnrollKeepsNoCopyOfEitherKey`: `recovery_enroll_keeps_no_copy_of_either_key`.
+    - Neither key appears under any XDG root, in the vault tree, or in any git object.
+    - The pasted key appears in the output zero times. The new key appears exactly once.
+  - `TestNoRecoveryKeyWarningNamesARealCommand`: `no_recovery_key_warning_names_a_real_command`. Every `gage <words>` in the warning resolves in the registry.
+
+### 5. The hints — 1 row
+
+- [ ] `clone`'s `access_lines` gain the `gage recovery enroll` line: it admits this device and retires the key it used. `assert_access_lines` is updated.
+- [ ] `vault.rs`'s missing-identity message adds "or `gage recovery enroll` if you hold its recovery key". This is the message `unlock` and the session's `use` surface.
+- [ ] `identity add`'s long help no longer calls it "the recovery path for a lost identity file". It points at `recovery enroll` for a vault this device can't otherwise get back into.
+- [ ] Row:
+  - `TestCloneAndSessionPointAtRecoveryEnroll`: `clone_and_session_point_at_recovery_enroll`. Both `clone`'s message and `use`'s message name it.
+
+### 6. Help parity and docs
+
+- [ ] `p8_recovery_commands_have_their_go_fixture_flags_and_descriptions`
+  covers all three `recovery` children and the parent's complete child
+  list, against `recovery*.txt`.
+- [ ] `doc/cli/identities-and-recipients.md`: replace the "Not yet in
+  gage-rs" note with a "Storing your recovery key" section, ported from
+  Go's and covering what gage-rs ships:
+  - the custody rules
+  - "Using it" (`recovery verify`, `recovery enroll`, and the honest
+    statement that it is not an unlock method)
+  - "If it leaks" (`recovery rotate`, and that retirement is future-only,
+    so rotate the secrets too)
+  - "Skipping it" (`--no-recovery-key`, and `rotate` to add one later)
+  - the reserved label
+- [ ] `doc/cli/vaults.md`: `init`'s synopsis and the recovery-key bullets,
+  covering both flags, the terminal rule and the reserved label.
+- [ ] `doc/cli/exit-codes.md`: add the `recovery` commands' meanings where
+  that page lists per-command meanings. There are no new codes.
+- [ ] `doc/cli/README.md` index, if it lists sections.
+
+### 7. Opus review ⚑
+
+- [ ] An Opus pass over tasks 2–5's tests, recorded here as a table: what
+  it checked, and what it found.
+  - Does every refusal precede the paste, and the paste precede the
+    passphrase?
+  - Does the restore run, and succeed, when the displaced file was the
+    vault's only identity?
+  - Is the new key delivered before `record_local_identity` can fail?
+  - Does each hint name a registered command?
+  - Is every ticked box implemented? Go's R4 had a ticked hint task that
+    wasn't, so this check walks the boxes against the diff.
+
+### 8. Parity and ledger
+
+- [ ] All 26 rows ported, or struck with a reason in this doc.
+- [ ] Ledger:
+  - §1 #7, #10 and #17 `[x]`
+  - §3 `recovery-key/` `[x]`
+  - §4 `recovery`, `recovery_enroll` and `recovery_verify` `[x]`
+  - §6 P8's rows `[x]`
+- [ ] Port-plan P8 row and this index: status `[x]`.
+- [ ] `make lint` and `make test`; CI on Linux, macOS and Windows.
+
+## Definition of done
+
+Every box above is checked, and all 26 claimed rows are ported. RK1–RK3's
+and P1–P7's suites are still green. `make lint` and `make test` are clean
+locally and on all three CI platforms.
+
+A recorded walkthrough of the real binary in a scratch XDG root shows the
+whole recovery path works, as Go's R4 did:
+1. `init --recovery-key-out`, then `insert` an entry.
+2. Delete the identity file.
+3. `recovery enroll`.
+4. `show` works with the new passphrase.
+5. `recovery verify` refuses the retired key, and accepts the new one as
+   enroll-capable.
