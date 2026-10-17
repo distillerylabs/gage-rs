@@ -4,7 +4,10 @@
 
 use std::sync::Once;
 
+use jiff::Timestamp;
+
 use crate::crypt;
+use crate::vault::Vault;
 
 /// What tests wrap and unlock identities at instead of the shipped,
 /// deliberately expensive factor. Still a real scrypt pass, so every test
@@ -25,6 +28,30 @@ pub fn fast_scrypt() {
         crypt::set_scrypt_work_factor_for_tests(TEST_SCRYPT_WORK_FACTOR);
         crypt::set_enrollment_work_factor_for_tests(TEST_SCRYPT_WORK_FACTOR);
     });
+}
+
+/// Seals a request for `vault` with exactly these fields, unvalidated (a
+/// device name carrying escape sequences, an expiry already past under the
+/// seal), and files it under a filename expiring at `filed_expires`,
+/// uncommitted. Returns the request's id and its code. For frontends'
+/// tests of what a hostile or broken request does to their screens; the
+/// library's own tests seal through its fixtures.
+pub fn file_unchecked_request(
+    vault: &Vault,
+    device: &str,
+    pubkey: &str,
+    created: Timestamp,
+    expires: Timestamp,
+    filed_expires: Timestamp,
+) -> (String, String) {
+    crate::enrollment::file_unchecked_request(
+        vault,
+        device,
+        pubkey,
+        created,
+        expires,
+        filed_expires,
+    )
 }
 
 #[cfg(test)]

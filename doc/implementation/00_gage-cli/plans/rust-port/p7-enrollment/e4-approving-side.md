@@ -155,6 +155,160 @@ are settled. What is left before code:
   ([Q-PENDING-TZ](../open-questions.md#q-pending-tz)). `main` fills it
   from the system zone, and tests set two zones.
 
+### Resolutions (accepted)
+
+Grounded in a read of Go's `internal/gage/enrollapprove.go`,
+`cmd/gage/approve.go` and `cmd/gage/complete.go` at the pin, and of
+`recipient.rs`, `remotesync.rs`, `session.rs`, `enrollment/{mod,seal,enroll}.rs`
+and `gage-cli`'s `commands/{recipient,sync,enroll}.rs` here. Accepted, and
+recorded as [Q-APPROVE-SURFACE](../open-questions.md#q-approve-surface).
+
+1. **Library surface** (`crates/gage/src/enrollment/approve.rs`, a new
+   module beside `enroll.rs`):
+   - `pub struct Approval { pub request: OpenedRequest, pub label: Option<String> }`.
+     `None` records the sealed device name. The label stays off
+     `OpenedRequest`, whose fields are all authenticated.
+   - `pub struct ApprovalOutcome { pub request: OpenedRequest, pub label: String, pub added: bool }`,
+     where `label` is the name actually recorded. For a no-op, that is
+     the existing recipient's name.
+   - `pub struct ApprovalResult { pub outcomes: Vec<ApprovalOutcome>, pub reencrypted: usize, pub commit: String }`.
+     `RecipientChange` is not reused, because it names one device.
+   - `Vault::check_enrollment_labels(&self, &[Approval]) -> Result<(), EnrollmentError>`.
+     It reads `config.toml` only. A request whose pubkey is already
+     listed is skipped (it is the no-op, not a clash). Otherwise a label
+     held by another recipient is `NameTaken`.
+   - `Vault::approve_enrollments(&self, &[Approval], codes: &[Zeroizing<String>], &Identity, &dyn Prompter) -> Result<ApprovalResult, EnrollmentError>`.
+     The codes use the same type `open_enrollment` takes. The `Prompter`
+     carries the warnings, the dirty-tree reset and M10's question, as
+     `add_recipient` does: a Rust `Identity` has no `warnTo`.
+   - `Vault::deny_enrollment(&self, id: &str, &dyn Prompter) -> Result<PendingRequest, EnrollmentError>`.
+     It returns the request it deleted, so the CLI prints the resolved
+     id's short form rather than echoing the typed argument.
+   - New `EnrollmentError` variants:
+     - `NameTaken { device, pubkey, vault }` (Conflict). Its message
+       names `--device`.
+     - `EmptyBatch` (Usage).
+     - `NoLongerPending { id }` (NotFound). Go reuses its
+       no-such-request sentinel with a different message. A separate
+       variant here keeps "you mistyped the id" and "another device
+       resolved it" matchable apart, and the exit code is the same.
+     - `ApprovalDiverged { summary }` (Conflict): the report's summary
+       (which says `gage sync`), plus "nothing was approved, and the
+       request is still pending".
+     - `Recipient(#[from] RecipientError)`, keeping its own code. This
+       carries `CannotGrantFullAccess`, `RecipientExists`, M10's
+       `Trust` refusal and re-encryption failures through unchanged.
+   - No `context.Context` analogue ([Q-P7-SPLIT](../open-questions.md#q-p7-split)).
+     The fetch's deadline is `REMOTE_OP_TIMEOUT`, as `enroll`'s is.
+2. **`approve_enrollments`' order** is Go's:
+   1. `EmptyBatch`.
+   2. `gitrepo::is_clean`, then `require_full_access` before the lock on
+      a clean tree. On a dirty tree it runs just after the reset instead,
+      `add_recipient`'s rule.
+   3. `with_vault_write` (the lock, then the reset).
+   4. `pull_locked`. Any `Err` warns ("approving against the local copy")
+      and proceeds. `report.diverged` refuses with `ApprovalDiverged`.
+      Never `pull()`/`push()`/`try_pull`.
+   5. The re-verify. For each approval: find the file by its UUID
+      **without** the liveness filter (so a request that expired in the
+      window reports `Expired`, not missing), read it through
+      `read_pending_file`, then `open_sealed` with each normalized code.
+      A missing file, or a payload that doesn't open, or one that
+      differs from the displayed `OpenedRequest` in any field, is
+      `NoLongerPending`. A refusal from a code that did open (expired,
+      wrong vault, malformed) is returned as itself.
+   6. Split the batch. A pubkey already listed is
+      `ApprovalOutcome { added: false }`, and its file still joins the
+      deletions.
+   7. Write.
+      - If anything is left to add, call `add_recipient_locked` with
+        `RecipientWrite { message: "gage: recipient approve <labels> (reencrypt)", delete_paths, push_clause: Some(APPROVAL_PUSH_CLAUSE) }`.
+        That is one trust question, one pass and one commit.
+      - Otherwise take the clear-only write: delete, prune, then
+        `commit_all("gage: enrollment request cleared (already a recipient)")`,
+        then `push_after_write_saying(CLEARED_PUSH_CLAUSE)`. No
+        re-encryption, no M10 question, no trust-cache regeneration.
+
+   Delete paths are `.gage/pending/<the file found under the lock>`,
+   never rebuilt from the sealed expiry, because the filename's epoch is
+   unauthenticated (Go's `pendingVaultPath`). The three push clauses
+   (`APPROVAL_PUSH_CLAUSE`, `CLEARED_PUSH_CLAUSE`, `DENIED_PUSH_CLAUSE`)
+   are Go's sentences, as library constants.
+3. **Pruning hooks in where Go's does, not through `delete_paths`.**
+   `commit_recipient_list` calls `prune_pending_enrollments` right after
+   its own deletions and before the recipient files. That covers `add`,
+   `remove` and approval in their own commit, with the same crash
+   position as the deletions (uncommitted, restored by the next reset).
+   `deny` and the clear-only write call it directly. Its `Io` error maps
+   to `RecipientError::Io` inside the recipient write. Its
+   `expect(dead_code)` goes. `recipient verify --repair` does not prune,
+   since Go's repair doesn't go through `commitRecipientList` either.
+4. **`deny_enrollment`** is `with_vault_write`, then `resolve_enrollment`
+   (inside the lock, after the reset, so it deletes what it is about to
+   commit), then delete that file, prune, then
+   `commit_all("gage: enrollment request denied")`, then
+   `push_after_write_saying(DENIED_PUSH_CLAUSE)`. No code, no identity.
+5. **The session's late unlock needs no new session method.** The unlock
+   sits between two CLI steps, not inside a library call, so
+   `sync_resolving`'s `OnceCell` (which exists to unlock *during*
+   `sync_resolving_with`) isn't the right model. The handler does steps
+   1–4 (gather, open, check, render and confirm) against
+   `with_resolved_vault`'s `&Vault`. Every value it carries out is owned
+   (`OpenedRequest`s and codes), so that borrow ends. It then takes the
+   identity:
+   - one-shot: `vault.unlock(prompter)`, dropped with the command;
+   - session: the existing `Session::vault(name)`, which reuses a cached
+     identity with no prompt, or unlocks once and keeps it.
+
+   That is the one existing way an identity lands on `HeldVault`. A small
+   `Keys` helper (`with_late_unlock`) holds the two arms, so the handler
+   reads as one sequence.
+6. **The pre-check, the render and the confirmation**:
+   - `--device` is validated first with `devicename::valid` (`Usage`).
+   - After the open, `--device` against more than one opened request is
+     `Usage`, naming the ID form.
+   - Then `check_enrollment_labels`.
+   - Then the render, through `Io`'s zone. It shows each request's
+     device, pubkey, method, created and expires-in, plus "recorded as"
+     when `--device` relabels.
+   - Then `prompter.confirm`. "No" is `Conflict` ("nothing was approved,
+     and the request is still pending"). A `PromptError` (nobody to ask)
+     is `LockedOrAuth`, as Go wraps it and as `RecipientError::Confirm`
+     already maps.
+
+   Each `--code` is opened on its own and requests are deduplicated by
+   id, so a code that opens nothing fails the whole run and one code
+   given twice is one device (Go's `openWithCodes`).
+7. **The retry loop** lives in `gage-cli`, only on the prompted path.
+   `MAX_CODE_PROMPTS = 100` is Go's `maxCodePrompts`, a runaway guard and
+   not a policy. A blank answer is `Conflict`, "no enrollment code
+   given; nothing was approved". Only `CodeWrong` re-prompts, with a
+   `warn` between attempts. A `value` error is `LockedOrAuth`.
+   `TooManyPending` gets the CLI's advice appended (`gage recipient
+   pending`, then `approve <ID> --code <code>`), keeping its code.
+8. **Time zone**: `Io` gains `time_zone: jiff::tz::TimeZone`. `main`
+   passes `TimeZone::system()`, and the test `Io` builders pass UTC
+   unless a test sets another. It is used by `pending`, approve's render
+   and the ambiguous-request candidate list. `log`/`history` keep their
+   own `TimeZone::system()` calls: moving them is not this milestone's.
+9. **Completion (task 7): Go offers none.** Request ids are not
+   completion candidates in Go: `approve`/`deny` are absent from
+   `entryQueryCommands`, and nothing else in `complete.go` reads
+   `pending/`. Porting Go means `recipient <Tab>` gains `pending`,
+   `approve` and `deny` from the registry, which happens for free, and
+   `recipient approve/deny <Tab>` offers no entry titles. Both get a
+   test. The ledger's §6 `addressing-entries.md` obligation closes as
+   "Go completes no request ids". The doc describes ids, not their
+   completion.
+10. **Rendering** follows Go's `approve.go` lines in content (the
+    pending header and rows with an eight-character id, the "nothing here
+    can decrypt" footer, the approval summary line, deny's "Nothing was
+    granted"), not byte for byte. The approval summary reuses
+    `recipient.rs`'s `short_hash`; "expires in" reuses `enroll.rs`'s
+    `human_duration`.
+
+Recorded as [Q-APPROVE-SURFACE](../open-questions.md#q-approve-surface).
+
 ## Tasks
 
 Write each task's tests first, at task granularity. Library rows go in
@@ -163,10 +317,10 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 1. `approve_enrollments` — 14 rows
 
-- [ ] The library method over E1b's body, with the re-open under the lock,
+- [x] The library method over E1b's body, with the re-open under the lock,
       the already-a-recipient filter and the clear-only commit.
       `check_enrollment_labels`.
-- [ ] Rows (`enrollapprove_test.go`):
+- [x] Rows (`enrollapprove_test.go`):
   - `TestApprovalAddsOneRecipientAndKeepsTheFilesInSync`: `approval_adds_one_recipient_and_keeps_the_files_in_sync`. `verify` passes after.
   - `TestApprovalMakesEveryPreExistingEntryReadable`: `approval_makes_every_pre_existing_entry_readable`
   - `TestApprovalLandsInExactlyOneCommit`: `approval_lands_in_exactly_one_commit`
@@ -184,7 +338,7 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 2. Atomicity and the trust cache — 9 rows ⚑
 
-- [ ] Rows (`enrollapproveatomic_test.go`):
+- [x] Rows (`enrollapproveatomic_test.go`):
   - `TestApprovalWritesWhatItVerifiedUnderTheLockNotWhatWasDisplayed` ⚑: `approval_writes_what_it_verified_under_the_lock_not_what_was_displayed`. The seal is swapped between the open and the commit.
   - `TestInterruptedApprovalLeavesHEADUntouchedAndRequestsPending` ⚑: `interrupted_approval_leaves_head_untouched_and_requests_pending`
   - `TestTheAuthoritativeDuplicateCheckStillFiresUnderTheLock` ⚑: `the_authoritative_duplicate_check_still_fires_under_the_lock`. `RecipientExists`, not `NameTaken`.
@@ -197,21 +351,21 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 3. Approval fetches first — 8 rows ⚑
 
-- [ ] The lock, then `pull_locked` with the divergence check, then the re-open, then E1b.
-- [ ] Rows (`enrollapprovefetch_test.go`):
+- [x] The lock, then `pull_locked` with the divergence check, then the re-open, then E1b.
+- [x] Rows (`enrollapprovefetch_test.go`):
   - `TestApprovalFastForwardsBeforeItWrites`: `approval_fast_forwards_before_it_writes`
   - `TestApprovalRefusesADivergedRemoteBeforeWritingAnything`: `approval_refuses_a_diverged_remote_before_writing_anything`. The message says `gage sync`, the deliberate difference from E3.
   - `TestApprovalFindsDivergenceInTheReportRatherThanAnError` ⚑: `approval_finds_divergence_in_the_report_rather_than_an_error`
   - `TestApprovalOverAnUnreachableRemoteWarnsAndProceeds`: `approval_over_an_unreachable_remote_warns_and_proceeds`
   - `TestUncontendedApprovalNeverReportsContention` ⚑: `uncontended_approval_never_reports_contention`
-  - `TestApprovalReportsARequestResolvedByAnotherDevice`: `approval_reports_a_request_resolved_by_another_device`. `NoSuchRequest` (`NotFound`), naming the likely cause.
+  - `TestApprovalReportsARequestResolvedByAnotherDevice`: `approval_reports_a_request_resolved_by_another_device`. `NoLongerPending` (`NotFound`; its own variant per [Q-APPROVE-SURFACE](../open-questions.md#q-approve-surface)), naming the likely cause.
   - `TestApprovalWarnsWhenItsPushFails`: `approval_warns_when_its_push_fails`. Approval's clause, not the generic one.
   - `TestReapprovalAfterAFailedPushIsTheNoOp`: `reapproval_after_a_failed_push_is_the_no_op`
 
 ### 4. Deny and pruning — 8 rows
 
-- [ ] `deny_enrollment`; pruning wired into `add_recipient`/`remove_recipient` through E1b's options.
-- [ ] Rows (`enrolldeny_test.go`, `enrollprune_test.go`):
+- [x] `deny_enrollment`; pruning wired into `add_recipient`/`remove_recipient` inside `commit_recipient_list`, after its deletions (Resolution 3, Go's hook point), not through `delete_paths`.
+- [x] Rows (`enrolldeny_test.go`, `enrollprune_test.go`):
   - `TestDenyRemovesTheRequestAndGrantsNothing`: `deny_removes_the_request_and_grants_nothing`
   - `TestDenyOnAnAmbiguousIDDeletesNothing`: `deny_on_an_ambiguous_id_deletes_nothing`
   - `TestDenyOnAnUnmatchedIDDeletesNothing`: `deny_on_an_unmatched_id_deletes_nothing`
@@ -223,13 +377,14 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 5. The commands — 19 rows ⚑
 
-- [ ] `recipient pending`, `approve` and `deny`: registry entries (group
+- [x] `recipient pending`, `approve` and `deny`: registry entries (group
       Recipients, `Availability::Both`), `commands/mod.rs`, the flags
       (`--code` repeatable with `ArgAction::Append`). The CLI's ordering
       of open, check, render, confirm and unlock, and the retry loop.
-- [ ] Reword `recipient list`'s description if it doesn't already match
-      its fixture (D-ENROLL-VERBS).
-- [ ] Rows (`approve_cli_test.go`):
+- [x] Reword `recipient list`'s description if it doesn't already match
+      its fixture (D-ENROLL-VERBS). It already did ("List the keys this
+      vault is encrypted to"); nothing to change.
+- [x] Rows (`approve_cli_test.go`):
   - `TestApproveEndToEndLetsTheDeviceRead`: `approve_end_to_end_lets_the_device_read`
   - `TestApproveCostsNoUnlockOnAWrongCode` ⚑: `approve_costs_no_unlock_on_a_wrong_code`. Prompt count zero; the same holds for an expired request.
   - `TestDecliningTheApprovalCostsNoUnlock` ⚑: `declining_the_approval_costs_no_unlock`. Still pending; `Conflict`.
@@ -252,7 +407,7 @@ Write each task's tests first, at task granularity. Library rows go in
 
 ### 6. Scope, sessions and the two questions — 13 rows ⚑
 
-- [ ] Rows (`approve_scope_cli_test.go`):
+- [x] Rows (`approve_scope_cli_test.go`):
   - `TestApprovalPromptsOnceForTheApproversPassphrase`: `approval_prompts_once_for_the_approvers_passphrase`
   - `TestTheFullAccessRefusalCostsOneUnlockNotZero` ⚑: `the_full_access_refusal_costs_one_unlock_not_zero`
   - `TestApproveInASessionReusesTheCachedIdentity`: `approve_in_a_session_reuses_the_cached_identity`
@@ -269,62 +424,100 @@ Write each task's tests first, at task granularity. Library rows go in
 
 (Rows: 14 + 9 + 8 + 8 + 19 + 13 = 71.)
 
-- [ ] Beyond Go's rows: a malformed payload carrying ANSI escapes never
+- [x] Beyond Go's rows: a malformed payload carrying ANSI escapes never
       reaches the approve screen
       (`approve_never_renders_an_unvalidated_device_name`). This is Go
       E4's bullet; it has no row of its own in Go's inventory, and it is
-      the point of E2's validation.
+      the point of E2's validation. The malformed request is filed through
+      `gage::testsupport::file_unchecked_request`, a test-support-only
+      seal of unvalidated fields.
+- [x] Beyond Go's rows, found in the review (task 9): one request named
+      twice (`approve <ID> <ID-prefix>`) is one device on the prompted-code
+      path too (`approve_naming_one_request_twice_is_one_device`). Go
+      dedupes only per `--code`, so there a prompted run showed the device
+      twice and was refused as a duplicate after the confirmation and the
+      passphrase. The ID scope is now deduplicated as it is resolved.
 
 ### 7. Completion
 
-- [ ] Request ids as completion candidates for `recipient approve` and
+- [x] Request ids as completion candidates for `recipient approve` and
       `deny` (M13's obligation, ledger §6 `addressing-entries.md`). Check
-      Go's `complete.go` for what it offers, and port that.
+      Go's `complete.go` for what it offers, and port that. Go offers none
+      (Resolution 9): `subcommand_candidates_lists_the_enrollment_verbs`
+      and `request_id_positionals_complete_nothing` pin both halves.
 
 ### 8. Docs
 
 Docs describe shipped behavior, so they go last, after every P7 surface is
 green.
 
-- [ ] `doc/cli/enrollment.md`, new, checked against Go's page of the same
+- [x] `doc/cli/enrollment.md`, new, checked against Go's page of the same
       name. Add it to `doc/cli/README.md`'s index.
-- [ ] `doc/cli/identities-and-recipients.md`: replace the "Not yet in
+- [x] `doc/cli/identities-and-recipients.md`: replace the "Not yet in
       gage-rs" note with the enrollment path beside the manual one, and
       document the new commands.
-- [ ] `doc/cli/sharing.md`, `sync.md`, `git-and-auth.md`: enrollment's
+- [x] `doc/cli/sharing.md`, `sync.md`, `git-and-auth.md`: enrollment's
       exceptions (enroll fails on an unreachable remote; approval fetches
       first and warns on push failure; `pending/` is a union on merge).
-- [ ] `doc/cli/session-mode.md`: enroll against a never-unlocked vault, and
+      `sharing.md` is unchanged: Go's page carries no enrollment content.
+      `configuration.md` gained `pending/` in the vault layout and the
+      `.gitattributes` note, as Go's page has them.
+- [x] `doc/cli/session-mode.md`: enroll against a never-unlocked vault, and
       approve's late unlock in a session.
-- [ ] `doc/cli/addressing-entries.md`: request ids (exact, substring,
+- [x] `doc/cli/addressing-entries.md`: request ids (exact, substring,
       candidates, over the UUID portion) and their completion.
-- [ ] `doc/cli/exit-codes.md`: the enrollment errors' codes.
-- [ ] Each page is checked against Go's `doc/cli/` page for the same
+- [x] `doc/cli/exit-codes.md`: the enrollment errors' codes.
+- [x] Each page is checked against Go's `doc/cli/` page for the same
       surface.
 
 ### 9. Opus review
 
-- [ ] Opus review of the ⚑ rows, by mutation.
+- [x] Opus review of the ⚑ rows, by mutation. Each mutation applied to
+      the shipped code, the named tests run, the file restored.
 
 | Mutation | Killed by |
 |---|---|
-| Write from the displayed `OpenedRequest` instead of the re-open | |
-| Unlock before the confirmation | |
-| Full-access pre-flight before the unlock (impossible) or after the lock | |
-| `approve` calls `pull()` (self-locking) | |
-| Divergence check removed | |
-| The retry loop also retries `WrongVault`/`MalformedRequest` | |
-| Render before the open validates the payload | |
-| A "skip the bound" path for an ID-scoped run | |
-| The name pre-check moved after the confirmation | |
-| Approval's push clause not threaded through | |
+| Write from the displayed `OpenedRequest` instead of the re-open (no second open at all) | `approval_writes_what_it_verified_under_the_lock_not_what_was_displayed` |
+| The re-open kept, its comparison with what was shown removed | `approval_writes_what_it_verified_under_the_lock_not_what_was_displayed` |
+| Unlock before the confirmation | `declining_the_approval_costs_no_unlock`, `approve_costs_no_unlock_on_a_wrong_code`, `approve_refuses_a_taken_name_before_the_confirmation_and_before_any_unlock`, `approve_surfaces_a_wrong_vault_request_without_retrying`, `approve_never_renders_an_unvalidated_device_name` |
+| Full-access pre-flight before the unlock (impossible) or after the lock | Removed outright, which leaves the refusal to the re-encryption after M10's question: `approval_refuses_an_approver_who_cannot_read_every_entry`, `the_full_access_refusal_costs_one_unlock_not_zero` |
+| `approve` calls `pull()` (self-locking) | `uncontended_approval_never_reports_contention` |
+| Divergence check removed | `approval_refuses_a_diverged_remote_before_writing_anything`, `approval_finds_divergence_in_the_report_rather_than_an_error` |
+| The retry loop also retries `WrongVault`/`MalformedRequest` | `approve_surfaces_a_wrong_vault_request_without_retrying` |
+| Render before the open validates the payload (the device-name check dropped from the open) | `a_malformed_request_produces_nothing_to_render`, `approve_never_renders_an_unvalidated_device_name` |
+| A "skip the bound" path for an ID-scoped run | `the_bound_follows_the_scope_not_the_flag` |
+| The name pre-check moved after the confirmation | `approve_refuses_a_taken_name_before_the_confirmation_and_before_any_unlock` |
+| Approval's push clause not threaded through | `approval_warns_when_its_push_fails` |
+
+Review notes:
+
+- Writing `a.request` instead of the re-opened value *while keeping the
+  comparison* survives every test, and is meant to: the comparison makes
+  the two equal, so it is an equivalent mutant. The real mutation is "no
+  second open", above.
+- The two full-access rows first asserted "M10 never asked" against a
+  partial device whose trust cache had never been written, and an
+  unwritten cache is trusted silently, so the assertion held vacuously.
+  Both now give the partial device a baseline (its unlock) and change the
+  list again by hand, so M10's question is live when the pre-flight
+  refuses ahead of it.
+- With the pre-flight moved inside the lock but still ahead of M10 (the
+  dirty-tree position), nothing is observably different, and Go runs it
+  there on a dirty tree too. Only "after M10, or not at all" is the defect
+  the row exists for.
+- `pull()` inside the lock is caught by the timing row alone. Approval's
+  catch-up warns and proceeds on any fetch error, contention included,
+  and the push's own fetch-and-merge then repairs the stale tip. That is
+  why `uncontended_approval_never_reports_contention` exists.
 
 ### 10. Parity and ledger
 
-- [ ] Fixture parity for `recipient pending`, `approve` and `deny` (name,
+- [x] Fixture parity for `recipient pending`, `approve` and `deny` (name,
       group, usage `[ID...]`/`<ID>`, flags) and the `recipient` child
       list, in a `p7_recipient_enrollment_commands_have_their_go_fixture_flags_and_descriptions`
-      test.
+      test. The registry carries Go's `[ID...]`; clap renders it `[ID]...`
+      (layout, not behavior). `cli::usage_args` now reads a `...` inside the
+      brackets as variadic, Cobra's spelling, which no earlier usage had.
 - [ ] Parity ledger:
   - §2 `f800af6`/`187c810`/`faf49b9`, `df3c0fe`
   - §3 E4 and the init-design row

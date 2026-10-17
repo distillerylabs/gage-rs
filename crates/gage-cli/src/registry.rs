@@ -213,6 +213,27 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                "recipient pending",
+                "",
+                "List enrollment requests waiting to be approved",
+                GROUP_RECIPIENT,
+                Both,
+            ),
+            command(
+                "recipient approve",
+                "[ID...]",
+                "Admit an enrolling device and re-encrypt the vault to include it",
+                GROUP_RECIPIENT,
+                Both,
+            ),
+            command(
+                "recipient deny",
+                "<ID>",
+                "Remove an enrollment request without granting anything",
+                GROUP_RECIPIENT,
+                Both,
+            ),
+            command(
                 "recipient verify",
                 "",
                 "Check .age-recipients and config.toml still agree",

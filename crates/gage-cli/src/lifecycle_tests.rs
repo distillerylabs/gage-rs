@@ -110,6 +110,8 @@ pub(crate) struct Env {
     pub(crate) editor: std::sync::Mutex<Option<String>>,
     /// The clipboard every run copies to. Never the real one.
     pub(crate) clip: crate::clipboard::fake::Harness,
+    /// The zone local times render in; UTC unless a test sets another.
+    pub(crate) time_zone: std::sync::Mutex<jiff::tz::TimeZone>,
 }
 
 impl Env {
@@ -127,6 +129,7 @@ impl Env {
             hostname: HOSTNAME.into(),
             editor: Default::default(),
             clip: Default::default(),
+            time_zone: std::sync::Mutex::new(jiff::tz::TimeZone::UTC),
         }
     }
 
@@ -182,6 +185,7 @@ impl Env {
             now: &std::time::Instant::now,
             clipboard: &self.clip.keeper(),
             clipboard_wait: &|d| self.clip.wait(d),
+            time_zone: self.time_zone.lock().unwrap().clone(),
         };
         let code = crate::run(&args, &mut io, &prompter);
         CliResult {

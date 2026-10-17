@@ -119,6 +119,7 @@ impl Env {
                 now,
                 clipboard: &self.clip.keeper(),
                 clipboard_wait: &|d| self.clip.wait(d),
+                time_zone: self.time_zone.lock().unwrap().clone(),
             };
             crate::run(&[], &mut io, &prompter)
         };
@@ -238,6 +239,7 @@ fn with_io<T>(env: &Env, stdin: &str, f: impl FnOnce(&mut Io) -> T) -> (T, Strin
         now: &Instant::now,
         clipboard: &crate::clipboard::fake::unused(),
         clipboard_wait: &|_| {},
+        time_zone: jiff::tz::TimeZone::UTC,
     });
     let text = out.text();
     (got, text)

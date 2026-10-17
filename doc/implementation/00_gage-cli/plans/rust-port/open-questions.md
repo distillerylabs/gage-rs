@@ -1380,6 +1380,30 @@ naming `gage auth login`; the identity and the local commit are kept on
 any push failure. `pull()`, `push()` and `try_pull` are never used: they
 take the lock, which is not re-entrant.
 
+### `[x]` Q-APPROVE-SURFACE — How does approval reach the library, the session and completion? {#q-approve-surface}
+
+**Resolved: Go's shape, with four local choices.** Settled at the start
+of P7 · E4 ([plan](p7-enrollment/e4-approving-side.md#resolutions-accepted)).
+
+- **A request resolved elsewhere is its own variant.** A request that was
+  pending at the open and is gone, or changed, under the lock is
+  `EnrollmentError::NoLongerPending` (`NotFound`), not `NoSuchRequest`.
+  Go reuses one sentinel with a second message; a separate variant keeps
+  "mistyped id" and "another device resolved it" matchable apart at the
+  same exit code.
+- **Pruning hooks in where Go's does.** `commit_recipient_list` prunes
+  right after its own deletions and before the recipient files, so `add`,
+  `remove` and approval prune in their own commit. `deny` and the
+  clear-only write prune directly. Not through `delete_paths`.
+- **The late unlock uses the existing session path.** The unlock falls
+  between two `gage-cli` steps, not inside a library call, so one-shot
+  mode calls `Vault::unlock` and a session calls `Session::vault`, which
+  reuses a cached identity or unlocks once and keeps it. No new `Session`
+  method, and no second way to put an identity on a held vault.
+- **No request-id completion.** Go's `complete.go` offers none, and
+  `approve`/`deny` are not entry-query commands. The new subcommand names
+  complete from the registry, and their positionals complete nothing.
+
 ---
 
 ---

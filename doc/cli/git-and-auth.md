@@ -42,11 +42,20 @@ gage clone <url> [--name NAME] [--dir DIR] [--device NAME]
   `$GAGE_DATA/vaults/<name>`, and `--device` to this machine's normalized
   hostname. Cloning gets you the vault's files and history; it does not
   grant access to their contents. If this device can't decrypt anything
-  yet, clone says so and points at the commands that change that. A clone
-  that fails leaves nothing half-made behind.
+  yet, clone says so. On a terminal it offers to
+  [enroll](enrollment.md) this device straight away (`[Y/n]`); otherwise
+  it points at the commands that get you access. A clone that fails leaves
+  nothing half-made behind.
 
 Network work gives up after 30 seconds (one window for a whole sync's
 fetch and push) rather than hanging a terminal on a dead host.
+
+Enrolling a device needs **write** access to the remote: `gage identity
+enroll` commits and pushes its request. A token that can read but not
+write is only found out at the push, and the error names
+`gage auth login`. A device without write access joins by the manual path
+instead (`gage identity add` there, `gage recipient add` here). See
+[Adding a device](enrollment.md#enrollment-needs-the-network-and-fails-if-it-cant-reach-it).
 
 ## HTTPS with a token: the supported path
 

@@ -81,6 +81,8 @@ Matching is by prefix, so `enti` never completes `identity`. `init` and
 Entry titles come from the *current* vault, only while it is unlocked.
 Completion never asks for a passphrase and never offers another vault's
 titles, even after `--use`. A title containing spaces is filled in quoted.
+Enrollment request ids (`recipient approve <ID>`, `recipient deny <ID>`)
+are not completed: take them from `recipient pending`.
 
 ```
 personal🔓 gage> show <Tab>
@@ -159,6 +161,21 @@ Four things differ:
 - **`init` is one-shot only.** It creates a vault rather than operating on
   one, which leaves "should the new vault become current?" unanswered, so
   in a session it says so instead of running.
+
+A few commands don't need the vault unlocked: `identity enroll`,
+`recipient pending`, `recipient approve` (until its last step),
+`recipient deny`, `recipient list` and `recipient verify`. They work with
+`--use NAME` against a vault this session has never `use`d and never
+unlocks. That is the point for a device that is
+[enrolling](enrollment.md): it can't unlock the vault yet. `use` on such a
+vault still fails, and the message names `gage identity enroll` as the way
+in.
+
+`recipient approve` asks for a key only after you've confirmed the
+approval. If the session already holds the vault's key, no passphrase is
+asked at all. If it doesn't, the vault is unlocked once, after the "yes",
+and stays unlocked like any other. A wrong code, a "no" or any refusal
+before that point leaves the vault as locked as it was.
 
 ### The metadata index
 
@@ -337,6 +354,33 @@ a human can answer (`--script FILE` on a terminal), and where nobody can
 it fails `1` (`conflict`) and writes nothing. A `--yes` on a script line is
 accepted and adds nothing beside the run's own. It is still refused in an
 interactive session, where a human is sitting at the prompt.
+
+### What enrollment does in a script
+
+`gage identity enroll` has two paths, and they behave differently here,
+both correctly:
+
+- **Creating a key refuses.** A new identity's passphrase can't come from
+  `GAGE_PASSPHRASE`, for the reason above. Under `--script FILE` at a
+  terminal the prompt goes to the human and enroll proceeds normally.
+  Under `--stdin`, or with no terminal, it fails with `locked-or-auth`
+  (`5`) before any key is generated.
+- **Reusing an existing key succeeds.** That's an ordinary unlock, so
+  `GAGE_PASSPHRASE` answers it, and a fully scripted enroll works end to
+  end. A re-run after a failed push takes this path, and it's the reason
+  enroll is scriptable at all.
+
+A refusal costs nothing that matters: no identity is written, and nothing
+is sealed, committed or pushed. The fast-forward enroll does first stays,
+which only means the vault is more up to date than it was.
+
+`gage recipient approve` is **not** scriptable, by design. Its confirmation
+decides whether a device gets into the vault, and a run nobody is watching
+must not make that decision by default. With nobody to ask, it fails with
+`locked-or-auth` (`5`) and the request stays pending. `--yes` doesn't
+answer it: that flag answers the recipient-change confirmation and nothing
+else. `recipient pending` and `recipient deny` need no unlock and no
+confirmation, so both work in a script.
 
 ## `[shell]` settings
 

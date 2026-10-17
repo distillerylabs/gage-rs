@@ -313,6 +313,44 @@ fn subcommand_candidates_lists_identity_children() {
     );
 }
 
+// P7 · E4: the three enrollment verbs reach `recipient <Tab>` from the
+// registry, with no list of their own to keep in step.
+#[test]
+fn subcommand_candidates_lists_the_enrollment_verbs() {
+    let reg = registry();
+    let root = root(&reg);
+    let recipient = root.find_subcommand("recipient").unwrap();
+    assert_eq!(
+        sorted(subcommand_candidates(&reg, recipient)),
+        [
+            "add", "approve", "deny", "list", "pending", "remove", "verify"
+        ]
+    );
+}
+
+// P7 · E4, M13's obligation: Go completes no request ids (`approve` and
+// `deny` are not entry-query commands, and nothing in its completer reads
+// `pending/`), so their positionals offer nothing, and above all not the
+// unlocked vault's titles, which name entries rather than requests
+// (Q-APPROVE-SURFACE).
+#[test]
+fn request_id_positionals_complete_nothing() {
+    let env = Env::new();
+    let p = one_passphrase();
+    let mut s = unlocked_personal(&env, &p);
+    let reg = registry();
+    for line in [
+        "recipient approve ",
+        "recipient deny ",
+        "recipient approve A",
+    ] {
+        assert!(
+            complete_at(&reg, &env, Some(&mut s), line).is_empty(),
+            "{line:?}"
+        );
+    }
+}
+
 // The same function on the `vault` parent M13 used before `identity`
 // existed.
 #[test]
@@ -631,6 +669,7 @@ fn run_line(env: &Env, s: &mut Session, line: &str) -> (Result<bool, CliError>, 
             now: &std::time::Instant::now,
             clipboard: &crate::clipboard::fake::unused(),
             clipboard_wait: &|_| {},
+            time_zone: jiff::tz::TimeZone::UTC,
         };
         exec_line(&registry(), s, &mut io, line)
     };

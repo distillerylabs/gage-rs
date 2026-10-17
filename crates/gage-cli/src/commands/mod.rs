@@ -16,6 +16,7 @@ use gage::xdgpaths::Dirs;
 use crate::Io;
 use crate::error::CliError;
 
+mod approve;
 mod auth;
 mod catfmt;
 mod clone;
@@ -63,6 +64,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
         "recipient add" | "recipient remove" | "recipient list" | "recipient verify" => {
             recipient::flags(name)
         }
+        "recipient pending" | "recipient approve" | "recipient deny" => approve::flags(name),
         _ => Vec::new(),
     }
 }
@@ -84,6 +86,9 @@ pub fn long_about(name: &str) -> Option<&'static str> {
         "recipient add" => Some(recipient::ADD_LONG_ABOUT),
         "recipient remove" => Some(recipient::REMOVE_LONG_ABOUT),
         "recipient verify" => Some(recipient::VERIFY_LONG_ABOUT),
+        "recipient pending" => Some(approve::PENDING_LONG_ABOUT),
+        "recipient approve" => Some(approve::APPROVE_LONG_ABOUT),
+        "recipient deny" => Some(approve::DENY_LONG_ABOUT),
         _ => None,
     }
 }
@@ -156,6 +161,9 @@ pub fn run(
         "recipient remove" => recipient::remove(matches, io, keys),
         "recipient list" => recipient::list(matches, io, keys),
         "recipient verify" => recipient::verify(matches, io, keys),
+        "recipient pending" => approve::pending(matches, io, keys),
+        "recipient approve" => approve::approve(matches, io, keys),
+        "recipient deny" => approve::deny(matches, io, keys),
         _ => return None,
     })
 }

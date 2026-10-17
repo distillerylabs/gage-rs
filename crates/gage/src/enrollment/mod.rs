@@ -1,7 +1,7 @@
 //! Device enrollment, library side: the code, the seal, the filename
 //! scheme, listing, opening, resolution and pruning (P7 · E2), and the
-//! joining device's `enroll` (E3). E4 approves through the same
-//! primitives.
+//! joining device's `enroll` (E3), and the approving device's `approve`
+//! and `deny` (E4), through the same primitives.
 //!
 //! Listing, resolution and pruning are built from filenames alone (no git
 //! history, no unlock, no code), which is what D-ENROLL-EXPIRY-IN-NAME
@@ -10,6 +10,7 @@
 //! revocation, and pruning" and "The load-bearing invariant: `pending/` is
 //! inert".
 
+mod approve;
 mod code;
 mod enroll;
 mod name;
@@ -23,8 +24,11 @@ use jiff::Timestamp;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+pub use approve::{Approval, ApprovalOutcome, ApprovalResult};
+
 use crate::entry::LockError;
 use crate::exitcode::{Code, HasCode};
+use crate::recipient::RecipientError;
 use crate::remotesync::SyncError;
 use crate::syncerr::Kind;
 use crate::vault::Vault;
@@ -225,6 +229,39 @@ pub enum EnrollmentError {
     /// forward.
     #[error("{}", push_message(.0))]
     Push(SyncError),
+    /// A request's sealed device name now labels a different recipient.
+    /// Recoverable by the approver alone, since the code authenticated the
+    /// key and not the label. Deliberately not `RecipientExists`, which is
+    /// the race under the lock and `recipient add`'s vocabulary; this is
+    /// the ordinary case, found before anything is asked, and it names the
+    /// flag that fixes it.
+    #[error(
+        "gage: another recipient of this vault already uses this request's device name: {device:?} already labels the key {pubkey} in vault {vault:?}; approve with --device NAME to record this request under a different name"
+    )]
+    NameTaken {
+        device: String,
+        pubkey: String,
+        vault: String,
+    },
+    #[error("gage: no enrollment requests to approve")]
+    EmptyBatch,
+    /// A request that was pending when it was opened and is not now, or no
+    /// longer opens to what was shown. Its own variant rather than
+    /// `NoSuchRequest`, which means the id was mistyped: here it most
+    /// likely means another device resolved it.
+    #[error(
+        "gage: no pending enrollment request with id {id:?}: it was still pending when it was opened and is not now — another device most likely approved or denied it in the meantime. Nothing was changed here: if it was approved elsewhere the device already has access, and if it was denied it should not be given any"
+    )]
+    NoLongerPending { id: String },
+    /// Approval's fetch found the vault diverged from its remote. Unlike
+    /// enroll's `Diverged`, the advice is the ordinary `gage sync`: an
+    /// approver can decrypt, so that is exactly what resolves it.
+    #[error("gage: {summary} — nothing was approved, and the request is still pending")]
+    ApprovalDiverged { summary: String },
+    /// The recipient write's own refusals and failures, unchanged:
+    /// `CannotGrantFullAccess`, `RecipientExists`, M10's trust question.
+    #[error(transparent)]
+    Recipient(#[from] RecipientError),
     #[error(transparent)]
     Identity(#[from] identityfile::UnlockError),
     #[error(transparent)]
@@ -274,7 +311,13 @@ impl HasCode for EnrollmentError {
             | VaultConfig(_)
             | Write(_) => Code::Internal,
             NoRemote { .. } => Code::Usage,
-            Diverged { .. } | DeviceNameTaken { .. } => Code::Conflict,
+            Diverged { .. }
+            | DeviceNameTaken { .. }
+            | NameTaken { .. }
+            | ApprovalDiverged { .. } => Code::Conflict,
+            EmptyBatch => Code::Usage,
+            NoLongerPending { .. } => Code::NotFound,
+            Recipient(e) => e.code(),
             RemoteUnreachable(e) | Sync(e) | Push(e) => e.code(),
             Identity(e) => e.code(),
             Lock(e) => e.code(),
@@ -461,8 +504,9 @@ impl Vault {
     /// Deletes the requests gage will never honour again (expired by
     /// filename, or claiming an expiry beyond the ceiling) and returns the
     /// names removed. The filename's epoch and nothing else: no history, no
-    /// unlock, no code. E4 runs it inside the recipient writes, under their
-    /// lock, rather than taking the lock for housekeeping alone.
+    /// unlock, no code. It rides the recipient writes, approve and deny,
+    /// under their lock and in their commit, rather than taking the lock
+    /// for housekeeping alone.
     ///
     /// A name that doesn't parse is left strictly alone, as is an oversized
     /// file with a parseable live name: neither is something gage wrote,
@@ -470,10 +514,6 @@ impl Vault {
     /// direction. A filename lying the other way (claiming expiry on a live
     /// seal) prunes a live request: a denial of service, but not a new one,
     /// since anyone who can rename the file can delete it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "E4 wires pruning into the recipient writes")
-    )]
     pub(crate) fn prune_pending_enrollments(&self) -> Result<Vec<String>, EnrollmentError> {
         let now = Timestamp::now();
         let mut removed = Vec::new();
@@ -510,6 +550,43 @@ impl Vault {
     }
 }
 
+/// Seals and files a request whose fields are exactly as given and never
+/// validated (what a git writer or a code-holder can produce), under a
+/// fresh id and code, filed as expiring at `filed_expires`. Returns the id
+/// and the code. Test support only: no shipped path writes a request it
+/// hasn't validated.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn file_unchecked_request(
+    vault: &Vault,
+    device: &str,
+    pubkey: &str,
+    created: Timestamp,
+    expires: Timestamp,
+    filed_expires: Timestamp,
+) -> (String, String) {
+    let id = Uuid::new_v4().to_string();
+    let typed = code::generate_code().expect("generating a code");
+    let normalized = code::normalize_code(&typed).expect("generated codes normalize");
+    let payload = seal::Payload {
+        request_id: id.clone(),
+        vault_id: vault.id.clone(),
+        device: device.to_string(),
+        pubkey: pubkey.to_string(),
+        method: crate::vault::METHOD_PASSPHRASE.to_string(),
+        created: created.to_string(),
+        expires: expires.to_string(),
+    };
+    let sealed = seal::seal_payload(&payload, &normalized).expect("sealing");
+    let dir = vault.pending_dir();
+    std::fs::create_dir_all(&dir).expect("creating pending/");
+    std::fs::write(
+        dir.join(name::pending_file_name(&id, filed_expires)),
+        sealed,
+    )
+    .expect("filing the request");
+    (id, typed.to_string())
+}
+
 /// One sealed request's bytes, or `None` for a file that can't be read or
 /// is larger than gage writes, checked before it is held in memory.
 ///
@@ -535,7 +612,15 @@ fn read_pending_file(path: &Path) -> Option<Vec<u8>> {
 }
 
 #[cfg(test)]
+mod approve_atomic_tests;
+#[cfg(test)]
+mod approve_fetch_tests;
+#[cfg(test)]
+mod approve_tests;
+#[cfg(test)]
 mod code_tests;
+#[cfg(test)]
+mod deny_tests;
 #[cfg(test)]
 mod enroll_tests;
 #[cfg(test)]

@@ -13,6 +13,7 @@
 
 use uuid::Uuid;
 
+use crate::enrollment::EnrollmentError;
 use crate::entry::{self, LockError, WRITE_LOCK_TIMEOUT};
 use crate::exitcode::{Code, HasCode};
 use crate::identity::Identity;
@@ -278,9 +279,8 @@ impl From<LockError> for RecipientError {
 impl Vault {
     /// A19's pre-flight: can `identity` read every entry in this vault?
     ///
-    /// Public and standalone because two commands place it differently:
-    /// `recipient add` runs it before the lock, E4's approval later in its
-    /// own sequence. Either way the refusal never arrives mid-write on an
+    /// Public and standalone so approval can run it after its late unlock
+    /// and before its own lock, as `recipient add` runs it before its. Either way the refusal never arrives mid-write on an
     /// opaque entry id.
     ///
     /// It counts only entries `identity` is not a recipient of. One that
@@ -578,6 +578,16 @@ impl Vault {
             gitrepo::remove_if_present(full, rel)?;
             self.reencrypt_hook.after_delete(done + 1);
         }
+        // Expired enrollment requests ride this commit, at the deletions'
+        // crash position: "pruning rides the next recipient change", with
+        // no lock taken for housekeeping alone.
+        self.prune_pending_enrollments().map_err(|e| match e {
+            EnrollmentError::Io { path, source } => RecipientError::Io { path, source },
+            other => RecipientError::Io {
+                path: self.pending_dir(),
+                source: std::io::Error::other(other.to_string()),
+            },
+        })?;
         self.write_recipient_files(updated)?;
         let commit = gitrepo::commit_all(&self.path, write.message)?;
         // A failed push is a publishing problem, not a half-done migration:

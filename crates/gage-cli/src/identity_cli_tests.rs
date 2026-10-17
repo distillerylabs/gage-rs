@@ -475,9 +475,9 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
             .contains("--reencrypt")
     );
 
-    // The parents list only the children that exist: the enrollment
-    // children of `recipient` are a later milestone's. `recipient add`
-    // takes no --reencrypt (A19); `remove` requires it.
+    // The parents list their children; `recipient`'s enrollment children
+    // are checked with their commands, in E4's parity test. `recipient
+    // add` takes no --reencrypt (A19); `remove` requires it.
     let identity = env.ok(&["identity"]).stdout;
     assert!(identity.starts_with("Manage this device's identities for a vault"));
     for (child, short) in [
@@ -544,7 +544,7 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
 
 /// A parent's help lists `child` with its description on the same line.
 /// Column widths are clap's own, not Cobra's (Q-HELP-RENDER).
-fn assert_child(help: &str, child: &str, short: &str) {
+pub(crate) fn assert_child(help: &str, child: &str, short: &str) {
     assert!(
         help.lines().any(|l| {
             let mut words = l.split_whitespace();

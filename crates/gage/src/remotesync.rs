@@ -654,7 +654,7 @@ impl Vault {
 /// A sync failure as a clause that reads mid-sentence: being offline as the
 /// expected, unalarming thing it is, and anything else as its own message
 /// without the "gage: " the surrounding warning already opens with.
-fn offline_or_error(err: &SyncError) -> String {
+pub(crate) fn offline_or_error(err: &SyncError) -> String {
     if err.remote_kind() == Some(Kind::Unreachable) {
         return "could not reach origin".to_string();
     }

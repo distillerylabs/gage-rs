@@ -69,6 +69,7 @@ fn main() {
         now: &std::time::Instant::now,
         clipboard: &keeper,
         clipboard_wait: &clipboard::wait_for_clipboard,
+        time_zone: jiff::tz::TimeZone::system(),
     };
     let code = gage_cli::run(&args, &mut io, &prompter);
     std::process::exit(code.as_i32());

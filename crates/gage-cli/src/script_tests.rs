@@ -96,6 +96,7 @@ impl Env {
                 now: &std::time::Instant::now,
                 clipboard: &self.clip.keeper(),
                 clipboard_wait: &|d| self.clip.wait(d),
+                time_zone: self.time_zone.lock().unwrap().clone(),
             };
             crate::run(&args, &mut io, prompter)
         };
