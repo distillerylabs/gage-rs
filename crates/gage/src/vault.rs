@@ -620,10 +620,7 @@ impl Vault {
         // than a counter that could drift.
         let (identity, lock_err) = Identity::new(&device, key, self.locker.get());
         if let Some(e) = lock_err {
-            prompter.warn(&format!(
-                "gage: could not lock {device}'s key material into memory ({e}); continuing without it, \
-                 so this key may be written to swap. Raise the locked-memory limit (ulimit -l) to remove this warning."
-            ));
+            warn_page_lock_failed(prompter, &device, &e);
         }
         // M10's opportunistic check, and the first-use bootstrap with it.
         // Here because this is the hook both modes share (a one-shot
@@ -820,6 +817,17 @@ pub fn name_from_url(url: &str) -> Result<String, NameError> {
 
 /// Go's `path.Base`: the last slash-separated element, "." for an empty
 /// path and "/" for one that is all slashes.
+/// The one warning a failed page lock gets, from `unlock` and from the
+/// recovery identity alike: the key works, but may reach swap. A
+/// container that won't allow `mlock` must not make gage unusable
+/// ("Session model").
+pub(crate) fn warn_page_lock_failed(prompter: &dyn Prompter, device: &str, e: &std::io::Error) {
+    prompter.warn(&format!(
+        "gage: could not lock {device}'s key material into memory ({e}); continuing without it, \
+         so this key may be written to swap. Raise the locked-memory limit (ulimit -l) to remove this warning."
+    ));
+}
+
 fn last_segment(path: &str) -> &str {
     if path.is_empty() {
         return ".";

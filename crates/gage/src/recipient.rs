@@ -563,7 +563,7 @@ impl Vault {
     /// entries/ (which the next write's reset discards) for as long as
     /// possible, instead of a recipient file naming a key no entry is
     /// encrypted to. Runs with the write lock held.
-    fn commit_recipient_list(
+    pub(crate) fn commit_recipient_list(
         &self,
         updated: &[Recipient],
         write: &RecipientWrite<'_>,

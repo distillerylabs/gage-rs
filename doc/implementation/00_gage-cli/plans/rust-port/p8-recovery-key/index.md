@@ -168,6 +168,7 @@ Planning found these points about this tree that Go's documents don't make:
 | [Q-RECOVERY-NOCLOBBER](../open-questions.md#q-recovery-noclobber) | `atomicfile::write_new`: temp file plus `persist_noclobber`, 0600. It refuses an existing destination atomically. Go's up-front checks stay. |
 | [Q-RECOVERY-SECRET-MEMORY](../open-questions.md#q-recovery-secret-memory) | `Zeroizing<String>` in the CLI, and a `LockedBuf` once parsed in the library. `recover_device` takes the secret by value. The display copy is not page-locked: a recorded gap. |
 | [Q-RECOVERY-DATA-DIR](../open-questions.md#q-recovery-data-dir) | The guard refuses the vault being created, any ancestor holding `.gage/config.toml`, and anything under `Dirs.data`. Paths are absolutized and symlinks resolved as far as they exist. |
+| [Q-RECOVERY-ERRORS](../open-questions.md#q-recovery-errors) | RK2: the retired key offered back, and rotate evicting the acting device, are `RetiredKeyReused` and `WouldEvictActingDevice` (`Conflict`), not `RecipientExists`. |
 
 ## Milestones
 
@@ -176,7 +177,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 | # | Milestone | Model | Depends on | Inventory rows | Status |
 |---|---|---|---|---|---|
 | RK1 | [The recovery key, library](rk1-recovery-key-library.md) ([#75](https://github.com/distillerylabs/gage-rs/issues/75)) | Sonnet\* ⚑ | P7 | 11 | `[x]` |
-| RK2 | [The recovery identity and the swap, library](rk2-recovery-swap-library.md) ([#76](https://github.com/distillerylabs/gage-rs/issues/76)) | **Opus** ⚑ | RK1 | 25 | `[ ]` |
+| RK2 | [The recovery identity and the swap, library](rk2-recovery-swap-library.md) ([#76](https://github.com/distillerylabs/gage-rs/issues/76)) | **Opus** ⚑ | RK1 | 25 | `[~]` |
 | RK3 | [`init` gains the key; `recovery rotate`](rk3-init-and-rotate.md) ([#77](https://github.com/distillerylabs/gage-rs/issues/77)) | **Opus** ⚑ | RK2 | 30 | `[ ]` |
 | RK4 | [`recovery enroll`, `recovery verify`, hints, docs](rk4-enroll-verify-and-docs.md) ([#78](https://github.com/distillerylabs/gage-rs/issues/78)) | **Opus** ⚑ | RK3 | 26 | `[ ]` |
 
