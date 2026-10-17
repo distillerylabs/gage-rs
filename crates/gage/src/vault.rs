@@ -20,7 +20,9 @@ use crate::identityfile;
 use crate::locker::{Locker, MemLocker};
 use crate::paths;
 use crate::prompter::Prompter;
+use crate::recipient::exists;
 use crate::recipients;
+use crate::recovery::{ReservedLabel, check_device_label_free};
 use crate::remotesync::{PullObserver, SyncerSeam};
 use crate::vaultconfig;
 use crate::xdgpaths::Dirs;
@@ -273,6 +275,14 @@ impl std::fmt::Debug for LockerSeam {
     }
 }
 
+/// A public key that is registered under a label chosen by the caller
+/// rather than a positional `recipient-<n>`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabelledRecipient {
+    pub device: String,
+    pub pubkey: String,
+}
+
 /// Everything [`Vault::create`] needs: no identity and no crypto, only a
 /// name, an id, a place, and the recipients' public keys as strings.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -303,6 +313,12 @@ pub struct CreateSpec {
     /// bare key from the command line carries no real device name. Repeats
     /// are written as given, as Go does.
     pub recipients: Vec<String>,
+    /// Recipients that arrive with a label of their own (the recovery key
+    /// is the one caller today): written right after the device's key and
+    /// before the generic `recipients`, in both recipient files, in the one
+    /// initial commit. Collisions that involve one are refused; collisions
+    /// among `recipients` alone stay legal (see [`Vault::create`]).
+    pub extra_recipients: Vec<LabelledRecipient>,
     /// An optional `origin` URL; `None` starts the vault local-only.
     pub remote: Option<String>,
 }
@@ -324,6 +340,16 @@ pub enum CreateError {
     NoRecipients,
     #[error(transparent)]
     InvalidRecipient(#[from] agekey::Error),
+    /// A labelled extra collides with another recipient: the key, or the
+    /// label, is already taken. Mirrors `RecipientError::RecipientExists`.
+    #[error("this vault already lists that recipient: {}", exists(.device, .pubkey))]
+    RecipientExists {
+        device: String,
+        /// The key, when the key is what collided; `None` for a label.
+        pubkey: Option<String>,
+    },
+    #[error(transparent)]
+    ReservedDeviceLabel(#[from] ReservedLabel),
     #[error("target path is required")]
     EmptyPath,
     #[error("{} already exists and is not a directory", .0.display())]
@@ -357,9 +383,16 @@ impl HasCode for CreateError {
     fn code(&self) -> Code {
         use CreateError::*;
         match self {
-            EmptyName | InvalidId(_) | UnknownType(_) | UnknownMethod(_) | InvalidDeviceName(_)
-            | NoRecipients | InvalidRecipient(_) | EmptyPath => Code::Usage,
-            TargetNotADirectory(_) | TargetNotEmpty(_) => Code::Conflict,
+            EmptyName
+            | InvalidId(_)
+            | UnknownType(_)
+            | UnknownMethod(_)
+            | InvalidDeviceName(_)
+            | NoRecipients
+            | InvalidRecipient(_)
+            | EmptyPath
+            | ReservedDeviceLabel(_) => Code::Usage,
+            TargetNotADirectory(_) | TargetNotEmpty(_) | RecipientExists { .. } => Code::Conflict,
             Inspect { .. }
             | CreateDir { .. }
             | Config(_)
@@ -853,14 +886,81 @@ fn validate_fields(spec: &CreateSpec, require_recipients: bool) -> Result<(), Cr
     if !devicename::valid(&spec.device) {
         return Err(CreateError::InvalidDeviceName(spec.device.clone()));
     }
+    // Unconditionally, even with no recovery key: `rotate` can add one
+    // later, and the label has to be free by then.
+    check_device_label_free(&spec.device)?;
     if require_recipients && spec.recipients.is_empty() {
         return Err(CreateError::NoRecipients);
     }
     for key in &spec.recipients {
         agekey::validate_recipient(key)?;
     }
+    validate_extras(spec, require_recipients)?;
     if spec.path.as_os_str().is_empty() {
         return Err(CreateError::EmptyPath);
+    }
+    Ok(())
+}
+
+/// Checks the labelled extras: well-formed, and not colliding with each
+/// other, the device, or the generic recipients.
+///
+/// Scoped to the extras on purpose: with none, a repeated `--recipient`
+/// stays legal, as in Go, and with some, only collisions that *involve* an
+/// extra are refused. Checked against all of `recipients`.
+///
+/// `has_device_key` is whether `recipients[0]` is the device's key, which
+/// is true inside `create` and false in `init`'s earlier check, where the
+/// list is the `--recipient` flags only. It decides which labels the
+/// generic keys are about to get, and so lets the key-equals-device check
+/// happen in `create` for free while every label collision is still found
+/// before the passphrase prompt.
+fn validate_extras(spec: &CreateSpec, has_device_key: bool) -> Result<(), CreateError> {
+    // The label `write_skeleton` gives `recipients[i]`.
+    let label_of = |i: usize| {
+        if has_device_key && i == 0 {
+            spec.device.clone()
+        } else if has_device_key {
+            format!("recipient-{}", i + 1)
+        } else {
+            // The device's key will be prepended.
+            format!("recipient-{}", i + 2)
+        }
+    };
+    for (i, extra) in spec.extra_recipients.iter().enumerate() {
+        if !devicename::valid(&extra.device) {
+            return Err(CreateError::InvalidDeviceName(extra.device.clone()));
+        }
+        agekey::validate_recipient(&extra.pubkey)?;
+
+        let holder = spec
+            .recipients
+            .iter()
+            .position(|k| *k == extra.pubkey)
+            .map(label_of)
+            .or_else(|| {
+                spec.extra_recipients[..i]
+                    .iter()
+                    .find(|e| e.pubkey == extra.pubkey)
+                    .map(|e| e.device.clone())
+            });
+        if let Some(device) = holder {
+            return Err(CreateError::RecipientExists {
+                device,
+                pubkey: Some(extra.pubkey.clone()),
+            });
+        }
+        let label_taken = extra.device == spec.device
+            || (0..spec.recipients.len()).any(|j| label_of(j) == extra.device)
+            || spec.extra_recipients[..i]
+                .iter()
+                .any(|e| e.device == extra.device);
+        if label_taken {
+            return Err(CreateError::RecipientExists {
+                device: extra.device.clone(),
+                pubkey: None,
+            });
+        }
     }
     Ok(())
 }
@@ -897,19 +997,30 @@ fn write_skeleton(spec: &CreateSpec) -> Result<(), CreateError> {
     make_dir(&spec.path.join("entries"), 0o700)?;
     make_dir(&spec.path.join(".gage"), 0o750)?;
 
-    let recipients: Vec<vaultconfig::Recipient> = spec
-        .recipients
+    // The device's key, then the labelled extras, then the generic keys.
+    // `recipient-<n>` still counts from the position in `recipients`, so an
+    // extra doesn't shift the numbering.
+    let labelled = |device: String, pubkey: &String| vaultconfig::Recipient {
+        device,
+        pubkey: pubkey.clone(),
+    };
+    let (device_key, generic) = spec.recipients.split_at(spec.recipients.len().min(1));
+    let mut recipients: Vec<vaultconfig::Recipient> = device_key
         .iter()
-        .enumerate()
-        .map(|(i, key)| vaultconfig::Recipient {
-            device: if i == 0 {
-                spec.device.clone()
-            } else {
-                format!("recipient-{}", i + 1)
-            },
-            pubkey: key.clone(),
-        })
+        .map(|key| labelled(spec.device.clone(), key))
         .collect();
+    recipients.extend(
+        spec.extra_recipients
+            .iter()
+            .map(|e| labelled(e.device.clone(), &e.pubkey)),
+    );
+    recipients.extend(
+        generic
+            .iter()
+            .enumerate()
+            .map(|(i, key)| labelled(format!("recipient-{}", i + 2), key)),
+    );
+    let pubkeys: Vec<String> = recipients.iter().map(|r| r.pubkey.clone()).collect();
     let file = vaultconfig::File {
         vault: vaultconfig::VaultMeta {
             name: spec.name.clone(),
@@ -925,7 +1036,7 @@ fn write_skeleton(spec: &CreateSpec) -> Result<(), CreateError> {
         recipients,
     };
     vaultconfig::write(&config_path(&spec.path), &file)?;
-    recipients::write(&spec.path.join(".age-recipients"), &spec.recipients)?;
+    recipients::write(&spec.path.join(".age-recipients"), &pubkeys)?;
     for (name, content) in [(".gitignore", GITIGNORE), (".gitattributes", GITATTRIBUTES)] {
         let path = spec.path.join(name);
         atomicfile::write(&path, content.as_bytes(), 0o644)
@@ -991,6 +1102,7 @@ mod tests {
             method: METHOD_PASSPHRASE.into(),
             device: "laptop-1".into(),
             recipients: vec![RECIPIENT_1.into()],
+            extra_recipients: Vec::new(),
             remote: None,
         }
     }

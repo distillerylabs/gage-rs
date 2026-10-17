@@ -117,6 +117,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         method: flag("method").expect("defaulted"),
         device,
         recipients: extra_recipients,
+        extra_recipients: Vec::new(),
         remote: flag("remote"),
     };
     // Everything knowable from the flags fails before a human types a

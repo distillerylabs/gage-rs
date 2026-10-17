@@ -46,7 +46,7 @@ Status: `[ ]` not ported, `[~]` in progress, `[x]` ported, `n/a` excluded
 | #3 / PR #4 | Public-readiness: CI, SECURITY, CoC, contributor files | Bootstrap (#1 here) for the docs; M0a for CI | `[~]` |
 | PR #5, #6, #38, #39 | Dependabot bumps (Go modules, actions) | n/a — Rust gets its own dependabot config | n/a |
 | #7 / PRs #11, #19 | Recovery key: plan, phase 1 (R0–R2) and phase 2 (R3–R5) | P8 ([plan](p8-recovery-key/index.md), [#74](https://github.com/distillerylabs/gage-rs/issues/74)): RK1–RK4 | `[ ]` |
-| #8 / PR #13 | R0 recovery key library | P8 · RK1 | `[ ]` |
+| #8 / PR #13 | R0 recovery key library | P8 · RK1 | `[x]` |
 | #9 / PR #14 | R1 recovery key at `gage init` (+ review-finding fixes) | P8 · RK3 | `[ ]` |
 | #10 / PR #15 | R2 `gage recovery verify` + docs | P8 · RK4 | `[ ]` |
 | #16 / PR #20 | R3 recovery identity, `RecoverDevice`; retired key can't come back; relative `--recovery-key-out` | P8 · RK2 (the relative-path guard: RK3) | `[ ]` |
