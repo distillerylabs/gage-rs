@@ -1220,6 +1220,125 @@ Go's code leaves room.**
 
 ---
 
+## Resolved in P7 planning
+
+Settled in [#63](https://github.com/distillerylabs/gage-rs/issues/63) and
+the [P7 plan](p7-enrollment/index.md). Go's own enrollment decisions
+(`D-ENROLL-*`, `Q-ENROLL-VERBS`, `Q-IDENTITY-VAULT-NAME`, A21, A22) are in
+the copied init TDD and Go's register, and are not repeated here.
+
+### `[x]` Q-P7-SPLIT — How is Go's enrollment plan split? {#q-p7-split}
+
+**Resolved: Go's E1b, E2, E3 and E4, one to one, stacked in that order.**
+
+E0 and E1a were folded into P1/P2 and M9b. The rest port unchanged:
+
+- E1b is the N-recipient write, a pure refactor of M9b's path.
+- E2 is the sealed request, library only.
+- E3 is the joining side.
+- E4 is the approving side, and writes the phase's user docs, so they
+  describe shipped behavior.
+
+E2 doesn't depend on E1b logically (Go worked them in parallel). It is
+stacked after E1b only to keep one linear branch stack.
+
+Go's `Vault.Enroll(ctx, …)` and `ApproveEnrollments(ctx, …)` take a
+`context.Context` because their fetch is a hard precondition. gage-rs has
+no analogue: as in P4's sync verbs, the deadline lives in the
+`RemoteSyncer` calls, and nothing else in the library takes a
+cancellation token.
+
+### `[x]` Q-ENROLL-SCRYPT-HOOK — How is the seal's scrypt work factor set and guarded? {#q-enroll-scrypt-hook}
+
+**Resolved: Q-SCRYPT-HOOK's pattern in full, through the existing
+constructors.**
+
+- `ENROLLMENT_SCRYPT_WORK_FACTOR = 14` is a shipped const of its own,
+  with Go's `D-ENROLL-SEAL-COST` reasoning in its comment. The code is 80
+  generated bits, which licenses the lower factor. The comment also says
+  not to merge it with `SHIPPED_SCRYPT_WORK_FACTOR`.
+- It has a live atomic and its own `set_enrollment_work_factor_for_tests`
+  (`cfg(test)` / `test-support`). `testsupport::fast_scrypt()` lowers both
+  factors.
+- Sealing goes through `crypt::Recipient::passphrase_at` at that factor.
+  Opening goes through the one scrypt identity constructor, which caps a
+  claimed factor at `SCRYPT_MAX_WORK_FACTOR`. P2's source-scan guards (one
+  `scrypt::Recipient::new` site, one `scrypt::Identity::new` site, only
+  the hooks write the factors) therefore hold, and are extended to cover
+  the enrollment atomic rather than given exceptions.
+- E2's guard rows prove four things: the shipped value is deliberate, the
+  value reaches a real age header, only the setter writes it, and the two
+  factors are independent in both directions.
+
+### `[x]` Q-CROCKFORD — How is the enrollment code encoded? {#q-crockford}
+
+**Resolved: hand-rolled Crockford base32 in the library.**
+
+The code is 16 characters from 80 bits of `OsRng`, in four hyphenated
+groups behind a cosmetic `GAGE-` prefix. Normalization folds case, reads
+spaces as hyphens, drops a missing prefix, and maps `I`/`L` to `1` and
+`O` to `0`. Validation runs before any decryption.
+
+No base32 crate is in the tree. The encoding is a few lines over 80 bits,
+and the normalization rules are gage's own whichever crate does the
+alphabet, so a dependency would buy nothing.
+
+### `[x]` Q-CONFIRM-DEFAULT-YES — How does `Prompter` gain clone's `[Y/n]` question? {#q-confirm-default-yes}
+
+**Resolved: a new trait method, `confirm_default_yes`, with no default
+body. Every wrapper delegates.**
+
+`confirm` is documented default-no, and clone's offer is the one
+default-yes question in gage, so it gets its own method (Go E3). In Go,
+the script wrappers embed `gage.Prompter` and inherited the method
+without a compile error, and Go needed a test to catch a wrapper
+answering it. Here the trait method has no default body. The terminal
+prompter, `FakePrompter`, `delegate_the_rest!` (`scriptprompt.rs`),
+`NoChoosePrompter` and `AssumeYes` each have to implement it, and each
+delegates. The default belongs to the question's rendering, not to the
+absence of someone to answer: a script is never asked, and never says
+yes. Go's row, `TestNoNonInteractivePrompterAnswersConfirmDefaultYes`, is
+still ported.
+
+### `[x]` Q-ENROLL-AMBIGUOUS — What does an ambiguous request id return? {#q-enroll-ambiguous}
+
+**Resolved: its own typed candidate list, not M5's `CandidateList`.**
+
+`resolve_enrollment` matches over the UUID portion of the filename only:
+exact, then substring, then every match. M5's `CandidateList` carries
+entry titles and is what `Prompter::choose` picks from, and a request has
+no title and is never picked interactively (`deny` must not guess). So
+`EnrollmentError::Ambiguous` carries the matching request ids and
+expiries. `gage-cli` renders them at `Ambiguous`, as it does an entry
+candidate list.
+
+### `[x]` Q-PENDING-TZ — How does `recipient pending` get the local time zone? {#q-pending-tz}
+
+**Resolved: through `Io`, as `GAGE_PASSPHRASE` and the editor do.**
+
+Go's `TestPendingRendersExpiryInTheLocalTimezone` sets `TZ`. In-process
+tests here share one process environment, so `main` resolves the system
+zone into an `Io` field (using the `jiff` zone support M12a added to
+`gage-cli`), and tests set two zones directly. The library returns
+zone-free instants.
+
+### `[x]` Q-ENROLLMENT-CODE-HISTORY — Does an approver's code reach command history? {#q-enrollment-code-history}
+
+**Resolved: yes, as an accepted risk, as in Go.**
+
+`recipient approve --code GAGE-…` is a typed command line, so it lands in
+the user's shell history for a one-shot run and verbatim in the session
+history file. Go records this as an accepted risk
+(`enrollment-code-history`), and its escape hatch carries over: leave out
+`--code` and the code is read through the masked `Prompter::value`, which
+records nothing. On the joining side the code is generated and printed,
+never typed, so E2's "the code is returned and nowhere else" stays true.
+No test asserts the code never reaches the history file, because that is
+false on this side.
+
+---
+
+
 ---
 
 ## Withdrawn
