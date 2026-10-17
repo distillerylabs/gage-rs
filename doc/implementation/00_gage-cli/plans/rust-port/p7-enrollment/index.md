@@ -130,7 +130,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 |---|---|---|---|---|---|
 | E1b | [The shared recipient write](e1b-shared-recipient-write.md) ([#64](https://github.com/distillerylabs/gage-rs/issues/64)) | Sonnet\* ⚑ | P6 | 15 | `[x]` |
 | E2 | [The sealed request](e2-sealed-request.md) ([#65](https://github.com/distillerylabs/gage-rs/issues/65)) | **Opus** ⚑ | E1b | 55 (+2 inbound) | `[x]` |
-| E3 | [Joining a vault](e3-joining-side.md) ([#66](https://github.com/distillerylabs/gage-rs/issues/66)) | Sonnet\* ⚑ | E2 | 60 (+2 inbound) | `[ ]` |
+| E3 | [Joining a vault](e3-joining-side.md) ([#66](https://github.com/distillerylabs/gage-rs/issues/66)) | Sonnet\* ⚑ | E2 | 60 (+2 inbound) | `[x]` |
 | E4 | [Approving a device](e4-approving-side.md) ([#67](https://github.com/distillerylabs/gage-rs/issues/67)) | **Opus** ⚑ | E3 | 71 | `[ ]` |
 
 `⚑` means an Opus review pass over that milestone's named tests before it

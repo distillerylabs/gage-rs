@@ -453,10 +453,14 @@ Rust counterpart for that reason.
       child-list note.
 - [x] Completion: `subcommand_candidates_lists_identity_children`
       expects `["add", "enroll", "list"]` (`complete_tests.rs`).
-- [ ] Parity ledger: §2 `c86ad4c`, §3 E3, §4 `clone`'s offer, §5
+- [x] Parity ledger: §2 `c86ad4c`, §3 E3, §4 `clone`'s offer, §5
       `identity_enroll`, the P6 `HeadCommitterTime` row and the P2
-      prompter row, marked `[x]` after CI.
-- [ ] Mark E3 `[x]` in the [P7 index](index.md) after CI.
+      prompter row, marked `[x]` after CI. (§3's row covers E1b–E4
+      together, and §5's row shares `identity_enroll` with E4's three
+      commands, so both stay open until E4 ships; the two inbound rows
+      are accounted in §5's P7 note, which has no checkbox.)
+- [x] Mark E3 `[x]` in the [P7 index](index.md) after CI. (CI green on
+      Linux, macOS and Windows at `8cb2ed5`.)
 
 ## Definition of done
 
