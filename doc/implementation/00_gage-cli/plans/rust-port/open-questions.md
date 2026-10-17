@@ -1545,6 +1545,28 @@ How a path is compared:
 The guard runs before the existence and parent checks, because it is the
 only check that holds when nothing on the path exists yet.
 
+### `[x]` Q-RECOVERY-ERRORS — Which error does a retired-key or self-eviction refusal return? {#q-recovery-errors}
+
+**Resolved in RK2: two recovery-specific variants, both `Conflict`.**
+
+Go wraps `ErrRecipientExists` for three refusals:
+- `RecoverDevice` offered the key it is retiring, as the device's key or
+  as its own replacement
+- `RotateRecoveryKey` offered the key it is retiring
+- `RotateRecoveryKey` asked to evict the key it was unlocked with
+
+Each one's remedy differs from an ordinary collision's ("generate a new
+key", "re-register this device under its own name first").
+`RecipientExists`'s message would only say the key is already listed as
+`recovery-paper-key`, which hides both the reason and the fix.
+
+gage-rs returns `RecoveryError::RetiredKeyReused { pubkey, as_device }`
+for the first two and `RecoveryError::WouldEvictActingDevice { vault }`
+for the third. The exit code is Go's (`Conflict`). Every other collision
+the swap refuses is `RecipientError::RecipientExists`, reached through
+`RecoveryError::Recipient`, so it matches what the other recipient verbs
+return.
+
 ---
 
 ## Withdrawn

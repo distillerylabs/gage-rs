@@ -49,9 +49,9 @@ Status: `[ ]` not ported, `[~]` in progress, `[x]` ported, `n/a` excluded
 | #8 / PR #13 | R0 recovery key library | P8 · RK1 | `[x]` |
 | #9 / PR #14 | R1 recovery key at `gage init` (+ review-finding fixes) | P8 · RK3 | `[ ]` |
 | #10 / PR #15 | R2 `gage recovery verify` + docs | P8 · RK4 | `[ ]` |
-| #16 / PR #20 | R3 recovery identity, `RecoverDevice`; retired key can't come back; relative `--recovery-key-out` | P8 · RK2 (the relative-path guard: RK3) | `[ ]` |
+| #16 / PR #20 | R3 recovery identity, `RecoverDevice`; retired key can't come back; relative `--recovery-key-out` | P8 · RK2 (the relative-path guard: RK3) | `[~]` |
 | #17 / PR #21 | R4 `gage recovery enroll` (+ seven review fixes) | P8 · RK4 (verify's label return: RK1) | `[ ]` |
-| #18 / PR #22 | R5 `gage recovery rotate`; reserved recovery label | P8: reservation RK1, `RotateRecoveryKey` RK2, `recovery rotate` RK3, docs RK4 | `[ ]` |
+| #18 / PR #22 | R5 `gage recovery rotate`; reserved recovery label | P8: reservation RK1, `RotateRecoveryKey` RK2, `recovery rotate` RK3, docs RK4 | `[~]` |
 | PR #12 | Multi-milestone GitHub process in CLAUDE.md | Bootstrap (`CLAUDE.md`) | `[~]` |
 | #23 / PR #24 | Parent commands (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) list their children in their own help | P1 · M0b (registry/help), each parent's children as they land | `[~]` M0b: mechanism; M1: real `vault` and `git` parents and their children |
 | #25 / PR #26 | Codecov reporting alongside the cover-check gate | M0a | `[ ]` |
