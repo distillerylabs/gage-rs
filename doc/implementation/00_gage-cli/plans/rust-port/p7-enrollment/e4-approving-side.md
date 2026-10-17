@@ -510,6 +510,32 @@ Review notes:
   and the push's own fetch-and-merge then repairs the stale tip. That is
   why `uncontended_approval_never_reports_contention` exists.
 
+A second Opus pass at `256d61d` repeated every row above (all killed, by
+the tests named) and probed beyond the table. Killed: the re-open trying
+only the first code (`batch_approval_is_one_pass_and_one_commit`), each
+dedupe removed (`approve_naming_one_request_twice_is_one_device`,
+`approve_deduplicates_a_request_opened_by_two_codes`), the clear-only
+write not pruning (`deny_prunes_expired_requests_in_the_same_commit`,
+through the shared write), the no-op filter reading a stale list
+(`approving_a_key_that_is_already_a_recipient_is_a_no_op` and two more),
+a declined approve's code changed and a blank code re-prompting (their
+CLI rows). Five survived. Each weakens code that is right as shipped, so
+they are follow-up tests, not defects:
+
+| Surviving mutation | What it would let through | Missing test |
+|---|---|---|
+| The re-open compared on pubkey only | A re-seal keeping the key and changing the device name is recorded under a name nobody was shown | The seal-swap row, swapping only the device name |
+| Delete path rebuilt from the sealed expiry | A renamed epoch: approval grants and leaves the request pending | Rename to another live epoch, approve, assert the file is gone |
+| A refusal under the lock reported as `NoLongerPending` | Wrong error and exit code for a request that changed in the window | Swap in a same-code request for another vault; expect `WrongVault` |
+| The re-open filtering by liveness | A request that expired in the window reads as missing, not `Expired` | As above with an expired seal, if a clock seam allows it |
+| Unlock before the confirmation, session mode only | A never-unlocked session vault prompted before a "no" | A session copy of `declining_the_approval_costs_no_unlock` |
+
+Two readings with no mutant: the prompted-code path doesn't deduplicate
+by id as the `--code` path does (two copies of one request under
+different epochs show twice and are refused after the passphrase, writing
+nothing), and Resolution 5's `with_late_unlock` shipped as the existing
+`Keys::with_vault`.
+
 ### 10. Parity and ledger
 
 - [x] Fixture parity for `recipient pending`, `approve` and `deny` (name,
@@ -518,15 +544,16 @@ Review notes:
       test. The registry carries Go's `[ID...]`; clap renders it `[ID]...`
       (layout, not behavior). `cli::usage_args` now reads a `...` inside the
       brackets as variadic, Cobra's spelling, which no earlier usage had.
-- [ ] Parity ledger:
+- [x] Parity ledger:
   - §2 `f800af6`/`187c810`/`faf49b9`, `df3c0fe`
   - §3 E4 and the init-design row
   - §5's four enrollment commands
   - §6 `enrollment.md` and every page row naming P7
 
   All marked `[x]` after CI.
-- [ ] Mark E4 and P7 `[x]` in the [P7 index](index.md) and the
-      [port plan](../index.md) after CI.
+- [x] Mark E4 and P7 `[x]` in the [P7 index](index.md) and the
+      [port plan](../index.md) after CI. (CI green on Linux, macOS and
+      Windows at `256d61d`.)
 
 ## Definition of done
 

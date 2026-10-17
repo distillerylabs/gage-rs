@@ -82,14 +82,14 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `045bf24`, `9d72384` | #48 | E1b shared recipient write + fixes | P7 · E1b ([plan](p7-enrollment/e1b-shared-recipient-write.md)) | `[x]` |
 | `798ed47` | — | E2 sealed request | P7 · E2 ([plan](p7-enrollment/e2-sealed-request.md)) | `[x]` |
 | `c86ad4c` | — | E3 joining side | P7 · E3 ([plan](p7-enrollment/e3-joining-side.md)) | `[x]` |
-| `f800af6`, `187c810`, `faf49b9` | #52 | E4 approving side (commit titled "Milestone 4") + fixes, docs | P7 · E4 ([plan](p7-enrollment/e4-approving-side.md)) | `[ ]` |
+| `f800af6`, `187c810`, `faf49b9` | #52 | E4 approving side (commit titled "Milestone 4") + fixes, docs | P7 · E4 ([plan](p7-enrollment/e4-approving-side.md)) | `[x]` |
 | `a4b989e` | #58 / #59 | `insert --field NAME=VALUE` | P2 · M4 | `[x]` `parse_field_flags` (M4); the `show --field` halves and `--field`/`-e` exclusivity in P3 · M5 |
 | `f0e17db`, `f1e391f` | #55 / #60, #61 | `cat`: display-only short id, column-aligned labels, flush-left multi-line values | P6 · M12b | `[x]` `entry::key_layout`, `commands/catfmt.rs` |
 | `fb2f1e9` | #54 / #62 | `ls -H/--header` labelled `\|`-delimited table | P6 · M12b | `[x]` `render_ls_table` |
 | `0aa325c` | #25 / #63 | M13 session Tab completion and command abbreviation | P3 · M13 ([plan](p3-query-session/m13-tab-completion.md)) | `[x]` |
 | `bbb24ba` | #64 / #65 | Coverage and vulnerability reporting | M0a | `[ ]` |
 | `30b21df` | #66 / #67 | Apache-2.0 license; fixture-data cleanup | Bootstrap (`LICENSE`) | `[~]` |
-| `df3c0fe` | #4, #5 | Enrollment-design issues resolved in the TDD | Covered by the copied TDD; P7 · E4 closes it with the shipped behavior | `[ ]` |
+| `df3c0fe` | #4, #5 | Enrollment-design issues resolved in the TDD | Covered by the copied TDD; P7 · E4 closes it with the shipped behavior | `[x]` |
 | `6aa019a` | — | TOTP design begun | n/a — [Q-TOTP](open-questions.md#q-totp) | n/a |
 
 ## 3. Plan directories (Go `doc/implementation/00_gage-cli/plans/`)
@@ -106,8 +106,8 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | | M9 (+ A19), M10, M11 | P5 ([plan](p5-recipients-trust/index.md), [#41](https://github.com/distillerylabs/gage-rs/issues/41)): M9 → M9a + M9b, M10, M11 | `[x]` M9a ([#42](https://github.com/distillerylabs/gage-rs/issues/42)) `[x]`; M9b ([#43](https://github.com/distillerylabs/gage-rs/issues/43)) `[x]`; M10 ([#44](https://github.com/distillerylabs/gage-rs/issues/44)) `[x]` (38 rows + 3 inbound, both P4 follow-ups; CI green on all three platforms); M11 ([#45](https://github.com/distillerylabs/gage-rs/issues/45)) `[x]` (20 rows; CI green on all three platforms) |
 | | M12 (+ post-plan items in §2) | P6 ([plan](p6-polish/index.md), [#52](https://github.com/distillerylabs/gage-rs/issues/52)): M12 → M12a `log`/`history`, M12b `cat`/`ls -H`/orphan cleanup, M12c `-c`/`-q`, M12d `--script`/`--stdin` | M12a ([#53](https://github.com/distillerylabs/gage-rs/issues/53)) `[x]`; M12b ([#54](https://github.com/distillerylabs/gage-rs/issues/54)) `[x]`; M12c ([#55](https://github.com/distillerylabs/gage-rs/issues/55)) `[x]` (`-c`/`-q`: `clipboard.rs`, `qr.rs`, `commands/secretout.rs`; manual clipboard check on macOS); M12d ([#56](https://github.com/distillerylabs/gage-rs/issues/56)) `[x]` (`--script`/`--stdin`: `repl::run_script`, `scriptprompt.rs`, `script_tests.rs`; CI green on Linux, macOS and Windows) |
 | | "Post-plan changes" section | Rows in §2 | — |
-| `gage-cli-init-design/` | E0, E1a | Folded (see §2) | `[ ]` |
-| | E1b, E2, E3, E4 | P7 ([plan](p7-enrollment/index.md), [#63](https://github.com/distillerylabs/gage-rs/issues/63)): one to one | `[ ]` |
+| `gage-cli-init-design/` | E0, E1a | Folded (see §2) | `[x]` |
+| | E1b, E2, E3, E4 | P7 ([plan](p7-enrollment/index.md), [#63](https://github.com/distillerylabs/gage-rs/issues/63)): one to one | `[x]` |
 | `recovery-key/` | R0–R5 (D1–D12) | P8 | `[ ]` |
 | `test-coverage/` | R0, R1 (coverage) | M0a gate + every milestone | `[ ]` |
 
@@ -132,7 +132,7 @@ to match Cobra's layout.
 | `recipient`, `recipient_add`, `recipient_remove`, `recipient_list`, `recipient_verify`, `identity`, `identity_add`, `identity_list`, `mv`, `cp` | P5: `identity*`, `recipient`, `recipient_list`, `recipient_verify` in M9a `[x]` (CI green on all three platforms, matched by `p5_identity_commands_have_their_go_fixture_flags_and_descriptions`; `verify`'s `--repair` prose is M10's); `recipient_add`, `recipient_remove` in M9b `[x]` (matched by the same test); `recipient verify --repair` (full fixture prose and flag) and the root `--yes` (hidden, as Go's help lists no inherited flag) in M10 `[x]`, matched by the same test; `mv`, `cp` in M11 `[x]` (matched by `p5_mv_and_cp_have_their_go_fixture_flags_and_descriptions`) |
 | `log`, `history` | P6 · M12a (`log` and `history` registered in group Sync, both modes, `-u/--use`, `history --decrypt`; checked by `p6_log_and_history_have_their_go_fixture_flags_and_descriptions`) |
 | The output flags `--clip`, `--qr`, `--script` (`show --field` itself is P3 · M5) | `--clip`, `--qr`: P6 · M12c `[x]`; `--script`, `--stdin`: M12d `[x]`, hidden root flags like `--yes` (`the_script_flags_are_hidden_root_flags`) |
-| `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7: `identity_enroll` (and `identity`'s child list) in E3 `[x]`; `recipient_pending`, `recipient_approve`, `recipient_deny` (and `recipient`'s child list) in E4 |
+| `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7: `identity_enroll` (and `identity`'s child list) in E3 `[x]`; `recipient_pending`, `recipient_approve`, `recipient_deny` (and `recipient`'s child list) in E4 `[x]` (checked by `p7_recipient_enrollment_commands_have_their_go_fixture_flags_and_descriptions`) |
 | `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8 |
 | Session-mode `help` and session-only commands | P3 · M6 `[x]` — tested against the registry, not captured (`repl_tests`: `session_help_matches_registry_exactly`, `both_help_surfaces_render_the_same_registry` and the rest of Go's `sessionhelp` rows) |
 
@@ -235,11 +235,11 @@ behavior; each phase's last milestone updates the pages for its surface.
 |---|---|
 | `vaults.md`, `configuration.md`, `exit-codes.md` | P1 · M1: `doc/cli/`; P6 · M12d `[x]` `vault remove`'s identity-file cleanup, the `GAGE_PASSPHRASE` row and `[shell].clipboard_timeout`, exit 5 and the `source:line:` prefix for script runs |
 | `entries.md` | P2 · M4: `doc/cli/entries.md` `[x]` for the shipped surface; P3 · M5 `[x]` `show`, `edit`, `rename`, `generate`, `insert -e`, addressing; P3 · M7 `[x]` `search`/`grep`, `reindex`; P6 · M12d `[x]` `cat`/`ls -H`, `-c`/`-q`, `log`, `history --decrypt` |
-| `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker; M7 `[x]` the index; M13 `[x]` the title completion source (enrollment ids are P7 · E4's) |
-| `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 `[x]` the metadata index and `reindex`; M13 `[x]` completion and abbreviation; M12d `[x]` `--script`/`--stdin`, `GAGE_PASSPHRASE` and `-c` in a session; enrollment's session behavior P7 · E4's |
-| `sync.md`, `git-and-auth.md` | P4 · M8b `[x]` (with `exit-codes.md`'s `Unreachable` and sync meanings of 1 and 5, and `configuration.md`'s tokens directory); describes P4 only: the recipient-change confirmation and enrollment exceptions arrive with P5 and P7 (E4) |
-| `identities-and-recipients.md`, `sharing.md` | P5 · M11 `[x]` written (identities, recipients, `verify`/`--repair`, the trust cache and `--yes`, `mv`/`cp`); P6 · M12d `[x]` `--yes` in a script session; P7 · E4 adds enrollment, P8 the recovery sections |
-| `enrollment.md` | P7 · E4 |
+| `addressing-entries.md` | P3 · M5: `doc/cli/addressing-entries.md` `[x]` for one-shot; M6 `[x]` the session picker; M7 `[x]` the index; M13 `[x]` the title completion source; P7 · E4 `[x]` request ids (Go completes none: `request_id_positionals_complete_nothing`) |
+| `session-mode.md` | P3 · M6: `doc/cli/session-mode.md` `[x]` for the interactive session; M7 `[x]` the metadata index and `reindex`; M13 `[x]` completion and abbreviation; M12d `[x]` `--script`/`--stdin`, `GAGE_PASSPHRASE` and `-c` in a session; enrollment's session behavior P7 · E4 `[x]` |
+| `sync.md`, `git-and-auth.md` | P4 · M8b `[x]` (with `exit-codes.md`'s `Unreachable` and sync meanings of 1 and 5, and `configuration.md`'s tokens directory); describes P4 only: the recipient-change confirmation and enrollment exceptions arrive with P5 and P7 (E4 `[x]`) |
+| `identities-and-recipients.md`, `sharing.md` | P5 · M11 `[x]` written (identities, recipients, `verify`/`--repair`, the trust cache and `--yes`, `mv`/`cp`); P6 · M12d `[x]` `--yes` in a script session; P7 · E4 `[x]` enrollment (`sharing.md` unchanged: Go's page has no enrollment content), P8 the recovery sections |
+| `enrollment.md` | P7 · E4 `[x]` |
 | `README.md`, `getting-started.md`, `command-reference.md` | Grown each phase; final pass in P9 |
 
 ## Exclusions
