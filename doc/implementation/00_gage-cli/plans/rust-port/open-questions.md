@@ -962,14 +962,13 @@ Settled at the start of M10 implementation:
   drawing or reading anything, as its `resolve_conflict` does. The outcome
   is Go's bare-Enter outcome (no write, exit Conflict) without consuming
   input; `--yes` is how a script answers yes.
-- **No script-mode exception yet.** Go lets `--yes` through in a
-  `--script`/`--stdin` session, which is the CI case the flag exists for.
-  gage-rs has no script mode, so every session is a terminal one and both
-  refusals apply unconditionally. Script mode, when it is ported, brings
-  Go's exception with it.
-  **Amended in P6 planning:** P6 · M12d ports script mode with Go's
-  exception. `--yes` is accepted in a `--script`/`--stdin` session and
-  still refused in an interactive one.
+- **Script mode's exception shipped with M12d.** Go lets `--yes` through
+  in a `--script`/`--stdin` session, which is the CI case the flag exists
+  for. `--yes` on the command line wraps the script's prompter for the
+  whole run, and is still refused in an interactive session. A `--yes`
+  typed on a script line is accepted and adds nothing beside the run's
+  own: in Go it wraps `app.Prompter` for that line, but the session's
+  prompter is fixed when the run starts, so the same holds there.
 - **`--yes` is hidden from help.** Go's captured help lists no inherited
   flag anywhere (`tests/fixtures/go/help/`), so the clap flag is global
   and hidden to match. It is accepted before or after the command.
@@ -1140,6 +1139,44 @@ display reuses this renderer.
   ([Q-LINE-EDITOR](#q-line-editor)), so nothing ever unwraps a prompter.
   M12d tests instead that every wrapper passes through each method it
   doesn't answer.
+
+**Added while implementing M12d:**
+
+- **`PromptError::Refused(String)`.** The refusals need their own wording
+  (name the variable, say a human is needed) and exit 5. The existing
+  variants carry fixed text, so the library gains one variant for "the
+  frontend declined to ask, and says why", coded `LockedOrAuth`. The CLI
+  exit code on an unlock doesn't depend on it (`UnlockError::Prompter` is
+  `LockedOrAuth` whatever it wraps, Go's `requestPassphrase`
+  normalisation); it matters for a create-purpose refusal and for the
+  message.
+- **A refusal's message carries no `gage:` prefix.** `prefix_once` adds
+  it, and a refusal wrapped in `wrong passphrase: ...` would otherwise
+  read `gage:` twice.
+- **`NoChoosePrompter`, a fourth wrapper.** See
+  [Q-SCRIPT-CHOOSE](#q-script-choose).
+
+### `[x]` Q-SCRIPT-CHOOSE — What does an ambiguous query do in a script with nobody to pick? {#q-script-choose}
+
+**Resolved while implementing M12d: it fails with its candidate list, as
+one-shot does, and reads nothing.**
+
+A script line's query resolves through the session, which asks the
+prompter's `choose` on an ambiguous match. Under `--stdin` the terminal
+prompter's input is the command stream, so it would take the next command
+line for the pick number, ask again, and swallow up to five lines before
+giving up: the same failure the passphrase wrappers exist to prevent, one
+prompt over. Go's plan doesn't cover it (its `reportAmbiguous` in the
+script loop is for the error a one-shot-style failure returns).
+
+`NoChoosePrompter` answers `choose` with `Cancelled`, which the session
+already reads as "the human declined to pick": the query is unresolved and
+the error carries the candidates. It is installed under the same condition
+as the create refusal (no terminal, or `--stdin`); `--script FILE` on a
+terminal still lets the human pick. `confirm` and `value` are **not**
+covered: they follow Go and read the stream. Both have a reading that is
+sometimes wanted (`insert` taking its value from the next line), unlike a
+picker, so changing them is a separate decision.
 
 ### `[x]` Q-ORPHAN-CLEANUP — Who decides that an identity file is orphaned? {#q-orphan-cleanup}
 

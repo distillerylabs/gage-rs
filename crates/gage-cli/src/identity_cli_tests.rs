@@ -74,7 +74,7 @@ fn stray_key() -> String {
     age::x25519::Identity::generate().to_public().to_string()
 }
 
-fn identity_files(env: &Env) -> Vec<String> {
+pub(crate) fn identity_files(env: &Env) -> Vec<String> {
     let id = env.entry(VAULT).id;
     match std::fs::read_dir(paths::identities_dir(&env.dirs, &id).unwrap()) {
         Ok(entries) => entries

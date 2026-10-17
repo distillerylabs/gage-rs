@@ -34,6 +34,7 @@ fn run_reg(reg: &Registry, args: &[&str], stdin_is_terminal: bool) -> CliResult 
         dirs: &|| panic!("a parsing test resolved gage's directories"),
         hostname: &|| panic!("a parsing test read the hostname"),
         editor: None,
+        passphrase_env: None,
         now: &std::time::Instant::now,
         clipboard: &crate::clipboard::fake::unused(),
         clipboard_wait: &|_| {},

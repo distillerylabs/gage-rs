@@ -10,6 +10,7 @@
 //! `exit`, `help`) are handled here, before clap.
 
 use std::cell::RefCell;
+use std::io::{BufReader, Read};
 use std::rc::Rc;
 
 use gage::config;
@@ -20,27 +21,38 @@ use gage::session::{Session, SessionConfig};
 use gage::xdgpaths::Dirs;
 
 use crate::Io;
-use crate::cli::{self, Outcome};
+use crate::cli::{self, Outcome, ScriptSource};
 use crate::commands::{self, Keys};
 use crate::complete::{SessionHelper, resolve_session_command_name};
 use crate::error::{CliError, prefix_once};
 use crate::history::History;
-use crate::lineread::{LineReader, PlainLineReader, ReadOutcome, RustylineReader};
+use crate::lineread::{LineReader, PlainLineReader, ReadOutcome, RustylineReader, read_one_line};
 use crate::registry::Registry;
 use crate::shell::{self, PromptState, ShellSettings};
 
-/// Runs a session until `exit` or end of input. Every key it held is
-/// dropped on the way out, whichever way that is.
-pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
-    let dirs = (io.dirs)()?;
+/// What the interactive session and a script run share: where gage keeps
+/// things, the `[shell]` settings, and the [`Session`] itself. Each is
+/// driven differently from here (a line editor and a history file, or a
+/// list of lines) and ends the same way: see [`finish`].
+struct Opened<'a> {
+    dirs: Dirs,
+    settings: ShellSettings,
+    /// Shared with the line editor's completer, which reads the session
+    /// while a line is being typed; a loop holds it mutably only while a
+    /// command runs, so the two never overlap.
+    session: Rc<RefCell<Session<'a>>>,
+}
+
+fn open<'a>(
+    dirs: Result<Dirs, gage::xdgpaths::Error>,
+    now: impl Fn() -> std::time::Instant + 'a,
+    prompter: &'a dyn Prompter,
+) -> Result<Opened<'a>, CliError> {
+    let dirs = dirs?;
     let global = config::load(&paths::global_config_file(&dirs))?;
     let settings = shell::resolve(&global.shell, &dirs, &std::env::home_dir)?;
 
-    let now = io.now;
     let open_dirs = dirs.clone();
-    // Shared with the line editor's completer, which reads the session
-    // while a line is being typed; the loop holds it mutably only while a
-    // command runs, so the two never overlap.
     let session = Rc::new(RefCell::new(Session::new(SessionConfig {
         // The same lookup one-shot `--use` resolves through, so both
         // modes agree on what a vault name means.
@@ -52,6 +64,40 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
         current: Some(global.current),
         now: Some(Box::new(now)),
     })));
+    Ok(Opened {
+        dirs,
+        settings,
+        session,
+    })
+}
+
+/// How every session ends, whichever way: drops every key it holds, an
+/// error included.
+///
+/// The clipboard too: a session's `-c` schedules its clear and hands the
+/// prompt back, so the session's own end is what keeps a copy made a
+/// second before `exit` from outliving the process that made it. A failed
+/// clear is reported and doesn't change how the session ended.
+fn finish(
+    session: &RefCell<Session>,
+    io: &mut Io,
+    result: Result<(), CliError>,
+) -> Result<(), CliError> {
+    session.borrow_mut().close();
+    if let Err(e) = io.clipboard.clear() {
+        report(io, &e);
+    }
+    result
+}
+
+/// Runs a session until `exit` or end of input. Every key it held is
+/// dropped on the way out, whichever way that is.
+pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
+    let Opened {
+        dirs,
+        settings,
+        session,
+    } = open((io.dirs)(), io.now, prompter)?;
 
     let mut history = History::open(Some(&settings.history_file)).unwrap_or_else(|e| {
         // Losing recall is no reason to refuse a session: say so once.
@@ -91,6 +137,128 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
     .run(io)
 }
 
+/// `--script FILE` and `--stdin`: one session driven by a list of commands
+/// instead of a human at a prompt. The same [`Session`], holding keys the
+/// same way and dropping them at the same point; what differs is
+/// deliberate and is the whole of this function:
+///
+/// - It stops at the first failing line instead of reporting and carrying
+///   on. A script has nobody to notice a line that failed halfway down,
+///   and continuing would run the rest against a state its author never
+///   anticipated. The error names the source, the line number and the
+///   line, and keeps that line's exit code.
+/// - It opens no history file. The history file is a record of what a
+///   human typed at a prompt (see "Command history must never contain
+///   plaintext"); a script's lines were never typed, and appending them
+///   would mix a machine's command list into a human's recall buffer.
+///
+/// `prompter` is the script's own (see [`crate::scriptprompt`]): it is the
+/// session's, and what a line that asks something directly gets too, so no
+/// prompt in the run can read the stream the commands arrive on.
+pub fn run_script(
+    reg: &Registry,
+    io: &mut Io,
+    prompter: &dyn Prompter,
+    source: &ScriptSource,
+) -> Result<(), CliError> {
+    // Before any session opens: a missing file is the command line's fault.
+    let mut lines = Lines::open(source)?;
+    let name = lines.name();
+    let Opened { session, .. } = open((io.dirs)(), io.now, prompter)?;
+
+    let result = (|| {
+        for n in 1usize.. {
+            let line = match lines.next(io) {
+                Ok(Some(line)) => line,
+                Ok(None) => return Ok(()),
+                Err(e) => {
+                    return Err(CliError::new(
+                        Code::Internal,
+                        format!("gage: reading {name}: {e}"),
+                    ));
+                }
+            };
+            let line = line.trim();
+            // Blank lines and `#` comments, so a checked-in script can be
+            // commented like any other file.
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            match exec_line_in(
+                reg,
+                &mut session.borrow_mut().begin_command(),
+                io,
+                line,
+                Mode::Script,
+            ) {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(e) => return Err(script_error(e, &name, n, line)),
+            }
+        }
+        unreachable!("the range has no end")
+    })();
+    finish(&session, io, result)
+}
+
+/// A failed line's error with where it came from, in the one place that
+/// can locate a failure in a file nobody watched run, keeping the exit
+/// code a script should fail with: the one its command would have.
+fn script_error(err: CliError, source: &str, line_no: usize, line: &str) -> CliError {
+    let code = err.code();
+    let msg = err.to_string();
+    CliError::new(
+        code,
+        format!(
+            "{source}:{line_no}: {line}: {}",
+            msg.trim_start_matches(crate::error::ERROR_PREFIX)
+        ),
+    )
+}
+
+/// The lines of a script, one at a time and never ahead.
+enum Lines {
+    File {
+        path: String,
+        file: BufReader<std::fs::File>,
+    },
+    /// The command stream is stdin, which a prompt would also read; one
+    /// line at a time, so whatever follows belongs to whoever reads next.
+    Stdin,
+}
+
+impl Lines {
+    fn open(source: &ScriptSource) -> Result<Lines, CliError> {
+        match source {
+            ScriptSource::Stdin => Ok(Lines::Stdin),
+            ScriptSource::File(path) => {
+                let file = std::fs::File::open(path).map_err(|e| {
+                    CliError::new(Code::Usage, format!("gage: opening script: {e}"))
+                })?;
+                Ok(Lines::File {
+                    path: path.clone(),
+                    file: BufReader::new(file),
+                })
+            }
+        }
+    }
+
+    /// What messages call the source.
+    fn name(&self) -> String {
+        match self {
+            Lines::File { path, .. } => path.clone(),
+            Lines::Stdin => crate::scriptprompt::STDIN_SOURCE.to_string(),
+        }
+    }
+
+    fn next(&mut self, io: &mut Io) -> std::io::Result<Option<String>> {
+        match self {
+            Lines::File { file, .. } => read_one_line(file as &mut dyn Read),
+            Lines::Stdin => read_one_line(io.stdin),
+        }
+    }
+}
+
 /// One running session's loop and what it drives. Its parts are fields so
 /// a test can run one over a session it holds itself, which is how "every
 /// key is dropped on the way out" is checked at this level.
@@ -105,20 +273,10 @@ pub struct Repl<'r, 'a> {
 
 impl Repl<'_, '_> {
     /// Reads, records and runs one line at a time until `exit` or end of
-    /// input, then drops every key the session holds, on every way out,
-    /// an error included.
-    ///
-    /// The clipboard too: a session's `-c` schedules its clear and hands
-    /// the prompt back, so the session's own end is what keeps a copy made
-    /// a second before `exit` from outliving the process that made it. A
-    /// failed clear is reported and doesn't change how the session ended.
+    /// input, then ends the session as every session ends ([`finish`]).
     pub fn run(&mut self, io: &mut Io) -> Result<(), CliError> {
         let result = self.run_lines(io);
-        self.session.borrow_mut().close();
-        if let Err(e) = io.clipboard.clear() {
-            report(io, &e);
-        }
-        result
+        finish(self.session, io, result)
     }
 
     fn run_lines(&mut self, io: &mut Io) -> Result<(), CliError> {
@@ -188,12 +346,30 @@ fn report(io: &mut Io, err: &CliError) {
     let _ = writeln!(io.stderr, "{}", prefix_once(&err.to_string()));
 }
 
+/// Whether a line is typed by a human or read from a script. They differ in
+/// one thing: `--yes` on a line.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Interactive,
+    Script,
+}
+
 /// Runs one typed line. `Ok(true)` is `exit`/`quit`.
 pub fn exec_line(
     reg: &Registry,
     session: &mut Session,
     io: &mut Io,
     line: &str,
+) -> Result<bool, CliError> {
+    exec_line_in(reg, session, io, line, Mode::Interactive)
+}
+
+fn exec_line_in(
+    reg: &Registry,
+    session: &mut Session,
+    io: &mut Io,
+    line: &str,
+    mode: Mode,
 ) -> Result<bool, CliError> {
     let mut args = split_line(line)?;
     let Some(first) = args.first() else {
@@ -210,7 +386,7 @@ pub fn exec_line(
         Some("lock") => session_lock(session, io, rest)?,
         Some("status") => session_status(session, io, rest)?,
         Some("help") => session_help(reg, io, rest)?,
-        _ => run_command(reg, session, io, &args)?,
+        _ => run_command(reg, session, io, &args, mode)?,
     }
     Ok(false)
 }
@@ -222,6 +398,7 @@ fn run_command(
     session: &mut Session,
     io: &mut Io,
     args: &[String],
+    mode: Mode,
 ) -> Result<(), CliError> {
     // init (and later clone) create a vault rather than operating on one,
     // which leaves "does the new vault become current?" unanswered. Read
@@ -254,7 +431,14 @@ fn run_command(
             Ok(())
         }
         Outcome::Session => Ok(()),
-        Outcome::Command(_, matches) if crate::assumeyes::given(&matches) => {
+        Outcome::Script(_) => Err(refuse_script_flags_in_session()),
+        // A script run is the case `--yes` exists for, and the run's own
+        // `--yes` is what covers it: on a line it changes nothing, the
+        // question being asked through the prompter the session holds.
+        // Only a human at a prompt is refused.
+        Outcome::Command(_, matches)
+            if mode == Mode::Interactive && crate::assumeyes::given(&matches) =>
+        {
             Err(crate::assumeyes::refused_in_session())
         }
         Outcome::Command(name, matches) => {
@@ -266,6 +450,18 @@ fn run_command(
             })
         }
     }
+}
+
+/// `--script`/`--stdin` *start* a session, so asking for one from inside a
+/// session is a category error. A bare flag never gets this far (a line of
+/// only flags is an unknown command, and with a command it is refused at
+/// parse), so this guards the day one does: a session quietly trying to
+/// take over its own command stream.
+pub(crate) fn refuse_script_flags_in_session() -> CliError {
+    CliError::new(
+        Code::Usage,
+        "gage: --script/--stdin start a session and aren't available inside one",
+    )
 }
 
 /// The registry name a line starts with: two words when they name a

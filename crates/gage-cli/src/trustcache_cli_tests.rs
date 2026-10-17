@@ -17,7 +17,7 @@ use crate::{BuildInfo, Io};
 
 const VAULT: &str = "personal";
 
-fn new_key() -> String {
+pub(crate) fn new_key() -> String {
     age::x25519::Identity::generate().to_public().to_string()
 }
 
@@ -28,14 +28,14 @@ fn answering(answers: &[bool]) -> FakePrompter {
 }
 
 impl Env {
-    fn vault_dir(&self) -> PathBuf {
+    pub(crate) fn vault_dir(&self) -> PathBuf {
         self.entry(VAULT).path
     }
 
     /// One command that unlocks, so the vault has a reviewed baseline to
     /// change from. Without it every later edit is a first use, which is
     /// trusted silently by design.
-    fn bootstrap_trust(&self) {
+    pub(crate) fn bootstrap_trust(&self) {
         self.cmd_ok(&["ls"]);
     }
 
@@ -76,6 +76,7 @@ impl Env {
             dirs: &move || Ok(dirs.clone()),
             hostname: &move || Ok(hostname.clone()),
             editor: None,
+            passphrase_env: None,
             now: &std::time::Instant::now,
             clipboard: &crate::clipboard::fake::unused(),
             clipboard_wait: &|_| {},
@@ -108,7 +109,7 @@ pub(crate) fn commit_routine_change(vault: &Path, device: &str, pubkey: &str) {
 
 /// Edits only the file encryption reads, and commits it: the divergence
 /// `verify` reports and the trust cache refuses to forget.
-fn tamper_recipients_file(vault: &Path, pubkey: &str) {
+pub(crate) fn tamper_recipients_file(vault: &Path, pubkey: &str) {
     let path = vault.join(".age-recipients");
     let mut keys = recipients::read(&path).unwrap();
     keys.push(pubkey.into());
@@ -116,7 +117,7 @@ fn tamper_recipients_file(vault: &Path, pubkey: &str) {
     gitrepo::commit_all(vault, "add a key").unwrap();
 }
 
-fn env_with_vault() -> Env {
+pub(crate) fn env_with_vault() -> Env {
     let env = Env::new();
     env.init(VAULT, &[]);
     env

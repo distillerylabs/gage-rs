@@ -174,6 +174,7 @@ impl Env {
             dirs: &move || Ok(dirs.clone()),
             hostname: &move || Ok(hostname.clone()),
             editor: self.editor.lock().unwrap().clone(),
+            passphrase_env: None,
             now: &std::time::Instant::now,
             clipboard: &self.clip.keeper(),
             clipboard_wait: &|d| self.clip.wait(d),

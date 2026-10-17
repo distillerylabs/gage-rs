@@ -140,6 +140,13 @@ pub enum PromptError {
     /// answer it recognized.
     #[error("gage: no version chosen after {0} attempts")]
     NoResolution(u32),
+    /// The frontend declined to ask, for a reason of its own that it
+    /// words for the person reading the failure: a scripted run with no
+    /// passphrase source, or a new identity's passphrase with nobody to
+    /// type it. Distinct from [`PromptError::Cancelled`], which is a human
+    /// declining, so the message can say what to do about it.
+    #[error("{0}")]
+    Refused(String),
     #[error("prompt failed: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -152,7 +159,8 @@ impl HasCode for PromptError {
         match self {
             PromptError::Cancelled
             | PromptError::TooManyAttempts
-            | PromptError::NoMatchingPassphrase(_) => Code::LockedOrAuth,
+            | PromptError::NoMatchingPassphrase(_)
+            | PromptError::Refused(_) => Code::LockedOrAuth,
             PromptError::NoChoice(_) => Code::Ambiguous,
             // A human must resolve it, and nobody did.
             PromptError::NotInteractive | PromptError::NoResolution(_) => Code::Conflict,
@@ -552,6 +560,10 @@ mod tests {
             (PromptError::Cancelled, Code::LockedOrAuth),
             (PromptError::TooManyAttempts, Code::LockedOrAuth),
             (PromptError::NoMatchingPassphrase(3), Code::LockedOrAuth),
+            (
+                PromptError::Refused("no way to ask".into()),
+                Code::LockedOrAuth,
+            ),
             (
                 PromptError::UnsupportedKind("yubikey".into()),
                 Code::Internal,

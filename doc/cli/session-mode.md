@@ -4,11 +4,10 @@
 shared agent: each is one process holding its own unlocked keys in its
 own memory for as long as it runs.
 
-> **Status.** The interactive session, its metadata index, Tab completion
-> and command abbreviation ship. Scripted sessions (`--script`, `--stdin`)
-> arrive with phase 6 of the
-> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md), and
-> sync (which `use` will also trigger) with phase 4.
+> **Status.** The interactive session, its metadata index, Tab completion,
+> command abbreviation and scripted sessions (`--script`, `--stdin`) ship.
+> Sync (which `use` will also trigger) arrives with phase 4 of the
+> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
 
 ## One-shot mode
 
@@ -130,7 +129,7 @@ one-shot, against the session's current vault and with its key. `--use
 NAME` still works on any command, ad hoc: it unlocks that vault if the
 session doesn't hold it yet, and leaves the current vault where it was.
 
-Three things differ:
+Four things differ:
 
 - **An ambiguous query asks** instead of failing. The candidates are
   listed and you pick one by number:
@@ -151,6 +150,12 @@ Three things differ:
 - **`insert -m` and `insert --value-stdin` are refused**: both read stdin
   to its end, and in a session stdin is the session's own input. Use
   `insert -e`, or run `gage insert` from your shell.
+- **`-c/--clip` schedules instead of waiting.** One-shot, `show -c` holds
+  the process until the clipboard clears. In a session the clear goes on a
+  timer and the prompt comes straight back; ending the session (`exit`,
+  Ctrl-D or end of input) clears anything still pending, so a copy made a
+  second before `exit` doesn't outlive the process that made it. See
+  [Entries](entries.md#copying-and-qr-codes).
 - **`init` is one-shot only.** It creates a vault rather than operating on
   one, which leaves "should the new vault become current?" unanswered, so
   in a session it says so instead of running.
@@ -219,7 +224,8 @@ alone (mode `0600` on Unix, tightened if it already existed). Only typed
 command lines are recorded: a passphrase, a value typed at a prompt, or a
 number typed at the picker never is, and neither is anything a command
 prints. A history file that can't be opened is reported once and the
-session runs without it.
+session runs without it. A [scripted session](#non-interactive-sessions-scripting)
+never opens it: its lines were never typed.
 
 ### Trade-off against a shared agent
 
@@ -228,6 +234,109 @@ anywhere else: each session is its own island, and a second terminal
 unlocks again. That trades some convenience for a smaller blast radius
 (one process, not every shell opened since boot) and no socket whose
 permissions need reasoning about.
+
+## Non-interactive sessions (scripting)
+
+For automation that wants "unlock once, do several things, then gone"
+without a human at a keyboard:
+
+```
+gage --script deploy-secrets.gage      # session commands from a file
+cat commands.txt | gage --stdin        # the same, from stdin
+```
+
+It is the same session as the interactive one: one process holding each
+vault's key from its first use to the end of the run, then dropping it.
+Each vault is unlocked at most once. What differs is deliberate:
+
+- **It stops at the first failing line.** A script has nobody to notice a
+  line that failed halfway down, and carrying on would run the rest
+  against a state its author never anticipated. The message names the
+  source, the line number and the line, and the exit code is the failing
+  command's own:
+
+  ```
+  $ gage --script deploy.gage
+  gage: deploy.gage:3: show NoSuchEntry: no entry matches "NoSuchEntry"
+  $ echo $?
+  3
+  ```
+
+  Under `--stdin` the source is called `<stdin>`. An ambiguous query
+  fails `4` with its candidates listed in the message, as one-shot mode
+  does: nobody is there to pick one.
+- **Blank lines and lines starting with `#` are skipped**, so a script
+  can be commented like any other file. `exit` (or `quit`) ends the run
+  early, successfully.
+- **It writes nothing to the history file**, which records what a human
+  typed at a prompt.
+- **Closing it works like closing a session**: the keys are dropped, and
+  a pending `-c` copy is cleared, whether the run finished, hit `exit`
+  or stopped on a failing line.
+
+`--script` and `--stdin` are mutually exclusive, can't be combined with a
+command (`gage --stdin show foo` asks for a session and a one-shot in one
+breath, so it's refused: put `show foo` on a line instead), and aren't
+available inside a session. A script file that can't be opened exits `2`
+(`usage`).
+
+`insert --value-stdin` and `-m` read stdin to its end, and under `--stdin`
+stdin is the command stream. Don't combine them.
+
+### Where the passphrase comes from
+
+In this fixed order:
+
+1. **`GAGE_PASSPHRASE`**, if it is set in the environment (an empty value
+   is still set).
+2. Otherwise a prompt, but only under `--script` with a terminal on
+   stdin, which leaves stdin free for a human to answer on. `--stdin` has
+   already spent stdin on the command stream and never prompts, even on a
+   terminal.
+3. Otherwise a refusal, exit `5` (`locked-or-auth`), naming the variable:
+
+   ```
+   gage: <stdin>:1: use personal: no way to unlock vault "personal" without a terminal: set GAGE_PASSPHRASE
+   ```
+
+   Never a read that can't be answered, and never a command line taken
+   for a passphrase.
+
+This applies to `--script`/`--stdin` runs and only to them: an ordinary
+one-shot `gage show ...` ignores `GAGE_PASSPHRASE` and prompts.
+
+`GAGE_PASSPHRASE` answers once. A wrong value fails after that one
+attempt, not three, since asking again could only fail the same way.
+
+It only opens an *existing* identity. It is never used for a new one
+(`init`, `identity add`), because a new identity's passphrase can't be
+checked against anything and a typo would silently create a key nobody can
+unlock. That request goes to a human when there is one (`--script FILE` on
+a terminal) and is refused when there isn't:
+
+```
+gage: <stdin>:2: identity add --device laptop-2: creating an identity for vault "personal" needs a passphrase typed by a human, and this run has no terminal to ask on; run it from a shell instead (GAGE_PASSPHRASE is deliberately not used for a new identity)
+```
+
+The refusal consumes nothing: the lines after it are still commands.
+The same goes for an ambiguous query when nobody can be asked to pick.
+A script driving two vaults with different passphrases can't use one
+variable for both: run one `gage --stdin` per vault.
+
+Treat the variable like any secret in the environment: the processes you
+start from that shell can read it.
+
+### `--yes` in a script
+
+`--yes` is for runs with nobody to show a recipient diff to, and a script
+is exactly that: `gage --script deploy.gage --yes` answers the
+[recipient-change confirmation](identities-and-recipients.md#the-recipient-change-confirmation)
+yes for the whole run, and nothing else. Without it, a script that would
+write to a vault whose recipient list changed under it asks as usual where
+a human can answer (`--script FILE` on a terminal), and where nobody can
+it fails `1` (`conflict`) and writes nothing. A `--yes` on a script line is
+accepted and adds nothing beside the run's own. It is still refused in an
+interactive session, where a human is sitting at the prompt.
 
 ## `[shell]` settings
 
@@ -239,6 +348,7 @@ In `$GAGE_CONFIG/config.toml` (see
 prompt = "[{vault}{lock}{dirty}] gage> "
 idle_timeout = "10m"
 history_file = "$GAGE_STATE/history"
+clipboard_timeout = "45s"
 ```
 
 - **`prompt`**: the template above.
@@ -247,6 +357,12 @@ history_file = "$GAGE_STATE/history"
   `"0"` turns the re-lock off. A value that isn't a duration, or a
   negative one, stops the session from starting with exit `2` (`usage`),
   rather than quietly meaning "never re-lock".
+- **`clipboard_timeout`**: how long `show -c` and `generate -c` leave a
+  secret on the clipboard before clearing it, as a duration like
+  `idle_timeout`'s. 45 seconds by default. Anything under one second is
+  an error (there is no `0` to turn the clear off), and so is a value
+  that isn't a duration. See
+  [Entries](entries.md#copying-and-qr-codes).
 - **`history_file`**: a path. `$GAGE_CONFIG`, `$GAGE_DATA` and
   `$GAGE_STATE` expand to gage's roots, and a leading `~` to your home
   directory.
