@@ -230,10 +230,15 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
     }
 
     /// A bare Enter means yes: the one question whose default is to go
-    /// ahead, rendered `[Y/n]` so the default is visible.
+    /// ahead, rendered `[Y/n]` so the default is visible. Only Enter, `y`
+    /// and `yes` accept, as in Go: anything else, a typo included,
+    /// declines, since a yes here commits and pushes.
     fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError> {
         let answer = self.ask(&format!("{prompt} [Y/n] "))?;
-        Ok(!matches!(answer.trim().to_lowercase().as_str(), "n" | "no"))
+        Ok(matches!(
+            answer.trim().to_lowercase().as_str(),
+            "" | "y" | "yes"
+        ))
     }
 
     /// Masked, like a passphrase: the value is a secret, and it is typed
@@ -640,7 +645,9 @@ mod tests {
             ("\n", true),
             ("y\n", true),
             ("yes\n", true),
-            ("garbage\n", true),
+            ("  \n", true),
+            ("garbage\n", false),
+            ("nope\n", false),
             ("n\n", false),
             (" NO \n", false),
         ] {

@@ -82,6 +82,9 @@ pub struct Vault {
     /// commit and push are done and before the source loses the entry.
     /// Zero-sized, and a no-op, outside tests.
     pub(crate) move_hook: MoveHook,
+    /// Called by `enroll` right after its catch-up pull, with the write
+    /// lock still held. Zero-sized, and a no-op, outside tests.
+    pub(crate) enroll_hook: EnrollHook,
     /// The network half of sync; the real git-backed one unless a test
     /// injected another (see `remotesync`).
     pub(crate) syncer: SyncerSeam,
@@ -201,6 +204,37 @@ impl Eq for MoveHook {}
 impl std::fmt::Debug for MoveHook {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("MoveHook")
+    }
+}
+
+/// Called by `enroll` immediately after its pull (Go's `onEnrollPulled`).
+/// A test probes the write lock from it: the pull and the commit must be
+/// one locked sequence, and a probe during the fetch alone can't tell that
+/// from a pull that took and released a lock of its own before enroll
+/// took its own.
+#[derive(Clone, Default)]
+pub(crate) struct EnrollHook(#[cfg(test)] Option<Arc<dyn Fn() + Send + Sync>>);
+
+impl EnrollHook {
+    pub(crate) fn after_pull(&self) {
+        #[cfg(test)]
+        if let Some(hook) = &self.0 {
+            hook();
+        }
+    }
+}
+
+impl PartialEq for EnrollHook {
+    fn eq(&self, _: &EnrollHook) -> bool {
+        true
+    }
+}
+
+impl Eq for EnrollHook {}
+
+impl std::fmt::Debug for EnrollHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("EnrollHook")
     }
 }
 
@@ -431,6 +465,7 @@ impl Vault {
             enrollment_decrypts: DecryptCounter::default(),
             reencrypt_hook: ReencryptHook::default(),
             move_hook: MoveHook::default(),
+            enroll_hook: EnrollHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
         })
@@ -485,6 +520,7 @@ impl Vault {
             enrollment_decrypts: DecryptCounter::default(),
             reencrypt_hook: ReencryptHook::default(),
             move_hook: MoveHook::default(),
+            enroll_hook: EnrollHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
         })
@@ -614,6 +650,7 @@ impl Vault {
             enrollment_decrypts: DecryptCounter::default(),
             reencrypt_hook: ReencryptHook::default(),
             move_hook: MoveHook::default(),
+            enroll_hook: EnrollHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
         }
@@ -655,6 +692,14 @@ impl Vault {
     #[cfg(test)]
     pub(crate) fn with_move_hook(mut self, hook: impl Fn() + Send + Sync + 'static) -> Vault {
         self.move_hook = MoveHook(Some(Arc::new(hook)));
+        self
+    }
+
+    /// The same vault, calling `hook` right after enroll's pull. This
+    /// crate's tests only.
+    #[cfg(test)]
+    pub(crate) fn with_enroll_hook(mut self, hook: impl Fn() + Send + Sync + 'static) -> Vault {
+        self.enroll_hook = EnrollHook(Some(Arc::new(hook)));
         self
     }
 
@@ -1010,6 +1055,7 @@ mod tests {
                 enrollment_decrypts: DecryptCounter::default(),
                 reencrypt_hook: ReencryptHook::default(),
                 move_hook: MoveHook::default(),
+                enroll_hook: EnrollHook::default(),
                 syncer: SyncerSeam::default(),
                 pulled: PullObserver::default(),
             }
@@ -1487,6 +1533,7 @@ mod tests {
                 enrollment_decrypts: DecryptCounter::default(),
                 reencrypt_hook: ReencryptHook::default(),
                 move_hook: MoveHook::default(),
+                enroll_hook: EnrollHook::default(),
                 syncer: SyncerSeam::default(),
                 pulled: PullObserver::default(),
             }

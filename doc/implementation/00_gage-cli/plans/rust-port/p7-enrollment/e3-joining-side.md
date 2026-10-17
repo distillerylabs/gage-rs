@@ -337,14 +337,87 @@ Write each task's tests first, at task granularity. Library rows go in
   - `TestCloneDoesNotOfferWhenThisDeviceAlreadyHoldsAnIdentity`: `clone_does_not_offer_when_this_device_already_holds_an_identity`. Prompt count zero.
   - `TestCloneDeviceFlagCarriesThroughToTheOffer`: `clone_device_flag_carries_through_to_the_offer`
 
-(Rows: 1 + 10 + 5 + 10 + 8 + 18 + 8 = 60, plus 2 inbound.)
+(Rows: 1 + 10 + 5 + 10 + 8 + 18 + 8 = 60, plus 2 inbound. The Opus
+review added three beyond-Go rows to task 3:
+`enroll_is_silent_when_the_clock_is_behind_by_less_than_the_threshold`,
+`enroll_seals_the_passphrase_method_whatever_config_records` and
+`enroll_commits_under_a_message_that_names_nothing`.)
 
 ### 9. Opus review
 
 - [x] Mutation pass over the ⚑ rows, run by the implementing model
-      (Sonnet). **The Opus review this milestone calls for has not been
-      done** and is still the user's call before merge; the table below is
-      its starting point, not a substitute.
+      (Sonnet). The table below is that pass, and the Opus review extends it.
+- [x] Opus review of the ⚑ rows and of "no wrapper answers yes", against
+      Go's `enroll.go`, `enrollremote_test.go`, `prompter.go` and
+      `clone.go` at the pinned SHA. Its rows are marked *Opus review* in
+      the table. All six findings are fixed:
+  - [x] **The lock row doesn't kill the pull-before-lock mutant.** This
+        was run, not reasoned. With `self.pull()` moved ahead of
+        `with_vault_write`, `enroll_holds_the_write_lock_across_the_pull`
+        passes, because `pull()` holds its own lock during the fetch the
+        child probes. Only `enroll_takes_the_dirty_tree_reset_before_it_pulls`
+        failed, and only because the mutant also moved the pull ahead of
+        the reset. A "lock, reset, release, `pull()`, lock again" variant
+        would survive every row. Go kills it with `onEnrollPulled`, a hook
+        fired right after the pull inside `enrollUnderLock`. No existing
+        seam can do that job: the `Prompter` and the push both run inside
+        the second lock, so a probe there sees it held. Fix: a test-only
+        post-pull hook on `Vault` (gated like `with_remote_syncer`), called
+        right after `pull_locked` in `enroll_locked`. Move the child-process
+        probe there, or add a second probe there (the fetch probe also
+        kills "no lock at all").
+        **Fixed:** `EnrollHook` (`vault.rs`), shaped like `MoveHook`, and a
+        second child-process probe in the lock row. A hook placed after the
+        pull isn't enough on its own. Run against a mutant that moved the
+        pull and left the hook where it was, the row still passed, and Go's
+        `onEnrollPulled` has the same gap. So the pull, the divergence check
+        and the hook are one function, `catch_up_for_enroll`. Moving the
+        catch-up outside the lock takes the probe with it ("another process
+        could take the write lock"). Going around it with `pull()` never
+        fires the hook ("the post-pull hook never fired"). Both mutants were
+        run, and the lock row kills each.
+  - [x] **`confirm_default_yes` accepts more than Go does.** Go's
+        `ConfirmDefaultYes` accepts only `""`, `y` and `yes`, and every
+        other answer declines. The terminal prompter here declines only `n`
+        and `no`, and `confirm_default_yes_defaults_to_yes` pins
+        `"garbage" → true`. So a typo such as `nope` or `q` at clone's
+        offer goes on to create an identity, commit and push. Go wins on
+        behavior and no `Q-` entry records this. Fix: match Go, and flip
+        the row's garbage case to `false`. EOF is already correct: it is
+        `PromptError::Cancelled`, not yes. **Fixed**, and the row now also
+        pins `nope` → no and blank → yes.
+  - [x] **The clock warning has no threshold.** Go warns only when HEAD is
+        at least `enrollmentClockSkewThreshold` (1h) ahead of local time.
+        `warn_if_clock_is_behind_head` warns on any lead, so ordinary
+        seconds-to-minutes drift against another device's commit warns.
+        Neither Go's rows nor ours test under an hour. Fix: the 1h constant,
+        plus a beyond-Go row where a commit 10 minutes ahead stays silent.
+        **Fixed:** `CLOCK_SKEW_THRESHOLD`, and
+        `enroll_is_silent_when_the_clock_is_behind_by_less_than_the_threshold`.
+  - [x] **The sealed method should be `METHOD_PASSPHRASE`, as in Go.**
+        `enroll_locked` seals the recorded method, falling back to the
+        vault's `[method].default`. The payload's method describes the
+        identity file `identityfile::create` just wrote, which is always
+        passphrase-wrapped. Today `ALLOWED_METHODS` is passphrase only, so
+        nothing observable breaks. But a default from a newer or
+        hand-edited config fails `seal_enrollment` with `UnknownMethod`
+        *after* the identity is written, which breaks "refused before
+        anything happens". The handler then records that method in global
+        config too. **Fixed:** `METHOD_PASSPHRASE`, and the beyond-Go
+        `enroll_seals_the_passphrase_method_whatever_config_records`
+        (global config records `yubikey`).
+  - [x] **Commit message.** Go commits `gage: enrollment request`; this
+        commits `enrollment request <id>`. Nothing leaks, since the id is
+        already in the filename, but the commit layout is Go's. Fix: Go's
+        message. **Fixed:** `ENROLLMENT_COMMIT_MESSAGE`, and the beyond-Go
+        `enroll_commits_under_a_message_that_names_nothing`.
+  - [x] **`divergence_is_found_by_the_report_rather_than_an_error` re-uses
+        `diverged_pair`,** so it adds only the variant match to
+        `enroll_refuses_a_diverged_pull`. Go builds this row's divergence
+        without enroll (an unrelated local commit), and first asserts the
+        trap's premise: the pull returns `Ok` with `diverged` set. Fix:
+        port both, through `pull()` as Go does, before the enroll call.
+        **Fixed.**
 
 | Mutation | Killed by |
 |---|---|
@@ -357,6 +430,12 @@ Write each task's tests first, at task granularity. Library rows go in
 | `confirm_default_yes` wired to `confirm` | `confirm_default_yes_defaults_to_yes`, `clone_offer_defaults_to_yes` |
 | A wrapper answering `confirm_default_yes` with `Ok(true)` | `no_non_interactive_prompter_answers_confirm_default_yes` (`AssumeYes`), and the delegate macro by that row plus `every_wrapper_passes_through_each_method_it_does_not_answer` |
 | The offer gated on a TTY test instead of create-ability | `non_interactive_clone_never_offers_and_exits_zero`, `the_offer_tracks_where_a_create_can_be_answered` (gate forced open). See the clone note below. |
+| *Opus review:* `pull()` moved ahead of `with_vault_write` (run) | **Survived the lock row** as first written. Killed only incidentally by `enroll_takes_the_dirty_tree_reset_before_it_pulls`, since the pull also moved ahead of the reset. Now killed by `enroll_holds_the_write_lock_across_the_pull` in both forms: the catch-up moved outside the lock, and `pull()` around it (above). |
+| *Opus review:* `confirm_default_yes` treats an unrecognised answer as yes | Was the shipped behavior, unlike Go's. Fixed; now killed by `confirm_default_yes_defaults_to_yes` (`garbage`, `nope`). |
+| *Opus review:* the clock warning fires on any lead, not 1h | Was the shipped behavior, unlike Go's. Fixed; now killed by `enroll_is_silent_when_the_clock_is_behind_by_less_than_the_threshold`. |
+| *Opus review:* a wrapper gains a default-yes body | Can't be written: the trait method has no default body, so every one of the eight impls (terminal, `FakePrompter`, `Passthrough`, `EnvPrompter`, `RefusingPrompter`, `NoCreatePrompter`, `NoChoosePrompter`, `AssumeYes`) is compiled against it. An explicit `Ok(true)` in any wrapper is killed by `no_non_interactive_prompter_answers_confirm_default_yes`, which covers all six wrappers. |
+| *Opus review:* the unreachable fetch maps to `Sync`, not `RemoteUnreachable` | `enroll_with_an_unreachable_remote_fails_before_anything_is_created` (variant and `Unreachable` code) |
+| *Opus review:* a push failure returned as a warning (`push_after_write`) | `enroll_push_rejected_for_write_access_keeps_what_it_made` (it `unwrap_err`s the enroll) |
 
 Clone note: `clone` is one-shot only in gage-rs, so `--stdin` and
 `--script` never reach the offer, and the create-ability rule reduces to

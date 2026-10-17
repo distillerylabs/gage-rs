@@ -176,6 +176,40 @@ fn enroll_seals_the_public_key_this_device_actually_holds() {
     assert_eq!(opened[0].device, B_DEVICE);
 }
 
+// Beyond Go's rows: the sealed method is how this device's key is stored,
+// which `create` just made passphrase-wrapped, whatever global config
+// records. Go hard-codes it the same way.
+#[test]
+fn enroll_seals_the_passphrase_method_whatever_config_records() {
+    let (a, b) = pair();
+    let path = paths::global_config_file(&b.dirs);
+    let mut global = config::read(&path).unwrap();
+    global.vaults.get_mut(&b.vault.name).unwrap().method = "yubikey".into();
+    config::save(&path, &global).unwrap();
+
+    let req = b.vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap();
+
+    assert_eq!(req.method, crate::vault::METHOD_PASSPHRASE);
+    a.vault.pull().unwrap();
+    let opened = open_all(&a.vault, &req.code).unwrap();
+    assert_eq!(opened[0].method, crate::vault::METHOD_PASSPHRASE);
+}
+
+// Beyond Go's rows: Go's commit message, which names no device and no
+// request, like every commit gage writes.
+#[test]
+fn enroll_commits_under_a_message_that_names_nothing() {
+    let (_a, b) = pair();
+    let req = b.vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap();
+
+    let repo = git2::Repository::open(&b.vault.path).unwrap();
+    let head = repo.head().unwrap().peel_to_commit().unwrap();
+    let message = head.message().unwrap();
+    assert_eq!(message.trim_end(), "gage: enrollment request");
+    assert!(!message.contains(&req.id), "{message}");
+    assert!(!message.contains(B_DEVICE), "{message}");
+}
+
 // Go: TestEnrollHonorsTheTTL
 #[test]
 fn enroll_honors_the_ttl() {
@@ -247,15 +281,15 @@ fn enrolled_request_carries_this_vaults_id() {
     assert!(matches!(err, EnrollmentError::WrongVault { .. }), "{err}");
 }
 
-/// A commit on `v`'s branch whose committer time is `hours` from now.
-fn commit_dated(v: &Vault, hours: i64) {
+/// A commit on `v`'s branch whose committer time is `minutes` from now.
+fn commit_dated(v: &Vault, minutes: i64) {
     std::fs::write(v.path.join("dated.txt"), "x").unwrap();
     let repo = git2::Repository::open(&v.path).unwrap();
     let mut index = repo.index().unwrap();
     index.add_path(std::path::Path::new("dated.txt")).unwrap();
     index.write().unwrap();
     let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
-    let when = git2::Time::new(Timestamp::now().as_second() + hours * 3600, 0);
+    let when = git2::Time::new(Timestamp::now().as_second() + minutes * 60, 0);
     let sig = git2::Signature::new("t", "t@example.com", &when).unwrap();
     let parent = repo.head().unwrap().peel_to_commit().unwrap();
     repo.commit(Some("HEAD"), &sig, &sig, "dated", &tree, &[&parent])
@@ -266,7 +300,7 @@ fn commit_dated(v: &Vault, hours: i64) {
 #[test]
 fn enroll_warns_when_this_machines_clock_is_behind_head() {
     let (_a, b) = pair();
-    commit_dated(&b.vault, 48);
+    commit_dated(&b.vault, 48 * 60);
     let p = b_prompter();
 
     let req = b.vault.enroll(B_DEVICE, DAY, &p).unwrap();
@@ -281,6 +315,17 @@ fn enroll_warns_when_this_machines_clock_is_behind_head() {
 #[test]
 fn enroll_is_silent_when_the_clock_looks_fine() {
     let (_a, b) = pair();
+    let p = b_prompter();
+    b.vault.enroll(B_DEVICE, DAY, &p).unwrap();
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+}
+
+// Beyond Go's rows: drift short of the hour threshold is ordinary, and a
+// warning for it would teach people to ignore the one that matters.
+#[test]
+fn enroll_is_silent_when_the_clock_is_behind_by_less_than_the_threshold() {
+    let (_a, b) = pair();
+    commit_dated(&b.vault, 10);
     let p = b_prompter();
     b.vault.enroll(B_DEVICE, DAY, &p).unwrap();
     assert!(p.warnings().is_empty(), "{:?}", p.warnings());
@@ -441,35 +486,60 @@ fn lock_is_held_child() {
     assert!(got.is_none(), "another process could take the write lock");
 }
 
+/// Asserts, from a child process, that `lock_file` is held by someone
+/// else right now.
+fn assert_another_process_cannot_take(lock_file: &std::path::Path) {
+    let out = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "enrollment::enroll_tests::lock_is_held_child",
+            "--exact",
+            "--nocapture",
+        ])
+        .env(super::seal_tests::CHILD_ENV, "1")
+        .env(HOLDS_THE_LOCK_ENV, lock_file)
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "the child failed:\n{stderr}");
+    assert!(
+        stderr.contains("CHILD RAN"),
+        "the child never ran:\n{stderr}"
+    );
+}
+
 // Go: TestEnrollHoldsTheWriteLockAcrossThePull. A child process, because
 // file-lock semantics are per open file description: a thread would pass
 // whether or not the lock was held.
+//
+// Probed twice. During the fetch, which kills "no lock at all". And, as
+// Go does, right after the pull returns: a pull that took and released a
+// lock of its own (`pull()` ahead of `with_vault_write`) passes the first
+// probe, and only the second sees the lock free.
 #[test]
 fn enroll_holds_the_write_lock_across_the_pull() {
     let (_a, b) = pair();
     let lock_file = b.vault.prepare_lock_file().unwrap();
     let mut syncer = TestSyncer::new(&b.vault);
+    let during_fetch = lock_file.clone();
     syncer.on_fetch = Some(Box::new(move || {
-        let out = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "enrollment::enroll_tests::lock_is_held_child",
-                "--exact",
-                "--nocapture",
-            ])
-            .env(super::seal_tests::CHILD_ENV, "1")
-            .env(HOLDS_THE_LOCK_ENV, &lock_file)
-            .output()
-            .unwrap();
-        let stderr = String::from_utf8_lossy(&out.stderr);
-        assert!(out.status.success(), "the child failed:\n{stderr}");
-        assert!(
-            stderr.contains("CHILD RAN"),
-            "the child never ran:\n{stderr}"
-        );
+        assert_another_process_cannot_take(&during_fetch)
     }));
-    let vault = b.vault.clone().with_remote_syncer(Arc::new(syncer));
+    let probed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let after_pull = Arc::clone(&probed);
+    let vault = b
+        .vault
+        .clone()
+        .with_remote_syncer(Arc::new(syncer))
+        .with_enroll_hook(move || {
+            assert_another_process_cannot_take(&lock_file);
+            after_pull.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
 
     vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap();
+    assert!(
+        probed.load(std::sync::atomic::Ordering::SeqCst),
+        "the post-pull hook never fired, so nothing was asserted"
+    );
 }
 
 // Go: TestUncontendedEnrollNeverReportsContention
@@ -553,17 +623,36 @@ fn enroll_refuses_a_diverged_pull() {
     assert!(p.unlock_requests().is_empty());
 }
 
-// Go: TestDivergenceIsFoundByTheReportRatherThanAnError. Asserts the
-// refusal, not "some error": a pull that cannot fast-forward succeeds, and
-// only the report says so.
+// Go: TestDivergenceIsFoundByTheReportRatherThanAnError. Diverged
+// without going near enroll: a local commit here, an unrelated one on the
+// remote. Asserts the trap's premise first (the pull succeeds and only
+// its report says diverged), then the refusal itself, not "some error".
 #[test]
 fn divergence_is_found_by_the_report_rather_than_an_error() {
-    let (_a, b) = diverged_pair();
-    let err = b
+    let (a, b) = pair();
+    a.other()
+        .write_commit_push("notes.txt", "theirs", "the remote moved");
+    std::fs::write(b.vault.path.join("LOCAL"), "mine").unwrap();
+    gitrepo::commit_all(&b.vault.path, "a local commit").unwrap();
+
+    let report = b
         .vault
-        .enroll(B_DEVICE, DAY, &FakePrompter::new())
-        .unwrap_err();
+        .pull()
+        .expect("a pull over a divergence succeeds; this row exists because it does");
+    assert!(report.diverged, "the fixture is not diverged");
+
+    let before = commits(&b.vault);
+    let p = FakePrompter::new();
+    let err = b.vault.enroll(B_DEVICE, DAY, &p).unwrap_err();
+
     assert!(matches!(err, EnrollmentError::Diverged { .. }), "{err:?}");
+    assert_eq!(err.code(), Code::Conflict);
+    assert!(p.unlock_requests().is_empty());
+    assert_eq!(
+        commits(&b.vault),
+        before,
+        "committed onto a diverged branch"
+    );
 }
 
 // Go: TestEnrollTakesTheDirtyTreeResetBeforeItPulls
