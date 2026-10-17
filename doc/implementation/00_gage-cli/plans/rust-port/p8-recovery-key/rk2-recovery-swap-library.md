@@ -343,7 +343,7 @@ these, in the style of Go's `newRecoverFixture`:
 
 - [x] All 25 rows ported; none struck. 27 tests: the 25 rows, plus the two above.
 - [x] Ledger §1 #16 and #18 noted `[~]`. #16's relative-path guard and #18's command are RK3's.
-- [~] `make lint`, `make test`: clean locally (886 library tests). CI on Linux, macOS and Windows: pending, after the push.
+- [x] `make lint`, `make test` (886 library tests); CI on Linux, macOS and Windows (PR [#81](https://github.com/distillerylabs/gage-rs/pull/81), commit 03a6d02: lint 39070794101, test 39070794133 and audit 39070794083 all pass).
 
 ## Definition of done
 
