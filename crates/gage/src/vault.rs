@@ -70,6 +70,10 @@ pub struct Vault {
     dirs: Dirs,
     locker: LockerSeam,
     pub(crate) decrypts: DecryptCounter,
+    /// Enrollment open attempts, one per scrypt run against a sealed
+    /// request: what proves "rejected before any decryption" (Go's
+    /// `onEnrollmentDecrypt`). Zero-sized, and a no-op, outside tests.
+    pub(crate) enrollment_decrypts: DecryptCounter,
     /// The re-encryption crash seam (Q-CRASH-SEAM): called after each
     /// entry a re-encryption writes. Zero-sized, and a no-op, outside
     /// tests.
@@ -424,6 +428,7 @@ impl Vault {
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
+            enrollment_decrypts: DecryptCounter::default(),
             reencrypt_hook: ReencryptHook::default(),
             move_hook: MoveHook::default(),
             syncer: SyncerSeam::default(),
@@ -477,6 +482,7 @@ impl Vault {
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
+            enrollment_decrypts: DecryptCounter::default(),
             reencrypt_hook: ReencryptHook::default(),
             move_hook: MoveHook::default(),
             syncer: SyncerSeam::default(),
@@ -605,6 +611,7 @@ impl Vault {
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
+            enrollment_decrypts: DecryptCounter::default(),
             reencrypt_hook: ReencryptHook::default(),
             move_hook: MoveHook::default(),
             syncer: SyncerSeam::default(),
@@ -661,6 +668,14 @@ impl Vault {
     #[cfg(any(test, feature = "test-support"))]
     pub fn decrypt_count(&self) -> usize {
         self.decrypts.0.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Enrollment open attempts this vault and its clones have made.
+    #[cfg(test)]
+    pub(crate) fn enrollment_decrypt_count(&self) -> usize {
+        self.enrollment_decrypts
+            .0
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// This vault's write lock file, keyed by its id (so two registrations
@@ -992,6 +1007,7 @@ mod tests {
                 dirs: test_dirs(),
                 locker: LockerSeam::default(),
                 decrypts: DecryptCounter::default(),
+                enrollment_decrypts: DecryptCounter::default(),
                 reencrypt_hook: ReencryptHook::default(),
                 move_hook: MoveHook::default(),
                 syncer: SyncerSeam::default(),
@@ -1468,6 +1484,7 @@ mod tests {
                 dirs: test_dirs(),
                 locker: LockerSeam::default(),
                 decrypts: DecryptCounter::default(),
+                enrollment_decrypts: DecryptCounter::default(),
                 reencrypt_hook: ReencryptHook::default(),
                 move_hook: MoveHook::default(),
                 syncer: SyncerSeam::default(),

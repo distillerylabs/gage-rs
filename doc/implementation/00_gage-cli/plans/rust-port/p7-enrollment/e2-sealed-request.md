@@ -92,63 +92,154 @@ Init TDD sections:
 ## Decisions to make first
 
 [Q-ENROLL-SCRYPT-HOOK](../open-questions.md#q-enroll-scrypt-hook) and
-[Q-CROCKFORD](../open-questions.md#q-crockford) settle the shape. What is
-left to pin down before code:
+[Q-CROCKFORD](../open-questions.md#q-crockford) settle the shape. The
+rest were resolved at the start of the milestone, from Go's
+`enrollcode.go`, `enrollseal.go` and `enrollment.go` at the pinned SHA.
+All were reviewed before any code. Where an answer departs from Go,
+the bullet says so.
 
-- **Module layout.** A new `crates/gage/src/enrollment/` module: `code`,
-  `seal`, `name` (filename build and parse), and `mod.rs` (the `Vault`
-  methods, the types, `EnrollmentError`). Tests in `enrollment/*_tests.rs`,
-  following the crate's `*_tests.rs` convention.
-- **Types and signatures**, Go's names in Rust form:
-  - `PendingRequest`: id, expiry and path, from the filename.
-  - `OpenedRequest`: device, pubkey, method, created, expires and the
-    `PendingRequest`. It has no vault-id field: every one that exists is
-    for this vault.
-  - `EnrollmentRequest`: E3's return value; only the sealing half here.
-  - `fn pending_enrollments(&self) -> Result<Vec<PendingRequest>, EnrollmentError>`
-  - `fn open_enrollment(&self, requests: &[PendingRequest], codes: &[Zeroizing<String>]) -> Result<Vec<OpenedRequest>, EnrollmentError>`
-  - `fn resolve_enrollment(&self, id: &str) -> Result<PendingRequest, EnrollmentError>`
+- **Module layout [resolved].** A new `crates/gage/src/enrollment/`
+  module:
+  - `code.rs`: generation, normalization and validation.
+  - `seal.rs`: the payload, sealing, one open attempt, and payload
+    validation.
+  - `name.rs`: filename build and parse, `canonical_uuid`, and
+    `expiry_live`.
+  - `mod.rs`: the constants, the types, `EnrollmentError`, and the
+    `Vault` methods (listing, opening, resolution, pruning).
 
-  None of the three takes an `Identity`. That is the contract E4's late
-  unlock rests on. Decide whether codes travel as `Zeroizing<String>`
-  (recommended, as passphrases do) and whether the sealing entry point is
-  `pub(crate)` (E3 is its only caller).
-- **`EnrollmentError`**, one `thiserror` enum whose variants follow the
-  TDD's table: `CodeWrong` (`LockedOrAuth`, also returned for a malformed
-  code), `Expired`, `ClockSkew`, `IdMismatch`, `MalformedRequest`,
-  `WrongVault { vault }`, `TooManyPending` (all `Conflict`), `NoSuchRequest`
-  (`NotFound`), `Ambiguous(RequestCandidates)` (`Ambiguous`,
-  [Q-ENROLL-AMBIGUOUS](../open-questions.md#q-enroll-ambiguous)) and an
-  invalid TTL (`Usage`). E3 and E4 add their own variants. `WrongVault`
-  carries the local name of the vault the request is for, looked up from
-  global config, falling back to the id. Reading global config from the
-  library is precedented (`unlock` does it).
-- **Scrypt construction under P2's guards.**
-  - Sealing goes through `crypt::Recipient::passphrase_at(code,
-    enrollment_work_factor())`.
-  - Opening goes through the one scrypt identity constructor, which sets
-    `max_work_factor(SCRYPT_MAX_WORK_FACTOR)`.
-  - `ENROLLMENT_SCRYPT_WORK_FACTOR: u8 = 14` is its own const, with
-    D-ENROLL-SEAL-COST's reasoning in its comment and an instruction not
-    to merge it with `SHIPPED_SCRYPT_WORK_FACTOR`. It gets a live atomic
-    and `set_enrollment_work_factor_for_tests` (`cfg(test)` /
-    `test-support`).
-  - `testsupport::fast_scrypt()` lowers both factors.
-  - Check whether 22 is the right cap for a seal written at 14. Go uses
-    the identity file's cap for both.
-- **Decrypt-count instrumentation.** The "rejected before any decryption"
-  and "never opened" rows need a count of decryption attempts. Use a
-  test-only hook in the `reencrypt_hook` style (`vault.rs`), not a new
-  public seam.
-- **The payload size bound.** `MAX_PENDING_REQUEST_BYTES = 16 * 1024`.
-  It is checked from the directory entry's metadata before any read, and
-  again on the decrypted payload by reading at most limit+1 bytes from
-  age's reader.
-- **The clock.** The expiry, ceiling and skew rows need "now". Decide
-  whether the library reads `jiff::Timestamp::now()` and tests build
-  payloads relative to it (Go's approach), or takes an injected clock.
-  Prefer Go's approach unless a row can't be written honestly without
-  one.
+  The tests follow Go's files, so each inventory row has an obvious home:
+  `code_tests.rs`, `seal_tests.rs`, `payload_tests.rs`, `expiry_tests.rs`,
+  `inert_tests.rs`, `name_tests.rs` and `listing_tests.rs` (Go's
+  `enrollment_test.go` plus the prune row). Their shared fixtures
+  (`seal_into`, `hand_seal`, `good_payload`, `write_pending`, `open_all`,
+  `assert_enrollment_error`) live in `enrollment/fixtures_tests.rs`.
+  The `_tests.rs` suffix keeps them out of `crypt`'s source scans.
+- **Types and signatures [resolved].** Go's names in Rust form.
+  Timestamps are `jiff::Timestamp`, which the crate already uses for
+  entries. The TTL is a `std::time::Duration`, because E3's `--ttl` goes
+  through `shell.rs`'s `parse_duration`, and that returns one.
+  - `PendingRequest { id: String, path: PathBuf, expires: Timestamp }`:
+    built from the filename. `expires` is unauthenticated.
+  - `OpenedRequest { id, device, pubkey, method: String, created,
+    expires: Timestamp }`. Flat, as in Go and the TDD's library surface.
+    It doesn't nest the `PendingRequest`. It has no vault-id field.
+  - `EnrollmentRequest { id, device, pubkey, method, created, expires,
+    code: Zeroizing<String>, published: bool }`. It has all of Go's
+    fields, because the TDD fixes its shape. Nothing in E2 sets
+    `published`.
+  - `pub fn pending_enrollments(&self) -> Result<Vec<PendingRequest>, EnrollmentError>`
+  - `pub fn open_enrollment(&self, requests: &[PendingRequest], codes: &[Zeroizing<String>]) -> Result<Vec<OpenedRequest>, EnrollmentError>`
+  - `pub fn resolve_enrollment(&self, id: &str) -> Result<PendingRequest, EnrollmentError>`
+  - `pub(crate) fn seal_enrollment(&self, device, pubkey, method, ttl) -> Result<(EnrollmentRequest, Vec<u8>), EnrollmentError>`.
+    Crate-private, because E3's `enroll` is its only caller. The
+    normalized code it passes to age is `Zeroizing` as well.
+  - `pub(crate) fn prune_pending_enrollments(&self) -> Result<Vec<String>, EnrollmentError>`.
+    Crate-private, because E4 wires it into the recipient writes.
+
+  Codes travel as `Zeroizing<String>`, as passphrases do. None of the
+  three public methods takes an `Identity`, which
+  `pending_directory_needs_no_identity` pins.
+
+  **TTL deviation, recorded here:** a negative `std::time::Duration`
+  can't be built, so `seal_rejects_ttls_outside_the_ceiling` covers zero
+  and the ceiling. A negative `--ttl` is refused when E3 parses it
+  (`identity_enroll_refuses_an_unusable_ttl`).
+- **`EnrollmentError` [resolved].** One `#[non_exhaustive]` `thiserror`
+  enum. Its variants and codes follow the TDD's table and Go's `exitcode`
+  wrapping:
+
+  | Variant | Code | Raised by |
+  |---|---|---|
+  | `CodeWrong` | `LockedOrAuth` | `open_enrollment`. Covers a code that opens nothing and a code that fails validation, deliberately. |
+  | `Expired { expires }` | `Conflict` | open (the sealed expiry, after the ceiling clamp) |
+  | `ClockSkew { created, expires }` | `Conflict` | open |
+  | `IdMismatch { sealed, filed }` | `Conflict` | open |
+  | `MalformedRequest { reason }` | `Conflict` | open. Also covers a decrypted payload over the limit. |
+  | `WrongVault { vault, this }` | `Conflict` | open. `vault` is `"work" (id …)` from this device's registry, or `the vault with id …`. `this` is the local name of the vault being opened. |
+  | `TooManyPending { pending, limit }` | `Conflict` | open, before any decryption. The message names approving or denying by id. |
+  | `NoSuchRequest { id }` | `NotFound` | resolve |
+  | `Ambiguous(RequestCandidates { id, matches: Vec<PendingRequest> })` | `Ambiguous` | resolve ([Q-ENROLL-AMBIGUOUS](../open-questions.md#q-enroll-ambiguous)) |
+  | `InvalidTtl { ttl }` | `Usage` | seal: zero or above the ceiling |
+  | `InvalidDevice { device }`, `InvalidPubkey(agekey::Error)`, `UnknownMethod { method }` | `Usage` | seal (Go's `sealEnrollment` checks) |
+  | `NoVaultId` | `Internal` | seal, when the vault's id isn't a canonical UUID |
+  | `Random(rand_core::Error)`, `CodeMismatch`, `Encode(String)`, `Seal(crypt::Error)`, `Io { path, source }` | `Internal` | the OS RNG, the generator/normalizer disagreeing (Go's unreachable check), TOML encoding, age, and reading or pruning `pending/` |
+
+  E3 and E4 add their own variants. `WrongVault`'s registry lookup reads
+  global config through `self.dirs`, as `unlock` does. If the registry is
+  missing or unreadable, the message loses the name and nothing else.
+- **Scrypt construction under P2's guards [resolved].**
+  - `SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR: u8 = 14` lives in `crypt.rs`
+    next to `SHIPPED_SCRYPT_WORK_FACTOR`, named as its twin is, so the source-scan guard is extended in
+    place. Its comment carries Go's D-ENROLL-SEAL-COST reasoning and the
+    coupling to the code's 80 bits.
+  - It has a live `AtomicU8` (`ENROLLMENT_SCRYPT_WORK_FACTOR`),
+    `enrollment_scrypt_work_factor()`, and
+    `set_enrollment_work_factor_for_tests` under `cfg(any(test, feature =
+    "test-support"))`. `fast_scrypt()` lowers both factors to
+    `TEST_SCRYPT_WORK_FACTOR`.
+  - Sealing calls `Recipient::passphrase_at(code,
+    enrollment_scrypt_work_factor())`, which becomes `pub(crate)`. That
+    keeps the one `scrypt::Recipient::new` site.
+  - Opening goes through `crypt::scrypt_identity`, the one capped
+    constructor, at the enrollment cap. age-rust's `scrypt::Identity::new` runs a calibration
+    pass at 2^10 (about a millisecond), so building one per attempt, as
+    Go does, costs nothing worth avoiding.
+  - The shipped-factor row runs in a child process that never called the
+    hook, as `shipped_work_factor_reaches_a_real_age_file` already does.
+    Go lowers and then restores a global, which would race the other
+    tests here.
+  - `wrong_code_against_a_full_directory_is_fast` and
+    `enrollment_and_identity_work_factors_are_independent` run in child
+    processes too. The first needs the shipped factor. The second moves
+    both live factors, and in-process that would race every test reading
+    them, such as `scrypt_work_factor_is_actually_applied`.
+  - **The cap [resolved, departs from Go:
+    [Q-ENROLL-SCRYPT-CAP](../open-questions.md#q-enroll-scrypt-cap)].**
+    The open path caps a claimed factor at
+    `ENROLLMENT_SCRYPT_MAX_WORK_FACTOR = 18`, not the identity file's 22.
+    Go uses 22 for both. With r=8, scrypt needs 1 KiB × N of memory, so
+    one `pending/` file claiming 22 costs 4 GiB and about 8× a factor-19
+    unlock, and any git writer can commit 32 of them. 18 is four
+    doublings above what gage seals at, the same headroom age's own
+    default cap leaves. At 18, a hostile file costs 256 MiB and ~0.35 s.
+    `scrypt_identity` takes the cap as a parameter, and the
+    every-identity-caps guard accepts only the two named cap constants.
+- **Decrypt-count instrumentation [resolved].** `Vault` gets a second
+  `DecryptCounter`, `enrollment_decrypts`, reusing the existing
+  zero-sized-outside-tests type. Each open attempt bumps it just before
+  age runs, and a `cfg(test)` `enrollment_decrypt_count()` reads it. It is
+  observation, not a seam: nothing can be faked through it.
+- **The size bounds [resolved].** `MAX_PENDING_REQUEST_BYTES = 16 * 1024`
+  is checked in three places:
+  - **Listing:** from the directory entry's metadata, before any read.
+  - **Opening:** by reading at most limit+1 bytes of each file it is
+    handed, since the caller may not have listed.
+  - **The decrypted payload:** by reading at most limit+1 bytes from
+    age's reader.
+
+  The third needs `crypt::decrypt_with_limit`. `decrypt_with` becomes the
+  unlimited case of it, so there is still one place ciphertext becomes
+  plaintext. Over-limit is reported as its own outcome, not as an error,
+  so the caller maps it to `MalformedRequest`. The open-attempt function
+  returns Go's three outcomes as an enum: `NotOpened`,
+  `Opened(OpenedRequest)`, `Refused(EnrollmentError)`.
+- **The clock [resolved]: Go's approach.** The public methods read
+  `jiff::Timestamp::now()` once per call. The crate-private validator and
+  the open attempt take `now` as a parameter, as Go's do. Tests build
+  payloads relative to the real now, and no row needs an injected clock.
+- **The code's randomness [resolved].** Ten bytes from `OsRng`
+  (`rand_core`, as `generate` uses), split into sixteen 5-bit groups.
+  There's no rejection sampling, because 32 divides evenly. Generation
+  takes no RNG parameter. The fixed-seed mutation in task 8 is killed by
+  `successive_codes_differ`, and if that turns out to be too weak, by a
+  source scan like `generate`'s.
+- **Payload parsing [resolved].** Every payload field is a `String` with
+  `#[serde(default)]`, as in Go. An absent field then reaches its own
+  validation check, so an absent `vault_id` is reported as "not a UUID",
+  not as "not TOML". UUIDs must be canonical (lowercase 8-4-4-4-12, not
+  nil), via the `uuid` crate's parse and re-print. Timestamps are parsed
+  as RFC 3339 into `jiff::Timestamp` and written as UTC whole seconds.
 
 ## Tasks
 
@@ -156,8 +247,8 @@ Write each task's tests first, at task granularity.
 
 ### 1. The code — 7 rows
 
-- [ ] Generation, normalization and validation (`enrollment/code.rs`).
-- [ ] Rows:
+- [x] Generation, normalization and validation (`enrollment/code.rs`).
+- [x] Rows:
   - `TestGeneratedCodeHasTheDocumentedShape`: `generated_code_has_the_documented_shape`
   - `TestGeneratedCodesAvoidTheAmbiguousLetters`: `generated_codes_avoid_the_ambiguous_letters`. Over many generations: never `I`, `L`, `O` or `U`.
   - `TestGeneratedCodesNormalizeToThemselves`: `generated_codes_normalize_to_themselves`
@@ -168,13 +259,13 @@ Write each task's tests first, at task granularity.
 
 ### 2. The work factor — 4 rows + 2 inbound ⚑
 
-- [ ] The const, the live atomic, the setter, and `fast_scrypt` lowering both.
-- [ ] Rows:
+- [x] The const, the live atomic, the setter, and `fast_scrypt` lowering both.
+- [x] Rows:
   - `TestEnrollmentScryptWorkFactorIsDeliberate` ⚑: `enrollment_scrypt_work_factor_is_deliberate`. Asserts the shipped const is 14.
   - `TestEnrollmentAndIdentityWorkFactorsAreIndependent` ⚑: `enrollment_and_identity_work_factors_are_independent`. Both directions.
   - `TestShippedEnrollmentWorkFactorReachesARealAgeFile` ⚑: `shipped_enrollment_work_factor_reaches_a_real_age_file`. Read the factor back out of a fresh seal's own scrypt stanza.
   - `TestHostileWorkFactorCostsABoundedWait` ⚑: `hostile_work_factor_costs_a_bounded_wait`. A hand-built blob claiming 2^30 is refused promptly.
-- [ ] Inbound (in `crypt.rs`):
+- [x] Inbound (in `crypt.rs`):
   - `only_the_test_hooks_write_the_work_factors`, extended. The enrollment atomic is stored only in its setter.
   - `every_scrypt_identity_caps_its_work_factor`, extended. The open path's identity comes from the one capped constructor.
 
@@ -182,8 +273,8 @@ Write each task's tests first, at task granularity.
 
 ### 3. Seal and open — 10 rows ⚑
 
-- [ ] The payload (serde TOML), the sealing entry point that validates the TTL, and `open_enrollment` with the bound and the scope.
-- [ ] Rows (`enrollment/seal_tests.rs`):
+- [x] The payload (serde TOML), the sealing entry point that validates the TTL, and `open_enrollment` with the bound and the scope.
+- [x] Rows (`enrollment/seal_tests.rs`):
   - `TestSealRoundTripsThroughItsOwnCode`: `seal_round_trips_through_its_own_code`
   - `TestWrongCodeOpensNothing` ⚑: `wrong_code_opens_nothing`. `CodeWrong`.
   - `TestRetypedCodesOpenTheSameRequest`: `retyped_codes_open_the_same_request`
@@ -197,7 +288,7 @@ Write each task's tests first, at task granularity.
 
 ### 4. The payload is untrusted input — 9 rows ⚑
 
-- [ ] Field validation before `OpenedRequest` exists:
+- [x] Field validation before `OpenedRequest` exists:
   - `devicename::valid` on the device
   - `agekey` on the pubkey
   - the one-value `method` allowlist (`passphrase`)
@@ -206,7 +297,7 @@ Write each task's tests first, at task granularity.
 
   Then the `vault_id` comparison. A malformed file is skipped, not fatal
   to the run.
-- [ ] Rows (`enrollpayload_test.go` and the rest of `enrollseal_test.go`):
+- [x] Rows (`enrollpayload_test.go` and the rest of `enrollseal_test.go`):
   - `TestMalformedPayloadsAreRefusedAsMalformed` ⚑: `malformed_payloads_are_refused_as_malformed`. Covers:
     - a device outside the allowlist, including ANSI escapes and a newline
     - a bad pubkey
@@ -226,8 +317,8 @@ Write each task's tests first, at task granularity.
 
 ### 5. Filenames and expiry — 10 rows
 
-- [ ] Filename build and parse, with the UUID and epoch halves validated independently. The TTL ceiling (7 days) and default (24h). The sealed-expiry clamp, compared against now, not `created`. The clock-skew rule (`expires` before `created`).
-- [ ] Rows:
+- [x] Filename build and parse, with the UUID and epoch halves validated independently. The TTL ceiling (7 days) and default (24h). The sealed-expiry clamp, compared against now, not `created`. The clock-skew rule (`expires` before `created`).
+- [x] Rows:
   - `TestPendingFileNameRoundTrips`: `pending_file_name_round_trips`
   - `TestPendingFileNameParserSkipsStrays`: `pending_file_name_parser_skips_strays`
   - `TestDefaultTTLIsWithinTheCeiling`: `default_ttl_is_within_the_ceiling`
@@ -241,8 +332,8 @@ Write each task's tests first, at task granularity.
 
 ### 6. Listing, resolution, pruning — 10 rows
 
-- [ ] `pending_enrollments`, `resolve_enrollment`, and pruning (crate-private: E4 wires it into every recipient write).
-- [ ] Rows (`enrollment_test.go`, `enrollprune_test.go`):
+- [x] `pending_enrollments`, `resolve_enrollment`, and pruning (crate-private: E4 wires it into every recipient write).
+- [x] Rows (`enrollment_test.go`, `enrollprune_test.go`):
   - `TestPendingEnrollmentsReportsZeroWithoutTheDirectory`: `pending_enrollments_reports_zero_without_the_directory`
   - `TestPendingEnrollmentsSkipsStrays`: `pending_enrollments_skips_strays`
   - `TestPendingEnrollmentsFiltersExpiredWithoutDeleting`: `pending_enrollments_filters_expired_without_deleting`
@@ -256,7 +347,7 @@ Write each task's tests first, at task granularity.
 
 ### 7. Inertness and cost — 5 rows ⚑
 
-- [ ] Rows (`enrollinert_test.go`, the rest of `enrollseal_test.go`):
+- [x] Rows (`enrollinert_test.go`, the rest of `enrollseal_test.go`):
   - `TestPendingRequestGrantsNoDecryption` ⚑: `pending_request_grants_no_decryption`. An entry written while a valid request for key K is pending is not decryptable by K.
   - `TestPendingRequestsAreNotRecipients` ⚑: `pending_requests_are_not_recipients`. `recipient list` omits them, and `recipient verify` is in sync with ten pending.
   - `TestPendingDirectoryNeedsNoIdentity`: `pending_directory_needs_no_identity`
@@ -267,31 +358,70 @@ Write each task's tests first, at task granularity.
 
 ### 8. Opus review
 
-- [ ] Opus review of the ⚑ rows, by mutation. Apply each mutation, run
+- [x] Opus review of the ⚑ rows, by mutation. Apply each mutation, run
       the suite, and record what killed it.
 
 | Mutation | Killed by |
 |---|---|
-| The seal reads the identity work factor | |
-| The open path doesn't cap the claimed factor | |
-| Code validation runs after the first decryption | |
-| A malformed code returns a different error from a wrong one | |
-| `open_enrollment` reads `pending/` instead of its argument | |
-| The 32 bound counts expired files | |
-| `vault_id` not compared, or compared after `OpenedRequest` is built | |
-| Device validation skipped | |
-| Size bound only on the ciphertext | |
-| Sealed expiry not clamped to the ceiling | |
-| Expiry compared against `created` | |
-| The code from a different RNG (fixed seed) | |
+| The seal reads the identity work factor | `shipped_enrollment_work_factor_reaches_a_real_age_file`, `enrollment_and_identity_work_factors_are_independent` |
+| The open path doesn't cap the claimed factor | `every_scrypt_identity_caps_its_work_factor`, `claimed_factor_is_capped_at_the_enrollment_cap`. `hostile_work_factor_costs_a_bounded_wait` alone does not kill it: age-rust's own default cap (its calibrated target + 4) still refuses 2^30. |
+| The open path caps at the identity file's 22 (Q-ENROLL-SCRYPT-CAP) | `claimed_factor_is_capped_at_the_enrollment_cap` |
+| Code validation runs after the first decryption | `malformed_code_is_rejected_before_any_decryption` |
+| A malformed code returns a different error from a wrong one | `malformed_code_is_rejected_before_any_decryption` |
+| `open_enrollment` reads `pending/` instead of its argument | `id_scoped_run_passes_the_bound_by_construction`, `scope_is_honoured_not_treated_as_a_hint` |
+| The 32 bound counts expired files | `the_bound_counts_live_requests_only`, `id_scoped_run_passes_the_bound_by_construction` |
+| `vault_id` not compared | `request_sealed_for_another_vault_is_refused`. "Compared after `OpenedRequest` is built" has no observable form here: the one function returns either the value or the refusal. |
+| Device validation skipped | `malformed_payloads_are_refused_as_malformed`, `malformed_payload_does_not_poison_the_run` |
+| Size bound only on the ciphertext | `decrypted_payload_is_bounded_too` |
+| Sealed expiry not clamped to the ceiling | `sealed_expiry_beyond_the_ceiling_is_expired`, `expiry_is_compared_against_now_not_created` |
+| Expiry compared against `created` | `expiry_comes_from_the_seal_not_the_filename`, `clock_skew_is_its_own_error` |
+| The code from a different RNG (fixed seed) | `successive_codes_differ`, `wrong_code_opens_nothing`, `wrong_code_against_a_full_directory_is_fast`, and three more |
+| *Added:* the read-time size bound dropped | `oversized_file_is_skipped_even_when_handed_in_directly` |
+| *Added:* the sealed id not compared to the filename | `sealed_id_must_match_the_filename` |
+| *Added:* clock skew folded into expiry | `clock_skew_is_its_own_error` |
+| *Added:* a refusal returned even though another request opened | **Survived Go's rows.** Killed by the new `a_refusal_does_not_displace_a_request_that_opened` |
+| *Added:* the open path follows symlinks and FIFOs | the new `symlinks_in_pending_are_never_followed` (Unix) |
 
-- [ ] An Opus read of the code and the ⚑ rows against the TDD's
+The mutations were applied one at a time by a script, each followed by
+`cargo test -p gage --lib -- enrollment:: crypt::`.
+
+- [x] An Opus read of the code and the ⚑ rows against the TDD's
       "reframe", "untrusted input" and `D-ENROLL-SEAL-COST` sections.
       Record what it found here.
 
+  Findings:
+  - **The open path followed symlinks.** Fixed. Listing already skipped
+    anything but a regular file, because `DirEntry::metadata` doesn't
+    follow links. But `read_pending_file` opened whatever path it was
+    handed. A committed symlink to a FIFO would block the open forever.
+    That hang is open in Go: its listing keeps symlinks and `os.Open`
+    follows them. The open path now refuses anything whose own metadata
+    isn't a regular file (`symlinks_in_pending_are_never_followed`).
+  - **Go's poisoning row can't see one of the two poisoning orders.**
+    Fixed with a new row; see the table.
+  - **The cap.** Q-ENROLL-SCRYPT-CAP, settled before code.
+  - **Timestamps are parsed by `jiff`, which accepts more than RFC 3339:**
+    a space for the `T`, and bracketed annotations. Accepted. The
+    timestamps are sealed by a code-holder, the result is a validated
+    instant, and nothing about the spelling is shown or stored.
+  - **Attacker-supplied strings in refusal messages** (`request_id`,
+    `method`, the timestamps) are `Debug`-quoted, so control characters
+    reach a terminal escaped. The device name is never echoed. A message
+    is at most the 16 KiB payload bound.
+  - **Nothing in the open path reads git history, takes the lock, or
+    writes a file.** Opening deletes nothing
+    (`the_bound_counts_live_requests_only`). Pruning is crate-private and
+    unwired until E4.
+
+  Rows beyond Go's 55, each named in its file:
+  - `claimed_factor_is_capped_at_the_enrollment_cap` (Q-ENROLL-SCRYPT-CAP)
+  - `absent_payload_fields_are_malformed_not_unparseable`
+  - `a_refusal_does_not_displace_a_request_that_opened`
+  - `symlinks_in_pending_are_never_followed`
+
 ### 9. Parity and ledger
 
-- [ ] No command exists yet, and none should. There is no fixture check
+- [x] No command exists yet, and none should. There is no fixture check
       in this milestone.
 - [ ] Parity ledger: §2 `798ed47` and `e52828a` (now fully `[x]`) and §3
       E2, marked `[x]` after CI.

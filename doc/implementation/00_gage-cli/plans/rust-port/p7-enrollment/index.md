@@ -115,6 +115,7 @@ this tree, that Go's documents don't make:
 |---|---|
 | [Q-P7-SPLIT](../open-questions.md#q-p7-split) | Go's E1b, E2, E3 and E4, one to one. User docs land in E4. No `context.Context` analogue. |
 | [Q-ENROLL-SCRYPT-HOOK](../open-questions.md#q-enroll-scrypt-hook) | The seal's work factor is a shipped const (14), a live atomic and its own test-only setter. It goes through the existing single scrypt constructors, so P2's guards are extended rather than excepted. The open path caps a claimed factor at `SCRYPT_MAX_WORK_FACTOR`. |
+| [Q-ENROLL-SCRYPT-CAP](../open-questions.md#q-enroll-scrypt-cap) | The open path caps a claimed factor at 18, its own constant, not the identity file's 22. Departs from Go for hostile files only. Settled at the start of E2. |
 | [Q-CROCKFORD](../open-questions.md#q-crockford) | The code is hand-rolled Crockford base32 in the library: 16 characters from 80 bits of `OsRng`, `GAGE-` prefix. No new crate. |
 | [Q-CONFIRM-DEFAULT-YES](../open-questions.md#q-confirm-default-yes) | `Prompter::confirm_default_yes` has no default body, and every wrapper delegates. |
 | [Q-ENROLL-AMBIGUOUS](../open-questions.md#q-enroll-ambiguous) | `resolve_enrollment` returns its own typed candidate list (request ids and expiries), not M5's `CandidateList`. |
@@ -128,7 +129,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 | # | Milestone | Model | Depends on | Inventory rows | Status |
 |---|---|---|---|---|---|
 | E1b | [The shared recipient write](e1b-shared-recipient-write.md) ([#64](https://github.com/distillerylabs/gage-rs/issues/64)) | Sonnet\* ⚑ | P6 | 15 | `[x]` |
-| E2 | [The sealed request](e2-sealed-request.md) ([#65](https://github.com/distillerylabs/gage-rs/issues/65)) | **Opus** ⚑ | E1b | 55 (+2 inbound) | `[ ]` |
+| E2 | [The sealed request](e2-sealed-request.md) ([#65](https://github.com/distillerylabs/gage-rs/issues/65)) | **Opus** ⚑ | E1b | 55 (+2 inbound) | `[~]` |
 | E3 | [Joining a vault](e3-joining-side.md) ([#66](https://github.com/distillerylabs/gage-rs/issues/66)) | Sonnet\* ⚑ | E2 | 60 (+2 inbound) | `[ ]` |
 | E4 | [Approving a device](e4-approving-side.md) ([#67](https://github.com/distillerylabs/gage-rs/issues/67)) | **Opus** ⚑ | E3 | 71 | `[ ]` |
 

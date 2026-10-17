@@ -12,8 +12,9 @@ use crate::crypt;
 /// small to notice (Go's `testScryptWorkFactor`).
 pub const TEST_SCRYPT_WORK_FACTOR: u8 = 10;
 
-/// Lowers the live scrypt work factor to [`TEST_SCRYPT_WORK_FACTOR`] for
-/// the rest of the process; idempotent. Rust has no `TestMain`, so every
+/// Lowers both live scrypt work factors, the identity file's and the
+/// enrollment seal's, to [`TEST_SCRYPT_WORK_FACTOR`] for the rest of the
+/// process; idempotent. Rust has no `TestMain`, so every
 /// fixture that creates or unlocks an identity calls this first. A test
 /// that forgets is slow, not wrong. The shipped factor stays guarded by
 /// `crypt`'s own tests, which check the constant and read it back off a
@@ -22,6 +23,7 @@ pub fn fast_scrypt() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
         crypt::set_scrypt_work_factor_for_tests(TEST_SCRYPT_WORK_FACTOR);
+        crypt::set_enrollment_work_factor_for_tests(TEST_SCRYPT_WORK_FACTOR);
     });
 }
 
@@ -35,8 +37,16 @@ mod tests {
     fn fast_scrypt_lowers_the_live_factor_and_is_idempotent() {
         fast_scrypt();
         assert_eq!(crypt::scrypt_work_factor(), TEST_SCRYPT_WORK_FACTOR);
+        assert_eq!(
+            crypt::enrollment_scrypt_work_factor(),
+            TEST_SCRYPT_WORK_FACTOR
+        );
         fast_scrypt();
         assert_eq!(crypt::scrypt_work_factor(), TEST_SCRYPT_WORK_FACTOR);
+        assert_eq!(
+            crypt::enrollment_scrypt_work_factor(),
+            TEST_SCRYPT_WORK_FACTOR
+        );
         const { assert!(TEST_SCRYPT_WORK_FACTOR < crypt::SHIPPED_SCRYPT_WORK_FACTOR) };
     }
 }

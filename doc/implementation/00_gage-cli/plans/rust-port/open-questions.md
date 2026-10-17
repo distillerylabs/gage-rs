@@ -1253,7 +1253,7 @@ cancellation token.
 **Resolved: Q-SCRYPT-HOOK's pattern in full, through the existing
 constructors.**
 
-- `ENROLLMENT_SCRYPT_WORK_FACTOR = 14` is a shipped const of its own,
+- `SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR = 14` is a shipped const of its own,
   with Go's `D-ENROLL-SEAL-COST` reasoning in its comment. The code is 80
   generated bits, which licenses the lower factor. The comment also says
   not to merge it with `SHIPPED_SCRYPT_WORK_FACTOR`.
@@ -1269,6 +1269,32 @@ constructors.**
 - E2's guard rows prove four things: the shipped value is deliberate, the
   value reaches a real age header, only the setter writes it, and the two
   factors are independent in both directions.
+
+### `[x]` Q-ENROLL-SCRYPT-CAP — What claimed work factor will the open path honour? {#q-enroll-scrypt-cap}
+
+**Resolved: 18, a cap of the seal's own, not the identity file's 22.
+This departs from Go.**
+
+Go's `openSealedRequest` sets `scryptMaxWorkFactor` (22), the identity
+file's cap. The identity file is local and written at 19. `pending/` is
+writable by any git writer and written at 14. With r=8, scrypt needs
+1 KiB × N of memory, so one file claiming 22 costs 4 GiB and about 8× a
+factor-19 unlock. 32 of them, the most one run will try, cost about three
+minutes of KDF per code tried, with an out-of-memory kill likely on a
+small machine.
+
+`ENROLLMENT_SCRYPT_MAX_WORK_FACTOR = 18` is four doublings above
+`SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR`, the headroom age's own default cap
+leaves. At 18, one hostile file costs 256 MiB and ~0.35 s.
+
+The difference from Go is observable only for a file gage never writes,
+one claiming 19–22, which Go tries and gage-rs skips. Raising the seal
+factor later must keep it at or below this cap. A guard test pins
+`SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR <= ENROLLMENT_SCRYPT_MAX_WORK_FACTOR`.
+
+`crypt::scrypt_identity` takes the cap as a parameter. P2's guard still
+requires exactly one construction site, and that site may pass only one
+of the two named cap constants.
 
 ### `[x]` Q-CROCKFORD — How is the enrollment code encoded? {#q-crockford}
 
