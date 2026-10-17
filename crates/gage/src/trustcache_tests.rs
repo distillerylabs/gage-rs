@@ -64,6 +64,7 @@ impl TrustVault {
                 method: vault::METHOD_PASSPHRASE.into(),
                 device: DEVICE.into(),
                 recipients: vec![pubkey.clone()],
+                extra_recipients: Vec::new(),
                 remote: None,
             },
         )

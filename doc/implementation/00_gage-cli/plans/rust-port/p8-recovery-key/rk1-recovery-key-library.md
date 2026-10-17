@@ -59,7 +59,7 @@ Nothing here prints, and nothing reaches `gage-cli` except new types.
 
 ## Decisions to make first
 
-Settle these in this doc, and get them reviewed, before writing code.
+**Resolved** at the start of RK1: the proposals below were accepted as written, with the additions marked *Settled while implementing*.
 
 1. **Where the code lives.**
    - Proposed: a new `crates/gage/src/recovery/` module, shaped like
@@ -67,6 +67,11 @@ Settle these in this doc, and get them reviewed, before writing code.
      reservation check. `key.rs` holds `RecoveryKey`, `new_recovery_key`
      and `verify_recovery_key`.
    - RK2 adds `swap.rs` to the same module.
+   - *Settled while implementing:* the test files sit beside the code they
+     cover, one per task: `key_tests.rs` (task 1), `create_tests.rs`
+     (task 2), `verify_tests.rs` (task 3), `reservation_tests.rs` (task 4).
+     The approval rows live in `enrollment/reserved_tests.rs`, because the
+     approval fixtures are private to that module.
 2. **The error shape for the reservation.**
    - Go has one sentinel, `ErrReservedDeviceLabel` (`Usage`), returned from
      four functions.
@@ -76,6 +81,12 @@ Settle these in this doc, and get them reviewed, before writing code.
      `check_device_label_free` returns. Each enum gets a
      `ReservedDeviceLabel(#[from] ReservedLabel)` variant mapped to `Usage`.
    - That keeps one wording, and lets every caller match its own enum.
+   - *Settled while implementing:* `EnrollmentError::ReservedDeviceLabel` is
+     also returned by `check_enrollment_labels`, the approval pre-check, so
+     a frontend learns before it renders or unlocks. The authoritative
+     refusal for approval is still `add_recipient_locked`, surfaced as
+     `EnrollmentError::Recipient(RecipientError::ReservedDeviceLabel)`.
+     `Vault::add_recipient` also checks up front, ahead of its pre-flight.
 3. **`RecoveryKey`'s shape.**
    - Proposed:
      `pub struct RecoveryKey { pub pubkey: String, pub secret: Zeroizing<String> }`
@@ -102,6 +113,15 @@ Settle these in this doc, and get them reviewed, before writing code.
      equals the device's, and an extra that fails `agekey` validation
    - a duplicate is `RecipientExists`-shaped (`Conflict`), not `Usage`
    - a repeated `--recipient` stays legal
+   - *Settled while implementing:* an extra's label is also checked against
+     the `recipient-<n>` labels `write_skeleton` is about to generate, so an
+     extra named `recipient-2` can't produce two recipients with one label.
+     An invalid extra label is `InvalidDeviceName` (`Usage`).
+   - The check runs against all of `recipients`, including index 0. Inside
+     `create` that is the device's key, which is the one check that needs
+     it. `init`'s earlier `validate_without_device_key` sees the flag keys
+     only, so everything but that check still fails before the passphrase
+     prompt.
 
 ## Tasks
 
@@ -110,32 +130,32 @@ Write each task's tests first. Library rows go in
 
 ### 1. The keypair — 4 rows
 
-- [ ] `RECOVERY_DEVICE_LABEL = "recovery-paper-key"`, exported.
-- [ ] `new_recovery_key() -> Result<RecoveryKey, RecoveryError>`.
+- [x] `RECOVERY_DEVICE_LABEL = "recovery-paper-key"`, exported.
+- [x] `new_recovery_key() -> Result<RecoveryKey, RecoveryError>`.
   - It does no I/O.
   - This is the library's second `x25519::Identity::generate` site,
     alongside `identityfile::create`. No guard counts those sites, and none
     is added.
-- [ ] Rows (`recovery_key_test.go`):
+- [x] Rows (`recovery_key_test.go`):
   - `TestNewRecoveryKeyReturnsAValidRecipient`: `new_recovery_key_returns_a_valid_recipient` (`agekey` accepts the pubkey)
   - `TestNewRecoveryKeySecretParsesBackToTheSamePubkey`: `new_recovery_key_secret_parses_back_to_the_same_pubkey`
   - `TestNewRecoveryKeyIsDifferentEachCall`: `new_recovery_key_is_different_each_call`
   - `TestZeroingRecoverySecretLeavesPubkeyIntact`: `zeroing_recovery_secret_leaves_pubkey_intact`. Zeroize `secret` in place; `pubkey` is unchanged.
-- [ ] Beyond Go: `recovery_key_debug_redacts_the_secret`.
+- [x] Beyond Go: `recovery_key_debug_redacts_the_secret`.
 
 ### 2. Labelled extras at `create` — 5 rows
 
-- [ ] `CreateSpec.extra_recipients: Vec<LabelledRecipient { device, pubkey }>`.
+- [x] `CreateSpec.extra_recipients: Vec<LabelledRecipient { device, pubkey }>`.
   - `write_skeleton` labels the device first, then the extras with their
     own labels, then `recipient-N` for `recipients`.
   - Both files are written in the one initial commit.
-- [ ] `validate_fields` applies decision 5's collision rules. It runs inside
+- [x] `validate_fields` applies decision 5's collision rules. It runs inside
   `validate_without_device_key` where it can, so `init` refuses before the
   passphrase prompt.
   - The one check that needs the device key is "an extra's pubkey equals
     the device's". It runs in `create`.
-- [ ] A refused `create` leaves no vault directory.
-- [ ] Rows:
+- [x] A refused `create` leaves no vault directory.
+- [x] Rows:
   - `TestCreateWritesLabelledExtraRecipientToBothFilesInOneCommit`: `create_writes_labelled_extra_recipient_to_both_files_in_one_commit`
   - `TestCreateOrdersDeviceThenLabelledExtrasThenGenericRecipients`: `create_orders_device_then_labelled_extras_then_generic_recipients`. Extras don't shift the `recipient-N` numbering. As in Go, N is the position in `recipients`, with the device key at index 0. So device + recovery + one `--recipient` gives `laptop-1`, `recovery-paper-key`, `recipient-2`, in that order, in both files.
   - `TestCreateRejectsDuplicateOrInvalidExtraRecipients`: `create_rejects_duplicate_or_invalid_extra_recipients`. Each case pins its variant and exit code, and that no directory is left behind.
@@ -144,9 +164,9 @@ Write each task's tests first. Library rows go in
 
 ### 3. `verify_recovery_key` — 1 row
 
-- [ ] The method, per decision 4. It reads only the plaintext recipient
+- [x] The method, per decision 4. It reads only the plaintext recipient
   list: no unlock, no decryption, no lock.
-- [ ] Row:
+- [x] Row:
   - `TestVerifyRecoveryKey`: `verify_recovery_key`, with these cases:
     - the right key returns `"recovery-paper-key"`
     - a device's key returns that device's label
@@ -158,23 +178,23 @@ Write each task's tests first. Library rows go in
 
 ### 4. The reservation — 1 row
 
-- [ ] `check_device_label_free(device)`, called in:
+- [x] `check_device_label_free(device)`, called in:
   - `CreateSpec::validate_fields`, for the device, unconditionally: even
     with no recovery key, because rotate can add one later
   - `Vault::add_identity`
   - `Vault::enroll`
   - `add_recipient_locked`, for each recipient in the batch. That covers
     `recipient add` and approval, including approval's `--device` relabel.
-- [ ] It is **not** added to `devicename::valid`. The recovery recipient
+- [x] It is **not** added to `devicename::valid`. The recovery recipient
   itself is written under the label, by `create`'s extras and by RK2's
   swap. Neither goes through the paths above.
-- [ ] Row:
+- [x] Row:
   - `TestTheRecoveryLabelIsReservedForTheRecoveryKey`: `the_recovery_label_is_reserved_for_the_recovery_key`, with Go's four subtests:
     - `create` refuses it even with no recovery key, leaving no directory
     - `add_identity` refuses it
     - `add_recipient` refuses it
     - the recovery recipient is still written by `create`'s extras
-- [ ] Beyond Go, because the TDD names these paths and Go's test does not
+- [x] Beyond Go, because the TDD names these paths and Go's test does not
   cover them:
   - `enroll_refuses_the_recovery_label`
   - `approval_refuses_a_request_that_claims_the_recovery_label`
@@ -184,17 +204,24 @@ Write each task's tests first. Library rows go in
 
 ### 5. Opus review ⚑
 
-- [ ] An Opus pass over tasks 2 and 4's tests, recorded here as a short
-  table: what it checked, and what it found.
-  - Does the duplicate check leave a repeated `--recipient` legal?
-  - Is every device-naming path reserved, including approval's relabel?
-  - Does no path that writes the recovery recipient trip the check?
+- [x] An Opus pass over tasks 2 and 4's tests and code.
+
+| Checked | Found |
+|---|---|
+| A repeated `--recipient` stays legal, with and without extras; only collisions involving an extra are refused | Fine. Tests cover both. |
+| Every device-naming path is reserved, including approval's relabel and `check_enrollment_labels` | Fine. Grep for `devicename::valid`, `identityfile::create` and `Recipient {` found no other writer. |
+| No path that writes the recovery recipient trips the check | Fine. `create`'s extras never call it. |
+| `verify_recovery_key` and secret handling | Fine. Debug redacts, the parse error is dropped, no Display echoes the input. |
+| Pre-key `recipient-N` label range was off by one before the device key exists | **Fixed.** `validate_extras` takes `has_device_key`; test `a_recipient_n_label_collision_fails_before_the_device_key_exists`. |
+| A key collision named the extra's label, not the holder's | **Fixed.** Test `a_key_collision_names_the_label_that_holds_the_key`. |
+| `gage clone --device recovery-paper-key` is accepted (registers the reserved name; later `enroll` and `add_identity` refuse) | **Open, for RK3.** `gage-cli`, outside RK1's scope; decide whether to check it there. |
+| `recipient approve --device recovery-paper-key` is refused only after codes are opened | **Open, for RK3/RK4.** Still before the confirmation and unlock; the CLI's early check could call `check_device_label_free`. |
 
 ### 6. Parity and ledger
 
-- [ ] All 11 rows ported or struck with a reason in this doc.
-- [ ] Ledger §1 #8 marked `[x]`. #7 is left `[~]` until RK4.
-- [ ] `make lint`, `make test`; CI on Linux, macOS and Windows.
+- [x] All 11 rows ported (10 from `recovery_key_test.go`, 1 reservation row), plus the beyond-Go rows.
+- [x] Ledger §1 #8 marked `[x]`. #7 is left `[ ]` until RK4.
+- [x] `make lint`, `make test`; CI on Linux, macOS and Windows (PR [#80](https://github.com/distillerylabs/gage-rs/pull/80), run 39067750078: lint, test and audit all pass).
 
 ## Definition of done
 

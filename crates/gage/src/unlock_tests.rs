@@ -358,6 +358,7 @@ fn default_locker_is_the_real_memlock_backed_one() {
         method: vault::METHOD_PASSPHRASE.into(),
         device: "laptop-1".into(),
         recipients: vec![age::x25519::Identity::generate().to_public().to_string()],
+        extra_recipients: Vec::new(),
         remote: None,
     };
     let created = Vault::create(&m.dirs, &spec).unwrap();
@@ -980,6 +981,7 @@ fn unlock_dispatches_on_the_local_method_not_the_vault_default() {
         method: vault::METHOD_PASSPHRASE.into(),
         device: "laptop-1".into(),
         recipients: vec![age::x25519::Identity::generate().to_public().to_string()],
+        extra_recipients: Vec::new(),
         remote: None,
     };
     let v = Vault::create(&m.dirs, &spec).unwrap();

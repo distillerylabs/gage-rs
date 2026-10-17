@@ -115,6 +115,7 @@ impl Device {
                     method: vault::METHOD_PASSPHRASE.into(),
                     device: DEVICE.into(),
                     recipients: vec![pubkey],
+                    extra_recipients: Vec::new(),
                     remote: None,
                 },
             )

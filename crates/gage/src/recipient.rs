@@ -18,6 +18,7 @@ use crate::entry::{self, LockError, WRITE_LOCK_TIMEOUT};
 use crate::exitcode::{Code, HasCode};
 use crate::identity::Identity;
 use crate::prompter::{PromptError, Prompter};
+use crate::recovery::{ReservedLabel, check_device_label_free};
 use crate::remotesync::UNPUSHED_WRITE_CLAUSE;
 use crate::trustcache::TrustError;
 use crate::vault::Vault;
@@ -135,6 +136,8 @@ impl<'a> RecipientWrite<'a> {
 pub enum RecipientError {
     #[error("gage: device name {0:?} is invalid")]
     InvalidDeviceName(String),
+    #[error("gage: {0}")]
+    ReservedDeviceLabel(#[from] ReservedLabel),
     #[error(transparent)]
     InvalidRecipient(#[from] agekey::Error),
     /// The key, or the device name, is already listed. A list carrying
@@ -232,7 +235,7 @@ pub enum RecipientError {
     },
 }
 
-fn exists(device: &str, pubkey: &Option<String>) -> String {
+pub(crate) fn exists(device: &str, pubkey: &Option<String>) -> String {
     match pubkey {
         Some(key) => format!("{key} is already listed as {device:?}"),
         None => format!("{device:?} is already a recipient of this vault"),
@@ -243,7 +246,10 @@ impl HasCode for RecipientError {
     fn code(&self) -> Code {
         use RecipientError::*;
         match self {
-            InvalidDeviceName(_) | InvalidRecipient(_) | ReencryptRequired => Code::Usage,
+            InvalidDeviceName(_)
+            | ReservedDeviceLabel(_)
+            | InvalidRecipient(_)
+            | ReencryptRequired => Code::Usage,
             RecipientExists { .. }
             | LastRecipient { .. }
             | CannotGrantFullAccess { .. }
@@ -329,6 +335,7 @@ impl Vault {
         if !devicename::valid(device) {
             return Err(RecipientError::InvalidDeviceName(device.to_string()));
         }
+        check_device_label_free(device)?;
         agekey::validate_recipient(pubkey)?;
 
         // The pre-flight, ahead of the lock and of every question. It
@@ -495,6 +502,7 @@ impl Vault {
             if !devicename::valid(&add.device) {
                 return Err(RecipientError::InvalidDeviceName(add.device.clone()));
             }
+            check_device_label_free(&add.device)?;
             agekey::validate_recipient(&add.pubkey)?;
         }
         // The vault's list, then each member against those before it: a
