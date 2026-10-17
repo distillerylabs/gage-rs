@@ -314,11 +314,12 @@ is green.
 - [x] Fixture parity: `--script`, `--stdin` and `--yes` are hidden root
       flags; `root.txt` lists none (`the_script_flags_are_hidden_root_flags`).
 - [x] Parity ledger: §3 M12, §2 `db2731f` (the `--stdin` half) and §6
-      updated as `[~]`; they become `[x]` with CI.
+      updated, now `[x]` with CI green.
 - [x] Q-RECIPIENT-PROMPT's "no script-mode exception yet" note updated to
       say it shipped here.
-- [ ] Mark M12d and P6 `[x]` in the [P6 index](index.md) and the
-      [port plan](../index.md) after CI.
+- [x] Mark M12d and P6 `[x]` in the [P6 index](index.md) and the
+      [port plan](../index.md) after CI. CI is green on PR #61 at
+      `3ff2563`: Lint, Audit, and Test on Linux, macOS and Windows.
 
 ## Definition of done
 
@@ -331,3 +332,11 @@ The milestone is done when:
 - `cat cmds.txt | GAGE_PASSPHRASE=… gage --stdin` runs every line against
   one unlock and stops at the first failure
 - no path through script mode reads a command line as a passphrase
+
+## Status
+
+**Done.** CI is green on all three platforms (Lint, Test and Audit on
+PR #61, at `3ff2563`). All 26 claimed rows (one excused, with its
+replacement test) and the inbound row are ported, the mutation table and
+the Opus review of the ⚑ rows are recorded, and the docs describe
+everything P6 shipped.
