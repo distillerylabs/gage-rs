@@ -11,6 +11,7 @@ use super::{EnrollmentError, EnrollmentRequest, MAX_ENROLLMENT_TTL, name::pendin
 use crate::entry::WRITE_LOCK_TIMEOUT;
 use crate::gitrepo::REMOTE_OP_TIMEOUT;
 use crate::prompter::Prompter;
+use crate::recovery::check_device_label_free;
 use crate::syncerr::Kind;
 use crate::vault::{METHOD_PASSPHRASE, Vault};
 use crate::{atomicfile, config, devicename, gitrepo, identityfile, paths, vaultconfig};
@@ -61,6 +62,7 @@ impl Vault {
                 device: device.to_string(),
             });
         }
+        check_device_label_free(device)?;
         if !gitrepo::has_remote(&self.path)? {
             return Err(EnrollmentError::NoRemote {
                 vault: self.name.clone(),

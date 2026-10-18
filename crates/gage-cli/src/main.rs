@@ -60,6 +60,7 @@ fn main() {
         stdout: &mut std::io::stdout().lock(),
         stderr: &mut std::io::stderr(),
         stdin_is_terminal,
+        stderr_is_terminal: std::io::stderr().is_terminal(),
         line_editor: stdin_is_terminal,
         build: BuildInfo::stamped(),
         dirs: &Dirs::from_process,

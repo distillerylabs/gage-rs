@@ -71,6 +71,7 @@ impl Env {
             stdout: &mut stdout,
             stderr: &mut stderr,
             stdin_is_terminal: true,
+            stderr_is_terminal: true,
             line_editor: false,
             build: BuildInfo::stamped(),
             dirs: &move || Ok(dirs.clone()),
@@ -441,12 +442,13 @@ fn two_vaults_under_one_local_name_share_neither_directory() {
     publisher.ok(&[
         "init",
         "vault-b",
+        "--no-recovery-key",
         "--remote",
         remote.path().to_str().unwrap(),
     ]);
 
     let env = Env::new();
-    env.ok(&["init", VAULT, "--device", "laptop-1"]);
+    env.ok(&["init", VAULT, "--device", "laptop-1", "--no-recovery-key"]);
     let a_id = env.entry(VAULT).id;
     let a_identity = gage::paths::identity_file_path(&env.dirs, &a_id, "laptop-1").unwrap();
     let a_trust = env.trust_dir();

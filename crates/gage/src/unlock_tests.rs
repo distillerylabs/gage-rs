@@ -358,6 +358,7 @@ fn default_locker_is_the_real_memlock_backed_one() {
         method: vault::METHOD_PASSPHRASE.into(),
         device: "laptop-1".into(),
         recipients: vec![age::x25519::Identity::generate().to_public().to_string()],
+        extra_recipients: Vec::new(),
         remote: None,
     };
     let created = Vault::create(&m.dirs, &spec).unwrap();
@@ -730,6 +731,60 @@ fn removing_a_non_last_identity_leaves_the_marker_in_place() {
     );
 }
 
+// --- identityfile::backup / restore (RK4, Q-RECOVERY-IDENTITY-BACKUP) -------
+
+// Nothing to hold, so nothing to put back: `recovery enroll` on a machine
+// whose identity file is already gone.
+#[test]
+fn backup_of_a_missing_file_is_none() {
+    let m = Machine::new();
+    let id = vaultconfig::new_id();
+    assert!(
+        identityfile::backup(&m.dirs, &id, "laptop-1")
+            .unwrap()
+            .is_none()
+    );
+    let err = identityfile::backup(&m.dirs, &id, "../../escape").unwrap_err();
+    assert!(matches!(err, UnlockError::UnsafePath(_)), "{err}");
+    assert!(!m.identities_root().exists(), "a backup wrote something");
+}
+
+// Go's R4 review bug, tested where the fix lives: removing the vault's only
+// identity prunes the marker and the directory, so a restore that only
+// wrote the file back failed, and destroyed the file it existed to keep.
+#[test]
+fn restore_recreates_a_pruned_identity_directory() {
+    let m = Machine::new();
+    let (v, pubkey) = m.unlockable("personal", "laptop-1");
+    let path = m.identity_path(&v.id, "laptop-1");
+    let original = std::fs::read(&path).unwrap();
+
+    let backup = identityfile::backup(&m.dirs, &v.id, "laptop-1")
+        .unwrap()
+        .expect("the file is there");
+    identityfile::remove(&m.dirs, &v.id, "laptop-1").unwrap();
+    assert_eq!(m.identities_dir_entries(&v.id), None, "not pruned");
+
+    backup.restore().unwrap();
+
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    assert_eq!(
+        m.identities_dir_entries(&v.id).unwrap(),
+        ["laptop-1.age", MARKER_FILE_NAME]
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&path), 0o600, "identity file");
+        assert_eq!(mode(path.parent().unwrap()), 0o700, "identities directory");
+    }
+    let unlocked = v
+        .unlock(&prompter(&[PASSPHRASE]))
+        .expect("the restored file no longer opens");
+    assert_eq!(unlocked.recipient(), pubkey);
+}
+
 // --- Vault::unlock (Go's unlock_test.go) ------------------------------------
 
 // Go: TestUnlockProducesAnIdentityThatDecrypts: the milestone's
@@ -980,6 +1035,7 @@ fn unlock_dispatches_on_the_local_method_not_the_vault_default() {
         method: vault::METHOD_PASSPHRASE.into(),
         device: "laptop-1".into(),
         recipients: vec![age::x25519::Identity::generate().to_public().to_string()],
+        extra_recipients: Vec::new(),
         remote: None,
     };
     let v = Vault::create(&m.dirs, &spec).unwrap();

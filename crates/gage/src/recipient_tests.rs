@@ -61,6 +61,7 @@ impl Fixture {
                 method: "passphrase".into(),
                 device: DEVICE.into(),
                 recipients: vec![key.to_public().to_string()],
+                extra_recipients: Vec::new(),
                 remote: None,
             },
         )

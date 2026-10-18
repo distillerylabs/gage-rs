@@ -33,7 +33,13 @@ fn real_binary_with_redirected_stdin_prints_help() {
 fn prompts_go_to_the_error_stream_not_stdout() {
     let root = tempfile::tempdir().unwrap();
     let out = cargo_bin_cmd!("gage")
-        .args(["init", "personal", "--device", "laptop-1"])
+        .args([
+            "init",
+            "personal",
+            "--device",
+            "laptop-1",
+            "--no-recovery-key",
+        ])
         .env("XDG_CONFIG_HOME", root.path().join("config"))
         .env("XDG_DATA_HOME", root.path().join("data"))
         .env("XDG_STATE_HOME", root.path().join("state"))
@@ -53,6 +59,36 @@ fn prompts_go_to_the_error_stream_not_stdout() {
         "{stdout}"
     );
     assert!(!stdout.contains("s3cret") && !stderr.contains("s3cret"));
+}
+
+// P8 · RK3: the both-terminals rule needs main, which is what reads
+// whether stdin and stderr are terminals. A piped default init, the run
+// that would file a private key into a log, refuses with Usage before
+// asking anything, and leaves gage's data dir as it found it.
+#[test]
+fn real_binary_init_with_piped_stdin_refuses_to_show_a_recovery_key() {
+    let root = tempfile::tempdir().unwrap();
+    let data = root.path().join("data");
+    let out = cargo_bin_cmd!("gage")
+        .args(["init", "personal", "--device", "laptop-1"])
+        .env("XDG_CONFIG_HOME", root.path().join("config"))
+        .env("XDG_DATA_HOME", &data)
+        .env("XDG_STATE_HOME", root.path().join("state"))
+        .write_stdin("s3cret\ns3cret\n")
+        .assert()
+        .code(2);
+    let stderr = String::from_utf8(out.get_output().stderr.clone()).unwrap();
+    assert!(stderr.contains("--recovery-key-out"), "{stderr}");
+    assert!(stderr.contains("--no-recovery-key"), "{stderr}");
+    assert!(
+        !stderr.contains("Choose a passphrase"),
+        "it asked first:\n{stderr}"
+    );
+    assert!(!stderr.contains("AGE-SECRET-KEY-1"), "{stderr}");
+    let left: Vec<_> = std::fs::read_dir(&data)
+        .map(|d| d.collect())
+        .unwrap_or_default();
+    assert!(left.is_empty(), "{left:?}");
 }
 
 #[test]

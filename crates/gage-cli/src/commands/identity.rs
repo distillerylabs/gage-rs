@@ -23,8 +23,10 @@ passphrase you choose, and prints the public half. The vault does not yet
 trust that key: hand it to a device that can already read the vault and run
 `gage recipient add <pubkey> --device NAME` there.
 
-This is also the recovery path for a lost identity file — register a fresh
-identity under a new name rather than restoring the old key from a backup.";
+If this device lost its identity file, register a fresh identity under a new
+name rather than restoring the old key from a backup, and have a device with
+access add it. If no device can, `gage recovery enroll` gets you back in with
+the vault's recovery key.";
 
 pub fn flags(name: &str) -> Vec<Arg> {
     match name {

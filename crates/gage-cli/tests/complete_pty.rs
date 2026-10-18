@@ -34,7 +34,13 @@ fn xdg(root: &std::path::Path) -> [(&'static str, PathBuf); 3] {
 fn tab_completion_at_the_prompt_expands_a_partial_command() {
     let root = tempfile::tempdir().unwrap();
     let init = cargo_bin_cmd!("gage")
-        .args(["init", "personal", "--device", "laptop-1"])
+        .args([
+            "init",
+            "personal",
+            "--device",
+            "laptop-1",
+            "--no-recovery-key",
+        ])
         .envs(xdg(root.path()))
         .write_stdin(format!("{PASS}\n{PASS}\n"))
         .output()

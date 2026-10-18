@@ -20,6 +20,7 @@ use crate::gitrepo::{self, REMOTE_OP_TIMEOUT};
 use crate::identity::Identity;
 use crate::prompter::Prompter;
 use crate::recipient::RecipientWrite;
+use crate::recovery::check_device_label_free;
 use crate::remotesync::offline_or_error;
 use crate::vault::Vault;
 use crate::vaultconfig::Recipient;
@@ -135,6 +136,7 @@ impl Vault {
             if current.iter().any(|r| r.pubkey == a.request.pubkey) {
                 continue;
             }
+            check_device_label_free(a.label())?;
             if let Some(taken) = current.iter().find(|r| r.device == a.label()) {
                 return Err(EnrollmentError::NameTaken {
                     device: a.label().to_string(),

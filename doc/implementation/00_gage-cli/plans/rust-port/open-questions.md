@@ -71,6 +71,9 @@ copied. If Go builds it, it enters the ledger when the pin moves.
 
 ### `[x]` Q-RECOVERY-INTERIM — What does `init` do before the recovery key lands? {#q-recovery-interim}
 
+**Superseded by P8 · RK3**, which ships the recovery key at `init` with
+both flags. What follows is the interim, kept for the record.
+
 **Resolved: behave like Go `init` before Go #7.** The recovery key (P8)
 depends on M9's `commit_recipient_list` and the enrollment phase's
 pending-prune, so it cannot land with M1/M2. Until P8, Rust `gage init`
@@ -1405,6 +1408,233 @@ of P7 · E4 ([plan](p7-enrollment/e4-approving-side.md#resolutions-accepted)).
   complete from the registry, and their positionals complete nothing.
 
 ---
+
+## Resolved in P8 planning
+
+Settled in [#74](https://github.com/distillerylabs/gage-rs/issues/74) and
+the [P8 plan](p8-recovery-key/index.md). Go's own recovery-key decisions
+(D1–D12, and each Go milestone doc's "Settled while implementing" and
+"Found by review") are in Go's `recovery-key/` plan and the copied TDD's
+"Recovery key at `init`". They are not repeated here.
+
+### `[x]` Q-P8-SPLIT — How is Go's recovery-key plan split? {#q-p8-split}
+
+**Resolved: four milestones, RK1–RK4, which regroup Go's R0–R5 and are
+not in Go's order.**
+
+| Rust | Go material |
+|---|---|
+| RK1 | The recovery key, library: R0, R4's label-returning `VerifyRecoveryKey`, R5's label reservation |
+| RK2 | The recovery identity and the swap, library: R3, R5's `RotateRecoveryKey` |
+| RK3 | `init` gains the key, and `recovery rotate`: R1, R5's CLI |
+| RK4 | `recovery enroll`, `recovery verify`, hints, docs: R4, R2, R5's docs |
+
+The milestones get their own IDs because each absorbs parts of several Go
+milestones, so a Go R-number would mean two different things.
+
+The order is forced by porting the current state
+([Q-PORT-STATE](#q-port-state)). Go's R1 and R4 shipped stopgap messages
+("`age-keygen` then `recipient add`"), because `recovery rotate` didn't
+exist yet. R5's label reservation makes that stopgap impossible:
+`recipient add --device recovery-paper-key` is refused. Two rules follow:
+
+- **Every command a message names exists in the same milestone.**
+  - `init`'s delivery-failure and refused-confirmation messages name
+    `recovery rotate`, so rotate ships with `init` (RK3).
+  - `verify`'s refusal and the `clone`/`use` hints name `recovery enroll`,
+    so they ship with enroll (RK4).
+- **The reservation lands in RK1.** That is the first milestone that writes
+  the label. Rotate's eviction is safe only because no device can sit
+  under the label.
+
+### `[x]` Q-RECOVERY-TERMINAL — How does the CLI know stderr is a terminal? {#q-recovery-terminal}
+
+**Resolved: `Io` gains `stderr_is_terminal`, beside `stdin_is_terminal`.**
+
+Go's R1 widened D2: the key goes to stderr and the re-type comes from
+stdin, so showing the key needs both streams to be terminals.
+`gage init foo 2>build.log` satisfies only one of them, and it is the run
+that would file a private key into a build log.
+
+- `main.rs` sets the flag from `std::io::stderr().is_terminal()`.
+- In-process tests default it to false, like `stdin_is_terminal`.
+- Go's `IsErrTerminal` falls back to `IsTerminal` when unset. gage-rs has no
+  unset state, so there is no fallback, and every `Io` constructor states
+  both flags.
+
+### `[x]` Q-RECOVERY-TEST-INIT — How do the existing tests survive a default-on, fail-closed key? {#q-recovery-test-init}
+
+**Resolved: the shared helpers opt out, and the literal calls say so.**
+
+Every in-process test runs without a terminal. So once RK3 lands, about
+190 existing `init` invocations would refuse: 122 through `Env::init`,
+about 70 literal `["init", …]` calls, and the piped-stdin `assert_cmd`
+tests. Go's R1 met the same problem at 57 call sites, and added
+`--no-recovery-key` to each one.
+
+Here:
+- `Env::init` and `sync_tests::init_with_remote` append `--no-recovery-key`
+  unless the test asks for a key.
+- Literal calls, and the binary tests, state the flag.
+- `init_vault_with_recovery_key_file` mirrors Go's helper for the tests
+  that need a real key.
+
+The change lands as RK3's first task, before any recovery behavior, so the
+behavior diff stays readable.
+
+### `[x]` Q-RECOVERY-NOCLOBBER — How is `--recovery-key-out` kept from overwriting a file? {#q-recovery-noclobber}
+
+**Resolved: an atomic no-clobber write, plus Go's up-front checks.**
+
+`atomicfile::write` always replaces its destination. Go checks with
+`os.Stat` and then writes through `atomicfile`, which leaves a window in
+which another file can appear at the destination.
+
+gage-rs adds `atomicfile::write_new`. It writes a temp file in the same
+directory, fsyncs it, sets mode 0600, then calls tempfile's
+`persist_noclobber`. An existing destination is refused atomically.
+
+The up-front existence check, the parent-directory checks and the
+writability probe stay. They run before anything is created, which is
+what lets a refusal leave nothing behind. `write_new` is the backstop.
+
+### `[x]` Q-RECOVERY-SECRET-MEMORY — How are the recovery secrets held? {#q-recovery-secret-memory}
+
+**Resolved: `Zeroizing` in the CLI, a `LockedBuf` in the library, and one
+recorded gap.**
+
+- `RecoveryKey.secret` is a `Zeroizing<String>`. The `SecretString` that age
+  returns is copied into it and then dropped.
+- A pasted key arrives as the `Zeroizing<String>` that `Prompter::value`
+  returns.
+- `render_qr` already returns `Zeroizing<String>`.
+- The key file's bytes are a `Zeroizing<Vec<u8>>`.
+- The library parses a pasted key with `KeyLine::parse`, into the same
+  page-locked `LockedBuf` an identity file uses. `Identity`'s `Drop`
+  zeroes it.
+- `recover_device` takes the secret **by value**. Go's "zeroes the caller's
+  buffer" (`TestRecoverDeviceZeroesTheSecretItWasHanded`) becomes
+  ownership: the buffer is dropped, and so zeroed, on every return. The
+  row is ported as a signature pin plus a no-copy source scan.
+
+This closes most of Go's accepted gap ("a Go string can't be zeroed").
+What remains is that the display copies are zeroed but not page-locked, so
+they can reach swap. Closing that would mean page-locking the QR
+renderer's output and stderr's buffering. That is out of scope, as it was
+for Go.
+
+RK3's review found one more display copy: the `qrcode` crate's own
+buffers (the encoded data and the module grid) are built from the secret
+and dropped without being zeroed; only `render_qr`'s rendered string is
+`Zeroizing`. The crate exposes no way to wipe them. The gap predates P8
+(`show -q`, P6 · M12c, goes through the same path) and is recorded here
+rather than closed. The stderr text itself is written from the key's own
+buffer, never formatted into an intermediate `String`, and the key file's
+buffer is allocated at its final size so it never reallocates and leaves
+an unzeroed copy behind.
+
+### `[x]` Q-RECOVERY-DATA-DIR — Which destinations does `--recovery-key-out` refuse? {#q-recovery-data-dir}
+
+**Resolved: Go's three, in gage-rs's terms.**
+
+gage deletes from, or rewrites, three places:
+
+- **The vault being created.**
+- **Any ancestor directory holding `.gage/config.toml`,** registered or
+  not. The dirty-tree reset (`gitrepo::reset_hard`) deletes untracked
+  files, and `commit_all` would otherwise commit the key.
+- **Anything under `Dirs.data`.** Go's `$GAGE_DATA` is the XDG data dir
+  here, and `crates/reset-local-state` wipes it.
+
+How a path is compared:
+- It is made absolute against an explicit `cwd` parameter. That parameter
+  is the process's working directory in production, and a test-chosen
+  directory in tests. A relative path inside a vault was Go's R3 review
+  bug.
+- Symlinks are resolved as far as the path exists, so macOS's `/var` and
+  `/private/var` compare equal.
+- Paths are compared by component, never by string prefix.
+
+The guard runs before the existence and parent checks, because it is the
+only check that holds when nothing on the path exists yet.
+
+### `[x]` Q-RECOVERY-ERRORS — Which error does a retired-key or self-eviction refusal return? {#q-recovery-errors}
+
+**Resolved in RK2: two recovery-specific variants, both `Conflict`.**
+
+Go wraps `ErrRecipientExists` for three refusals:
+- `RecoverDevice` offered the key it is retiring, as the device's key or
+  as its own replacement
+- `RotateRecoveryKey` offered the key it is retiring
+- `RotateRecoveryKey` asked to evict the key it was unlocked with
+
+Each one's remedy differs from an ordinary collision's ("generate a new
+key", "re-register this device under its own name first").
+`RecipientExists`'s message would only say the key is already listed as
+`recovery-paper-key`, which hides both the reason and the fix.
+
+gage-rs returns `RecoveryError::RetiredKeyReused { pubkey, as_device }`
+for the first two and `RecoveryError::WouldEvictActingDevice { vault }`
+for the third. The exit code is Go's (`Conflict`). Every other collision
+the swap refuses is `RecipientError::RecipientExists`, reached through
+`RecoveryError::Recipient`, so it matches what the other recipient verbs
+return.
+
+### `[x]` Q-RECOVERY-EMPTY-OUT — What does an empty `--recovery-key-out` mean? {#q-recovery-empty-out}
+
+**Resolved in RK3: refused with `Usage`, a deliberate deviation.** Go's
+flag is a string defaulting to `""`, so `--recovery-key-out ""` reads as
+not given, and on a terminal Go shows the key. A user who typed the flag
+asked to keep the key off the screen, so gage-rs refuses an empty value,
+before anything is created, with "--recovery-key-out needs a file name"
+(`an_empty_recovery_key_out_is_refused_as_empty`). Without the check the
+empty path named the working directory, which then "already exists": a
+refusal too, but one that explained nothing. Found by RK3's review.
+
+### `[x]` Q-RECOVERY-IDENTITY-BACKUP — Who holds and restores the identity file `recovery enroll` displaces? {#q-recovery-identity-backup}
+
+**Resolved in RK4: the library holds the bytes, the CLI holds the
+policy.** Go's `identityBackup` lives in `cmd/gage` and repeats the
+identity directory's and file's modes there. Its R4 review bug was a
+restore that skipped `MkdirAll`. `RemoveIdentity` had already pruned the
+directory, so the restore failed on the vault's only identity. In
+gage-rs, `identityfile` already owns those rules (`make_private_dir`, the
+0600 write). So the pair lives there:
+- `identityfile::backup(dirs, vault_id, device)` reads the wrapped file,
+  and the marker if there is one, into zeroizing buffers.
+- `IdentityBackup::restore()` recreates the 0700 directory, the 0600
+  file and the marker.
+
+The library never decides to overwrite. Refusing unless `--replaces` names
+the same device is `recovery enroll`'s decision, as in Go. The marker is
+restored too, which Go's restore omitted.
+
+### `[x]` Q-RECOVERY-LOCAL-IDENTITY-ERROR — How is enroll's "this machine already holds that identity" refusal matchable? {#q-recovery-local-identity-error}
+
+**Resolved in RK4: a typed CLI error, downcastable through `CliError`.**
+Go exports a `cmd`-level sentinel, `ErrLocalIdentityExists`, and its test
+checks it with `errors.Is`. Its R4 review bug was formatting it with `%v`,
+which broke the chain. gage-rs has `LocalIdentityExists { path, device }`
+in `gage-cli`, with `HasCode` = `Usage`. It reaches `CliError` through the
+existing `From`, and `CliError::downcast_ref` finds it anywhere in the
+cause chain. It stays out of
+the library for Go's reason: `identityfile::create` would *reuse* the file
+and ask for its passphrase, and the forgotten passphrase is what the user
+came here to route around. So refusing is a frontend policy.
+
+### `[x]` Q-RECOVERY-IDENTITY-ADD-HELP — Does `identity add`'s help still call it the recovery path? {#q-recovery-identity-add-help}
+
+**Resolved in RK4: no, a deliberate deviation in prose.** Go's
+`identity add` long help at the pinned SHA ends: "This is also the
+recovery path for a lost identity file — register a fresh identity under a
+new name rather than restoring the old key from a backup." That is half
+true once `recovery enroll` exists. A fresh identity only gets in if a
+device that can already read the vault adds it, and a sole owner has no
+such device. gage-rs keeps the advice (a fresh identity, not a restored
+backup) and adds the other route: "If no device can, `gage recovery
+enroll` gets you back in with the vault's recovery key." The P5 help
+parity test checks Go's prose up to that sentence, and the replacement
+after it. Name, group, flags and arguments are unchanged.
 
 ---
 

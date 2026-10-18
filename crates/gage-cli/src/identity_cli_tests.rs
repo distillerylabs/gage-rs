@@ -34,7 +34,15 @@ impl TwoDevices {
         let b = Env::new();
         let origin = gittest::new_bare_remote();
         let url = origin.path().to_str().unwrap();
-        a.ok(&["init", VAULT, "--device", A_DEVICE, "--remote", url]);
+        a.ok(&[
+            "init",
+            VAULT,
+            "--device",
+            A_DEVICE,
+            "--remote",
+            url,
+            "--no-recovery-key",
+        ]);
         let r = b.run_with(
             &["clone", url, "--name", VAULT, "--device", B_DEVICE],
             &FakePrompter::new(),
@@ -446,9 +454,20 @@ fn p5_identity_commands_have_their_go_fixture_flags_and_descriptions() {
                 .lines()
                 .skip(1)
                 .take_while(|l| !l.starts_with("Usage:"))
+                // Go's last sentence calls identity add "the recovery path
+                // for a lost identity file", which stopped being the whole
+                // story once `recovery enroll` shipped; reworded on purpose
+                // (Q-RECOVERY-IDENTITY-ADD-HELP), and checked below.
+                .take_while(|l| {
+                    name != "identity add" || !l.starts_with("This is also the recovery path")
+                })
             {
                 assert!(help.contains(line.trim()), "{name}: {line:?}\n{help}");
             }
+        }
+        if name == "identity add" {
+            assert!(!help.contains("recovery path"), "{help}");
+            assert!(help.contains("`gage recovery enroll`"), "{help}");
         }
         for line in fixture.lines().filter(|l| l.trim_start().starts_with('-')) {
             let text = line.split("   ").last().unwrap().trim();

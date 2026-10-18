@@ -199,7 +199,15 @@ fn identity_enroll_selects_a_vault_with_use() {
     let t = TwoDevices::new();
     let work_origin = gittest::new_bare_remote();
     let url = work_origin.path().to_str().unwrap();
-    t.a.ok(&["init", "work", "--device", A_DEVICE, "--remote", url]);
+    t.a.ok(&[
+        "init",
+        "work",
+        "--device",
+        A_DEVICE,
+        "--remote",
+        url,
+        "--no-recovery-key",
+    ]);
     let r = t.b.run_with(
         &["clone", url, "--name", "work", "--device", B_DEVICE],
         &FakePrompter::new(),

@@ -184,6 +184,11 @@ fn access_lines(dirs: &gage::xdgpaths::Dirs, id: &str, name: &str, device: &str)
             "gage: or, if this device cannot write to the remote: run `gage identity add` here and"
                 .into(),
             "gage: have someone with access add the printed key with `gage recipient add`.".into(),
+            // A sole owner holding the paper key has nobody to approve a
+            // request: for them, the two routes above are a dead end.
+            "gage: if you hold this vault's recovery key and there is nobody else to ask, run".into(),
+            "gage: `gage recovery enroll` — it admits this device and retires the key it used."
+                .into(),
         ],
         _ => Vec::new(),
     }

@@ -29,6 +29,7 @@ pub use approve::{Approval, ApprovalOutcome, ApprovalResult};
 use crate::entry::LockError;
 use crate::exitcode::{Code, HasCode};
 use crate::recipient::RecipientError;
+use crate::recovery::ReservedLabel;
 use crate::remotesync::SyncError;
 use crate::syncerr::Kind;
 use crate::vault::Vault;
@@ -178,6 +179,8 @@ pub enum EnrollmentError {
     #[error("device name {device:?} is invalid")]
     InvalidDevice { device: String },
     #[error(transparent)]
+    ReservedDeviceLabel(#[from] ReservedLabel),
+    #[error(transparent)]
     InvalidPubkey(agekey::Error),
     #[error(
         "unknown method {method:?}; accepted: {:?}",
@@ -316,6 +319,7 @@ impl HasCode for EnrollmentError {
             | NameTaken { .. }
             | ApprovalDiverged { .. } => Code::Conflict,
             EmptyBatch => Code::Usage,
+            ReservedDeviceLabel(e) => e.code(),
             NoLongerPending { .. } => Code::NotFound,
             Recipient(e) => e.code(),
             RemoteUnreachable(e) | Sync(e) | Push(e) => e.code(),
@@ -635,5 +639,7 @@ mod listing_tests;
 mod name_tests;
 #[cfg(test)]
 mod payload_tests;
+#[cfg(test)]
+mod reserved_tests;
 #[cfg(test)]
 mod seal_tests;

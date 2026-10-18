@@ -12,6 +12,7 @@ use crate::exitcode::{Code, HasCode};
 use crate::identityfile::{self, IDENTITY_FILE_EXTENSION, UnlockError};
 use crate::paths;
 use crate::prompter::Prompter;
+use crate::recovery::{ReservedLabel, check_device_label_free};
 use crate::vault::Vault;
 use crate::vaultconfig;
 
@@ -20,6 +21,8 @@ use crate::vaultconfig;
 pub enum IdentityAddError {
     #[error("device name {0:?} is invalid")]
     InvalidDeviceName(String),
+    #[error(transparent)]
+    ReservedDeviceLabel(#[from] ReservedLabel),
     /// The vault already lists a recipient under this label, so a second
     /// device answering to it would be indistinguishable from the first in
     /// every recipient listing.
@@ -37,6 +40,7 @@ impl HasCode for IdentityAddError {
     fn code(&self) -> Code {
         match self {
             IdentityAddError::InvalidDeviceName(_) => Code::Usage,
+            IdentityAddError::ReservedDeviceLabel(e) => e.code(),
             IdentityAddError::DeviceNameTaken { .. } => Code::Conflict,
             IdentityAddError::Config(e) => e.code(),
             IdentityAddError::Identity(e) => e.code(),
@@ -90,6 +94,7 @@ impl Vault {
         if !devicename::valid(device) {
             return Err(IdentityAddError::InvalidDeviceName(device.to_string()));
         }
+        check_device_label_free(device)?;
         let file = vaultconfig::read(&self.config_path())?;
         if file.recipients.iter().any(|r| r.device == device) {
             return Err(IdentityAddError::DeviceNameTaken {

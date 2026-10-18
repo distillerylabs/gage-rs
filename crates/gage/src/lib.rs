@@ -38,6 +38,7 @@ pub mod paths;
 pub mod prompter;
 pub mod recipient;
 pub mod recipients;
+pub mod recovery;
 pub mod remoteauth;
 pub mod remotesync;
 pub mod search;

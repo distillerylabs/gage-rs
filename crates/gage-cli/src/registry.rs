@@ -240,6 +240,28 @@ pub fn registry() -> Registry {
                 GROUP_RECIPIENT,
                 Both,
             ),
+            // One-shot only, as in Go's registry.
+            command(
+                "recovery enroll",
+                "",
+                "Use a recovery key to enroll a fresh identity for this device",
+                GROUP_RECIPIENT,
+                OneShotOnly,
+            ),
+            command(
+                "recovery rotate",
+                "",
+                "Replace this vault's recovery key, or add one if it has none",
+                GROUP_RECIPIENT,
+                OneShotOnly,
+            ),
+            command(
+                "recovery verify",
+                "",
+                "Check a stored recovery key is still one of this vault's recipients",
+                GROUP_RECIPIENT,
+                OneShotOnly,
+            ),
             command("insert", "<title>", "Create a new entry", GROUP_ENTRY, Both),
             command(
                 "show",
@@ -389,6 +411,10 @@ pub fn registry() -> Registry {
             ParentInfo {
                 name: "recipient",
                 short: "Manage who can read this vault",
+            },
+            ParentInfo {
+                name: "recovery",
+                short: "Work with a vault's offline recovery key",
             },
             ParentInfo {
                 name: "git",

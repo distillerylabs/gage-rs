@@ -51,6 +51,12 @@ pub struct Io<'a> {
     /// Whether stdin is a terminal: bare `gage` starts a session on one
     /// and prints help otherwise.
     pub stdin_is_terminal: bool,
+    /// Whether stderr is a terminal. Showing a recovery key needs both
+    /// this and `stdin_is_terminal`: the key goes to stderr and its
+    /// re-type comes from stdin, and `gage init foo 2>build.log` has only
+    /// the second. Neither flag stands in for the other
+    /// (Q-RECOVERY-TERMINAL).
+    pub stderr_is_terminal: bool,
     /// Whether a session reads its command lines through the terminal
     /// line editor. `main` sets it when stdin is a terminal; in-process
     /// tests leave it off, so the session reads `stdin` instead.
@@ -219,6 +225,8 @@ mod identity_cli_tests;
 #[cfg(test)]
 mod init_identity_tests;
 #[cfg(test)]
+mod init_recoverykey_tests;
+#[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
 mod log_cli_tests;
@@ -230,6 +238,8 @@ mod qr_tests;
 mod query_tests;
 #[cfg(test)]
 mod recipient_cli_tests;
+#[cfg(test)]
+mod recovery_cli_tests;
 #[cfg(test)]
 mod repl_tests;
 #[cfg(test)]

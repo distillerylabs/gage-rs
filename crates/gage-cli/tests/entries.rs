@@ -25,7 +25,13 @@ impl Machine {
             root: tempfile::tempdir().unwrap(),
         };
         let out = m
-            .gage(&["init", "personal", "--device", "laptop-1"])
+            .gage(&[
+                "init",
+                "personal",
+                "--device",
+                "laptop-1",
+                "--no-recovery-key",
+            ])
             .write_stdin(format!("{PASS}\n{PASS}\n"))
             .output()
             .unwrap();

@@ -38,6 +38,16 @@ impl CliError {
         self.code
     }
 
+    /// The first error of type `E` in the chain, so a caller (a test,
+    /// mostly) can match a typed refusal the way Go's `errors.Is` does,
+    /// through any context added above it.
+    pub fn downcast_ref<E>(&self) -> Option<&E>
+    where
+        E: std::error::Error + 'static,
+    {
+        self.err.chain().find_map(|cause| cause.downcast_ref::<E>())
+    }
+
     /// Adds context in front of the message, keeping the code.
     pub fn context(self, context: impl fmt::Display + Send + Sync + 'static) -> CliError {
         CliError {
@@ -145,6 +155,19 @@ mod tests {
 
         let with_context = err.context("saving");
         assert_eq!(with_context.to_string(), format!("saving: {rendered}"));
+    }
+
+    // A typed error is found under any context, and only by its own type.
+    #[test]
+    fn downcast_ref_finds_a_typed_error_through_context() {
+        let err = CliError::from(Coded(Code::Usage)).context("outer");
+        assert_eq!(err.downcast_ref::<Coded>().unwrap().0, Code::Usage);
+        assert!(err.downcast_ref::<std::io::Error>().is_none());
+        assert!(
+            CliError::new(Code::Usage, "plain")
+                .downcast_ref::<Coded>()
+                .is_none()
+        );
     }
 
     #[test]

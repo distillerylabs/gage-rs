@@ -14,8 +14,9 @@ extends it. For everything gage will do, see [Go gage's documentation](https://g
   each vault once for many commands, and `--script`/`--stdin`, which run
   a list of commands the same way with nobody at the prompt.
 - [Identities and recipients](identities-and-recipients.md): who can read a
-  vault, adding and removing recipients, `recipient verify`, the local
-  trust cache and the recipient-change confirmation.
+  vault, adding and removing recipients, `recipient verify`, the recovery
+  key (`recovery verify`, `enroll` and `rotate`), the local trust cache and
+  the recipient-change confirmation.
 - [Adding a device](enrollment.md): `identity enroll`, enrollment codes,
   and the `recipient pending`/`approve`/`deny` flow.
 - [Sharing entries between vaults](sharing.md): `mv` and `cp` with

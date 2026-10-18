@@ -47,11 +47,13 @@ qrcode = { version = "0.14.1", default-features = false }
 # The clipboard keeper remembers a digest of what it wrote, never the value.
 sha2 = "0.10"
 subtle = "2"
+# Typed refusals a caller can match through `CliError::downcast_ref`
+# (Q-RECOVERY-LOCAL-IDENTITY-ERROR).
+thiserror = "2"
 
 [dev-dependencies]
 assert_cmd = "2"
 gage = { path = "../gage", features = ["test-support"] }
-thiserror = "2"
 portable-pty = "0.9"
 age = "0.12.1"
 
