@@ -372,8 +372,7 @@ below was applied, its test watched fail, and the change reverted.
 - [x] Ledger §1 #9, #16 and #18 `[x]` (#18's docs are RK4's, so note them), and §4 `init`'s flags, `recovery`
   (rotate) and `recovery_rotate` updated.
 - [x] `Q-RECOVERY-INTERIM` marked superseded.
-- [x] `make lint` and `make test`.
-- [ ] CI on Linux, macOS and Windows (runs once the branch is pushed).
+- [x] `make lint` and `make test` (1,632 tests); CI on Linux, macOS and Windows (PR [#82](https://github.com/distillerylabs/gage-rs/pull/82), commit 1dccbef: lint 39101227859, test 39101227844 and audit 39101227839 all pass).
 
 ## Definition of done
 
