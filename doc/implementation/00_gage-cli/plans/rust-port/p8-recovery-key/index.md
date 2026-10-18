@@ -180,7 +180,7 @@ Legend: `[ ]` not started, `[~]` in progress, `[x]` done.
 | RK1 | [The recovery key, library](rk1-recovery-key-library.md) ([#75](https://github.com/distillerylabs/gage-rs/issues/75)) | Sonnet\* ⚑ | P7 | 11 | `[x]` |
 | RK2 | [The recovery identity and the swap, library](rk2-recovery-swap-library.md) ([#76](https://github.com/distillerylabs/gage-rs/issues/76)) | **Opus** ⚑ | RK1 | 25 | `[x]` |
 | RK3 | [`init` gains the key; `recovery rotate`](rk3-init-and-rotate.md) ([#77](https://github.com/distillerylabs/gage-rs/issues/77)) | **Opus** ⚑ | RK2 | 30 | `[x]` |
-| RK4 | [`recovery enroll`, `recovery verify`, hints, docs](rk4-enroll-verify-and-docs.md) ([#78](https://github.com/distillerylabs/gage-rs/issues/78)) | **Opus** ⚑ | RK3 | 26 | `[~]` (CI pending) |
+| RK4 | [`recovery enroll`, `recovery verify`, hints, docs](rk4-enroll-verify-and-docs.md) ([#78](https://github.com/distillerylabs/gage-rs/issues/78)) | **Opus** ⚑ | RK3 | 26 | `[x]` |
 
 `⚑` means an Opus review pass over that milestone's named tests before it
 is called done. Each is in that milestone's last task:

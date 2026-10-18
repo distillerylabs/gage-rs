@@ -376,10 +376,11 @@ forgotten-passphrase case, where the file is by premise unopenable.
   - §3 `recovery-key/` `[x]`
   - §4 `recovery`, `recovery_enroll` and `recovery_verify` `[x]`
   - §6 P8's rows `[x]`
-- [~] Port-plan P8 row and this index: status `[~]` (CI pending), flipped
-  to `[x]` once CI is green.
-- [x] `make lint` (with `lint-selftest`) and `make test` (1,666 tests).
-- [ ] CI on Linux, macOS and Windows (runs once the branch is pushed).
+- [x] Port-plan P8 row and this index: status `[x]`.
+- [x] `make lint` (with `lint-selftest`) and `make test` (1,666 tests); CI on
+  Linux, macOS and Windows (PR [#83](https://github.com/distillerylabs/gage-rs/pull/83),
+  commit 88cce28: lint 39103984672, test 39103984658 and audit 39103984666
+  all pass, first run).
 
 ### Walkthrough
 
