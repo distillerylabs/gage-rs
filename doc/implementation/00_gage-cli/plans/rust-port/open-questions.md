@@ -1638,6 +1638,74 @@ after it. Name, group, flags and arguments are unchanged.
 
 ---
 
+## Resolved in P9 planning
+
+P9 ([plan](p9-parity-signoff/index.md),
+[#85](https://github.com/distillerylabs/gage-rs/issues/85)) is the parity
+sign-off.
+
+### `[x]` Q-P9-SPLIT — How is the sign-off split? {#q-p9-split}
+
+**Resolved: three stacked milestones, split by kind of evidence.**
+
+- **S1, inventory sign-off (Opus):** audit the test-inventory rows that
+  don't name-match, with a guard test.
+- **S2, ledger closure and help surface:** close the open ledger rows,
+  write the gosec mapping, add a whole-surface help-fixture test.
+- **S3, user docs final pass:** `getting-started.md`,
+  `command-reference.md`, cross-checking every page, the READMEs.
+
+The tests come first, because S1 may port a missing test and change
+behavior, and the ledger and docs must describe the result. The docs come
+last, for the same reason as in every phase. One milestone was considered
+and rejected. It would mix an Opus-grade equivalence audit with
+mechanical evidence-gathering and prose, and the audit would get the
+least attention.
+
+### `[x]` Q-INVENTORY-GUARD — How is "every inventory row ported or excused" proven? {#q-inventory-guard}
+
+**Resolved: name match, plus a minimal exceptions file, checked by a test
+in `make test`.**
+
+- **Name match.** A row passes when its Go name, with `Test` dropped and
+  lowercased, equals a Rust `#[test]` fn name with `_` removed. At the
+  start of P9 this matches 1,176 of 1,271 rows.
+- **The exceptions file.** The rest go in
+  `tests/parity/inventory-exceptions.tsv`.
+  - Each row is `ported` (it names its Rust tests) or `excused`.
+  - Every row carries a `ref`: a `Q-` anchor or a milestone doc.
+  - A row that already name-matches may not appear, so the file stays
+    exactly the set of judgement calls.
+- **Where it lives.** The file sits under `tests/parity/`, not
+  `tests/fixtures/go/`, which only `capture.sh` writes.
+- **The guard.** `crates/gage-cli/tests/parity_inventory.rs` scans
+  `crates/**/*.rs` with `std::fs`, adding no dependency.
+
+*Rejected:*
+
+- **A full explicit 1,271-row map.** About 92% of it would restate the
+  name, and the review attention would go to the wrong rows.
+- **A one-time audit recorded only in a doc.** It rots on the first
+  rename, with nothing to notice it.
+
+When the Go pin moves, `capture.sh` regenerates the inventory, and the
+guard immediately lists every new row without a port.
+
+### `[x]` Q-README-STATUS — What does the README claim once P9 closes? {#q-readme-status}
+
+**Resolved: parity-complete, not released.** The top-level README says:
+
+- gage-rs reaches behavioral parity with Go gage at the pinned SHA
+- it has not been released or independently audited
+- Go gage remains the recommendation for real secrets until a release
+  decision is made
+
+It links the user docs, the ledger and this register for the deliberate
+deviations. Release engineering and retiring Go stay deferred (port plan,
+"Deferred / not on the critical path").
+
+---
+
 ## Withdrawn
 
 Kept as a record; both existed only to serve byte parity.

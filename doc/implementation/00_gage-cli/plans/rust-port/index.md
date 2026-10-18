@@ -69,7 +69,7 @@ line up.
 | P6 Polish ([plan](p6-polish/index.md), [#52](https://github.com/distillerylabs/gage-rs/issues/52)) | M12a `log`/`history` · M12b `cat`, `ls -H`, orphan cleanup · M12c `-c`/`-q` · M12d `--script`/`--stdin` | `[x]` | Sonnet; Sonnet* for M12c (⚑ Opus review of M12a's merge-walk, M12b's never-delete and M12d's passphrase-source tests) | P5 |
 | P7 Enrollment ([plan](p7-enrollment/index.md), [#63](https://github.com/distillerylabs/gage-rs/issues/63)) | E1b shared recipient write · E2 sealed request · E3 joining side · E4 approving side | `[x]` | **Opus** for E2/E4; Sonnet\* for E1b/E3 (⚑ Opus review of every milestone's named tests) | P5 (P6 merged first) |
 | P8 Recovery key ([plan](p8-recovery-key/index.md), [#74](https://github.com/distillerylabs/gage-rs/issues/74)) | RK1 recovery key library · RK2 recovery identity + swap · RK3 `init` + `recovery rotate` · RK4 `recovery enroll`/`verify`, hints, docs | `[x]` | Sonnet\* for RK1; **Opus** for RK2–RK4 (⚑ Opus review of every milestone's named tests) | P7; P6 (RK3 displays the key through M12c's QR renderer) |
-| P9 Parity sign-off | Ledger closed, every test-inventory row ported or excused, user docs complete | `[ ]` | **Opus** review | P8 |
+| P9 Parity sign-off ([plan](p9-parity-signoff/index.md), [#85](https://github.com/distillerylabs/gage-rs/issues/85)) | S1 inventory sign-off · S2 ledger closure + help surface · S3 user docs final pass | `[~]` | **Opus** for S1 ⚑; Sonnet\* for S2 (⚑ Opus review of its help-surface test); Sonnet for S3 | P8 |
 
 `⚑` = run an Opus review pass over that milestone's *tests* before moving
 on, even where Sonnet wrote them. `*` = borderline; start on Sonnet, switch
