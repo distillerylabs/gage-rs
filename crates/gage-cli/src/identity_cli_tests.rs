@@ -34,7 +34,15 @@ impl TwoDevices {
         let b = Env::new();
         let origin = gittest::new_bare_remote();
         let url = origin.path().to_str().unwrap();
-        a.ok(&["init", VAULT, "--device", A_DEVICE, "--remote", url]);
+        a.ok(&[
+            "init",
+            VAULT,
+            "--device",
+            A_DEVICE,
+            "--remote",
+            url,
+            "--no-recovery-key",
+        ]);
         let r = b.run_with(
             &["clone", url, "--name", VAULT, "--device", B_DEVICE],
             &FakePrompter::new(),

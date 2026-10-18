@@ -242,3 +242,74 @@ mod tests {
         assert!(!path.exists());
     }
 }
+
+/// Every object in the repository at `repo`, decompressed, read through
+/// the object database: what a secret-hygiene test searches. Git stores
+/// objects zlib-compressed (loose or packed), so searching the `.git`
+/// directory's bytes on disk finds nothing even when a secret was
+/// committed. Panics on failure: it is a fixture.
+pub fn all_object_data(repo: &Path) -> Vec<Vec<u8>> {
+    gitrepo::isolate();
+    let repo = git2::Repository::open(repo).expect("gittest: opening repository");
+    let odb = repo.odb().expect("gittest: opening object database");
+    let mut ids = Vec::new();
+    odb.foreach(|id| {
+        ids.push(*id);
+        true
+    })
+    .expect("gittest: listing objects");
+    ids.iter()
+        .map(|id| {
+            odb.read(*id)
+                .expect("gittest: reading object")
+                .data()
+                .to_vec()
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod object_data_tests {
+    use super::*;
+
+    // The property the hygiene walks rely on: a string committed in a
+    // file is found decompressed, though the object on disk is
+    // compressed and a byte search of `.git` misses it.
+    #[test]
+    fn all_object_data_finds_what_a_byte_search_of_dot_git_misses() {
+        gitrepo::isolate();
+        let dir = tempfile::tempdir().unwrap();
+        let repo = git2::Repository::init(dir.path()).unwrap();
+        let needle = "AGE-SECRET-KEY-1NEEDLEINTHEHAYSTACK";
+        std::fs::write(dir.path().join("note.txt"), needle.repeat(4)).unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("note.txt")).unwrap();
+        let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+        let sig = git2::Signature::now("gittest", "gittest@localhost").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "a commit", &tree, &[])
+            .unwrap();
+
+        let found = all_object_data(dir.path())
+            .iter()
+            .any(|o| o.windows(needle.len()).any(|w| w == needle.as_bytes()));
+        assert!(found, "the committed blob was not found");
+
+        let mut on_disk = false;
+        let mut stack = vec![dir.path().join(".git").join("objects")];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                } else {
+                    let bytes = std::fs::read(&path).unwrap();
+                    on_disk |= bytes.windows(needle.len()).any(|w| w == needle.as_bytes());
+                }
+            }
+        }
+        assert!(
+            !on_disk,
+            "objects were stored uncompressed; this test proves nothing"
+        );
+    }
+}

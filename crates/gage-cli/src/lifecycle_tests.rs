@@ -35,9 +35,39 @@ pub(crate) struct CliResult {
 }
 
 /// A byte buffer two writers share: the command's stderr, and the
-/// prompter's warnings, interleaved in the order they happened.
+/// prompter's warnings, interleaved in the order they happened. A test's
+/// prompter can hold a clone to read the screen as it was when a question
+/// was asked.
 #[derive(Clone, Default)]
-struct SharedBuf(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+pub(crate) struct SharedBuf(std::rc::Rc<std::cell::RefCell<Vec<u8>>>);
+
+impl SharedBuf {
+    /// Everything written so far.
+    pub(crate) fn text(&self) -> String {
+        String::from_utf8(self.0.borrow().clone()).unwrap()
+    }
+}
+
+/// Which of the standard streams a run sees as a terminal. In-process
+/// runs default to [`Tty::NONE`]: a test is a pipe unless it says
+/// otherwise.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Tty {
+    pub(crate) stdin: bool,
+    pub(crate) stderr: bool,
+}
+
+impl Tty {
+    pub(crate) const NONE: Tty = Tty {
+        stdin: false,
+        stderr: false,
+    };
+    /// A human at a terminal: what showing a recovery key needs.
+    pub(crate) const BOTH: Tty = Tty {
+        stdin: true,
+        stderr: true,
+    };
+}
 
 impl std::io::Write for SharedBuf {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -162,9 +192,33 @@ impl Env {
         prompter: &dyn Prompter,
         stdin: &mut dyn std::io::Read,
     ) -> CliResult {
+        self.run_io(args, prompter, stdin, Tty::NONE, SharedBuf::default())
+    }
+
+    /// Like [`Env::run_with`], at a terminal on both stdin and stderr.
+    pub(crate) fn run_terminal(&self, args: &[&str], prompter: &dyn Prompter) -> CliResult {
+        self.run_io(
+            args,
+            prompter,
+            &mut &b""[..],
+            Tty::BOTH,
+            SharedBuf::default(),
+        )
+    }
+
+    /// The general form: which streams are terminals, and the buffer the
+    /// run's stderr lands in, so a prompter holding a clone of `screen`
+    /// can read what was on it when it was asked.
+    pub(crate) fn run_io(
+        &self,
+        args: &[&str],
+        prompter: &dyn Prompter,
+        stdin: &mut dyn std::io::Read,
+        tty: Tty,
+        stderr: SharedBuf,
+    ) -> CliResult {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let mut stdout = Vec::new();
-        let stderr = SharedBuf::default();
         let prompter = EchoingPrompter {
             inner: prompter,
             stderr: stderr.clone(),
@@ -175,7 +229,8 @@ impl Env {
             stdin,
             stdout: &mut stdout,
             stderr: &mut stderr.clone(),
-            stdin_is_terminal: false,
+            stdin_is_terminal: tty.stdin,
+            stderr_is_terminal: tty.stderr,
             line_editor: false,
             build: BuildInfo::stamped(),
             dirs: &move || Ok(dirs.clone()),
@@ -191,7 +246,7 @@ impl Env {
         CliResult {
             code,
             stdout: String::from_utf8(stdout).unwrap(),
-            stderr: String::from_utf8(stderr.0.borrow().clone()).unwrap(),
+            stderr: stderr.text(),
         }
     }
 
@@ -202,10 +257,12 @@ impl Env {
         r
     }
 
-    /// `gage init <name> <extra...>`; returns the registered path.
+    /// `gage init <name> <extra...>`; returns the registered path. Without
+    /// a recovery flag in `extra` it passes `--no-recovery-key`: every run
+    /// here is a pipe, where a default init refuses (Q-RECOVERY-TEST-INIT).
     pub(crate) fn init(&self, name: &str, extra: &[&str]) -> PathBuf {
         let mut args = vec!["init", name];
-        args.extend_from_slice(extra);
+        args.extend_from_slice(&with_recovery_flag(extra));
         self.ok(&args);
         self.entry(name).path
     }
@@ -246,6 +303,35 @@ impl Env {
         found.sort();
         found
     }
+}
+
+/// `extra`, plus `--no-recovery-key` unless it already makes a recovery
+/// choice of its own.
+pub(crate) fn with_recovery_flag<'a>(extra: &[&'a str]) -> Vec<&'a str> {
+    let mut args = extra.to_vec();
+    if !extra
+        .iter()
+        .any(|a| *a == "--no-recovery-key" || a.starts_with("--recovery-key-out"))
+    {
+        args.push("--no-recovery-key");
+    }
+    args
+}
+
+/// `gage init <name> --device laptop-1 --recovery-key-out <file>`, and the
+/// key it wrote (Go's `initVaultWithRecoveryKeyFile`). The file sits in
+/// the env's root, outside every directory gage manages.
+pub(crate) fn init_vault_with_recovery_key_file(env: &Env, name: &str) -> String {
+    let out = env.root.path().join(format!("{name}-recovery.key"));
+    env.ok(&[
+        "init",
+        name,
+        "--device",
+        "laptop-1",
+        "--recovery-key-out",
+        out.to_str().unwrap(),
+    ]);
+    std::fs::read_to_string(&out).unwrap().trim().to_string()
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -334,7 +420,10 @@ fn init_with_an_unusable_hostname_fails_before_creating_files() {
     let mut env = Env::new();
     env.hostname = "!!!".into();
 
-    let r = env.run_with(&["init", "personal"], &FakePrompter::new());
+    let r = env.run_with(
+        &["init", "personal", "--no-recovery-key"],
+        &FakePrompter::new(),
+    );
 
     assert_eq!(r.code, Code::Usage);
     assert!(r.stderr.contains("--device"), "{}", r.stderr);
@@ -360,7 +449,7 @@ fn init_defaults_the_device_to_the_normalized_hostname() {
 fn init_creates_full_skeleton_and_registers() {
     let env = Env::new();
 
-    let r = env.ok(&["init", "personal"]);
+    let r = env.ok(&["init", "personal", "--no-recovery-key"]);
 
     let entry = env.entry("personal");
     for rel in [
@@ -414,7 +503,13 @@ fn init_into_non_empty_non_gage_directory_fails_without_touching_files() {
     std::fs::create_dir(&dir).unwrap();
     std::fs::write(dir.join("keep.txt"), "mine").unwrap();
 
-    let r = env.run(&["init", "personal", "--dir", dir.to_str().unwrap()]);
+    let r = env.run(&[
+        "init",
+        "personal",
+        "--dir",
+        dir.to_str().unwrap(),
+        "--no-recovery-key",
+    ]);
 
     assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
     let names: Vec<_> = std::fs::read_dir(&dir)
@@ -438,7 +533,13 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
     let keys_before = recipients::read(&path.join(".age-recipients")).unwrap();
 
     let r = env.run_with(
-        &["init", "personal", "--recipient", RECIPIENT_2],
+        &[
+            "init",
+            "personal",
+            "--recipient",
+            RECIPIENT_2,
+            "--no-recovery-key",
+        ],
         &FakePrompter::new(),
     );
 
@@ -506,7 +607,10 @@ fn init_explicit_type_and_method_equivalent_to_default() {
 #[test]
 fn init_unknown_type_fails_with_usage_and_lists_git() {
     let env = Env::new();
-    let r = env.run_with(&["init", "personal", "--type", "s3"], &FakePrompter::new());
+    let r = env.run_with(
+        &["init", "personal", "--type", "s3", "--no-recovery-key"],
+        &FakePrompter::new(),
+    );
     assert_eq!(r.code, Code::Usage);
     assert!(r.stderr.contains("git"), "{}", r.stderr);
     assert!(!env.default_vault_path("personal").exists());
@@ -526,7 +630,10 @@ fn init_unknown_method_fails_with_usage() {
     ] {
         let name = format!("personal-{}", method.replace(':', "-"));
 
-        let r = env.run_with(&["init", &name, "--method", method], &FakePrompter::new());
+        let r = env.run_with(
+            &["init", &name, "--method", method, "--no-recovery-key"],
+            &FakePrompter::new(),
+        );
 
         assert_eq!(r.code, Code::Usage, "{method}");
         assert!(r.stderr.contains("passphrase"), "{}", r.stderr);
@@ -548,7 +655,7 @@ fn init_malformed_recipient_fails_before_creating_files() {
             "AGE-SECRET-KEY-1QQQ",
         ],
     ] {
-        let mut args = vec!["init", "personal"];
+        let mut args = vec!["init", "personal", "--no-recovery-key"];
         args.extend_from_slice(keys);
         let r = env.run_with(&args, &FakePrompter::new());
         assert_eq!(r.code, Code::Usage, "{keys:?}");
@@ -603,7 +710,13 @@ fn init_device_flag_overrides_hostname_default() {
 fn init_device_flag_failing_allowlist_rejected_before_creating_files() {
     let env = Env::new();
     let r = env.run_with(
-        &["init", "personal", "--device", "../../../etc/x"],
+        &[
+            "init",
+            "personal",
+            "--device",
+            "../../../etc/x",
+            "--no-recovery-key",
+        ],
         &FakePrompter::new(),
     );
     assert_eq!(r.code, Code::Usage);
@@ -685,7 +798,7 @@ fn reinit_after_vault_remove_is_an_ordinary_retry() {
 #[test]
 fn init_with_no_recipient_generates_this_devices_identity() {
     let env = Env::new();
-    env.ok(&["init", "personal"]);
+    env.ok(&["init", "personal", "--no-recovery-key"]);
 
     let entry = env.entry("personal");
     let file = env.vault_config("personal");
@@ -733,8 +846,8 @@ fn init_writes_format_version_two() {
 }
 
 // init's help describes what has shipped: the identity it generates, an
-// additive --recipient and (P4 · M8a2) --remote, and no recovery-key flags
-// yet.
+// additive --recipient, (P4 · M8a2) --remote, and (P8 · RK3) the recovery
+// key on by default with its two flags.
 #[test]
 fn init_help_describes_this_milestone() {
     let env = Env::new();
@@ -754,12 +867,15 @@ fn init_help_describes_this_milestone() {
         "this device's own key is always included",
         "--remote",
         "publishes the new vault immediately",
+        "offline recovery key and shows it once",
+        "gage keeps no copy",
+        "--no-recovery-key",
+        "--recovery-key-out",
+        "(mode 0600)",
     ] {
         assert!(help.contains(want), "{want:?} missing:\n{help}");
     }
-    for absent in ["recovery", "required for now"] {
-        assert!(!help.contains(absent), "{absent:?} present:\n{help}");
-    }
+    assert!(!help.contains("required for now"), "{help}");
     assert_eq!(env.ok(&["help", "init"]).stdout, help);
     assert_eq!(env.ok(&["init", "-h"]).stdout, help);
 }
@@ -1107,11 +1223,26 @@ fn git_set_remote_on_an_unregistered_name_is_not_found() {
 fn no_vault_command_doubles_gages_own_prefix() {
     let doubled = format!("{ERROR_PREFIX}{ERROR_PREFIX}");
     let cases: &[(&str, &[&str])] = &[
-        ("init bad device", &["init", "a", "--device", "../x"]),
-        ("init bad type", &["init", "a", "--type", "s3"]),
-        ("init bad method", &["init", "a", "--method", "ssh"]),
-        ("init bad recipient", &["init", "a", "--recipient", "nope"]),
-        ("init registered name", &["init", "personal"]),
+        (
+            "init bad device",
+            &["init", "a", "--device", "../x", "--no-recovery-key"],
+        ),
+        (
+            "init bad type",
+            &["init", "a", "--type", "s3", "--no-recovery-key"],
+        ),
+        (
+            "init bad method",
+            &["init", "a", "--method", "ssh", "--no-recovery-key"],
+        ),
+        (
+            "init bad recipient",
+            &["init", "a", "--recipient", "nope", "--no-recovery-key"],
+        ),
+        (
+            "init registered name",
+            &["init", "personal", "--no-recovery-key"],
+        ),
         ("init missing name", &["init"]),
         ("vault info unknown", &["vault", "info", "nope"]),
         ("vault info mismatched", &["vault", "info", "mismatched"]),
@@ -1151,20 +1282,29 @@ fn no_vault_command_doubles_gages_own_prefix() {
     results.push((
         "init passphrase cancelled",
         no_current.run_with(
-            &["init", "fresh"],
+            &["init", "fresh", "--no-recovery-key"],
             &FakePrompter::new().with_unlock_error(gage::prompter::PromptError::Cancelled),
         ),
     ));
     results.push((
         "init empty passphrase",
-        no_current.run_with(&["init", "fresh"], &FakePrompter::new().with_passphrase("")),
+        no_current.run_with(
+            &["init", "fresh", "--no-recovery-key"],
+            &FakePrompter::new().with_passphrase(""),
+        ),
     ));
     let occupied = no_current.root.path().join("occupied");
     std::fs::create_dir(&occupied).unwrap();
     std::fs::write(occupied.join("keep.txt"), "mine").unwrap();
     results.push((
         "init into a non-empty directory after generating the identity",
-        no_current.run(&["init", "fresh", "--dir", occupied.to_str().unwrap()]),
+        no_current.run(&[
+            "init",
+            "fresh",
+            "--dir",
+            occupied.to_str().unwrap(),
+            "--no-recovery-key",
+        ]),
     ));
     for (name, r) in &results {
         assert_ne!(

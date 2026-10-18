@@ -145,16 +145,22 @@ Settle these in this doc, and get them reviewed, before writing code.
    ([Q-RECOVERY-NOCLOBBER](../open-questions.md#q-recovery-noclobber)).
    - It writes a temp file in the same directory, fsyncs it, chmods it to
      0600, then calls tempfile's `persist_noclobber`.
-   - An existing destination gives its own `io::ErrorKind::AlreadyExists`.
+   - An existing destination gives its own variant,
+     `atomicfile::Error::AlreadyExists`, whose `source` has
+     `io::ErrorKind::AlreadyExists`.
    - It lives in the library's `atomicfile`. It is a file primitive, not a
      frontend concern.
    - The CLI keeps Go's up-front existence check. The atomic refusal is the
      backstop for a file appearing in between.
-4. **Where the delivery code lives.**
-   - Proposed: `crates/gage-cli/src/commands/recoverykey.rs`, shared by
-     `init`, rotate and RK4's enroll.
+4. **Where the delivery code lives.** *Settled at the start of RK3, as
+   proposed.*
+   - `crates/gage-cli/src/commands/recoverykey.rs`, shared by `init`,
+     rotate and RK4's enroll.
    - `plan_recovery_key(io, skip_flag: Option<&str>, no_key, out)` returns
-     a mode: none, show or file.
+     a `KeyPlan`: `None`, `Show` or `File(path)`.
+     `check_recovery_key_out_path` returns the destination made absolute
+     against `cwd`, and the caller puts that back into `File`, so the
+     write lands where the check looked.
    - `skip_flag` is the opt-out flag named in the refusal:
      `--no-recovery-key` for `init`, `--no-new-recovery-key` for enroll,
      `None` for rotate.
@@ -183,53 +189,55 @@ Write each task's tests first. CLI rows go in
 
 ### 1. Fixtures and the existing suite
 
-- [ ] `Io.stderr_is_terminal` (decision 1), and every `Io` constructor
+- [x] `Io.stderr_is_terminal` (decision 1), and every `Io` constructor
   updated.
-- [ ] `Env::init` and `init_with_remote` default to `--no-recovery-key`. The
+- [x] `Env::init` and `init_with_remote` default to `--no-recovery-key`. The
   literal `init` calls state it.
-- [ ] `init_vault_with_recovery_key_file` is added (decision 2).
-- [ ] `lifecycle_tests::init_help_describes_this_milestone` flips: the
+- [x] `init_vault_with_recovery_key_file` is added (decision 2).
+- [x] `lifecycle_tests::init_help_describes_this_milestone` flips: the
   help now names the recovery key. `init.rs`'s "the recovery key is P8's"
   note goes.
-- [ ] The whole existing suite is green before any recovery behavior lands.
+- [x] The whole existing suite is green before any recovery behavior lands.
   This step is mechanical and wide, as Go's R1 found. It lands as its own
   first task, so the diff that follows shows only behavior.
 
 ### 2. `write_new` and the destination guard — 7 rows
 
-- [ ] `atomicfile::write_new` (decision 3), with library tests:
+- [x] `atomicfile::write_new` (decision 3), with library tests:
   - `write_new_refuses_an_existing_file`
   - `write_new_creates_a_0600_file` (Unix)
-- [ ] `check_recovery_key_out_path(path, cwd, vault_path, dirs)`. Order matters:
+- [x] `check_recovery_key_out_path(path, cwd, vault_path, dirs)`. Order matters:
   1. the guard that refuses gage's own directories, first, since it is the
      only check that holds when nothing on the path exists yet
   2. the existence check
   3. the parent exists and is a directory
   4. the writability probe: create and remove a temp file
-- [ ] Rows:
+- [x] Rows:
   - `TestInitRefusesToWriteTheRecoveryKeyWhereGageWillDeleteIt`: `init_refuses_to_write_the_recovery_key_where_gage_will_delete_it`. Three cases: inside the new vault, inside another (unregistered) vault, and under the data dir. Each is `Usage` with nothing created.
   - `TestRecoveryKeyOutRejectsARelativePathInsideAVault`: `recovery_key_out_rejects_a_relative_path_inside_a_vault`. It passes a relative path and a `cwd` inside a vault (decision 5), never `set_current_dir` in a threaded test.
   - `TestRecoveryKeyOutRejectsAParentThatDoesNotExist`: `recovery_key_out_rejects_a_parent_that_does_not_exist`
-  - `TestRecoveryKeyOutRejectsAParentThatIsARegularFile`: `recovery_key_out_rejects_a_parent_that_is_a_regular_file`
+  - `TestRecoveryKeyOutRejectsAParentThatIsARegularFile`: `recovery_key_out_rejects_a_parent_that_is_a_regular_file`. *Tightened, as Go's test asks:* Go's existence stat took `ENOTDIR` for an error and answered `Internal`, so its test leaves the code unpinned. Here `NotADirectory` counts as "does not exist", so the parent check answers with `Usage` and "is not a directory".
   - `TestInitChecksTheRecoveryKeyDestinationIsWritableBeforeCreating`: `init_checks_the_recovery_key_destination_is_writable_before_creating`. A read-only directory on Unix; on Windows, `#[cfg(unix)]` with a stated reason, as Go's test skips there.
   - `TestInitRecoveryKeyOutRefusesToClobberAnExistingFile`: `init_recovery_key_out_refuses_to_clobber_an_existing_file`. The file is untouched and nothing is created.
   - `TestPathIsInsideWithNoRootIsNotInside`: `path_is_inside_with_no_root_is_not_inside`
-- [ ] Beyond Go:
-  - `path_is_inside_sees_through_a_symlinked_tempdir` (macOS `/var`)
+- [x] Beyond Go:
+  - `path_is_inside_sees_through_a_symlinked_tempdir` (macOS `/var`, plus a real symlink on Unix)
   - `path_is_inside_is_not_fooled_by_a_shared_prefix` (`/a/vault2` is not inside `/a/vault`)
+  - `an_accepted_destination_is_made_absolute_against_the_given_cwd`
+  - `write_new_creates_the_file_and_leaves_no_temp_file` (library)
 
 ### 3. `init`'s planning and refusals — 6 rows
 
-- [ ] `--no-recovery-key` and `--recovery-key-out FILE`, with their help
+- [x] `--no-recovery-key` and `--recovery-key-out FILE`, with their help
   text from `init.txt`.
-- [ ] `--recipient`'s help no longer reads as the recovery mechanism, and
+- [x] `--recipient`'s help no longer reads as the recovery mechanism, and
   the long help states the new default.
-- [ ] `plan_recovery_key`:
+- [x] `plan_recovery_key`:
   - both flags together is `Usage`
   - with no terminal on both streams and neither flag, `Usage`, naming
     both flags
-- [ ] The label check is unconditional, ahead of the passphrase prompt.
-- [ ] Rows:
+- [x] The label check is unconditional, ahead of the passphrase prompt.
+- [x] Rows:
   - `TestInitWithoutATerminalRefusesRatherThanLoggingTheKey`: `init_without_a_terminal_refuses_rather_than_logging_the_key`. `Usage`, no prompt asked, no vault, no identity.
   - `TestInitWithRedirectedStderrRefusesToo`: `init_with_redirected_stderr_refuses_too`. stdin is a terminal and stderr is not.
   - `TestInitRejectsRecoveryKeyOutWithNoRecoveryKey`: `init_rejects_recovery_key_out_with_no_recovery_key`
@@ -239,9 +247,9 @@ Write each task's tests first. CLI rows go in
 
 ### 4. Generation, registration and delivery — 8 rows ⚑
 
-- [ ] `init` generates the key after the device identity, and passes it as
+- [x] `init` generates the key after the device identity, and passes it as
   a labelled extra.
-- [ ] `show_recovery_key` writes these to stderr, in order:
+- [x] `show_recovery_key` writes these to stderr, in order:
   1. a blank line
   2. "… now has a recovery key. This is the only time it will be shown."
   3. the key, indented
@@ -249,22 +257,22 @@ Write each task's tests first. CLI rows go in
   5. the custody warnings: unencrypted, full access, no copy kept, store
      offline on paper or an offline encrypted drive, never cloud notes, a
      password manager, email or photos, and clear the scrollback
-- [ ] `confirm_recovery_key_saved`:
+- [x] `confirm_recovery_key_saved`:
   - `Prompter::value` asks for the last 6 characters
   - the comparison is case-insensitive and trims whitespace
   - up to 3 attempts, warning between them
   - after that, `Conflict`, with the message that the change is committed,
     the key is a recipient, and `gage recovery rotate` replaces it. The key
     is not reprinted.
-- [ ] `write_recovery_key_file`:
+- [x] `write_recovery_key_file`:
   - writes the key plus a newline through `write_new`
   - the buffer is a `Zeroizing<Vec<u8>>`
   - prints a stderr note: not encrypted, move it offline, delete this file
   - on failure, `Internal`, naming `gage recovery rotate`
-- [ ] Delivery errors are held, the summary and `publish` still run, and the
+- [x] Delivery errors are held, the summary and `publish` still run, and the
   held error wins over a push failure.
-- [ ] The summary gains a line naming the recovery recipient's pubkey.
-- [ ] Rows:
+- [x] The summary gains a line naming the recovery recipient's pubkey.
+- [x] Rows:
   - `TestInitRegistersARecoveryRecipientByDefault`: `init_registers_a_recovery_recipient_by_default`. `<device>` and `recovery-paper-key`, in both files.
   - `TestInitRecoveryKeyAloneDecryptsTheVault`: `init_recovery_key_alone_decrypts_the_vault`
   - `TestInitRecoveryKeyIsNeverStored`: `init_recovery_key_is_never_stored` ⚑.
@@ -275,17 +283,19 @@ Write each task's tests first. CLI rows go in
   - `TestInitRecoveryKeyConfirmationAsksForTheKeysOwnCharacters`: `init_recovery_key_confirmation_asks_for_the_keys_own_characters`
   - `TestInitRecoveryKeyWrongConfirmationRetriesThenFailsWithoutReshowing`: `init_recovery_key_wrong_confirmation_retries_then_fails_without_reshowing`. `Conflict`; the vault exists and is registered; the key appears once.
   - `TestInitStillPublishesWhenTheRecoveryConfirmationFails`: `init_still_publishes_when_the_recovery_confirmation_fails`. The `gittest` remote has the commit and the exit is `Conflict`.
-- [ ] Beyond Go:
+- [x] Beyond Go:
   - `init_key_is_shown_only_after_the_commit_exists`. The prompter's re-type answer checks HEAD in the vault at the moment it is asked.
-  - `init_delivery_error_outranks_a_failed_push`. A fake `RemoteSyncer` makes the push fail and the file write fails; the exit code is the delivery error's, and both are reported.
+  - `init_recovery_key_confirmation_ignores_case_and_whitespace`
+  - `gittest::all_object_data_finds_what_a_byte_search_of_dot_git_misses` (library): proves the hygiene walk's object read sees a committed string that a byte search of `.git` misses
+  - `init_delivery_error_outranks_a_failed_push`. The exit code is the delivery error's, and both are reported. *As built:* both failures are real rather than faked. The file write fails because a file appears at the destination while the passphrase is being typed (a prompter hook), which `write_new`'s backstop refuses. The push fails because the remote is a missing local path. No new seam was needed, so none was added. A second half pins a refused re-type over a failed push the same way.
 
 ### 5. The `recovery` parent and `recovery rotate` — 8 rows
 
-- [ ] Registry entries:
+- [x] Registry entries:
   - a `recovery` `ParentInfo` with `recovery.txt`'s short text
   - `recovery rotate`: group Recipients, one-shot only, `--recovery-key-out`
     and `-u/--use`, long help from `recovery_rotate.txt`
-- [ ] `commands/recovery.rs`'s rotate runs in this order:
+- [x] `commands/recovery.rs`'s rotate runs in this order:
   1. `plan_recovery_key(skip_flag: None)`
   2. in file mode, resolve the vault without unlocking and check the
      destination, **before** the unlock (R5's review)
@@ -295,7 +305,7 @@ Write each task's tests first. CLI rows go in
   6. delivery, with any error held
   7. the summary: added a key (it had none), or replaced it and retired
      `<pubkey>`; the new pubkey; the count re-encrypted
-- [ ] Rows (`recovery_enroll_test.go`):
+- [x] Rows (`recovery_enroll_test.go`):
   - `TestRecoveryRotateReplacesTheKey`: `recovery_rotate_replaces_the_key`. One commit, the old key retired, the new one shown.
   - `TestRecoveryRotateAddsOneToAVaultWithout`: `recovery_rotate_adds_one_to_a_vault_without`
   - `TestRecoveryRotateWithoutATerminalRefusesBeforeAnyPrompt`: `recovery_rotate_without_a_terminal_refuses_before_any_prompt`. The refusal names `--recovery-key-out` only: rotate has no opt-out flag.
@@ -307,9 +317,9 @@ Write each task's tests first. CLI rows go in
 
 ### 6. The reservation through the CLI — 1 row
 
-- [ ] Row:
+- [x] Row:
   - `TestNoCommandLetsADeviceTakeTheRecoveryLabel`: `no_command_lets_a_device_take_the_recovery_label`. Subtests: `init`, even with `--no-recovery-key`, is `Usage` with no `.gage`; `identity add` is `Usage`; `recipient add` is non-zero. RK4 adds the `recovery enroll` subtest.
-- [ ] Beyond Go: `every_command_init_and_rotate_messages_name_is_registered`.
+- [x] Beyond Go: `every_command_init_and_rotate_messages_name_is_registered`.
   - It collects every `gage <words>` that this milestone's messages can
     print: the terminal refusal, the delivery failures, the refused
     re-type.
@@ -319,17 +329,17 @@ Write each task's tests first. CLI rows go in
 
 ### 7. Help parity and smoke
 
-- [ ] `p8_init_and_rotate_have_their_go_fixture_flags_and_descriptions`, on
+- [x] `p8_init_and_rotate_have_their_go_fixture_flags_and_descriptions`, on
   `approve_cli_tests.rs`'s pattern:
   - `init`'s two new flags and their descriptions
   - `recovery rotate`'s flags, usage, group and availability
   - the `recovery` parent's child list, containing the children that exist
-- [ ] A real-binary smoke test (`assert_cmd`): `init` with piped stdin
+- [x] A real-binary smoke test (`assert_cmd`): `init` with piped stdin
   refuses with `Usage`, and the data dir stays empty.
 
 ### 8. Opus review ⚑
 
-- [ ] An Opus pass over tasks 2–5's tests, recorded here as a table: what
+- [x] An Opus pass over tasks 2–5's tests, recorded here as a table: what
   it checked, and what it found.
   - Does the hygiene walk really reach decompressed objects?
   - Is the key shown only after the commit exists?
@@ -340,13 +350,30 @@ Write each task's tests first. CLI rows go in
     settled?
   - Is every secret buffer `Zeroizing`?
 
+#### Review record
+
+Done in-session by the implementing model (Opus), as a separate pass over
+tasks 2–5 once they were green. It was not a separate agent. Where a
+question could be answered by breaking the code, it was: each mutation
+below was applied, its test watched fail, and the change reverted.
+
+| Question | What was checked | Found |
+|---|---|---|
+| Does the hygiene walk reach decompressed objects? | `assert_never_stored` reads every object through `git2`'s object database (`gittest::all_object_data`); a guard test proves a committed string is found that way and *not* by a byte search of `.git`. Mutation: commit the key into the vault and remove it again, so it lives only in history. | Caught (`init_recovery_key_is_never_stored` fails with "is in a git object"). The walk also covers the three XDG roots and the vault tree, case-insensitively. |
+| Is the key shown only after the commit exists? | `deliver_recovery_key` runs after `Vault::create` and `config::save`; `init_key_is_shown_only_after_the_commit_exists` asserts one commit, a clean tree and the registration at the moment of the re-type. The file path writes from the same point. | Holds. |
+| Does stderr-not-a-terminal refuse alone? | `plan_recovery_key` requires both flags. Mutation: require only `stdin_is_terminal`. | Caught (`init_with_redirected_stderr_refuses_too`). The real binary refuses a piped run too (smoke test). |
+| Does the guard run before any file is created, relative paths and symlinked temp dirs included? | Every refusal row runs with an unscripted prompter (a passphrase request panics) and compares the data, state and config trees before and after. Paths are made absolute against `cwd`, folded lexically, and resolved as far as they exist before comparison; the ancestor walk uses the resolved path. | Holds. **Found:** `--recovery-key-out ""` named the working directory and was refused as "already exists". Now refused as empty ([Q-RECOVERY-EMPTY-OUT](../open-questions.md#q-recovery-empty-out), `an_empty_recovery_key_out_is_refused_as_empty`). |
+| Do the held error and publish behave together as Go's R1 review settled? | Delivery's result is held; the summary and `publish` run; the delivery error wins over a failed push, which is printed beside it. Tested for a refused re-type (with a working and a missing remote) and a failed file write. | Holds. Rotate holds its delivery error the same way, and its swap has already pushed by then. |
+| Is every secret buffer `Zeroizing`? | `RecoveryKey.secret`; the key file's `Zeroizing<Vec<u8>>`, allocated at its final size so it never reallocates; `render_qr`'s output; the re-type answer from `Prompter::value`. The secret reaches stderr through `write_all` straight from its own buffer, never through `format!`. | **Found:** the `qrcode` crate's own buffers (data and module grid) encode the secret and are dropped without being zeroed. They aren't reachable to wipe, and the gap predates P8 (`show -q`). Recorded under [Q-RECOVERY-SECRET-MEMORY](../open-questions.md#q-recovery-secret-memory), not fixed. |
+
 ### 9. Parity and ledger
 
-- [ ] All 30 rows ported, or struck with a reason in this doc.
-- [ ] Ledger §1 #9, #16 and #18 `[x]` (#18's docs are RK4's, so note them), and §4 `init`'s flags, `recovery`
+- [x] All 30 rows ported, or struck with a reason in this doc.
+- [x] Ledger §1 #9, #16 and #18 `[x]` (#18's docs are RK4's, so note them), and §4 `init`'s flags, `recovery`
   (rotate) and `recovery_rotate` updated.
-- [ ] `Q-RECOVERY-INTERIM` marked superseded.
-- [ ] `make lint` and `make test`; CI on Linux, macOS and Windows.
+- [x] `Q-RECOVERY-INTERIM` marked superseded.
+- [x] `make lint` and `make test`.
+- [ ] CI on Linux, macOS and Windows (runs once the branch is pushed).
 
 ## Definition of done
 
@@ -363,3 +390,22 @@ Write each task's tests first. CLI rows go in
     (`age -d -i`)
   - a terminal run shows the key, the QR, the warnings and the re-type
     prompt, in that order
+
+## Walkthrough record
+
+Run against the real binary (`target/debug/gage`, shipped scrypt cost) in
+a scratch XDG root, on macOS, while closing RK3:
+
+- **A piped `init` refuses:** exit 2, the message names both flags, and
+  the data dir is empty.
+- **`init --recovery-key-out` writes a 0600 file** (`-rw-------`). Its key
+  is in no file under any XDG root, and in no object of the vault's
+  repository (`git cat-file --batch-all-objects --batch`).
+- **An entry inserted afterwards decrypts with the recovery key alone:**
+  `age -d -i <key file> entries/<uuid>.age` prints the entry's YAML with
+  its value.
+- **A terminal run** (driven by `expect` on a pty) shows, in order: "This
+  is the only time it will be shown", the key, the QR, the warnings, the
+  `Value for "the last 6 characters…"` prompt, then the summary with the
+  recovery recipient's public key. The key appears exactly once in the
+  transcript, and the re-type typed from the screen is accepted (exit 0).

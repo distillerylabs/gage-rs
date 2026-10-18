@@ -1,12 +1,13 @@
 //! `gage init`: resolves the defaults (device name, target path), refuses
 //! what is knowable from the flags, generates this device's identity (the
-//! passphrase prompt), creates the vault through the library with that
-//! key first, and only once it exists registers it in global config. If
-//! creating the vault fails, the identity is removed again.
+//! passphrase prompt) and a recovery key, creates the vault through the
+//! library with both, and only once it exists registers it in global
+//! config and delivers the recovery key. If creating the vault fails, the
+//! identity is removed again; the recovery key was never shown or stored,
+//! so it needs no rollback.
 //!
 //! `--remote` sets origin and publishes the new vault at once, asking for
-//! the host's token first if none is stored (#38). The recovery key is
-//! P8's.
+//! the host's token first if none is stored (#38).
 
 use std::path::{Path, PathBuf};
 
@@ -14,19 +15,29 @@ use clap::{Arg, ArgAction, ArgMatches};
 use gage::config::{GitMeta, RegistryError, VaultEntry};
 use gage::exitcode::{Code, HasCode};
 use gage::prompter::Prompter;
+use gage::recovery::{RECOVERY_DEVICE_LABEL, check_device_label_free, new_recovery_key};
 use gage::syncerr::Kind;
-use gage::vault::{self, CreateSpec, Vault};
+use gage::vault::{self, CreateSpec, LabelledRecipient, Vault};
 use gage::{devicename, identityfile, paths, remoteauth, vaultconfig};
 
-use super::{arg, dirs, fail, load_global, out};
+use super::recoverykey::{
+    KeyPlan, check_recovery_key_out_path, deliver_recovery_key, plan_recovery_key,
+};
+use super::{arg, cwd, dirs, fail, load_global, out};
 use crate::Io;
-use crate::error::CliError;
+use crate::error::{CliError, prefix_once};
 
 pub const LONG_ABOUT: &str = "Create a new vault.
 
 Generates this device's identity, wraps its private key with a passphrase
 you choose, and writes the public half into the vault's recipient files.
 The wrapped key is stored outside the vault and is never committed or synced.
+
+A vault that depends on one identity file surviving forever has no recovery
+story, so init also generates an offline recovery key and shows it once. It is
+not encrypted and gage keeps no copy: write it down, store it offline, and
+treat the paper as you would the secrets it opens. --no-recovery-key skips it;
+--recovery-key-out writes it to a file instead of the screen.
 
 --recipient is additive: each one is written alongside this device's own key,
 for recipients you already hold public keys for.
@@ -55,11 +66,19 @@ pub fn flags() -> Vec<Arg> {
                 "default identity method for devices joining this vault (accepted: {})",
                 accepted(vault::ALLOWED_METHODS)
             )),
+        Arg::new("no-recovery-key")
+            .long("no-recovery-key")
+            .action(ArgAction::SetTrue)
+            .help("don't generate an offline recovery key (leaves this device's identity file the only way in)"),
         Arg::new("recipient")
             .long("recipient")
             .value_name("KEY")
             .action(ArgAction::Append)
             .help("additional recipient public key (repeatable; this device's own key is always included)"),
+        Arg::new("recovery-key-out")
+            .long("recovery-key-out")
+            .value_name("FILE")
+            .help("write the recovery key to this file (mode 0600) instead of showing it"),
         Arg::new("remote")
             .long("remote")
             .value_name("URL")
@@ -94,6 +113,22 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         }
     };
 
+    // Settled before anything is created, with the other knowable
+    // failures: a default run with no terminal to show a key on costs
+    // nobody a passphrase.
+    let mut plan = plan_recovery_key(
+        io,
+        Some("--no-recovery-key"),
+        matches.get_flag("no-recovery-key"),
+        flag("recovery-key-out").as_deref(),
+    )?;
+    // Reserved whether or not this run makes a key: a vault made with
+    // --no-recovery-key can grow one through `recovery rotate`, which
+    // replaces whatever holds the label, so a device there would be
+    // evicted by its own rotation. Create refuses it too; this answers
+    // before the registry is even read.
+    check_device_label_free(&device)?;
+
     let dirs = dirs(io)?;
     let (config_path, mut global) = load_global(io)?;
     if global.vaults.contains_key(name) {
@@ -103,6 +138,14 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         Some(dir) => PathBuf::from(dir),
         None => paths::vaults_dir(&dirs).join(name),
     };
+    // Here rather than with the flags: whether a destination is safe
+    // depends on where this vault is going. Still before anything is
+    // created, which is what matters: a destination that can't be
+    // written, or that gage would delete, must not be found out after
+    // there is a key riding on it.
+    if let KeyPlan::File(out) = &mut plan {
+        *out = check_recovery_key_out_path(out, &cwd()?, &path, &dirs)?;
+    }
 
     // The id is minted here, before the identity, and handed to create
     // rather than minted there: the identity file is filed under it, and
@@ -130,6 +173,20 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     // This device's key leads and --recipient keys follow in the order
     // given: create labels the first recipient with the device name.
     spec.recipients.insert(0, pubkey.clone());
+
+    // Generated here, after the identity, but not shown until the vault
+    // exists. Nothing needs rolling back if anything below fails: it was
+    // never written down, stored or seen.
+    let recovery_key = match plan {
+        KeyPlan::None => None,
+        KeyPlan::Show | KeyPlan::File(_) => Some(new_recovery_key()?),
+    };
+    if let Some(key) = &recovery_key {
+        spec.extra_recipients = vec![LabelledRecipient {
+            device: RECOVERY_DEVICE_LABEL.into(),
+            pubkey: key.pubkey.clone(),
+        }];
+    }
 
     let created = match Vault::create(&dirs, &spec) {
         Ok(created) => created,
@@ -167,22 +224,50 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     )?;
     gage::config::save(&config_path, &global)?;
 
-    out(
-        io,
-        &[
-            format!(
-                "gage: initialized vault {name:?} at {}",
-                created.path.display()
-            ),
-            format!(
-                "gage: this device is {:?}, public key {pubkey}",
-                spec.device
-            ),
-        ],
-    );
-    match &spec.remote {
+    // After registration, so a key is never shown for a vault that isn't
+    // usable yet, and before the summary, so the one thing needing action
+    // isn't what scrolled off. Its error is held: the vault is created,
+    // committed and registered, and returning now would skip the summary
+    // and the push, leaving a vault that exists and was never published
+    // with nothing on screen saying so. Everything init was asked to do
+    // still happens, and the command then exits on this.
+    let delivered = match &recovery_key {
+        Some(key) => deliver_recovery_key(io, prompter, &plan, name, key),
+        None => Ok(()),
+    };
+
+    let mut summary = vec![
+        format!(
+            "gage: initialized vault {name:?} at {}",
+            created.path.display()
+        ),
+        format!(
+            "gage: this device is {:?}, public key {pubkey}",
+            spec.device
+        ),
+    ];
+    if let Some(key) = &recovery_key {
+        summary.push(format!(
+            "gage: recovery key is {RECOVERY_DEVICE_LABEL:?}, public key {}",
+            key.pubkey
+        ));
+    }
+    out(io, &summary);
+    let published = match &spec.remote {
         Some(remote) => publish(io, prompter, &created, remote),
         None => Ok(()),
+    };
+    match (delivered, published) {
+        // Both failed. The key is the worse of the two: an unpublished
+        // vault can be pushed again, a key nobody has can't be reissued.
+        // So it sets the exit code, and the push failure is reported
+        // beside it.
+        (Err(delivery), Err(push)) => {
+            let _ = writeln!(io.stderr, "{}", prefix_once(&push.to_string()));
+            Err(delivery)
+        }
+        (Err(e), Ok(())) | (Ok(()), Err(e)) => Err(e),
+        (Ok(()), Ok(())) => Ok(()),
     }
 }
 

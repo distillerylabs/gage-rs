@@ -2,7 +2,8 @@
 //! write: the new content lands in a temp file in the same directory, is
 //! synced, and only becomes visible through a rename. Every config writer
 //! uses it: the global config, a vault's `.gage/config.toml`, and the trust
-//! cache's `known-config.toml`.
+//! cache's `known-config.toml`. [`write_new`] is the create-only form, for
+//! `--recovery-key-out`.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -33,6 +34,13 @@ pub enum Error {
         path: PathBuf,
         source: std::io::Error,
     },
+    /// [`write_new`]'s destination already exists. `source` is the
+    /// rename's own error, of kind `AlreadyExists`.
+    #[error("atomicfile: {path} already exists")]
+    AlreadyExists {
+        path: PathBuf,
+        source: std::io::Error,
+    },
 }
 
 impl HasCode for Error {
@@ -48,6 +56,41 @@ impl HasCode for Error {
 /// new content in place, never a truncated mix, because the destination is
 /// never opened for writing: a new file is renamed over it.
 pub fn write(path: &Path, data: &[u8], mode: u32) -> Result<(), Error> {
+    let tmp = stage(path, data, mode)?;
+    tmp.persist(path).map_err(|e| Error::Rename {
+        path: path.to_path_buf(),
+        source: e.error,
+    })?;
+    Ok(())
+}
+
+/// Like [`write`], but only creates: if `path` already exists, nothing is
+/// written and the error is [`Error::AlreadyExists`]. The check and the
+/// rename are one operation, so a file that appears after a caller looked
+/// is refused rather than replaced (Q-RECOVERY-NOCLOBBER).
+pub fn write_new(path: &Path, data: &[u8], mode: u32) -> Result<(), Error> {
+    let tmp = stage(path, data, mode)?;
+    tmp.persist_noclobber(path).map_err(|e| {
+        let path = path.to_path_buf();
+        if e.error.kind() == std::io::ErrorKind::AlreadyExists {
+            Error::AlreadyExists {
+                path,
+                source: e.error,
+            }
+        } else {
+            Error::Rename {
+                path,
+                source: e.error,
+            }
+        }
+    })?;
+    Ok(())
+}
+
+/// A synced temp file beside `path` holding `data`, with `mode` set: every
+/// step of a write but making it visible. Dropping it on an early return
+/// removes it.
+fn stage(path: &Path, data: &[u8], mode: u32) -> Result<tempfile::NamedTempFile, Error> {
     let dir = match path.parent() {
         Some(d) if !d.as_os_str().is_empty() => d,
         _ => Path::new("."),
@@ -55,7 +98,6 @@ pub fn write(path: &Path, data: &[u8], mode: u32) -> Result<(), Error> {
     let name = path.file_name().unwrap_or_default().to_string_lossy();
     let at = |source| (path.to_path_buf(), source);
 
-    // Dropping `tmp` on any early return removes the temp file.
     let mut tmp = tempfile::Builder::new()
         .prefix(&format!(".{name}.tmp-"))
         .tempfile_in(dir)
@@ -73,11 +115,7 @@ pub fn write(path: &Path, data: &[u8], mode: u32) -> Result<(), Error> {
         let (path, source) = at(e);
         Error::Permissions { path, source }
     })?;
-    tmp.persist(path).map_err(|e| {
-        let (path, source) = at(e.error);
-        Error::Rename { path, source }
-    })?;
-    Ok(())
+    Ok(tmp)
 }
 
 #[cfg(unix)]
@@ -231,6 +269,50 @@ mod tests {
 
         assert!(matches!(err, Error::Rename { .. }), "{err}");
         assert_eq!(names_in(dir.path()), ["config.toml"]);
+    }
+
+    // `--recovery-key-out`'s backstop (Q-RECOVERY-NOCLOBBER): a file that
+    // appears between the CLI's up-front check and the write is refused,
+    // never replaced, and its own error kind says why.
+    #[test]
+    fn write_new_refuses_an_existing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recovery.key");
+        fs::write(&path, b"someone else's key").unwrap();
+
+        let err = write_new(&path, b"AGE-SECRET-KEY-1NEW\n", 0o600).unwrap_err();
+
+        match &err {
+            Error::AlreadyExists { source, .. } => {
+                assert_eq!(source.kind(), std::io::ErrorKind::AlreadyExists)
+            }
+            other => panic!("{other}"),
+        }
+        assert_eq!(fs::read(&path).unwrap(), b"someone else's key");
+        assert_eq!(names_in(dir.path()), ["recovery.key"], "temp file left");
+    }
+
+    #[test]
+    fn write_new_creates_the_file_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recovery.key");
+
+        write_new(&path, b"AGE-SECRET-KEY-1NEW\n", 0o600).unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"AGE-SECRET-KEY-1NEW\n");
+        assert_eq!(names_in(dir.path()), ["recovery.key"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn write_new_creates_a_0600_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("recovery.key");
+        write_new(&path, b"x", 0o600).unwrap();
+        let mode = fs::metadata(&path).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
     }
 
     // Go: TestWriteFileFailsForMissingDir

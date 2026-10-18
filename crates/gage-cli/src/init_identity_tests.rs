@@ -57,7 +57,13 @@ fn non_empty_dir(env: &Env) -> PathBuf {
 #[test]
 fn init_then_unlock_decrypts_something_encrypted_to_the_vault() {
     let env = Env::new();
-    env.ok(&["init", "personal", "--device", "laptop-1"]);
+    env.ok(&[
+        "init",
+        "personal",
+        "--device",
+        "laptop-1",
+        "--no-recovery-key",
+    ]);
 
     let entry = env.entry("personal");
     let from_config = env.vault_config("personal").recipients[0].pubkey.clone();
@@ -81,7 +87,16 @@ fn init_then_unlock_decrypts_something_encrypted_to_the_vault() {
 fn init_asks_for_the_new_passphrase_through_the_prompter() {
     let env = Env::new();
     let p = FakePrompter::new().with_passphrase(PASSPHRASE);
-    let r = env.run_with(&["init", "personal", "--device", "laptop-1"], &p);
+    let r = env.run_with(
+        &[
+            "init",
+            "personal",
+            "--device",
+            "laptop-1",
+            "--no-recovery-key",
+        ],
+        &p,
+    );
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
 
     let requests = p.unlock_requests();
@@ -104,7 +119,13 @@ fn init_asks_for_the_new_passphrase_through_the_prompter() {
 #[test]
 fn init_reports_the_device_and_public_key() {
     let env = Env::new();
-    let r = env.ok(&["init", "personal", "--device", "laptop-1"]);
+    let r = env.ok(&[
+        "init",
+        "personal",
+        "--device",
+        "laptop-1",
+        "--no-recovery-key",
+    ]);
     let pubkey = env.vault_config("personal").recipients[0].pubkey.clone();
     assert!(
         r.stdout.contains(&format!(
@@ -190,7 +211,13 @@ fn every_unlock_failure_keeps_its_exit_code_through_the_cli() {
     ];
     for (name, setup, p, want) in cases {
         let env = Env::new();
-        env.ok(&["init", "personal", "--device", "laptop-1"]);
+        env.ok(&[
+            "init",
+            "personal",
+            "--device",
+            "laptop-1",
+            "--no-recovery-key",
+        ]);
         let entry = env.entry("personal");
         setup(&env, &entry);
 
@@ -211,7 +238,13 @@ fn init_leaves_no_vault_behind_when_create_fails() {
     let env = Env::new();
     let dir = non_empty_dir(&env);
 
-    let r = env.run(&["init", "personal", "--dir", dir.to_str().unwrap()]);
+    let r = env.run(&[
+        "init",
+        "personal",
+        "--dir",
+        dir.to_str().unwrap(),
+        "--no-recovery-key",
+    ]);
 
     assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
     assert!(
@@ -229,7 +262,13 @@ fn init_leaves_no_vault_behind_when_create_fails() {
 
     // And the retry, once the obstacle is gone, works.
     std::fs::remove_file(dir.join("keep.txt")).unwrap();
-    env.ok(&["init", "personal", "--dir", dir.to_str().unwrap()]);
+    env.ok(&[
+        "init",
+        "personal",
+        "--dir",
+        dir.to_str().unwrap(),
+        "--no-recovery-key",
+    ]);
 }
 
 // Go: TestInitWithARejectedDeviceNameWritesNoIdentityFile
@@ -237,7 +276,13 @@ fn init_leaves_no_vault_behind_when_create_fails() {
 fn init_with_a_rejected_device_name_writes_no_identity_file() {
     let env = Env::new();
     let r = env.run_with(
-        &["init", "personal", "--device", "../../escape"],
+        &[
+            "init",
+            "personal",
+            "--device",
+            "../../escape",
+            "--no-recovery-key",
+        ],
         &FakePrompter::new(),
     );
     assert_eq!(r.code, Code::Usage);
@@ -252,7 +297,13 @@ fn two_failed_inits_leave_no_orphaned_identities() {
     let env = Env::new();
     let dir = non_empty_dir(&env);
     for attempt in 1..=2 {
-        let r = env.run(&["init", "personal", "--dir", dir.to_str().unwrap()]);
+        let r = env.run(&[
+            "init",
+            "personal",
+            "--dir",
+            dir.to_str().unwrap(),
+            "--no-recovery-key",
+        ]);
         // The target directory refusal, after the identity exists: the
         // rollback path, not an earlier rejection that never generated a key.
         assert_eq!(r.code, Code::Conflict, "attempt {attempt}: {}", r.stderr);
@@ -275,7 +326,13 @@ fn two_failed_inits_leave_no_orphaned_identities() {
 #[test]
 fn init_after_vault_remove_generates_a_fresh_key_rather_than_reusing_the_old_one() {
     let env = Env::new();
-    env.ok(&["init", "personal", "--device", "laptop-1"]);
+    env.ok(&[
+        "init",
+        "personal",
+        "--device",
+        "laptop-1",
+        "--no-recovery-key",
+    ]);
     let first_id = env.entry("personal").id;
     let first_path = paths::identity_file_path(&env.dirs, &first_id, "laptop-1").unwrap();
     let first_file = std::fs::read(&first_path).unwrap();
@@ -291,6 +348,7 @@ fn init_after_vault_remove_generates_a_fresh_key_rather_than_reusing_the_old_one
         &[
             "init",
             "personal",
+            "--no-recovery-key",
             "--device",
             "laptop-1",
             "--dir",
@@ -327,7 +385,7 @@ fn init_after_vault_remove_generates_a_fresh_key_rather_than_reusing_the_old_one
 #[test]
 fn init_writes_the_wrapped_identity_file() {
     let env = Env::new();
-    env.ok(&["init", "personal"]);
+    env.ok(&["init", "personal", "--no-recovery-key"]);
     let entry = env.entry("personal");
     let path = identities_root(&env)
         .join(&entry.id)
@@ -350,7 +408,13 @@ fn init_writes_the_wrapped_identity_file() {
 #[test]
 fn init_extra_recipient_follows_the_device_key() {
     let env = Env::new();
-    env.ok(&["init", "personal", "--recipient", RECIPIENT_1]);
+    env.ok(&[
+        "init",
+        "personal",
+        "--recipient",
+        RECIPIENT_1,
+        "--no-recovery-key",
+    ]);
     let entry = env.entry("personal");
     let file = env.vault_config("personal");
     assert_eq!(file.recipients.len(), 2);
@@ -367,7 +431,13 @@ fn init_extra_recipient_follows_the_device_key() {
 #[test]
 fn the_id_init_files_the_identity_under_is_the_id_it_commits() {
     let env = Env::new();
-    env.ok(&["init", "personal", "--device", "laptop-1"]);
+    env.ok(&[
+        "init",
+        "personal",
+        "--device",
+        "laptop-1",
+        "--no-recovery-key",
+    ]);
     let committed = env.vault_config("personal").vault.id;
     let path = paths::identity_file_path(&env.dirs, &committed, "laptop-1").unwrap();
     assert!(path.is_file(), "no identity under the id the vault carries");
@@ -383,7 +453,13 @@ fn the_id_init_files_the_identity_under_is_the_id_it_commits() {
 #[test]
 fn create_device_name_lands_in_recipient_and_identity_path() {
     let env = Env::new();
-    env.ok(&["init", "myvault", "--device", "custom-device"]);
+    env.ok(&[
+        "init",
+        "myvault",
+        "--device",
+        "custom-device",
+        "--no-recovery-key",
+    ]);
     let id = env.entry("myvault").id;
     assert_eq!(
         env.vault_config("myvault").recipients[0].device,
@@ -403,7 +479,13 @@ fn create_device_name_lands_in_recipient_and_identity_path() {
 #[test]
 fn init_records_the_pubkey() {
     let env = Env::new();
-    env.ok(&["init", "personal", "--device", "laptop-1"]);
+    env.ok(&[
+        "init",
+        "personal",
+        "--device",
+        "laptop-1",
+        "--no-recovery-key",
+    ]);
     assert_eq!(
         env.entry("personal").pubkey,
         env.vault_config("personal").recipients[0].pubkey
@@ -417,10 +499,10 @@ fn init_records_the_pubkey() {
 fn init_refuses_bad_flags_before_asking_for_a_passphrase() {
     let env = Env::new();
     for args in [
-        &["init", "a", "--type", "s3"][..],
-        &["init", "a", "--method", "ssh"],
-        &["init", "a", "--recipient", "nope"],
-        &["init", "a", "--device", "../x"],
+        &["init", "a", "--type", "s3", "--no-recovery-key"][..],
+        &["init", "a", "--method", "ssh", "--no-recovery-key"],
+        &["init", "a", "--recipient", "nope", "--no-recovery-key"],
+        &["init", "a", "--device", "../x", "--no-recovery-key"],
     ] {
         let r = env.run_with(args, &FakePrompter::new());
         assert_eq!(r.code, Code::Usage, "{args:?}");
@@ -466,7 +548,16 @@ fn init_that_gets_no_passphrase_fails_locked_and_writes_nothing() {
     ];
     for (name, p) in cases {
         let env = Env::new();
-        let r = env.run_with(&["init", "personal", "--device", "laptop-1"], &*p);
+        let r = env.run_with(
+            &[
+                "init",
+                "personal",
+                "--device",
+                "laptop-1",
+                "--no-recovery-key",
+            ],
+            &*p,
+        );
 
         assert_eq!(r.code, Code::LockedOrAuth, "{name}: {}", r.stderr);
         assert!(r.stderr.starts_with("gage: "), "{name}: {}", r.stderr);
@@ -485,7 +576,13 @@ fn init_that_gets_no_passphrase_fails_locked_and_writes_nothing() {
         );
 
         // And nothing stands in the way of the retry.
-        env.ok(&["init", "personal", "--device", "laptop-1"]);
+        env.ok(&[
+            "init",
+            "personal",
+            "--device",
+            "laptop-1",
+            "--no-recovery-key",
+        ]);
     }
 }
 
@@ -513,7 +610,16 @@ fn init_through_the_terminal_prompter_keeps_prompts_off_stdout() {
         SecretInput::Lines,
     );
 
-    let r = env.run_with(&["init", "personal", "--device", "laptop-1"], &p);
+    let r = env.run_with(
+        &[
+            "init",
+            "personal",
+            "--device",
+            "laptop-1",
+            "--no-recovery-key",
+        ],
+        &p,
+    );
 
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
     let prompts = String::from_utf8(prompts.borrow().clone()).unwrap();

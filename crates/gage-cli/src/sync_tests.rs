@@ -29,7 +29,7 @@ impl Env {
     /// at creation means.
     fn init_with_remote(&self, name: &str) -> (PathBuf, BareRemote) {
         let remote = gittest::new_bare_remote();
-        let r = self.run(&["init", name, "--remote", url(&remote)]);
+        let r = self.run(&["init", name, "--remote", url(&remote), "--no-recovery-key"]);
         assert_eq!(r.code, Code::Success, "init: {}", r.stderr);
         (self.entry(name).path, remote)
     }
@@ -61,7 +61,13 @@ fn entry_files(dir: &Path) -> Vec<String> {
 fn init_publishes_the_new_vault() {
     let env = Env::new();
     let remote = gittest::new_bare_remote();
-    let r = env.run(&["init", "personal", "--remote", url(&remote)]);
+    let r = env.run(&[
+        "init",
+        "personal",
+        "--remote",
+        url(&remote),
+        "--no-recovery-key",
+    ]);
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
     assert!(r.stdout.contains("published"), "{}", r.stdout);
     assert!(Device::clone(remote.path()).exists(".age-recipients"));
@@ -74,7 +80,13 @@ fn init_publishes_the_new_vault() {
 fn init_against_a_missing_repository_says_to_create_it() {
     let env = Env::new();
     let missing = env.root.path().join("nothing-here.git");
-    let r = env.run(&["init", "personal", "--remote", missing.to_str().unwrap()]);
+    let r = env.run(&[
+        "init",
+        "personal",
+        "--remote",
+        missing.to_str().unwrap(),
+        "--no-recovery-key",
+    ]);
     assert_ne!(r.code, Code::Success, "{}", r.stdout);
     assert!(r.stderr.contains("create an empty one"), "{}", r.stderr);
     assert!(r.stderr.contains("gage push"), "{}", r.stderr);
@@ -92,6 +104,7 @@ fn init_against_a_host_without_the_repository_says_to_create_it() {
         &[
             "init",
             "personal",
+            "--no-recovery-key",
             "--remote",
             &recorder.url("me/vault.git"),
         ],
@@ -107,7 +120,13 @@ fn init_against_a_host_without_the_repository_says_to_create_it() {
 fn init_against_an_unreachable_remote_succeeds_and_says_so() {
     let env = Env::new();
     let r = env.run_with(
-        &["init", "personal", "--remote", &gittest::refused_url()],
+        &[
+            "init",
+            "personal",
+            "--remote",
+            &gittest::refused_url(),
+            "--no-recovery-key",
+        ],
         &unlocks().with_value(""),
     );
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
@@ -128,6 +147,7 @@ fn init_solicits_a_token_when_none_is_stored() {
         &[
             "init",
             "personal",
+            "--no-recovery-key",
             "--remote",
             &recorder.url("me/vault.git"),
         ],
@@ -162,6 +182,7 @@ fn init_skips_the_token_when_the_answer_is_blank() {
         &[
             "init",
             "personal",
+            "--no-recovery-key",
             "--remote",
             &recorder.url("me/vault.git"),
         ],
@@ -188,6 +209,7 @@ fn init_does_not_prompt_when_a_token_already_exists() {
         &[
             "init",
             "personal",
+            "--no-recovery-key",
             "--remote",
             &recorder.url("me/vault.git"),
         ],
@@ -208,7 +230,16 @@ fn init_does_not_prompt_for_a_local_remote() {
     let env = Env::new();
     let remote = gittest::new_bare_remote();
     let p = unlocks();
-    let r = env.run_with(&["init", "personal", "--remote", url(&remote)], &p);
+    let r = env.run_with(
+        &[
+            "init",
+            "personal",
+            "--remote",
+            url(&remote),
+            "--no-recovery-key",
+        ],
+        &p,
+    );
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
     assert!(p.value_prompts().is_empty());
     assert!(!env.dirs.state.join("tokens").exists());
@@ -371,7 +402,13 @@ fn sync_on_a_vault_with_no_remote_says_so_and_succeeds() {
 fn offline_exits_unreachable_and_diverged_exits_conflict() {
     let env = Env::new();
     let r = env.run_with(
-        &["init", "personal", "--remote", &gittest::refused_url()],
+        &[
+            "init",
+            "personal",
+            "--remote",
+            &gittest::refused_url(),
+            "--no-recovery-key",
+        ],
         &unlocks().with_value(""),
     );
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
@@ -396,6 +433,7 @@ fn an_auth_failure_exits_locked_or_auth_with_the_hint() {
         &[
             "init",
             "personal",
+            "--no-recovery-key",
             "--remote",
             &recorder.url("me/vault.git"),
         ],
@@ -918,7 +956,13 @@ fn a_refused_clone_leaves_no_half_made_vault() {
 fn offline_warnings_reach_the_terminal() {
     let env = Env::new();
     let r = env.run_with(
-        &["init", "personal", "--remote", &gittest::refused_url()],
+        &[
+            "init",
+            "personal",
+            "--remote",
+            &gittest::refused_url(),
+            "--no-recovery-key",
+        ],
         &unlocks().with_value(""),
     );
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
@@ -1082,7 +1126,13 @@ fn no_sync_failure_or_warning_doubles_gages_own_prefix() {
     run(
         "init offline",
         &offline,
-        &["init", "personal", "--remote", &refused],
+        &[
+            "init",
+            "personal",
+            "--remote",
+            &refused,
+            "--no-recovery-key",
+        ],
         unlocks().with_value(""),
     );
     run("push offline", &offline, &["push"], FakePrompter::new());

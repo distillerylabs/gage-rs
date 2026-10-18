@@ -71,6 +71,9 @@ copied. If Go builds it, it enters the ledger when the pin moves.
 
 ### `[x]` Q-RECOVERY-INTERIM — What does `init` do before the recovery key lands? {#q-recovery-interim}
 
+**Superseded by P8 · RK3**, which ships the recovery key at `init` with
+both flags. What follows is the interim, kept for the record.
+
 **Resolved: behave like Go `init` before Go #7.** The recovery key (P8)
 depends on M9's `commit_recipient_list` and the enrollment phase's
 pending-prune, so it cannot land with M1/M2. Until P8, Rust `gage init`
@@ -1520,6 +1523,16 @@ they can reach swap. Closing that would mean page-locking the QR
 renderer's output and stderr's buffering. That is out of scope, as it was
 for Go.
 
+RK3's review found one more display copy: the `qrcode` crate's own
+buffers (the encoded data and the module grid) are built from the secret
+and dropped without being zeroed; only `render_qr`'s rendered string is
+`Zeroizing`. The crate exposes no way to wipe them. The gap predates P8
+(`show -q`, P6 · M12c, goes through the same path) and is recorded here
+rather than closed. The stderr text itself is written from the key's own
+buffer, never formatted into an intermediate `String`, and the key file's
+buffer is allocated at its final size so it never reallocates and leaves
+an unzeroed copy behind.
+
 ### `[x]` Q-RECOVERY-DATA-DIR — Which destinations does `--recovery-key-out` refuse? {#q-recovery-data-dir}
 
 **Resolved: Go's three, in gage-rs's terms.**
@@ -1566,6 +1579,17 @@ for the third. The exit code is Go's (`Conflict`). Every other collision
 the swap refuses is `RecipientError::RecipientExists`, reached through
 `RecoveryError::Recipient`, so it matches what the other recipient verbs
 return.
+
+### `[x]` Q-RECOVERY-EMPTY-OUT — What does an empty `--recovery-key-out` mean? {#q-recovery-empty-out}
+
+**Resolved in RK3: refused with `Usage`, a deliberate deviation.** Go's
+flag is a string defaulting to `""`, so `--recovery-key-out ""` reads as
+not given, and on a terminal Go shows the key. A user who typed the flag
+asked to keep the key off the screen, so gage-rs refuses an empty value,
+before anything is created, with "--recovery-key-out needs a file name"
+(`an_empty_recovery_key_out_is_refused_as_empty`). Without the check the
+empty path named the working directory, which then "already exists": a
+refusal too, but one that explained nothing. Found by RK3's review.
 
 ---
 

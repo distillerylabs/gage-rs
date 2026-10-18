@@ -28,6 +28,7 @@ fn run_reg(reg: &Registry, args: &[&str], stdin_is_terminal: bool) -> CliResult 
         stdout: &mut stdout,
         stderr: &mut stderr,
         stdin_is_terminal,
+        stderr_is_terminal: stdin_is_terminal,
         line_editor: false,
         build: version::resolve_build_info(Some("v1.2.3"), Some("abcdef1")),
         // Nothing here reaches a command that reads them.

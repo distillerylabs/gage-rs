@@ -47,11 +47,11 @@ Status: `[ ]` not ported, `[~]` in progress, `[x]` ported, `n/a` excluded
 | PR #5, #6, #38, #39 | Dependabot bumps (Go modules, actions) | n/a — Rust gets its own dependabot config | n/a |
 | #7 / PRs #11, #19 | Recovery key: plan, phase 1 (R0–R2) and phase 2 (R3–R5) | P8 ([plan](p8-recovery-key/index.md), [#74](https://github.com/distillerylabs/gage-rs/issues/74)): RK1–RK4 | `[ ]` |
 | #8 / PR #13 | R0 recovery key library | P8 · RK1 | `[x]` |
-| #9 / PR #14 | R1 recovery key at `gage init` (+ review-finding fixes) | P8 · RK3 | `[ ]` |
+| #9 / PR #14 | R1 recovery key at `gage init` (+ review-finding fixes) | P8 · RK3 | `[x]` |
 | #10 / PR #15 | R2 `gage recovery verify` + docs | P8 · RK4 | `[ ]` |
-| #16 / PR #20 | R3 recovery identity, `RecoverDevice`; retired key can't come back; relative `--recovery-key-out` | P8 · RK2 (the relative-path guard: RK3) | `[~]` |
+| #16 / PR #20 | R3 recovery identity, `RecoverDevice`; retired key can't come back; relative `--recovery-key-out` | P8 · RK2 (the relative-path guard: RK3) | `[x]` |
 | #17 / PR #21 | R4 `gage recovery enroll` (+ seven review fixes) | P8 · RK4 (verify's label return: RK1) | `[ ]` |
-| #18 / PR #22 | R5 `gage recovery rotate`; reserved recovery label | P8: reservation RK1, `RotateRecoveryKey` RK2, `recovery rotate` RK3, docs RK4 | `[~]` |
+| #18 / PR #22 | R5 `gage recovery rotate`; reserved recovery label | P8: reservation RK1, `RotateRecoveryKey` RK2, `recovery rotate` RK3, docs RK4 | `[x]` (the code; its docs are RK4's) |
 | PR #12 | Multi-milestone GitHub process in CLAUDE.md | Bootstrap (`CLAUDE.md`) | `[~]` |
 | #23 / PR #24 | Parent commands (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) list their children in their own help | P1 · M0b (registry/help), each parent's children as they land | `[~]` M0b: mechanism; M1: real `vault` and `git` parents and their children |
 | #25 / PR #26 | Codecov reporting alongside the cover-check gate | M0a | `[ ]` |
@@ -123,7 +123,7 @@ to match Cobra's layout.
 
 | Fixtures | Port to |
 |---|---|
-| `root`, `vault`, `vault_list`, `vault_info`, `vault_remove`, `vault_set-default`, `init`, `git`, `git_set-remote` | P1 (`init` flags grow through P2, P4 and P8 — see [Q-INIT-INTERIM](open-questions.md#q-init-interim) and [Q-RECOVERY-INTERIM](open-questions.md#q-recovery-interim); `vault remove` cleanup in P6) |
+| `root`, `vault`, `vault_list`, `vault_info`, `vault_remove`, `vault_set-default`, `init`, `git`, `git_set-remote` | P1 (`init` flags grow through P2, P4 and P8 — see [Q-INIT-INTERIM](open-questions.md#q-init-interim) and [Q-RECOVERY-INTERIM](open-questions.md#q-recovery-interim); `vault remove` cleanup in P6). `init`'s `--no-recovery-key`/`--recovery-key-out` and its whole long help and flag list: P8 · RK3 `[x]` (checked by `p8_init_and_rotate_have_their_go_fixture_flags_and_descriptions`) |
 | `insert`, `cat`, `rm`, `ls` | P2 · M4 `[x]` (name, group, arguments and the flags that exist match; `insert -e` P3 · M5 `[x]`; `ls -H` and `cat` formatting are P6 · M12) |
 | `show`, `edit`, `rename`, `generate` | P3 · M5 `[x]`; `-c`/`-q` on `show` and `generate` P6 · M12c `[x]`. Every fixture flag, checked by `m5_commands_have_their_go_fixture_flags_and_descriptions` |
 | `search`, `reindex` | P3 · M7 `[x]` (name, alias `grep`, group, arguments and `-u/--use` match; checked by `m7_commands_have_their_go_fixture_flags_and_descriptions`) |
@@ -133,7 +133,7 @@ to match Cobra's layout.
 | `log`, `history` | P6 · M12a (`log` and `history` registered in group Sync, both modes, `-u/--use`, `history --decrypt`; checked by `p6_log_and_history_have_their_go_fixture_flags_and_descriptions`) |
 | The output flags `--clip`, `--qr`, `--script` (`show --field` itself is P3 · M5) | `--clip`, `--qr`: P6 · M12c `[x]`; `--script`, `--stdin`: M12d `[x]`, hidden root flags like `--yes` (`the_script_flags_are_hidden_root_flags`) |
 | `identity_enroll`, `recipient_pending`, `recipient_approve`, `recipient_deny` | P7: `identity_enroll` (and `identity`'s child list) in E3 `[x]`; `recipient_pending`, `recipient_approve`, `recipient_deny` (and `recipient`'s child list) in E4 `[x]` (checked by `p7_recipient_enrollment_commands_have_their_go_fixture_flags_and_descriptions`) |
-| `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8: `recovery` (parent) and `recovery_rotate` in RK3; `recovery_enroll`, `recovery_verify` and the parent's full child list in RK4; `init`'s `--no-recovery-key`/`--recovery-key-out` in RK3 |
+| `recovery`, `recovery_enroll`, `recovery_rotate`, `recovery_verify` | P8: `recovery` (parent, listing `rotate`) and `recovery_rotate` (group Recipients, one-shot only, `--recovery-key-out`, `-u/--use`) in RK3 `[x]` (checked by `p8_init_and_rotate_have_their_go_fixture_flags_and_descriptions`); `recovery_enroll`, `recovery_verify` and the parent's full child list in RK4; `init`'s `--no-recovery-key`/`--recovery-key-out` in RK3 `[x]` |
 | Session-mode `help` and session-only commands | P3 · M6 `[x]` — tested against the registry, not captured (`repl_tests`: `session_help_matches_registry_exactly`, `both_help_surfaces_render_the_same_registry` and the rest of Go's `sessionhelp` rows) |
 
 ## 5. Test inventory (`tests/fixtures/go/test-inventory.tsv`)

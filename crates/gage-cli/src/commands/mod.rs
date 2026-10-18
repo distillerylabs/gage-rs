@@ -28,6 +28,8 @@ mod init;
 mod log;
 mod movecopy;
 mod recipient;
+mod recovery;
+mod recoverykey;
 mod secretout;
 mod sync;
 mod vault;
@@ -45,6 +47,11 @@ pub(crate) use entry::{session_failure, short_id};
 pub(crate) use init::resolve_device_name;
 #[cfg(test)]
 pub(crate) use recipient::short_hash;
+#[cfg(test)]
+pub(crate) use recoverykey::{
+    MAX_RECOVERY_CONFIRM_ATTEMPTS, RECOVERY_CONFIRM_CHARS, check_recovery_key_out_path,
+    path_is_inside,
+};
 #[cfg(test)]
 pub(crate) use sync::{report_conflicts, sync_line};
 
@@ -65,6 +72,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
             recipient::flags(name)
         }
         "recipient pending" | "recipient approve" | "recipient deny" => approve::flags(name),
+        "recovery rotate" => recovery::flags(name),
         _ => Vec::new(),
     }
 }
@@ -89,6 +97,7 @@ pub fn long_about(name: &str) -> Option<&'static str> {
         "recipient pending" => Some(approve::PENDING_LONG_ABOUT),
         "recipient approve" => Some(approve::APPROVE_LONG_ABOUT),
         "recipient deny" => Some(approve::DENY_LONG_ABOUT),
+        "recovery rotate" => Some(recovery::ROTATE_LONG_ABOUT),
         _ => None,
     }
 }
@@ -164,6 +173,7 @@ pub fn run(
         "recipient pending" => approve::pending(matches, io, keys),
         "recipient approve" => approve::approve(matches, io, keys),
         "recipient deny" => approve::deny(matches, io, keys),
+        "recovery rotate" => recovery::rotate(matches, io, keys),
         _ => return None,
     })
 }
@@ -172,6 +182,14 @@ pub fn run(
 /// so help and usage errors never fail for want of a home directory.
 fn dirs(io: &Io) -> Result<Dirs, CliError> {
     Ok((io.dirs)()?)
+}
+
+/// The process's working directory, which a relative path argument is
+/// relative to. Asked for only by a command that needs it, and passed on
+/// as a parameter, so tests give their own rather than move the process's.
+fn cwd() -> Result<PathBuf, CliError> {
+    std::env::current_dir()
+        .map_err(|e| CliError::internal(anyhow::anyhow!("reading the working directory: {e}")))
 }
 
 /// A registered vault by name: the lookup a session's opener runs, the

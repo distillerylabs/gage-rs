@@ -19,7 +19,15 @@ fn owned_vault() -> (Env, BareRemote, String) {
     let owner = Env::new();
     let origin = gittest::new_bare_remote();
     let url = origin.path().to_str().unwrap().to_string();
-    owner.ok(&["init", VAULT, "--device", A_DEVICE, "--remote", &url]);
+    owner.ok(&[
+        "init",
+        VAULT,
+        "--device",
+        A_DEVICE,
+        "--remote",
+        &url,
+        "--no-recovery-key",
+    ]);
     (owner, origin, url)
 }
 

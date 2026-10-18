@@ -65,7 +65,13 @@ fn session_over_a_real_terminal_drives_the_line_editor() {
     let root = tempfile::tempdir().unwrap();
     gage(
         root.path(),
-        &["init", "personal", "--device", "laptop-1"],
+        &[
+            "init",
+            "personal",
+            "--device",
+            "laptop-1",
+            "--no-recovery-key",
+        ],
         format!("{PASS}\n{PASS}\n"),
     );
     gage(

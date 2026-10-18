@@ -85,6 +85,7 @@ impl Env {
                 stdout: &mut stdout,
                 stderr: &mut stderr,
                 stdin_is_terminal: run.tty,
+                stderr_is_terminal: run.tty,
                 line_editor: false,
                 build: BuildInfo::stamped(),
                 dirs: &move || Ok(dirs.clone()),

@@ -159,7 +159,15 @@ fn vault_remove_never_deletes_a_key_belonging_to_a_different_vault() {
     let url = origin.path().to_str().unwrap();
     // Vault B, published from another machine.
     let other = Env::new();
-    other.ok(&["init", "vault-b", "--device", "phone-9", "--remote", url]);
+    other.ok(&[
+        "init",
+        "vault-b",
+        "--device",
+        "phone-9",
+        "--remote",
+        url,
+        "--no-recovery-key",
+    ]);
 
     let env = Env::new();
     env.init("personal", &["--device", "laptop-1"]);
