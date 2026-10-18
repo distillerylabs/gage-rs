@@ -60,6 +60,7 @@ fn assert_access_lines(out: &str) {
         "gage identity enroll",
         "gage identity add",
         "gage recipient add",
+        "gage recovery enroll",
     ] {
         assert!(out.contains(want), "clone said {out:?}, want {want:?}");
     }
@@ -144,6 +145,60 @@ fn clone_offer_declined_leaves_the_vault_cloned() {
     let r = b.run(&["identity", "enroll", "--device", "phone-1"]);
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
     assert_eq!(pending_on_remote(&origin).len(), 1);
+}
+
+// Go: TestCloneAndSessionPointAtRecoveryEnroll. A sole owner holding a
+// paper key was told only to publish an enrollment request, which needs
+// somebody else to approve it: for them, a dead end. Both places a device
+// with no identity lands say so: clone's message, and the session's `use`.
+#[test]
+fn clone_and_session_point_at_recovery_enroll() {
+    let owner = Env::new();
+    let origin = gittest::new_bare_remote();
+    let url = origin.path().to_str().unwrap().to_string();
+    let rk = owner.root.path().join("rk");
+    owner.ok(&[
+        "init",
+        VAULT,
+        "--device",
+        A_DEVICE,
+        "--remote",
+        &url,
+        "--recovery-key-out",
+        rk.to_str().unwrap(),
+    ]);
+
+    let b = Env::new();
+    let r = b.run_with(&clone_args(&url, "phone-1"), &FakePrompter::new());
+    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert!(
+        r.stdout
+            .contains("`gage recovery enroll` — it admits this device and retires the key it used"),
+        "{}",
+        r.stdout
+    );
+    let named = crate::recovery_cli_tests::assert_names_real_commands(&r.stdout);
+    assert!(named.iter().any(|c| c == "recovery enroll"), "{named:?}");
+
+    let r = b.script_run(
+        &["--stdin"],
+        Run {
+            stdin: &script(&[&format!("use {VAULT}")]),
+            passphrase_env: Some(PASSPHRASE),
+            ..Run::default()
+        },
+        &FakePrompter::new(),
+    );
+    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert!(r.stderr.contains("gage identity enroll"), "{}", r.stderr);
+    assert!(
+        r.stderr
+            .contains("or `gage recovery enroll` if you hold its recovery key"),
+        "{}",
+        r.stderr
+    );
+    let named = crate::recovery_cli_tests::assert_names_real_commands(&r.stderr);
+    assert!(named.iter().any(|c| c == "recovery enroll"), "{named:?}");
 }
 
 // Go: TestNonInteractiveCloneNeverOffersAndExitsZero. The message is the

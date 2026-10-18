@@ -242,9 +242,23 @@ pub fn registry() -> Registry {
             ),
             // One-shot only, as in Go's registry.
             command(
+                "recovery enroll",
+                "",
+                "Use a recovery key to enroll a fresh identity for this device",
+                GROUP_RECIPIENT,
+                OneShotOnly,
+            ),
+            command(
                 "recovery rotate",
                 "",
                 "Replace this vault's recovery key, or add one if it has none",
+                GROUP_RECIPIENT,
+                OneShotOnly,
+            ),
+            command(
+                "recovery verify",
+                "",
+                "Check a stored recovery key is still one of this vault's recipients",
                 GROUP_RECIPIENT,
                 OneShotOnly,
             ),

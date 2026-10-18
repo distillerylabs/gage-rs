@@ -218,6 +218,46 @@ impl Env {
         stderr: SharedBuf,
     ) -> CliResult {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let (code, stdout, stderr) = self.with_io(prompter, stdin, tty, stderr, |io, p| {
+            crate::run(&args, io, p)
+        });
+        CliResult {
+            code,
+            stdout,
+            stderr,
+        }
+    }
+
+    /// Runs `args` and returns the command's error itself rather than its
+    /// exit code, so a test can match the typed error inside it (Go's
+    /// `errors.Is`). Nothing is printed for it: rendering is `run`'s.
+    pub(crate) fn dispatch(
+        &self,
+        args: &[&str],
+        prompter: &dyn Prompter,
+        tty: Tty,
+    ) -> Result<(), crate::error::CliError> {
+        let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let (result, _, _) = self.with_io(
+            prompter,
+            &mut &b""[..],
+            tty,
+            SharedBuf::default(),
+            |io, p| crate::dispatch(&crate::registry::registry(), &args, io, p),
+        );
+        result
+    }
+
+    /// The `Io` every run gets, with `f` run inside it: what it returned,
+    /// and what reached stdout and stderr.
+    fn with_io<T>(
+        &self,
+        prompter: &dyn Prompter,
+        stdin: &mut dyn std::io::Read,
+        tty: Tty,
+        stderr: SharedBuf,
+        f: impl FnOnce(&mut Io, &dyn Prompter) -> T,
+    ) -> (T, String, String) {
         let mut stdout = Vec::new();
         let prompter = EchoingPrompter {
             inner: prompter,
@@ -242,12 +282,9 @@ impl Env {
             clipboard_wait: &|d| self.clip.wait(d),
             time_zone: self.time_zone.lock().unwrap().clone(),
         };
-        let code = crate::run(&args, &mut io, &prompter);
-        CliResult {
-            code,
-            stdout: String::from_utf8(stdout).unwrap(),
-            stderr: stderr.text(),
-        }
+        let result = f(&mut io, &prompter);
+        drop(io);
+        (result, String::from_utf8(stdout).unwrap(), stderr.text())
     }
 
     /// Runs `args` and requires success.

@@ -16,8 +16,9 @@ subdirectory of an existing one.
 
 ```
 gage init <name> [--recipient PUBKEY ...]
-                 [--dir PATH] [--device NAME]
+                 [--dir PATH] [--remote URL] [--device NAME]
                  [--type git] [--method passphrase]
+                 [--no-recovery-key | --recovery-key-out FILE]
 ```
 
 `init` generates this device's identity for the new vault, then creates
@@ -25,13 +26,19 @@ the vault's directory, writes its committed config (`.gage/config.toml`),
 its recipient list (`.age-recipients`), a `.gitignore` and a
 `.gitattributes`, makes one git commit of all of it, and registers the
 vault on this machine. It prints this device's name and public key: the
-key is what you hand another device's `recipient add`.
+key is what you hand another device's `recipient add`. By default it also
+makes the vault's [recovery key](#the-recovery-key) and shows it once.
 
 Before asking for anything, it refuses:
 
 - a name that's already registered (exit `1`, `conflict`);
 - an unknown `--type` or `--method`, an invalid `--device`, or a malformed
-  `--recipient` (exit `2`, `usage`).
+  `--recipient` (exit `2`, `usage`);
+- `--device recovery-paper-key`, a name reserved for the recovery key
+  (exit `2`);
+- a run with no terminal that passes neither recovery-key flag, both flags
+  together, or a `--recovery-key-out` destination it can't or shouldn't
+  write (exit `2`). See [The recovery key](#the-recovery-key).
 
 A target directory that exists and isn't empty, or a target that isn't a
 directory at all, is refused too (exit `1`), after the passphrase prompt.
@@ -106,6 +113,40 @@ one, which is a narrower guarantee.
   commit straight away. Without it the vault starts local-only, and
   `gage git set-remote` can give it a remote later (see below). See
   [Git remotes and authentication](git-and-auth.md).
+- **`--no-recovery-key`** and **`--recovery-key-out FILE`** change what
+  happens to the recovery key; see the next section.
+
+### The recovery key
+
+By default `init` also generates an **offline recovery key** and registers
+it as a second recipient, labelled `recovery-paper-key`. It shows the
+private key once on stderr, as text and as a QR code, with what to do with
+it, then asks you to type its last six characters back so you know you
+have it. `gage` keeps no copy. The key is unencrypted and reads every
+secret in the vault, so it needs storing with care: see
+[Storing your recovery key](identities-and-recipients.md#storing-your-recovery-key).
+
+- **`--recovery-key-out FILE`** writes the key to a new `0600` file instead
+  of showing it, for a run with no terminal. The file must not already
+  exist. It must not be inside a vault or under `$GAGE_DATA`, because
+  `gage` deletes files in both. An empty `FILE` is refused. All of this is
+  checked before anything is created.
+- **`--no-recovery-key`** skips it. That leaves this device's identity file
+  as the only way into the vault; `gage recovery rotate` adds one later.
+  The two flags can't be combined.
+- **With no terminal and neither flag**, `init` refuses before creating
+  anything, rather than write an unencrypted key into a log. Showing the
+  key needs both stdin and stderr to be a terminal: `gage init foo
+  2>build.log` refuses too.
+- **If the re-type doesn't match** after three tries, `init` exits `1`
+  (`conflict`), but the vault is created and the key is one of its
+  recipients. It's worth saving from the screen, and if it's already gone,
+  `gage recovery rotate` replaces it.
+- **The label `recovery-paper-key` is reserved**, with or without a
+  recovery key. `--device recovery-paper-key` is refused here, and by
+  `identity add`, `recipient add` and `recovery enroll`.
+  `gage recovery rotate` replaces whatever holds the label, so a device
+  there would be locked out by its own rotation.
 
 `init` is one-shot only: it creates a vault rather than operating on one.
 

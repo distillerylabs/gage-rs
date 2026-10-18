@@ -48,6 +48,8 @@ pub(crate) use init::resolve_device_name;
 #[cfg(test)]
 pub(crate) use recipient::short_hash;
 #[cfg(test)]
+pub(crate) use recovery::LocalIdentityExists;
+#[cfg(test)]
 pub(crate) use recoverykey::{
     MAX_RECOVERY_CONFIRM_ATTEMPTS, RECOVERY_CONFIRM_CHARS, check_recovery_key_out_path,
     path_is_inside,
@@ -72,7 +74,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
             recipient::flags(name)
         }
         "recipient pending" | "recipient approve" | "recipient deny" => approve::flags(name),
-        "recovery rotate" => recovery::flags(name),
+        "recovery enroll" | "recovery rotate" | "recovery verify" => recovery::flags(name),
         _ => Vec::new(),
     }
 }
@@ -97,7 +99,9 @@ pub fn long_about(name: &str) -> Option<&'static str> {
         "recipient pending" => Some(approve::PENDING_LONG_ABOUT),
         "recipient approve" => Some(approve::APPROVE_LONG_ABOUT),
         "recipient deny" => Some(approve::DENY_LONG_ABOUT),
+        "recovery enroll" => Some(recovery::ENROLL_LONG_ABOUT),
         "recovery rotate" => Some(recovery::ROTATE_LONG_ABOUT),
+        "recovery verify" => Some(recovery::VERIFY_LONG_ABOUT),
         _ => None,
     }
 }
@@ -173,7 +177,9 @@ pub fn run(
         "recipient pending" => approve::pending(matches, io, keys),
         "recipient approve" => approve::approve(matches, io, keys),
         "recipient deny" => approve::deny(matches, io, keys),
+        "recovery enroll" => recovery::enroll(matches, io, keys.prompter()),
         "recovery rotate" => recovery::rotate(matches, io, keys),
+        "recovery verify" => recovery::verify(matches, io, keys.prompter()),
         _ => return None,
     })
 }

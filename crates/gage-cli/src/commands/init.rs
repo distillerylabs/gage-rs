@@ -345,6 +345,19 @@ fn ensure_remote_token(io: &mut Io, prompter: &dyn Prompter, remote: &str) -> Re
     Ok(())
 }
 
+/// `--device` if given, or else this machine's normalized hostname, by
+/// [`resolve_device_name`]'s rules.
+pub(super) fn device_flag_or_hostname(matches: &ArgMatches, io: &Io) -> Result<String, CliError> {
+    match matches.get_one::<String>("device") {
+        Some(explicit) => resolve_device_name(Some(explicit), ""),
+        None => {
+            let hostname = (io.hostname)()
+                .map_err(|e| CliError::internal(anyhow::anyhow!("reading the hostname: {e}")))?;
+            resolve_device_name(None, &hostname)
+        }
+    }
+}
+
 /// `--device` if given (it must already be a valid name: an explicit name
 /// is never rewritten into a different one), else the normalized
 /// hostname. A hostname that normalizes to nothing fails with Usage naming

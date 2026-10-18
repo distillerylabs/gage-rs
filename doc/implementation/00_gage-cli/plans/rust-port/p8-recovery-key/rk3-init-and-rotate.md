@@ -329,7 +329,7 @@ Write each task's tests first. CLI rows go in
 
 ### 7. Help parity and smoke
 
-- [x] `p8_init_and_rotate_have_their_go_fixture_flags_and_descriptions`, on
+- [x] `p8_init_and_rotate_have_their_go_fixture_flags_and_descriptions` (renamed in RK4 to `p8_recovery_commands_have_their_go_fixture_flags_and_descriptions`, which also covers enroll and verify), on
   `approve_cli_tests.rs`'s pattern:
   - `init`'s two new flags and their descriptions
   - `recovery rotate`'s flags, usage, group and availability

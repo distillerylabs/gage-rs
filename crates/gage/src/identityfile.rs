@@ -197,6 +197,82 @@ pub fn remove(dirs: &Dirs, vault_id: &str, device: &str) -> Result<(), UnlockErr
     Ok(())
 }
 
+/// A wrapped identity file held in memory while something replaces it, so
+/// a failure part-way through can put back exactly what was there
+/// (Q-RECOVERY-IDENTITY-BACKUP). The file is usually unopenable, since a
+/// forgotten passphrase is why anyone replaces one, but not always:
+/// rebuilding a machine under its own name is legitimate with a good key on
+/// disk.
+///
+/// Holding one decides nothing. Whether a file may be replaced at all is
+/// the caller's policy.
+pub struct IdentityBackup {
+    path: std::path::PathBuf,
+    /// Still wrapped, so not a secret in itself, but zeroed anyway: it is
+    /// the only copy of a private key.
+    wrapped: Zeroizing<Vec<u8>>,
+    /// The marker as it was, if there was one.
+    marker: Option<Vec<u8>>,
+}
+
+// Hand-written so the bytes never reach a log.
+impl std::fmt::Debug for IdentityBackup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IdentityBackup")
+            .field("path", &self.path)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Reads this device's wrapped identity file for a vault into memory,
+/// with the marker beside it; `None` if there is no file. Only reads.
+pub fn backup(
+    dirs: &Dirs,
+    vault_id: &str,
+    device: &str,
+) -> Result<Option<IdentityBackup>, UnlockError> {
+    let path = paths::identity_file_path(dirs, vault_id, device)?;
+    let Some(wrapped) = read(&path)? else {
+        return Ok(None);
+    };
+    let marker_path = path
+        .parent()
+        .expect("an identity file path has a directory")
+        .join(MARKER_FILE_NAME);
+    let marker = read(&marker_path)?;
+    Ok(Some(IdentityBackup {
+        path,
+        wrapped: Zeroizing::new(wrapped),
+        marker,
+    }))
+}
+
+impl IdentityBackup {
+    /// Puts the file back as it was. The directory is remade first:
+    /// [`remove`] prunes it, with the marker, when the file was the
+    /// vault's last identity, and a write beside a missing directory would
+    /// fail and lose the file this exists to keep (Go's R4 review bug).
+    /// Takes `&self`, so a caller whose restore failed can still report
+    /// where the bytes belonged.
+    pub fn restore(&self) -> Result<(), UnlockError> {
+        let dir = self
+            .path
+            .parent()
+            .expect("an identity file path has a directory");
+        make_private_dir(dir)?;
+        atomicfile::write(&self.path, &self.wrapped, 0o600)?;
+        if let Some(marker) = &self.marker {
+            atomicfile::write(&dir.join(MARKER_FILE_NAME), marker, 0o600)?;
+        }
+        Ok(())
+    }
+
+    /// Where the file belongs.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
 /// Whether `dir` holds no wrapped identity files: "was that the last one".
 /// Asked about identity files, not emptiness, because the marker is what
 /// stops the directory being empty. An unreadable directory holds nothing

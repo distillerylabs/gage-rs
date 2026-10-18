@@ -610,7 +610,7 @@ impl Vault {
         let path = paths::identity_file_path(&self.dirs, &self.id, &device)?;
         let wrapped = identityfile::read(&path)?.ok_or_else(|| {
             UnlockError::NoLocalIdentity(format!(
-                "expected a wrapped identity at {}; if this device has none yet, run `gage identity enroll` to ask to join this vault",
+                "expected a wrapped identity at {}; if this device has none yet, run `gage identity enroll` to ask to join this vault, or `gage recovery enroll` if you hold its recovery key",
                 path.display()
             ))
         })?;

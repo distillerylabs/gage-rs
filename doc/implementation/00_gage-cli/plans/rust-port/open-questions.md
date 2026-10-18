@@ -1591,6 +1591,51 @@ before anything is created, with "--recovery-key-out needs a file name"
 empty path named the working directory, which then "already exists": a
 refusal too, but one that explained nothing. Found by RK3's review.
 
+### `[x]` Q-RECOVERY-IDENTITY-BACKUP — Who holds and restores the identity file `recovery enroll` displaces? {#q-recovery-identity-backup}
+
+**Resolved in RK4: the library holds the bytes, the CLI holds the
+policy.** Go's `identityBackup` lives in `cmd/gage` and repeats the
+identity directory's and file's modes there. Its R4 review bug was a
+restore that skipped `MkdirAll`. `RemoveIdentity` had already pruned the
+directory, so the restore failed on the vault's only identity. In
+gage-rs, `identityfile` already owns those rules (`make_private_dir`, the
+0600 write). So the pair lives there:
+- `identityfile::backup(dirs, vault_id, device)` reads the wrapped file,
+  and the marker if there is one, into zeroizing buffers.
+- `IdentityBackup::restore()` recreates the 0700 directory, the 0600
+  file and the marker.
+
+The library never decides to overwrite. Refusing unless `--replaces` names
+the same device is `recovery enroll`'s decision, as in Go. The marker is
+restored too, which Go's restore omitted.
+
+### `[x]` Q-RECOVERY-LOCAL-IDENTITY-ERROR — How is enroll's "this machine already holds that identity" refusal matchable? {#q-recovery-local-identity-error}
+
+**Resolved in RK4: a typed CLI error, downcastable through `CliError`.**
+Go exports a `cmd`-level sentinel, `ErrLocalIdentityExists`, and its test
+checks it with `errors.Is`. Its R4 review bug was formatting it with `%v`,
+which broke the chain. gage-rs has `LocalIdentityExists { path, device }`
+in `gage-cli`, with `HasCode` = `Usage`. It reaches `CliError` through the
+existing `From`, and `CliError::downcast_ref` finds it anywhere in the
+cause chain. It stays out of
+the library for Go's reason: `identityfile::create` would *reuse* the file
+and ask for its passphrase, and the forgotten passphrase is what the user
+came here to route around. So refusing is a frontend policy.
+
+### `[x]` Q-RECOVERY-IDENTITY-ADD-HELP — Does `identity add`'s help still call it the recovery path? {#q-recovery-identity-add-help}
+
+**Resolved in RK4: no, a deliberate deviation in prose.** Go's
+`identity add` long help at the pinned SHA ends: "This is also the
+recovery path for a lost identity file — register a fresh identity under a
+new name rather than restoring the old key from a backup." That is half
+true once `recovery enroll` exists. A fresh identity only gets in if a
+device that can already read the vault adds it, and a sole owner has no
+such device. gage-rs keeps the advice (a fresh identity, not a restored
+backup) and adds the other route: "If no device can, `gage recovery
+enroll` gets you back in with the vault's recovery key." The P5 help
+parity test checks Go's prose up to that sentence, and the replacement
+after it. Name, group, flags and arguments are unchanged.
+
 ---
 
 ## Withdrawn

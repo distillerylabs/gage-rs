@@ -39,6 +39,9 @@ pub(crate) struct ScreenPrompter {
     pub(crate) transform: Option<fn(&str) -> String>,
     /// Run on each unlock (init's identity passphrase), before answering.
     pub(crate) on_unlock: Option<Box<dyn Fn()>>,
+    /// Answers to the first value prompts, ahead of any re-type:
+    /// `recovery enroll`'s paste (Go's `enrollPrompter`).
+    pub(crate) pastes: RefCell<std::collections::VecDeque<String>>,
 }
 
 impl ScreenPrompter {
@@ -52,7 +55,14 @@ impl ScreenPrompter {
             on_value: None,
             on_unlock: None,
             transform: None,
+            pastes: RefCell::default(),
         }
+    }
+
+    /// Answers the next value prompt with `key`, as a paste.
+    pub(crate) fn pasting(self, key: &str) -> ScreenPrompter {
+        self.pastes.borrow_mut().push_back(key.into());
+        self
     }
 
     pub(crate) fn answering(mut self, answer: &str) -> ScreenPrompter {
@@ -87,6 +97,9 @@ impl Prompter for ScreenPrompter {
         self.asked.borrow_mut().push(title.to_string());
         if let Some(hook) = &self.on_value {
             hook();
+        }
+        if let Some(pasted) = self.pastes.borrow_mut().pop_front() {
+            return Ok(Zeroizing::new(pasted));
         }
         if let Some(answer) = &self.answer {
             return Ok(Zeroizing::new(answer.clone()));

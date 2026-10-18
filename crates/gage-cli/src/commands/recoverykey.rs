@@ -3,8 +3,8 @@
 //! destination that can't be written or that gage would delete
 //! (`check_recovery_key_out_path`), and, once the vault holds the key as
 //! a recipient, showing it or writing it (`deliver_recovery_key`).
-//! `init` and `recovery rotate` share all of it; RK4's `recovery enroll`
-//! will too. See "Recovery key at `init`" in the design doc.
+//! `init`, `recovery rotate` and `recovery enroll` share all of it. See
+//! "Recovery key at `init`" in the design doc.
 //!
 //! The library makes the key and registers it; everything here is the
 //! frontend's: which stream it goes to, what is said beside it, and the
