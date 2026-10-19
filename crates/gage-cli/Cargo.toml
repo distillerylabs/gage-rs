@@ -45,7 +45,7 @@ ctrlc = "3.5.2"
 # `-q/--qr` (Q-QR-CRATE): encoding only, no image rendering.
 qrcode = { version = "0.14.1", default-features = false }
 # The clipboard keeper remembers a digest of what it wrote, never the value.
-sha2 = "0.10"
+sha2 = "0.11"
 subtle = "2"
 # Typed refusals a caller can match through `CliError::downcast_ref`
 # (Q-RECOVERY-LOCAL-IDENTITY-ERROR).
