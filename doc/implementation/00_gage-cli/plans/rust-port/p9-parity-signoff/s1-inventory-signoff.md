@@ -81,6 +81,18 @@ P8 merged (it is, at `6552930`). Nothing in P9 before it.
 
 ## Decisions to make first
 
+All four are **resolved as proposed**, and match
+[Q-INVENTORY-GUARD](../open-questions.md#q-inventory-guard). Two additions
+came out of implementing them:
+
+- Lines starting with `#` are comments in the exceptions file. Each
+  `excused` row, and each non-obvious `ported` one, carries its reason on
+  the comment line above it.
+- `ref` may list several refs, comma-separated. A guard test checks that
+  each one resolves: a `Q-NAME` must have its `{#q-name}` anchor in
+  `open-questions.md`, and a path must be a file under `plans/rust-port/`.
+  A ref a reader can't follow is caught the same way as a missing one.
+
 1. **Where the guard lives.**
    - Proposed: `crates/gage-cli/tests/parity_inventory.rs`, an integration
      test. It reads the repo through `env!("CARGO_MANIFEST_DIR")/../..`.
@@ -118,7 +130,7 @@ P8 merged (it is, at `6552930`). Nothing in P9 before it.
 
 ### 1. The guard, red first
 
-- [ ] Tests for the guard's own parsing, as unit tests inside the
+- [x] Tests for the guard's own parsing, as unit tests inside the
       integration-test file:
   - the name normalizer (`TestEditYAMLScratchFileCreated0600` ↔
     `edit_yaml_scratch_file_created_0600`)
@@ -128,12 +140,18 @@ P8 merged (it is, at `6552930`). Nothing in P9 before it.
     - `ported` with no Rust tests
     - `excused` with Rust tests
     - a duplicate key
-- [ ] `every_inventory_row_is_ported_or_excused` fails with the list of
+- [x] `every_inventory_row_is_ported_or_excused` fails with the list of
       unmatched rows, when the exceptions file is empty or holds only its
-      header row.
-- [ ] `every_ported_exception_names_real_tests`.
-- [ ] `no_exception_is_stale`: each exception's key is in the inventory, and
+      header row. Run against the header-only file, it listed all 95.
+- [x] `every_ported_exception_names_real_tests`.
+- [x] `no_exception_is_stale`: each exception's key is in the inventory, and
       its Go name does not already name-match.
+- [x] Added: `every_exception_ref_resolves`, with
+      `a_ref_resolves_to_a_q_anchor_or_an_existing_plan_doc` for the
+      resolver (see "Decisions" above).
+- The scanner also asserts that it found more than 1,000 Rust tests. A
+  moved tree or a changed attribute style would otherwise make every
+  check vacuous.
 
 ### 2. The audit, file by file
 
@@ -157,40 +175,114 @@ For each row in the Go sources table above:
 
 Checklist, one box per Go file group:
 
-- [ ] P1 (24): `help`, `main_integration`, `vaultid_keying`, `version`, `atomicfile`, `config`, `devicename`, `exitcode`, `vaultlock`, `xdgpaths`
-- [ ] P2 (43): `entry` (CLI), `insert_field`, `prompter`, `crypt`, `entry_crud`, `entry` (library), `field`, `testsupport`, `unlock`, `vault`
-- [ ] P3 (7): `complete`, `insert_edit`, `session`, `generate`
-- [ ] P4 (6): `sync_cli`, `auth_wiring`, `remote`, `syncerr`, `syncresolve`
-- [ ] P5 (9): `move` (CLI and library), `recipient`, `recipients`
-- [ ] P6 (5): `script`, `history`
-- [ ] P8 (1): `recovery_enroll`
-- [ ] The guard is green with the final exceptions file. Report the count
-      in each disposition here.
-- [ ] Proof the guard bites: rename one name-matched Rust test, see
+- [x] P1 (24): `help`, `main_integration`, `vaultid_keying`, `version`, `atomicfile`, `config`, `devicename`, `exitcode`, `vaultlock`, `xdgpaths`
+  - **Missing:** `vaultid_keying` `TestCloneCopiesTheVaultsIDIntoGlobalConfig`.
+    M1 sent it to P4 · M8a, and P4 planning never claimed it.
+    `clone_produces_a_registered_working_vault` checks only that the id
+    is non-empty. Ported as `clone_copies_the_vaults_id_into_global_config`
+    (green on first run: the behavior was right, the test was missing).
+    It name-matches, so it has no exception row. Recorded in M1's doc,
+    P4's index and ledger §5.
+  - cmd `TestMain` moves from "excused" (M0b) to `ported`. Its fake-editor
+    re-entry and scrypt hook have Rust tests. Only the build-dir cleanup
+    has nothing to port.
+  - `TestLinkTimeVersionInjection` is `excused`, as it isn't a `#[test]`:
+    it is `make stamp-check`, a test.yml step.
+- [x] P2 (43): `entry` (CLI), `insert_field`, `prompter`, `crypt`, `entry_crud`, `entry` (library), `field`, `testsupport`, `unlock`, `vault`
+  - **Tightened:** the five `insert_field` refusal rows. The Rust table
+    test checked Usage and no unlock, but not that each message names its
+    mistake, which every Go row asserts. Now each case asserts its reason,
+    and the stripping case asserts `"user" was given more than once`.
+  - **Unrecorded port:** `prompter` `TestResolveConflictNeverGuesses`. P2
+    sent it to P4 · M8b, whose doc never claimed it.
+    `conflict_prompt_re_asks_on_an_unknown_answer` covers it, and now
+    also asserts Go's re-ask count. Recorded in M8b's doc.
+  - `TestTimestampUnmarshalYAMLRejectsNonStringNode` is
+    `collections_where_strings_belong_are_refused` (its `created:` rows).
+    It had no marker; one is added.
+  - The 4 `vault` rows and 2 `crypt` rows are excused as compile-time:
+    `compile_fail` doctests, each paired with a compiling sibling, or no
+    nil or zero value to test.
+- [x] P3 (7): `complete`, `insert_edit`, `session`, `generate`
+  - Go's crypto-rand row also checks for an unbiased draw by reading the
+    source (`rand.Int`, not a modulo). In Rust that is proven by behavior
+    (`random_string_rejects_bytes_that_would_bias_the_draw`), so the row
+    lists both tests.
+- [x] P4 (6): `sync_cli`, `auth_wiring`, `remote`, `syncerr`, `syncresolve`
+  - `TestSyncReportsAPushEvenWhenNothingWasSent` is ported with its
+    assertion flipped: Q-SYNC-PUSHED fixes Go's bug F2.
+- [x] P5 (9): `move` (CLI and library), `recipient`, `recipients`
+  - `TestRecipientListMatchesConfigExactly` also has to reflect an add and
+    a remove. The row lists the two `recipient_tests` that check
+    `recipients()` after each.
+  - `TestReadSkipsBlankLines` had no marker; one is added.
+  - `TestReadRejectsALineLongerThanTheScannerCanBuffer` keeps M9a's
+    decision: an overlong line comes back whole, and no cap is invented.
+- [x] P6 (5): `script`, `history`
+- [x] P8 (1): `recovery_enroll`
+- [x] The guard is green with the final exceptions file: 94 rows, **76
+      `ported`** and **18 `excused`**. The 95th row, the late clone-id
+      port, now name-matches.
+  - The 18 excused rows: P1 6 (`help` helper, stamp CI step, 2
+    `runtime/debug` rows, `WrapNil`, `xdgpaths` closed enum), P2 9, P4 2
+    (nil classifier input, nil prompter), P6 1 (Q-SCRIPT-PASSPHRASE).
+- [x] Proof the guard bites: rename one name-matched Rust test, see
       `every_inventory_row_is_ported_or_excused` fail naming its Go row,
       then revert. Rename one test listed in an exception, see
       `every_ported_exception_names_real_tests` fail, then revert.
+  - Done on this branch:
+    - Renaming `success_is_zero` failed the first test with
+      `P1 internal/gage/exitcode/exitcode_test.go TestSuccessIsZero`.
+    - Renaming `ok_is_success` failed the second with
+      `TestNilErrorIsSuccess -> ok_is_success`.
+  - Beyond the plan: appending an exception for the name-matched
+    `TestSuccessIsZero` with ref `Q-NO-SUCH-ENTRY` failed both
+    `no_exception_is_stale` and `every_exception_ref_resolves`.
+  - Each change was reverted, and `git diff` showed the file clean.
 
 ### 3. Leftover boxes in milestone docs
 
-- [ ] M0a `.github/workflows/test.yml`, `lint.yml`, `audit.yml`: tick each
+- [x] M0a `.github/workflows/test.yml`, `lint.yml`, `audit.yml`: tick each
       one, citing the workflow file as it stands. Where the doc's spec and
       the workflow differ, say so in the doc.
-- [ ] M0a gosec mapping: point the box at S2's table. S2 writes the table
+  - lint.yml matches its spec. test.yml runs `cargo fetch --locked`
+    inside `make cover`, not as its own step, and has M0b's
+    `make stamp-check`. audit.yml adds `workflow_dispatch`.
+- [x] M0a gosec mapping: point the box at S2's table. S2 writes the table
       and ticks the box.
-- [ ] M8a1 cold CI build: tick it, citing a CI run on all three OSes with
+- [x] M8a1 cold CI build: tick it, citing a CI run on all three OSes with
       an empty cache. If none exists, trigger one with `workflow_dispatch`
       after clearing the cache, with the user's go-ahead.
-- [ ] Sweep: `grep -n '^\s*- \[ \]' plans/rust-port/*/*.md` returns only P9's
+  - None existed. M8a1's first run (38826745518) was cold on macOS and
+    Windows only: Linux restored a partial rust-cache. None of the 40
+    most recent `test.yml` runs was cold on all three.
+  - With the user's go-ahead, all 35 Actions caches were deleted and
+    `test.yml` was dispatched on `main` (`6552930`): run 39549666209.
+  - "No cache found." on all three OSes, and all three jobs passed.
+- [x] Sweep: `grep -n '^\s*- \[ \]' plans/rust-port/*/*.md` returns only P9's
       own boxes.
+  - Besides P9's own, it returns only M0a's gosec box, which points at
+    S2's table, and S2 ticks it.
 
 ### 4. Accounting
 
-- [ ] For each phase, check that its index's "Inventory accounting" table
+- [x] For each phase, check that its index's "Inventory accounting" table
       adds up to the §5 count, adjusted by the cross-phase claims each
       ledger §5 paragraph lists. Fix the arithmetic in the doc where it
       doesn't add up.
-- [ ] Add a "Resolved in P9" paragraph to ledger §5. It gives the
+  - Every phase's milestone split adds up to its §5 count, and each
+    milestone total equals its per-file counts.
+  - P1 is 97 + 89. P2 is 5 (to P1) + 83 + 37 + 54 + 14 moved. P3 is
+    221 + 4 moved. P4 is 7 (M1) + 57 + 53 + 49. P5 is 26 + 37 + 38 + 20.
+    P6 is 24 + 10 + 27 + 26. P7 is 15 + 55 + 60 + 71. P8 is 11 + 25 + 30
+    + 26.
+  - Fixed:
+    - P4's index said no rows moved in. Three had; it now lists them and
+      what became of each.
+    - M1's task 5 heading omitted its 2 `vaultid_keying` rows. Without
+      them, that file's 21 rows didn't add up.
+    - §5 had no P8 paragraph.
+- [x] Add a "Resolved in P9" paragraph to ledger §5. It gives the
       exceptions file, the guard test, the disposition counts, and any
       rows ported late.
 

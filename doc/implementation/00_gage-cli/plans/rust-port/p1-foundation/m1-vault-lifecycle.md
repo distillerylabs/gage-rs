@@ -220,7 +220,7 @@ Needed by task 4. The `recipients` package's own Go tests stay in P5.
       (`checkDeviceLabelFree`) and `ExtraRecipients` (the labelled
       recovery key, with its duplicate checks) arrive with **P8**.
 
-### 5. `gage init` — `init` (4) and 16 `vault_lifecycle` rows
+### 5. `gage init` — `init` (4), 16 `vault_lifecycle` rows and 2 `vaultid_keying` rows
 
 - [x] Device name: `TestResolveDeviceNameExplicitOverridesHostname`,
       `TestResolveDeviceNameExplicitFailingAllowlistIsUsageError`,
@@ -332,7 +332,7 @@ it when that phase is planned.
 | `vaultid_keying` `TestNonInteractiveVaultRemoveNeverDeletesAnIdentity`, `TestVaultRemoveIdentifiesAStaleKeyWhoseNameNowLabelsAnother`, `TestVaultRemoveKeepsARelabelledRecipientsKey`, `TestVaultRemoveKeepsTheFileWhenNoPubkeyIsRecorded`, `TestVaultRemoveNeverDeletesAKeyBelongingToADifferentVault`, `TestVaultRemoveNeverDeletesWithoutConfirming`, `TestVaultRemoveOnAPendingEnrollmentAsksBeforeDeleting`, `TestVaultRemoveLeavesTheVaultsOwnFilesUntouched`, `TestOneRepositoryRegisteredTwiceSharesOneIdentitiesDirectory` | P6 · M12 | Same; they need identities and `vault remove`'s cleanup |
 | `vaultid_keying` `TestTheIDInitFilesTheIdentityUnderIsTheIDItCommits` | P2 · M2 | Needs identity generation |
 | `vaultid_keying` `TestTwoRegistrationsOfOneRepositoryShareOneLock` | P2 · M4 | Proven through `insert` contending; the shared lock *path* is covered by M0b's `paths` tests |
-| `vaultid_keying` `TestCloneCopiesTheVaultsIDIntoGlobalConfig` | P4 · M8a | Needs `clone` |
+| `vaultid_keying` `TestCloneCopiesTheVaultsIDIntoGlobalConfig` | P4 · M8a | Needs `clone`. P4 never claimed it; ported late in P9 · S1 as `sync_tests::clone_copies_the_vaults_id_into_global_config` |
 | `vaultid_keying` `TestInitAndIdentityAddRecordThePubkeyAndCloneDoesNot` | P5 (init half in P2 · M2) | Needs `identity add` and `clone` |
 | `vaultid_keying` `TestTwoVaultsUnderOneLocalNameShareNeitherDirectory` | P5 · M10 | Needs `clone` and the trust cache |
 

@@ -115,6 +115,7 @@ mod tests {
         assert_eq!(read(&path).unwrap(), keys());
     }
 
+    // Go: TestReadSkipsBlankLines
     #[test]
     fn read_skips_blank_lines_and_surrounding_space() {
         let dir = tempfile::tempdir().unwrap();

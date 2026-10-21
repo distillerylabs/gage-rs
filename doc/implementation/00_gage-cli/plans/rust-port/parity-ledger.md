@@ -194,7 +194,11 @@ M12 for `log`/`history`. M1 already claims 7 of P4's 166 rows. The other
 moved from M8a2), with M8b excusing one
 (`TestNilPrompterRefusesRatherThanPanicking`, per
 [Q-CONFLICT-PROMPTER](open-questions.md#q-conflict-prompter)). See the
-[P4 plan](p4-sync/index.md#inventory-accounting).
+[P4 plan](p4-sync/index.md#inventory-accounting). *Corrected in P9 · S1:*
+P4 planning recorded no rows moving in, but P1 · M1 and P2 · M2 had sent it
+three. One was ported unrecorded (`TestResolveConflictNeverGuesses`, M8b).
+P7 claimed one (`TestConfirmDefaultYesDefaultsToYes`). One was lost until
+S1 ported it (`TestCloneCopiesTheVaultsIDIntoGlobalConfig`).
 
 Resolved in P5 planning: `recipient_batch_test.go` (15 rows) was re-tagged
 P7 in the phase map, because it tests E1b's N-recipient write, whose only
@@ -226,10 +230,44 @@ phases: the enrollment halves of two P2 `crypt` guards (E2), P6's
 offer under P4 · M8a, which kept the offer out of scope and never claimed
 it. See the [P7 plan](p7-enrollment/index.md#inventory-accounting).
 
-P9 closes this section: [P9 · S1](p9-parity-signoff/s1-inventory-signoff.md)
-audits the 95 rows that don't name-match a Rust test, records each in
-`tests/parity/inventory-exceptions.tsv`, and adds the guard test
-([Q-INVENTORY-GUARD](open-questions.md#q-inventory-guard)).
+Resolved in P8 planning: no re-tags, and no rows moved in. The 92 rows
+are split RK1 (11), RK2 (25), RK3 (30) and RK4 (26). Earlier phases left
+P8 obligations that aren't inventory rows; see the
+[P8 plan](p8-recovery-key/index.md#inventory-accounting).
+
+Resolved in P9 · S1 ([Q-INVENTORY-GUARD](open-questions.md#q-inventory-guard)):
+
+- **The guard.** `crates/gage-cli/tests/parity_inventory.rs` runs in
+  `make test` on every platform.
+  - A row passes when its normalized Go name matches a Rust `#[test]`
+    fn, or when it has a row in `tests/parity/inventory-exceptions.tsv`.
+  - The guard also fails on an exception that names a test which
+    doesn't exist, one that already name-matches, one whose key isn't in
+    the inventory, and one whose `ref` doesn't resolve to a `Q-` anchor
+    or a plan doc.
+  - Each of those failures was produced once by hand (S1, task 2).
+- **The audit.** S1 read all 95 rows that didn't name-match against the
+  Go test at the pinned SHA.
+  - 76 are `ported` under other names.
+  - 18 are `excused`: language guarantees, compile-time properties
+    proven by `compile_fail` doctests, Go-only build metadata and test
+    helpers, and one CI step (`make stamp-check`).
+- **Ported late, against P1:** `vaultid_keying`
+  `TestCloneCopiesTheVaultsIDIntoGlobalConfig`. Nothing checked that a
+  clone inherits the vault's committed id. It now name-matches, so it
+  has no exception row.
+- **Ports tightened to match Go's assertions:**
+  - `bad_field_flags_are_usage_errors_before_unlock` now checks that each
+    `--field` refusal names its own reason (five `insert_field` rows).
+  - `conflict_prompt_re_asks_on_an_unknown_answer` now checks the re-ask
+    count (`TestResolveConflictNeverGuesses`).
+- **Accounting fixes:**
+  - The P4 paragraph above.
+  - M1's task 5 heading now counts its 2 `vaultid_keying` rows.
+  - This P8 paragraph.
+
+  Every phase's milestone split adds up to its row count in the table
+  above.
 
 ## 6. User docs (Go `doc/cli/`)
 

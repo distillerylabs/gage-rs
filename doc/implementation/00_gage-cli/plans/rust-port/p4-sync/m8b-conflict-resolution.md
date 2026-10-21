@@ -291,6 +291,10 @@ Write each task's tests first, at task granularity.
   - `TestConflictPromptRendersTheDesignDocsMenu`
   - `TestConflictPromptMapsEveryKey`
   - `TestConflictPromptReAsksOnAnUnknownAnswer`
+  - P2's `prompter` `TestResolveConflictNeverGuesses`, sent here by P2's
+    index. This doc never claimed it, but its give-up half of
+    `conflict_prompt_re_asks_on_an_unknown_answer` ported it. P9 · S1
+    recorded the row and added Go's re-ask count to that test.
   - `TestDeleteModifyPromptSaysOneSideDeletedIt`
   - `TestNonInteractivePrompterRefusesToResolve`
   - `TestSyncResolvesAConflictInteractivelyAndPushes`

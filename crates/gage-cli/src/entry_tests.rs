@@ -844,24 +844,30 @@ fn strings(v: &[&str]) -> Vec<String> {
 // TestInsertFieldWhitespaceOnlyNameIsUsageErrorBeforeUnlock (the first
 // loop), TestInsertDuplicateFieldNameIsUsageErrorBeforeUnlock and
 // TestInsertFieldNamesEqualAfterStrippingAreDuplicates (the second),
-// through the CLI: nothing scripted, so an unlock would panic.
+// through the CLI: nothing scripted, so an unlock would panic. As Go's
+// rows do, each case also checks the message says which mistake it was,
+// and a duplicate is named after stripping.
 #[test]
 fn bad_field_flags_are_usage_errors_before_unlock() {
     let env = env_with_vault();
     let before = env.commits("personal");
     for (flag, why) in [
-        ("username", "no ="),
-        ("=value", "empty name"),
-        ("   =value", "whitespace-only name"),
-        ("\t \n=v", "whitespace-only name"),
+        ("username", "must be NAME=VALUE"),
+        ("=value", "empty NAME"),
+        ("   =value", "empty NAME"),
+        ("\t \n=v", "empty NAME"),
     ] {
         let prompter = FakePrompter::new();
         let r = env.run_with(&["insert", "x", "--field", flag], &prompter);
-        assert_eq!(r.code, Code::Usage, "{why}: {}", r.stderr);
-        assert!(prompter.unlock_requests().is_empty(), "{why}");
-        assert!(r.stderr.contains("--field"), "{why}: {}", r.stderr);
+        assert_eq!(r.code, Code::Usage, "{flag:?}: {}", r.stderr);
+        assert!(prompter.unlock_requests().is_empty(), "{flag:?}");
+        assert!(r.stderr.contains(why), "{flag:?}: {}", r.stderr);
     }
-    for pair in [["a=1", "a=2"], ["user=1", "u ser=2"], ["a=1", " a\t=1"]] {
+    for (pair, name) in [
+        (["a=1", "a=2"], "a"),
+        (["user=1", "u ser=2"], "user"),
+        (["a=1", " a\t=1"], "a"),
+    ] {
         let prompter = FakePrompter::new();
         let r = env.run_with(
             &["insert", "x", "--field", pair[0], "--field", pair[1]],
@@ -869,6 +875,8 @@ fn bad_field_flags_are_usage_errors_before_unlock() {
         );
         assert_eq!(r.code, Code::Usage, "{pair:?}: {}", r.stderr);
         assert!(prompter.unlock_requests().is_empty(), "{pair:?}");
+        let said = format!("{name:?} was given more than once");
+        assert!(r.stderr.contains(&said), "{pair:?}: {}", r.stderr);
     }
     assert_eq!(env.commits("personal"), before);
 }
