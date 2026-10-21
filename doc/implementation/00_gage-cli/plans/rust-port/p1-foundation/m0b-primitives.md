@@ -307,7 +307,9 @@ which M0b doesn't have (the plan limits M0b's prompter to `unlock` and
       of; the `dev`/`unknown` fallbacks are covered above.
 - [x] `main_integration` (`assert_cmd`): `TestRealBinaryVersionFlag`,
       `TestRealBinaryWithRedirectedStdinPrintsHelp`, `TestMain` (Rust needs
-      no binary-building `TestMain`; excused), `TestMakefileLdflagsTargetTheRealSymbols`
+      no binary-building `TestMain`. P9 · S1 records the row as ported: its
+      other two jobs are `fake_editor_trampoline` (P3 · M5) and
+      `fast_scrypt`'s test), `TestMakefileLdflagsTargetTheRealSymbols`
       (Rust: the Makefile exports exactly the env var names the binary
       reads, asserted from one shared constant), `TestLinkTimeVersionInjection`
       (Rust: a CI step builds with `GAGE_VERSION=v9.9.9-testtag

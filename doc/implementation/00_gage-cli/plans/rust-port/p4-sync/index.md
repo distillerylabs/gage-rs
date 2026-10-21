@@ -132,8 +132,17 @@ Rows re-tagged out of P4:
 |---|---|---|
 | P6 · M12 | `gitrepo/history_test.go` (6): `TestLogAcrossAConflictResolvedByTakingASide`, `TestLogAcrossAMergeOfUnrelatedEdits`, `TestLogAndHeadCommitterTimeOnARepoWithNoCommitsYet`, `TestLogOnAPathGitHasNeverSeenIsEmpty`, `TestLogReportsADeletionOnce`, `TestLogReportsEachRealChangeOnce` | They test `gitrepo.Log`, which Go added in M12 for `log`/`history`. M8b still proves that a merge commit can be walked (`TestHistoryWalksThroughAMergeCommit`, `TestLocalCommitGranularitySurvivesTheMerge`). M12's two merge rows walk the merge commits M8b creates. |
 
-No rows move into P4 from earlier phases. Earlier phases left these items
-to P4:
+*Corrected in P9 · S1.* This said "No rows move into P4 from earlier
+phases". But three rows had been sent here, and P4 planning claimed none
+of them:
+
+| From | Row | What happened |
+|---|---|---|
+| P1 · M1 | `vaultid_keying` `TestCloneCopiesTheVaultsIDIntoGlobalConfig` | Not ported. `clone_produces_a_registered_working_vault` checks only that the id is non-empty. P9 · S1 ported it as `clone_copies_the_vaults_id_into_global_config`. |
+| P2 · M2 | `prompter` `TestConfirmDefaultYesDefaultsToYes` | Clone's enrollment offer stayed out of P4. P7 · E3 claimed the row with the offer. |
+| P2 · M2 | `prompter` `TestResolveConflictNeverGuesses` | Ported by M8b inside `conflict_prompt_re_asks_on_an_unknown_answer`, unrecorded until P9 · S1. |
+
+Earlier phases also left these items to P4:
 
 - `ddce8b1`'s warning half: push warnings name gage once (M8a2).
 - `.gitattributes` content: M1 writes it, and M8a2 claims the Go row.
