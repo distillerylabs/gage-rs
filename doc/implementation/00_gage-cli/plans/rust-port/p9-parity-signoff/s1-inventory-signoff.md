@@ -296,3 +296,13 @@ Checklist, one box per Go file group:
 - The guard was proven to fail, and that is recorded in task 2.
 - No unchecked box outside P9 in any milestone doc.
 - `make lint` and `make test` clean.
+
+**Done.** Every item above holds.
+
+- `make lint` and `make test` are clean locally.
+- On PR #91 at `ff9e3f7`, the Test (39551168244), Lint (39551168299) and
+  Audit (39551168260) workflows all passed on the first run.
+- `parity_inventory`'s 13 tests ran and passed on Linux, macOS and
+  Windows.
+- The one box left outside P9 is M0a's gosec mapping, which points at
+  S2's table.
