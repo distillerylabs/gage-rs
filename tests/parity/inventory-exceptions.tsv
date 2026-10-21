@@ -1,0 +1,146 @@
+go_file	go_test	disposition	rust_tests	ref
+# Go test functions from tests/fixtures/go/test-inventory.tsv that match
+# no Rust #[test] by name (Q-INVENTORY-GUARD). Each was read against
+# the Go test at the pinned SHA in P9 · S1. `ported` names the Rust tests
+# that port it under another name; `excused` has none, and its ref says
+# why. Refs are Q- entries or paths under
+# doc/implementation/00_gage-cli/plans/rust-port/. Checked by
+# crates/gage-cli/tests/parity_inventory.rs.
+
+# --- P1 ---
+# TestListsCommandEntryIgnoresProse: Tests a Go test helper that parsed Cobra's help text; the Rust help tests read the registry and clap's tree.
+cmd/gage/help_test.go	TestListsCommandEntryIgnoresProse	excused		p1-foundation/m0b-primitives.md
+# TestLinkTimeVersionInjection: Ported as `make stamp-check`, a CI step in test.yml (a stamped rebuild inside `make test` costs more than it proves); not a #[test].
+cmd/gage/main_integration_test.go	TestLinkTimeVersionInjection	excused		p1-foundation/m0b-primitives.md
+# TestMain: Go's TestMain is the fake-editor re-entry, the scrypt hook, and a cleanup of the binary it built. Cargo builds the binary, so the last has nothing to port.
+cmd/gage/main_integration_test.go	TestMain	ported	fake_editor_trampoline, fast_scrypt_lowers_the_live_factor_and_is_idempotent	p1-foundation/m0b-primitives.md, Q-SCRYPT-HOOK
+cmd/gage/main_integration_test.go	TestMakefileLdflagsTargetTheRealSymbols	ported	makefile_exports_the_variables_the_build_reads	p1-foundation/m0b-primitives.md
+# TestResolveBuildInfoFallsBackToModuleVersion: Go's runtime/debug embedded build info has no Rust equivalent; unset goes straight to dev/unknown (resolve_build_info_without_stamps).
+cmd/gage/version_test.go	TestResolveBuildInfoFallsBackToModuleVersion	excused		p1-foundation/m0b-primitives.md
+cmd/gage/version_test.go	TestResolveBuildInfoFallsBackToVCSRevision	excused		p1-foundation/m0b-primitives.md
+cmd/gage/version_test.go	TestResolveBuildInfoPrefersLinkerValues	ported	resolve_build_info_prefers_stamped_values	p1-foundation/m0b-primitives.md
+cmd/gage/version_test.go	TestResolveBuildInfoWithoutEmbeddedInfo	ported	resolve_build_info_without_stamps	p1-foundation/m0b-primitives.md
+internal/gage/atomicfile/atomicfile_test.go	TestWriteFileCreatesAndReads	ported	creates_and_reads	p1-foundation/m0b-primitives.md
+internal/gage/atomicfile/atomicfile_test.go	TestWriteFileFailedRenameLeavesNoTempFileBehind	ported	failed_rename_leaves_no_temp_file_behind	p1-foundation/m0b-primitives.md
+internal/gage/atomicfile/atomicfile_test.go	TestWriteFileFailsForMissingDir	ported	fails_for_missing_dir	p1-foundation/m0b-primitives.md
+internal/gage/atomicfile/atomicfile_test.go	TestWriteFileOverwritesAtomically	ported	overwrites_and_leaves_no_temp_file	p1-foundation/m0b-primitives.md
+# TestWriteFileReplacesRatherThanTruncatesInPlace: Unix only: Windows refuses to rename over a file with an open handle, so the old-handle probe can't run there.
+internal/gage/atomicfile/atomicfile_test.go	TestWriteFileReplacesRatherThanTruncatesInPlace	ported	replaces_rather_than_truncates_in_place	p1-foundation/m0b-primitives.md
+internal/gage/config/config_test.go	TestWriteThenModifyLeavesOldValueUntouchedUntilRename	ported	write_then_modify	p1-foundation/m0b-primitives.md
+internal/gage/devicename/devicename_test.go	TestNormalizeNeverProducesAnAllDotsName	ported	normalize_never_produces_a_name_valid_rejects	p1-foundation/m0b-primitives.md
+internal/gage/exitcode/exitcode_test.go	TestAllCodesAreDistinct	ported	all_codes_are_distinct_and_keep_gos_values	p1-foundation/m0b-primitives.md
+internal/gage/exitcode/exitcode_test.go	TestEveryDefinedCodeRoundTripsThroughConstructors	ported	every_code_round_trips_through_has_code, every_code_round_trips_through_cli_error	p1-foundation/m0b-primitives.md
+internal/gage/exitcode/exitcode_test.go	TestNilErrorIsSuccess	ported	ok_is_success	p1-foundation/m0b-primitives.md
+# TestUnregisteredCodeStringsAsItsNumber: An out-of-range Code can't be built; what carries over is that every code renders as a non-empty name.
+internal/gage/exitcode/exitcode_test.go	TestUnregisteredCodeStringsAsItsNumber	ported	every_code_displays_its_stable_name	p1-foundation/m0b-primitives.md
+# TestWrapNilIsNil: Compile-time: a code is attached only by converting an error value, so there is no nil to wrap.
+internal/gage/exitcode/exitcode_test.go	TestWrapNilIsNil	excused		p1-foundation/m0b-primitives.md
+internal/gage/vaultlock/vaultlock_test.go	TestMain	ported	lock_holder_trampoline	p1-foundation/m0b-primitives.md
+# TestReleaseOnANilLockIsANoOp: Rust has no nil lock; the analogue is an explicit release followed by the Drop.
+internal/gage/vaultlock/vaultlock_test.go	TestReleaseOnANilLockIsANoOp	ported	dropping_after_an_explicit_release_is_a_no_op	p1-foundation/m0b-primitives.md
+# TestUnknownRoleValuePanicsInAllThreeSelectors: Role is a closed enum: an unknown role can't be constructed and the matches are exhaustive.
+internal/gage/xdgpaths/xdgpaths_test.go	TestUnknownRoleValuePanicsInAllThreeSelectors	excused		p1-foundation/m0b-primitives.md
+
+# --- P2 ---
+cmd/gage/entry_test.go	TestLsAndSearchPrintNothingWhenThereIsNothing	ported	ls_empty_vault_no_output, search_printing_nothing_when_there_is_nothing	p2-crypto-entries/m4-crud.md, p3-query-session/m7-metadata-index.md
+cmd/gage/entry_test.go	TestTrimOneTrailingNewline	ported	trim_one_trailing_newline_cases	p2-crypto-entries/m4-crud.md
+# TestInsertDuplicateFieldNameIsUsageErrorBeforeUnlock: The five --field refusals are one table test through the CLI, each case asserting Usage, no unlock, and its own reason.
+cmd/gage/insert_field_test.go	TestInsertDuplicateFieldNameIsUsageErrorBeforeUnlock	ported	bad_field_flags_are_usage_errors_before_unlock, parse_field_flags_rejects_what_it_must	p2-crypto-entries/m4-crud.md
+cmd/gage/insert_field_test.go	TestInsertFieldEmptyNameIsUsageErrorBeforeUnlock	ported	bad_field_flags_are_usage_errors_before_unlock, parse_field_flags_rejects_what_it_must	p2-crypto-entries/m4-crud.md
+cmd/gage/insert_field_test.go	TestInsertFieldMissingEqualsIsUsageErrorBeforeUnlock	ported	bad_field_flags_are_usage_errors_before_unlock, parse_field_flags_rejects_what_it_must	p2-crypto-entries/m4-crud.md
+cmd/gage/insert_field_test.go	TestInsertFieldNamesEqualAfterStrippingAreDuplicates	ported	bad_field_flags_are_usage_errors_before_unlock	p2-crypto-entries/m4-crud.md
+cmd/gage/insert_field_test.go	TestInsertFieldRoundTripsThroughShow	ported	insert_fields_round_trip_and_are_each_independently_readable, insert_fields_are_each_readable_through_show_field	p2-crypto-entries/m4-crud.md, p3-query-session/m5-query-resolution.md
+cmd/gage/insert_field_test.go	TestInsertFieldWhitespaceOnlyNameIsUsageErrorBeforeUnlock	ported	bad_field_flags_are_usage_errors_before_unlock, parse_field_flags_rejects_what_it_must	p2-crypto-entries/m4-crud.md
+cmd/gage/insert_field_test.go	TestInsertFieldWithEditFlagRejectedAsMutuallyExclusive	ported	insert_edit_rejected_alongside_multiline_value_stdin_or_field_before_any_io	p2-crypto-entries/m4-crud.md, p3-query-session/m5-query-resolution.md
+cmd/gage/insert_field_test.go	TestInsertMultipleFieldFlagsEachIndependentlyReadable	ported	insert_fields_round_trip_and_are_each_independently_readable, insert_fields_are_each_readable_through_show_field	p2-crypto-entries/m4-crud.md, p3-query-session/m5-query-resolution.md
+# TestPrompterRefusesAMethodItCannotSatisfy: Kind is #[non_exhaustive] with one variant: the wildcard refusal arm is untestable until a second Kind exists.
+cmd/gage/prompter_test.go	TestPrompterRefusesAMethodItCannotSatisfy	excused		p2-crypto-entries/m2-identity-crypto.md
+cmd/gage/prompter_test.go	TestResolveConflictNeverGuesses	ported	conflict_prompt_re_asks_on_an_unknown_answer	p2-crypto-entries/m2-identity-crypto.md, p4-sync/m8b-conflict-resolution.md
+# TestDecryptWithAClosedIdentityFails: Compile-time: a compile_fail doctest on crypt::decrypt (a dropped Identity can't be passed), paired with a compiling sibling.
+internal/gage/crypt_test.go	TestDecryptWithAClosedIdentityFails	excused		p2-crypto-entries/m2-identity-crypto.md
+# TestEncryptRefusesAZeroValueRecipient: Recipient has private fields and no Default; compile_fail doctests on Recipient prove it can't be built by hand.
+internal/gage/crypt_test.go	TestEncryptRefusesAZeroValueRecipient	excused		p2-crypto-entries/m2-identity-crypto.md
+internal/gage/entry_crud_test.go	TestResolveAmbiguousTitleFails	ported	resolve_ambiguous_title_fails_with_a_typed_candidate_list	p2-crypto-entries/m4-crud.md
+internal/gage/entry_crud_test.go	TestResolveByUUID	ported	resolve_by_uuid_in_every_spelling	p2-crypto-entries/m4-crud.md
+internal/gage/entry_test.go	TestEncryptDecryptEntryRoundTripIsByteIdentical	ported	entry_survives_encryption_byte_for_byte	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestEntryDecryptableByEveryRecipient	ported	entry_is_decryptable_by_every_recipient	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestEntryEmptyDescriptionAndFieldsRoundTripConsistently	ported	empty_description_and_fields_are_absent_and_round_trip	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestEntryEveryStringFieldRoundTripsHostileContent	ported	every_string_field_round_trips_hostile_content	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestEntryIDsListsFilesInEntriesDir	ported	entry_ids_lists_files_in_the_entries_dir_sorted, entry_ids_skips_subdirectories_and_stray_files, entry_ids_without_an_entries_dir_is_an_empty_list	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestEntryMultiLineValueStaysReadable	ported	multi_line_value_stays_readable	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestEntryPreservesUnknownFields	ported	preserves_unknown_fields	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestEntryQuotedFallbackRoundTripsEverything	ported	quoted_fallback_round_trips_everything	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestEntryValueRoundTripsYAMLHostileContent	ported	value_round_trips_yaml_hostile_content	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestReadEntryUnknownIDFails	ported	read_entry_unknown_id_fails_not_found	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestReadEntryWithNonRecipientIdentityFailsWithTypedError	ported	read_entry_with_a_non_recipient_identity_fails_typed	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestTimestampMarshalYAMLEmitsUnderlyingTime	ported	a_timestamp_is_emitted_as_an_unquoted_rfc3339_scalar	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestTimestampUnmarshalYAMLRejectsBadRFC3339	ported	timestamp_rejects_bad_rfc3339	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestTimestampUnmarshalYAMLRejectsNonStringNode	ported	collections_where_strings_belong_are_refused	p2-crypto-entries/m3-entry-format.md
+# TestUnknownValueNodeDefaultFallsBackToLibraryEncoding: Rust's unknown values are a closed node type and the match is exhaustive: no exotic type reaches the emitter.
+internal/gage/entry_test.go	TestUnknownValueNodeDefaultFallsBackToLibraryEncoding	excused		p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestUnknownValueNodeHandlesEveryClosedSetType	ported	unknown_values_of_every_kind_round_trip	p2-crypto-entries/m3-entry-format.md
+internal/gage/entry_test.go	TestUnknownValueNodeMapAndSeqRecurse	ported	unknown_map_and_seq_recurse	p2-crypto-entries/m3-entry-format.md
+internal/gage/field_test.go	TestEntryFieldEmptyValueIsAFieldNotAMiss	ported	field_with_an_empty_value_is_a_field_not_a_miss	p2-crypto-entries/m3-entry-format.md
+internal/gage/field_test.go	TestEntryFieldExtractsNamedField	ported	field_extracts_the_named_field	p2-crypto-entries/m3-entry-format.md
+internal/gage/field_test.go	TestEntryFieldOnEntryWithNoFieldsSaysSo	ported	field_on_an_entry_with_no_fields_says_so	p2-crypto-entries/m3-entry-format.md
+internal/gage/field_test.go	TestEntryFieldUnknownNameErrorsClearly	ported	field_with_an_unknown_name_lists_the_names_that_exist	p2-crypto-entries/m3-entry-format.md
+internal/gage/testsupport_test.go	TestMain	ported	fast_scrypt_lowers_the_live_factor_and_is_idempotent	p2-crypto-entries/m2-identity-crypto.md, Q-SCRYPT-HOOK
+# TestUnlockRejectsAPrompterAnsweringTheWrongKind: UnlockResponse's variants mirror Kind's one to one, so a mismatched answer can't be built until a second Kind exists.
+internal/gage/unlock_test.go	TestUnlockRejectsAPrompterAnsweringTheWrongKind	excused		p2-crypto-entries/m2-identity-crypto.md
+# TestIdentityCopiesShareOneClose: Compile-time: Identity is not Clone (compile_fail doctest in identity.rs).
+internal/gage/vault_test.go	TestIdentityCopiesShareOneClose	excused		p2-crypto-entries/m2-identity-crypto.md
+# TestNilIdentityCloseDoesNotPanic: Rust has no nil Identity.
+internal/gage/vault_test.go	TestNilIdentityCloseDoesNotPanic	excused		p2-crypto-entries/m2-identity-crypto.md
+# TestUsingAnIdentityAfterCloseFails: Compile-time: a dropped Identity can't be used (compile_fail doctest in identity.rs).
+internal/gage/vault_test.go	TestUsingAnIdentityAfterCloseFails	excused		p2-crypto-entries/m2-identity-crypto.md
+# TestZeroIdentityIsSafeToCloseAndUnusable: Identity has no zero value: it can't be constructed outside the library.
+internal/gage/vault_test.go	TestZeroIdentityIsSafeToCloseAndUnusable	excused		p2-crypto-entries/m2-identity-crypto.md
+
+# --- P3 ---
+cmd/gage/complete_test.go	TestEntryTitleCandidatesNoSessionIsNil	ported	entry_title_candidates_with_no_session_is_empty	p3-query-session/m13-tab-completion.md
+cmd/gage/complete_test.go	TestFlagCandidatesMatchesTheRealCobraCommand	ported	flag_candidates_matches_the_real_clap_command	p3-query-session/m13-tab-completion.md
+cmd/gage/complete_test.go	TestSessionCompleterDoWiresCandidatesIntoReadlinesContract	ported	session_completer_complete_wires_candidates_into_rustylines_contract	p3-query-session/m13-tab-completion.md
+cmd/gage/insert_edit_test.go	TestInsertEditRejectedAlongsideMultilineOrValueStdinBeforeAnyIO	ported	insert_edit_rejected_alongside_multiline_value_stdin_or_field_before_any_io	p3-query-session/m5-query-resolution.md
+cmd/gage/session_test.go	TestBareGageWithPipedStdinPrintsHelp	ported	bare_gage_with_redirected_stdin_prints_root_help	p3-query-session/m6-session-mode.md
+# TestGenerateDrawsFromCryptoRandNotMathRand: Go's source scan also checks for rand.Int over a modulo; Rust proves the unbiased draw behaviorally.
+internal/gage/generate_test.go	TestGenerateDrawsFromCryptoRandNotMathRand	ported	generate_draws_from_the_os_csprng_not_a_seeded_prng, random_string_rejects_bytes_that_would_bias_the_draw	p3-query-session/m5-query-resolution.md
+internal/gage/generate_test.go	TestRandomStringRejectsNonPositiveLengthAndEmptyAlphabet	ported	random_string_rejects_zero_length_and_a_bad_alphabet	p3-query-session/m5-query-resolution.md
+
+# --- P4 ---
+# TestSyncReportsAPushEvenWhenNothingWasSent: Go pinned its bug F2; gage-rs fixes it, so the assertion is flipped.
+cmd/gage/sync_cli_test.go	TestSyncReportsAPushEvenWhenNothingWasSent	ported	sync_reports_no_push_when_nothing_was_sent	Q-SYNC-PUSHED, p4-sync/m8a2-sync-wiring.md
+internal/gage/gitrepo/auth_wiring_test.go	TestFetchAndPushCarryTheStoredTokenToGoGit	ported	fetch_and_push_carry_the_stored_token_to_libgit2	p4-sync/m8a1-remote-primitives.md
+# TestRemoteStateStringCoversAllStatesAndUnknown: Its state(99) half is struck: a Rust enum can't hold an out-of-range value.
+internal/gage/gitrepo/remote_test.go	TestRemoteStateStringCoversAllStatesAndUnknown	ported	remote_state_display_covers_all_states	p4-sync/m8a1-remote-primitives.md
+# TestClassifyPassesNilThrough: The classifiers take an error, not an Option of one: there is no nil to pass.
+internal/gage/syncerr/syncerr_test.go	TestClassifyPassesNilThrough	excused		p4-sync/m8a1-remote-primitives.md
+internal/gage/syncerr/syncerr_test.go	TestClassifyPushCatchesGoGitsRealRejection	ported	classify_push_catches_libgit2s_real_rejection	p4-sync/m8a1-remote-primitives.md
+# TestNilPrompterRefusesRatherThanPanicking: A &dyn Prompter can't be null.
+internal/gage/syncresolve_test.go	TestNilPrompterRefusesRatherThanPanicking	excused		Q-CONFLICT-PROMPTER, p4-sync/m8b-conflict-resolution.md
+
+# --- P5 ---
+cmd/gage/move_test.go	TestMvRequiresToVaultFlag	ported	mv_requires_the_to_vault_flag	p5-recipients-trust/m11-cross-vault.md
+cmd/gage/move_test.go	TestMvToUnregisteredVaultFailsCleanly	ported	mv_to_an_unregistered_vault_fails_cleanly	p5-recipients-trust/m11-cross-vault.md
+internal/gage/move_test.go	TestMoveRejectsTwoRegistrationsOfOneVaultAsSourceAndDestination	ported	move_rejects_two_registrations_of_one_vault	p5-recipients-trust/m11-cross-vault.md
+internal/gage/move_test.go	TestSessionIndexUpdatesBothVaultsWithoutARebuild	ported	a_move_updates_both_indexes_without_a_rebuild	p5-recipients-trust/m11-cross-vault.md
+internal/gage/move_test.go	TestTwoVaultLocksBothHeldForTheWholeOperation	ported	two_vault_locks_are_both_held_for_the_whole_operation	p5-recipients-trust/m11-cross-vault.md
+# TestRecipientListMatchesConfigExactly: The listing matching the config, then after an add and after a remove.
+internal/gage/recipient_test.go	TestRecipientListMatchesConfigExactly	ported	recipients_match_the_config_exactly, recipient_add_commits_both_files_together, recipient_remove_with_reencrypt_excludes_the_removed_key	p5-recipients-trust/m9a-identity-recipient-read.md
+# TestVerifyReadsNeitherIdentityNorPrompter: The signature takes neither, so the compiler proves half; the no-identity-file case is what's left.
+internal/gage/recipient_test.go	TestVerifyReadsNeitherIdentityNorPrompter	ported	verify_reports_a_divergence_on_a_device_with_no_identity	p5-recipients-trust/m9a-identity-recipient-read.md
+# TestReadRejectsALineLongerThanTheScannerCanBuffer: Decided in M9a: no line cap is invented to match bufio.Scanner's; an overlong line comes back whole, never truncated or dropped.
+internal/gage/recipients/recipients_test.go	TestReadRejectsALineLongerThanTheScannerCanBuffer	ported	read_returns_an_overlong_line_whole	p5-recipients-trust/m9a-identity-recipient-read.md
+internal/gage/recipients/recipients_test.go	TestReadSkipsBlankLines	ported	read_skips_blank_lines_and_surrounding_space	p5-recipients-trust/m9a-identity-recipient-read.md
+
+# --- P6 ---
+cmd/gage/script_test.go	TestAssumeYesAnswersTheTrustQuestionAndNothingElse	ported	assume_yes_answers_the_trust_question_and_nothing_else_over_the_wrappers	p6-polish/m12d-script-mode.md
+cmd/gage/script_test.go	TestAssumeYesOverANonConflictPrompterStaysNonConflict	ported	assume_yes_over_a_prompter_that_refuses_conflicts_still_refuses	p6-polish/m12d-script-mode.md, Q-CONFLICT-PROMPTER
+cmd/gage/script_test.go	TestMissingScriptFileIsAUsageError	ported	a_missing_script_file_is_a_usage_error	p6-polish/m12d-script-mode.md
+# TestTerminalPrompterOfWalksDecoratorChains: gage-rs never unwraps a prompter to reach the terminal one; every_wrapper_passes_through_each_method_it_does_not_answer replaces it.
+cmd/gage/script_test.go	TestTerminalPrompterOfWalksDecoratorChains	excused		Q-SCRIPT-PASSPHRASE, p6-polish/m12d-script-mode.md
+# TestLogAndHeadCommitterTimeOnARepoWithNoCommitsYet: Split: the Log half landed in P6 · M12a, the HeadCommitterTime half in P7 · E3.
+internal/gage/gitrepo/history_test.go	TestLogAndHeadCommitterTimeOnARepoWithNoCommitsYet	ported	log_on_a_repo_with_no_commits_yet_is_empty, head_committer_time_on_a_repo_with_no_commits_yet	p6-polish/m12a-log-history.md, p7-enrollment/e3-joining-side.md
+
+# --- P8 ---
+# TestRecoverDeviceZeroesTheSecretItWasHanded: Ownership moves in, so the zeroing is the drop's; what's left to prove is the by-value signature and that nothing copies it.
+internal/gage/recovery_enroll_test.go	TestRecoverDeviceZeroesTheSecretItWasHanded	ported	recover_device_takes_the_secret_by_value	Q-RECOVERY-SECRET-MEMORY, p8-recovery-key/rk2-recovery-swap-library.md

@@ -997,6 +997,9 @@ an_empty_map: {}
         assert_eq!((e.title.as_str(), e.value.as_str()), ("with bom", "v"));
     }
 
+    // Includes Go's TestTimestampUnmarshalYAMLRejectsNonStringNode: the
+    // `created:` rows put a mapping and a sequence where a timestamp
+    // belongs.
     #[test]
     fn collections_where_strings_belong_are_refused() {
         for doc in [

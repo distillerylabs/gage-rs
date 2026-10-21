@@ -867,11 +867,18 @@ mod tests {
             out.text()
         );
 
-        // And it gives up, without choosing, after its retry policy.
-        let (p, _) = interactive(&"x\n".repeat(MAX_CONFLICT_ATTEMPTS as usize));
+        // And it gives up, without choosing, after its retry policy (Go:
+        // TestResolveConflictNeverGuesses): re-asked on every attempt.
+        let (p, out) = interactive(&"x\n".repeat(MAX_CONFLICT_ATTEMPTS as usize));
         let err = p.resolve_conflict(&sample_conflict()).unwrap_err();
         assert!(matches!(err, PromptError::NoResolution(_)), "{err}");
         assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(
+            out.text().matches("answer l, r, b, s or q").count(),
+            MAX_CONFLICT_ATTEMPTS as usize,
+            "{}",
+            out.text()
+        );
         // End of input is no answer either.
         let (p, _) = interactive("");
         let err = p.resolve_conflict(&sample_conflict()).unwrap_err();

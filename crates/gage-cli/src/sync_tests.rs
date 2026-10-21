@@ -818,6 +818,28 @@ fn clone_produces_a_registered_working_vault() {
     Vault::from_registration(&env.dirs, "personal", &entry).unwrap();
 }
 
+// Go: vaultid_keying TestCloneCopiesTheVaultsIDIntoGlobalConfig. The id
+// travels inside the vault, so a clone inherits it rather than minting one:
+// that is why two clones of one vault agree however they are named locally.
+// Ported late, in P9 · S1.
+#[test]
+fn clone_copies_the_vaults_id_into_global_config() {
+    let (first, remote, env) = published_vault();
+    env.clone_ok(&[url(&remote), "--name", "cloned"]);
+
+    let committed = env.vault_config("cloned").vault.id;
+    assert!(vaultconfig::valid_id(&committed), "{committed}");
+    assert_eq!(committed, first.vault_config("personal").vault.id);
+    assert_eq!(env.entry("cloned").id, committed);
+
+    let r = env.ok(&["vault", "info", "cloned"]);
+    assert!(
+        r.stdout.contains(&format!("id: {committed}")),
+        "{}",
+        r.stdout
+    );
+}
+
 // Go: TestCloneInfersTheNameFromTheURLAndNameOverridesIt
 #[test]
 fn clone_infers_the_name_from_the_url_and_name_overrides_it() {
