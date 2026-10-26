@@ -141,9 +141,13 @@ Tests first, at task granularity.
       licenses (allowlist compatible with Apache-2.0), bans (deny wildcard
       versions, warn duplicates), sources (crates.io only). `make audit`
       runs it; it needs the network, like Go's `govulncheck`.
-- [ ] Record in the PR description which Go `gosec`/golangci checks have a
+- [x] Record in the PR description which Go `gosec`/golangci checks have a
       Rust equivalent in this set and which don't apply (the ledger's #34
       row asks for that audit).
+      - This was only ever in a PR description. The durable mapping is
+        [P9 · S2](../p9-parity-signoff/s2-ledger-and-help.md)'s table; S2
+        wrote it and ticked this box: [the gosec and golangci
+        mapping](../p9-parity-signoff/s2-ledger-and-help.md#the-gosec-and-golangci-mapping).
 
 ### 5. Coverage
 
@@ -154,16 +158,25 @@ Tests first, at task granularity.
 
 ### 6. CI
 
-- [ ] `.github/workflows/test.yml`: matrix `ubuntu-latest`, `macos-latest`,
+- [x] `.github/workflows/test.yml`: matrix `ubuntu-latest`, `macos-latest`,
       `windows-latest`, `fail-fast: false`, natively (no cross-compilation).
       Steps: checkout, toolchain from `rust-toolchain.toml`, cache, `cargo
       fetch --locked`, `make build`, `make cover`, `make cover-check`,
       coverage summary to the job summary, Codecov upload when the secret
       exists. Windows installs GNU make.
-- [ ] `.github/workflows/lint.yml`: same matrix (cfg'd platform code is only
-      linted natively), `make lint` and `make lint-selftest`.
-- [ ] `.github/workflows/audit.yml`: `make audit` on Linux, on pushes, PRs
-      and a weekly schedule.
+      - Ticked in P9 · S1, against the workflow as it stands.
+      - Two differences from this spec. `cargo fetch --locked` is the first
+        line of `make cover`, not a step of its own. And M0b added a
+        `make stamp-check` step after `make build` (Go's
+        `TestLinkTimeVersionInjection`).
+      - Also beyond the spec: a cache of `./bin` keyed on the Makefile, the
+        coverage artifact upload, and a `workflow_dispatch` trigger.
+- [x] `.github/workflows/lint.yml`: same matrix (cfg'd platform code is only
+      linted natively), `make lint` and `make lint-selftest`. Ticked in
+      P9 · S1. The workflow matches this spec.
+- [x] `.github/workflows/audit.yml`: `make audit` on Linux, on pushes, PRs
+      and a weekly schedule (Mondays 06:00 UTC). Ticked in P9 · S1. It also
+      has `workflow_dispatch` and a cache of `./bin`.
 - [x] Actions pinned by commit SHA, `permissions: contents: read`,
       concurrency cancels superseded PR runs and never runs on `main`.
 

@@ -17,7 +17,15 @@ yanked = "deny"
 # transitive one is rarely actionable from here, and still shows in the
 # RustSec report if someone goes looking.
 unmaintained = "workspace"
-ignore = []
+# Each entry carries its reason and the issue that removes it.
+ignore = [
+    # crypto-bigint 0.5.5 reaches us only through age 0.12.1 -> p256 0.13 /
+    # hpke 0.12 -> elliptic-curve 0.13. age's latest release pins that line,
+    # so the fixed crypto-bigint (>= 0.7.6) is unreachable until age
+    # releases on p256 0.14. gage uses only age's x25519 and scrypt types,
+    # never the p256/hpke recipients. Remove once age is updated (#98).
+    { id = "RUSTSEC-2026-0387", reason = "unreachable via age 0.12.1's p256/hpke, which gage does not use; see #98" },
+]
 
 [licenses]
 # gage-rs is Apache-2.0, so everything it ships must be compatible with

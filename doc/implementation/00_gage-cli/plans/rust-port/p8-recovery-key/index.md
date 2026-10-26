@@ -250,8 +250,9 @@ Obligations that earlier phases left to P8, which aren't inventory rows:
 
 Not claimed:
 
-- `getting-started.md` and `command-reference.md` stay P9's (ledger §6).
-  Go's versions mention the recovery key, and P9's final pass picks that up.
+- `getting-started.md` and `command-reference.md` stayed P9's (ledger §6).
+  Go's versions mention the recovery key, and P9 · S3's final pass picked
+  that up.
 - The copied TDD needs no edit. It already describes R5's end state.
 
 ## Process notes

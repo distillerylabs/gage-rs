@@ -6,9 +6,6 @@ path to type the way there is with `pass`. Instead `show`, `cat`, `edit`,
 and the entries' ids. (`insert` and `generate` take a plain `<title>`:
 they create an entry rather than address one.)
 
-> **Status.** `mv` and `cp` arrive in a later phase of the
-> [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
-
 ## Resolution order
 
 A query is tried in this fixed order, stopping at the first stage that

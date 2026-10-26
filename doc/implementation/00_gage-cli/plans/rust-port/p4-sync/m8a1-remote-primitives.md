@@ -215,9 +215,22 @@ return `syncerr` and resolve auth through `remoteauth`.)
 - [x] Enable git2's `ssh` feature with libssh2 vendored, and its OpenSSL
       vendored as well. Run `make audit` and confirm that `deny.toml`
       allows libssh2-sys's license (BSD-3-Clause); record it in Q-SSH.
-- [ ] Check a cold CI build on all three OSes. Not possible before the
+- [x] Check a cold CI build on all three OSes. Not possible before the
       branch is pushed (pushing is the user's call); the first CI run of
       this branch is that check.
+      - **Closed in P9 · S1** by run 39549666209, a `workflow_dispatch` of
+        `test.yml` on `main` (`6552930`). Every Actions cache was deleted
+        first, with the user's go-ahead.
+      - Its rust-cache step logged "No cache found." on Linux, macOS and
+        Windows, and all three jobs passed. That covers the build, `make
+        stamp-check`, `make cover` and `make cover-check`.
+      - P9 · S1 looked, and the first run wasn't a full check. Run
+        38826745518 built with no cache on macOS and Windows. Linux
+        restored a partial rust-cache (`full match: false`).
+      - The build compiled on all three. Windows then failed three tests,
+        fixed in the branch's later runs.
+      - None of the 40 most recent `test.yml` runs started with no cache on
+        all three OSes.
 - [x] Add one `#[allow(unsafe_code)]` `Once` in `gitrepo`:
   - `set_search_path` points System, XDG, Global and ProgramData at an
     empty directory.

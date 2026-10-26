@@ -5,13 +5,32 @@ and optional structured fields. Every entry is its own age-encrypted file
 in the vault, encrypted to every recipient the vault lists, and every
 write is one git commit.
 
-> **Status.** gage-rs can `insert`, `generate`, `show`, `cat`, `edit`,
-> `rename`, `rm`, `mv`, `cp`, `ls`, `search`, `log` and `history --decrypt`
-> entries. Run one-shot, each command unlocks the vault, does one thing and
-> forgets the key; in a [session](session-mode.md) (or a
-> [script](session-mode.md#non-interactive-sessions-scripting)) they all
-> reuse the key the session holds, and `ls`, queries and `search` read its
-> [metadata index](session-mode.md#the-metadata-index).
+## The entry format
+
+Once decrypted, an entry is YAML:
+
+```yaml
+title: ProtonMail
+description: Personal email, 2FA via authenticator app
+created: 2026-01-14T10:32:00Z
+updated: 2026-08-20T09:03:00Z
+updated_by: laptop-1
+value: correcthorsebatterystaple
+fields:
+  username: me@proton.me
+  totp_seed: JBSWY3DPEHPK3PXP
+```
+
+- **`title`**: required. What `ls` and `search` match and display against.
+- **`description`**: optional free text, also searchable.
+- **`created`**: set once, at `insert` time.
+- **`updated`** / **`updated_by`**: rewritten on every edit. `updated_by` is
+  the device name of whichever device made the change (the name registered
+  by `gage init`, `identity add` or `identity enroll`).
+- **`value`**: the entry's primary payload: a password, or the body of an
+  unstructured note.
+- **`fields`**: structured key/value metadata (e.g. `username`,
+  `totp_seed`). Use `--field NAME` on `show` to read one directly.
 
 Every entry command takes `-u`/`--use NAME` to pick a vault. Without it,
 the current vault is used (see [Vaults](vaults.md)). A name that isn't
