@@ -160,3 +160,11 @@ in this doc:
   macOS and Windows CI, and was proven to fail.
 - The ledger has no open row, and the port plan's P9 row is `[x]`.
 - `make lint` and `make test` clean.
+
+**Done.** Every item above holds.
+
+- `make lint` and `make test` are clean locally.
+- On PR #99 at `3cabc9b`, the Test (40277238899), Lint (40277238883) and
+  Audit (40277238957) workflows all passed on the first run.
+- `command_reference_names_every_registered_command` ran and passed on
+  Linux, macOS and Windows, and was proven to fail.
