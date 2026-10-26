@@ -1,0 +1,62 @@
+#!/usr/bin/expect -f
+# Runs a command on a real pseudo-terminal and answers its prompts, for the
+# paths gage only takes with a human at a terminal: the recipient-change
+# review, the sync conflict menu, a recovery key shown on screen, and the
+# interactive session's line editor.
+#
+#   QA_DIALOGUE=$'Enter passphrase\tpw\n\\[y/N\\]\ty' tty.exp gage sync
+#
+# QA_DIALOGUE is newline-separated "<regex>\t<reply>" pairs, answered in
+# order: wait for the regex, send the reply and a carriage return. A reply of
+# ^D sends end-of-file instead; ^RKTAIL types back the tail of the recovery
+# key shown on screen (see below). After the last pair the command runs to
+# completion. Everything the terminal showed is copied to stdout, and the
+# script exits with the command's own exit status (124 on a timeout).
+set timeout [expr {[info exists env(QA_TTY_TIMEOUT)] ? $env(QA_TTY_TIMEOUT) : 30}]
+log_user 1
+spawn -noecho {*}$argv
+
+set pairs {}
+if {[info exists env(QA_DIALOGUE)]} {
+    foreach line [split $env(QA_DIALOGUE) "\n"] {
+        if {$line eq ""} { continue }
+        set tab [string first "\t" $line]
+        lappend pairs [string range $line 0 [expr {$tab - 1}]] [string range $line [expr {$tab + 1}] end]
+    }
+}
+
+set ended 0
+foreach {re reply} $pairs {
+    expect {
+        -re $re {}
+        timeout { puts stderr "\ntty.exp: timed out waiting for /$re/"; exit 124 }
+        eof { puts stderr "\ntty.exp: command ended before /$re/"; set ended 1; break }
+    }
+    if {$reply eq "^D"} {
+        send "\004"
+    } elseif {$reply eq "^RKTAIL"} {
+        # Type back the tail of the recovery key gage just showed, as a
+        # human copying it from the screen would. QA_RK_SAVE, if set, gets
+        # the whole key, so a later step can paste it.
+        set buf $expect_out(buffer)
+        if {![regexp {AGE-SECRET-KEY-1[0-9A-Z]+} $buf key]} {
+            puts stderr "\ntty.exp: no recovery key on screen to copy"; exit 125
+        }
+        if {![regexp {last ([0-9]+) characters} $buf -> n]} { set n 6 }
+        if {[info exists env(QA_RK_SAVE)]} {
+            set f [open $env(QA_RK_SAVE) w]; puts $f $key; close $f
+        }
+        send -- "[string range $key end-[expr {$n - 1}] end]\r"
+    } else {
+        send -- "$reply\r"
+    }
+}
+
+if {!$ended} {
+    expect {
+        eof {}
+        timeout { puts stderr "\ntty.exp: timed out waiting for the command to finish"; exit 124 }
+    }
+}
+lassign [wait] pid spawnid oserr status
+exit $status
