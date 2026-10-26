@@ -230,3 +230,19 @@ gets its own issue.
 - Both help-surface tests are green on Linux, macOS and Windows CI, and
   were proven to fail.
 - `make lint` and `make test` clean.
+
+**Done.** Every item above holds.
+
+- `make lint`, `make lint-selftest` and `make test` are clean locally.
+- On PR #97 at `0b415b0`, the Test (40274877436), Lint (40274877433) and
+  Audit (40274877607) workflows all passed.
+- The two help-surface tests and the fixture-parser tests ran and passed
+  on Linux, macOS and Windows.
+- The first CI run (`462d2c8`) passed Test and Lint on all three OSes, but
+  Audit failed on two advisories published after S1's green run:
+  - a yanked `clipboard-win` 5.4.1, fixed by bumping to 5.4.3
+  - RUSTSEC-2026-0387 (`crypto-bigint` 0.5.5, through `age` 0.12.1's
+    p256/hpke, which gage does not use). No fix is reachable until `age`
+    releases on p256 0.14, so `deny.toml` ignores it. Removing the ignore
+    is tracked in [#98](https://github.com/distillerylabs/gage-rs/issues/98).
+- Follow-up lint issues: #94, #95, #96.
