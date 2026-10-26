@@ -1,6 +1,6 @@
 # Contributing to gage-rs
 
-Thanks for your interest! gage-rs is a port of [Go gage](https://github.com/distillerylabs/gage), so the most useful contributions right now follow the [port plan](doc/implementation/00_gage-cli/plans/rust-port/index.md). For anything non-trivial, please open an issue first so we can agree on the approach before you spend time on it. Security problems should go through [SECURITY.md](SECURITY.md), not a public issue.
+Thanks for your interest! gage-rs is a port of [Go gage](https://github.com/distillerylabs/gage), and the [port plan](doc/implementation/00_gage-cli/plans/rust-port/index.md) is complete. The most useful contributions now are parity gaps (a place where gage-rs behaves differently from Go gage without a `Q-` entry saying so), bugs and platform problems. For anything non-trivial, please open an issue first so we can agree on the approach before you spend time on it. Security problems should go through [SECURITY.md](SECURITY.md), not a public issue.
 
 By participating you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 Contributions are licensed under the project's [Apache-2.0 license](LICENSE).

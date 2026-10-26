@@ -272,7 +272,8 @@ Resolved in P9 · S1 ([Q-INVENTORY-GUARD](open-questions.md#q-inventory-guard)):
 ## 6. User docs (Go `doc/cli/`)
 
 gage-rs ports these as the behavior lands, so docs describe shipped
-behavior; each phase's last milestone updates the pages for its surface.
+behavior; each phase's last milestone updated the pages for its surface.
+P9 · S3 closed the section: every row is `[x]`.
 
 | Go page | Port to |
 |---|---|
@@ -283,7 +284,7 @@ behavior; each phase's last milestone updates the pages for its surface.
 | `sync.md`, `git-and-auth.md` | P4 · M8b `[x]` (with `exit-codes.md`'s `Unreachable` and sync meanings of 1 and 5, and `configuration.md`'s tokens directory); describes P4 only: the recipient-change confirmation and enrollment exceptions arrive with P5 and P7 (E4 `[x]`) |
 | `identities-and-recipients.md`, `sharing.md` | P5 · M11 `[x]` written (identities, recipients, `verify`/`--repair`, the trust cache and `--yes`, `mv`/`cp`); P6 · M12d `[x]` `--yes` in a script session; P7 · E4 `[x]` enrollment (`sharing.md` unchanged: Go's page has no enrollment content), P8 · RK4 `[x]` the recovery sections ("Storing your recovery key", "Checking it", "Using it", "If it leaks", "Skipping it") |
 | `enrollment.md` | P7 · E4 `[x]` |
-| `README.md`, `getting-started.md`, `command-reference.md` | Grown each phase; final pass in [P9 · S3](p9-parity-signoff/s3-user-docs.md) |
+| `README.md`, `getting-started.md`, `command-reference.md` | P9 · S3 `[x]`: `doc/cli/README.md` indexes every page; `getting-started.md` and `command-reference.md` written and run by hand; `command_reference_names_every_registered_command` guards the latter; the top-level `README.md` states the post-P9 status ([Q-README-STATUS](open-questions.md#q-readme-status)) |
 
 ## Exclusions
 

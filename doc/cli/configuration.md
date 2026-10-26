@@ -27,6 +27,7 @@ path = "/home/you/.local/share/gage/vaults/personal"
 id = "208a0837-10f0-4024-b564-ffadc204c69f"   # the vault's own id, from its committed config
 type = "git"
 device = "laptop-1"       # this device's name in that vault
+pubkey = "age1futpye..."  # the public key this device holds for it
 method = "passphrase"     # how THIS device unlocks it
 
 [vaults.personal.git]
@@ -37,6 +38,7 @@ path = "/home/you/.local/share/gage/vaults/work"
 id = "b41c9f02-7d55-4a18-9a30-6f2c8e1b7d44"
 type = "git"
 device = "laptop-1"
+pubkey = "age1qz8x2..."
 method = "passphrase"
 ```
 
@@ -51,8 +53,12 @@ unrelated vaults both called `personal` on one machine never share local
 state. `gage` compares this copy with the vault's own before using a vault,
 and refuses if they differ (see [Vaults](vaults.md#when-vault-info-refuses)).
 
-Later phases add `pubkey` (the public key this device holds for the vault)
-to each vault. An optional `[shell]` table holds this device's session
+`pubkey` records which public key this device holds for the vault. It lets
+`gage identity enroll` notice that this device is already a recipient (by
+key, not by label) without unlocking anything, and it is what `gage vault
+remove` compares before offering to delete an identity file.
+
+An optional `[shell]` table holds this device's session
 preferences: the prompt, the idle timeout, the history file and the
 clipboard timeout (see [Session mode](session-mode.md#shell-settings)).
 

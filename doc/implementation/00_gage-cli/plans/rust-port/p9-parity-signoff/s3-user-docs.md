@@ -67,23 +67,40 @@ this milestone's test reuses. The ledger otherwise closed.
 
 ### 1. Command-reference guard, red first
 
-- [ ] `command_reference_names_every_registered_command`. It walks the
-      registry through S2's support module, and reads
-      `doc/cli/command-reference.md`. It fails listing each missing path
-      or alias, and is red until task 2.
+- [x] `command_reference_names_every_registered_command`
+      (`crates/gage-cli/src/command_reference_tests.rs`). It walks the
+      registry and reads `doc/cli/command-reference.md`. It fails listing
+      each missing path or alias, and was red until task 2. A second test,
+      `names_matches_a_command_or_its_arguments_not_a_prefix`, pins the
+      matching rule (`vault` does not stand in for `vault list`).
+      Decision 2 said "through S2's support module", but the registry is
+      all it needs: S2's `fixture_support` reads Go's help fixtures, which
+      this test has no use for.
 
 ### 2. New pages
 
-- [ ] `doc/cli/command-reference.md`, ported from Go's. The guard goes
+- [x] `doc/cli/command-reference.md`, ported from Go's. The guard goes
       green.
-- [ ] `doc/cli/getting-started.md`, ported from Go's: install from source
+- [x] `doc/cli/getting-started.md`, ported from Go's: build from source
       (`make build`), `init` with the recovery key, a first entry, `clone`
       onto a second device with enrollment, and `sync`.
-- [ ] Run each getting-started example against a debug build in a scratch
-      `$HOME`, and confirm it behaves as written. This is a manual check.
-      Record it here.
-- [ ] Proof the guard bites: delete one command's line, see it fail,
-      revert.
+- [x] Run each getting-started example against a debug build in a scratch
+      `$HOME`, and confirm it behaves as written. **Run 2026-10-25**, with
+      `expect` driving a pty (two scratch homes, a local bare repo as the
+      remote). It found, and the page now reflects:
+      - `insert` prompts `Value for "<title>":`, not Go's `Enter value:`.
+      - `ls` prints plain rows. The header is `ls -H`.
+      - `init` asks for the last six characters of the recovery key before
+        it finishes.
+      - The unlocked session prompt is `personal🔓 gage>`, with no
+        brackets.
+      - Two devices need different `--device` names: a clone on the same
+        hostname is refused. The walk-through passes `--device laptop-2`.
+      - After `recipient approve` on the first device and `sync` on the
+        second, `ls` on the second device lists the entry.
+- [x] Proof the guard bites: deleted the `rm` row and the "(alias `grep`)"
+      text from `command-reference.md`. The test failed with
+      `does not name: {"grep", "rm"}`. Reverted; green again.
 
 ### 3. Cross-check of existing pages
 
@@ -91,28 +108,47 @@ One box per page. Diff its section headings against Go's page, and for
 each Go section that is missing here, either add it or record the reason
 in this doc:
 
-- [ ] `README.md` (the `doc/cli/` index, which lists every page)
-- [ ] `vaults.md`
-- [ ] `configuration.md`
-- [ ] `exit-codes.md`
-- [ ] `entries.md`
-- [ ] `addressing-entries.md`
-- [ ] `session-mode.md`
-- [ ] `sync.md`
-- [ ] `git-and-auth.md`
-- [ ] `identities-and-recipients.md`
-- [ ] `sharing.md`
-- [ ] `enrollment.md`
+- [x] `README.md` (the `doc/cli/` index, which lists every page). Added the
+      two new pages and Go's "Conventions used in these docs" section, plus
+      a convention that example output shows gage-rs's wording.
+- [x] `vaults.md`. Added "Cloning an existing vault" and "Selecting which
+      vault a command targets". Dropped a stale "Status" note that said
+      sync arrives in a later phase. Rust-only sections (identity file,
+      recovery key, `vault info` refusals, remote) are gage-rs additions.
+- [x] `configuration.md`. Added the `pubkey` line to the example and the
+      paragraph on what it is for, replacing "Later phases add `pubkey`".
+      "Where things live" and "Inside a vault" differ from Go's headings in
+      wording only.
+- [x] `exit-codes.md`. No heading differences.
+- [x] `entries.md`. Added "The entry format". Go's per-task headings
+      (creating, reading, editing, deleting, listing, history) are gage-rs's
+      per-command headings (`gage insert`, `gage show`, ...), same content.
+      Dropped the stale "Status" note.
+- [x] `addressing-entries.md`. Go's "One-shot vs. session mode" is gage-rs's
+      "An ambiguous query" (exit `4` one-shot, picker in a session). Dropped
+      a stale note that `mv` and `cp` arrive later.
+- [x] `session-mode.md`. Heading differences are wording only. Dropped a
+      stale "Status" note that sync arrives with phase 4.
+- [x] `sync.md`. Go's "resolving a divergence" is gage-rs's "Resolving an
+      entry conflict" and "With nobody to ask". Wording only.
+- [x] `git-and-auth.md`. Wording only ("Giving a vault a remote", "What gage
+      doesn't model"). SSH is documented as best-effort
+      ([Q-SSH](../open-questions.md#q-ssh)).
+- [x] `identities-and-recipients.md`. No Go sections missing. gage-rs adds
+      "Checking it" and "Sharing an entry with someone else".
+- [x] `sharing.md`. No heading differences.
+- [x] `enrollment.md`. No heading differences.
 
 ### 4. READMEs and close-out
 
-- [ ] Top-level `README.md` per decision 3.
-- [ ] `CONTRIBUTING.md`: check that it doesn't describe the port as
-      unfinished in ways P9 made false.
-- [ ] Ledger §6: every row `[x]`.
-- [ ] Port plan `index.md`: P9 row `[x]` with plan link and #85. The
+- [x] Top-level `README.md` per decision 3.
+- [x] `CONTRIBUTING.md`: its opening sentence called the port plan the
+      place for contributions "right now". Reworded: the plan is complete,
+      and parity gaps, bugs and platform problems are what's wanted.
+- [x] Ledger §6: every row `[x]`.
+- [x] Port plan `index.md`: P9 row `[x]` with plan link and #85. The
       "Interim gaps in `init`" paragraph is reworded in the past tense.
-- [ ] P9 `index.md`: S1–S3 `[x]`.
+- [x] P9 `index.md`: S1–S3 `[x]`.
 
 ## Definition of done
 

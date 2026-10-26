@@ -215,6 +215,8 @@ mod clip_tests;
 #[cfg(test)]
 mod clone_enroll_tests;
 #[cfg(test)]
+mod command_reference_tests;
+#[cfg(test)]
 mod complete_tests;
 #[cfg(test)]
 mod enroll_cli_tests;

@@ -7,11 +7,6 @@ method. You can have as many vaults as you want (`personal`, `work`,
 different set of readers for a subset of secrets, that's a new vault, not a
 subdirectory of an existing one.
 
-> **Status.** gage-rs can create a vault with this device's own
-> passphrase-protected identity, and list, inspect, re-point and forget
-> vaults. [Entries](entries.md) can be inserted, read, listed and deleted;
-> sync arrives in a later phase of the [port plan](../implementation/00_gage-cli/plans/rust-port/index.md).
-
 ## Creating a vault
 
 ```
@@ -150,6 +145,38 @@ secret in the vault, so it needs storing with care: see
 
 `init` is one-shot only: it creates a vault rather than operating on one.
 
+## Cloning an existing vault
+
+```
+gage clone <remote-url> [--name NAME] [--dir PATH] [--device NAME]
+```
+
+Clones the git repository and reads its `.gage/config.toml` to learn the
+vault's default decryption method. Cloning does **not** grant you access.
+
+If this machine holds no identity for the vault, `clone` says so and, on a
+terminal, offers to set up an enrollment request right there:
+
+```
+gage: cloned "personal" to ~/.local/share/gage/vaults/personal
+This device holds no identity for "personal", so it can't read anything here yet.
+Set up an enrollment request now? [Y/n]
+```
+
+Saying yes runs exactly what `gage identity enroll` does, under the device
+name `clone` already resolved, so `clone --device X` followed by `y`
+publishes a request naming `X`. Saying no, or cloning without a terminal,
+prints the manual path instead and exits `0`. Either way you can run
+`gage identity enroll` later. See [Adding a device](enrollment.md).
+
+The condition `clone` tests is "does this machine hold a wrapped identity
+file for this vault at all", not "is this device's key in the recipient
+list", which can't be answered without unlocking. A machine that *does* hold
+an identity for the vault is left alone with no message and no prompt, even
+if that key was never added as a recipient. Run `gage identity enroll`
+explicitly in that case; it reuses the existing key rather than generating
+a second one.
+
 ## Listing and inspecting vaults
 
 ```
@@ -202,6 +229,24 @@ all exit `1` (`conflict`), and nothing is reported from the file:
   carries (a vault re-created at the same path, a registration edited by
   hand), `gage` refuses rather than letting either side win, and tells you
   to re-register it.
+
+## Selecting which vault a command targets
+
+There is one concept for "which vault does this apply to", spelled two ways
+depending on mode:
+
+- **One-shot mode:** `-u|--use NAME` on any single command.
+- **Session mode:** `use <name>` as its own line, which switches what every
+  subsequent command in that session targets.
+
+```
+$ gage show github-token --use personal      # one-shot
+gage> use personal                           # session
+personal🔓 gage> show github-token
+```
+
+If you omit `--use` in one-shot mode, `gage` falls back to your configured
+default vault.
 
 ## Changing the default vault
 
