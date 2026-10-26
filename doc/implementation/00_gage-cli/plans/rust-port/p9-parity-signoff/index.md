@@ -102,7 +102,7 @@ yet".
 | Milestone | Status | Model | Depends on |
 |---|---|---|---|
 | [S1 Inventory sign-off](s1-inventory-signoff.md) ([#86](https://github.com/distillerylabs/gage-rs/issues/86)) | `[x]` | **Opus** ⚑ | parent branch |
-| [S2 Ledger closure + help surface](s2-ledger-and-help.md) ([#87](https://github.com/distillerylabs/gage-rs/issues/87)) | `[ ]` | Sonnet\* (⚑ Opus review of the help-surface test) | S1 |
+| [S2 Ledger closure + help surface](s2-ledger-and-help.md) ([#87](https://github.com/distillerylabs/gage-rs/issues/87)) | `[~]` | Sonnet\* (⚑ Opus review of the help-surface test) | S1 |
 | [S3 User docs final pass](s3-user-docs.md) ([#88](https://github.com/distillerylabs/gage-rs/issues/88)) | `[ ]` | Sonnet | S2 |
 
 **S1 is Opus** because it is the check against quiet scope narrowing. Each

@@ -27,7 +27,7 @@ Go's user docs (`doc/cli/`) are a sixth, cross-checking view (§6).
 **How it's used.** Planning a phase starts from its rows here and its rows in
 the test inventory. Each milestone doc lists the rows it claims under **Go
 sources**; the status column is updated when that milestone merges. P9
-([plan](p9-parity-signoff/index.md)) closes the ledger: no row may be left `[ ]`.
+([plan](p9-parity-signoff/index.md)) closes the ledger: no row may be left unported or in progress.
 
 **Moving the pin.** Run `scripts/go-reference/capture.sh <go-checkout>`, then
 add rows for every Go issue, PR and commit since the previous pin. A test
@@ -43,7 +43,7 @@ Status: `[ ]` not ported, `[~]` in progress, `[x]` ported, `n/a` excluded
 | Go ref | Item | Port to | Status |
 |---|---|---|---|
 | #1 / PR #2 | Module path `github.com/distillerylabs/gage` | n/a — Go module path; the crate/package names are decided in M0a | n/a |
-| #3 / PR #4 | Public-readiness: CI, SECURITY, CoC, contributor files | Bootstrap (#1 here) for the docs; M0a for CI; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[~]` |
+| #3 / PR #4 | Public-readiness: CI, SECURITY, CoC, contributor files | Bootstrap (#1 here) for the docs; M0a for CI; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[x]` `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, `.github/ISSUE_TEMPLATE/` (`bug_report.yml`, `feature_request.yml`, `config.yml`) and the `test.yml`, `lint.yml`, `audit.yml` workflows; CI on all three OSes recorded in [S1](p9-parity-signoff/s1-inventory-signoff.md) |
 | PR #5, #6, #38, #39 | Dependabot bumps (Go modules, actions) | n/a — Rust gets its own dependabot config | n/a |
 | #7 / PRs #11, #19 | Recovery key: plan, phase 1 (R0–R2) and phase 2 (R3–R5) | P8 ([plan](p8-recovery-key/index.md), [#74](https://github.com/distillerylabs/gage-rs/issues/74)): RK1–RK4 | `[x]` |
 | #8 / PR #13 | R0 recovery key library | P8 · RK1 | `[x]` |
@@ -52,12 +52,12 @@ Status: `[ ]` not ported, `[~]` in progress, `[x]` ported, `n/a` excluded
 | #16 / PR #20 | R3 recovery identity, `RecoverDevice`; retired key can't come back; relative `--recovery-key-out` | P8 · RK2 (the relative-path guard: RK3) | `[x]` |
 | #17 / PR #21 | R4 `gage recovery enroll` (+ seven review fixes) | P8 · RK4 (verify's label return: RK1) | `[x]` |
 | #18 / PR #22 | R5 `gage recovery rotate`; reserved recovery label | P8: reservation RK1, `RotateRecoveryKey` RK2, `recovery rotate` RK3, docs RK4 | `[x]` |
-| PR #12 | Multi-milestone GitHub process in CLAUDE.md | Bootstrap (`CLAUDE.md`); [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[~]` |
-| #23 / PR #24 | Parent commands (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) list their children in their own help | P1 · M0b (registry/help), each parent's children as they land; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes with the whole-surface help test | `[~]` M0b: mechanism; M1: real `vault` and `git` parents and their children |
-| #25 / PR #26 | Codecov reporting alongside the cover-check gate | M0a; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[ ]` |
-| #27, #28, #29 / PRs #30–#32 | Coverage toward 90% with honest tests; library and CLI coverage gate | M0a sets up the gate; every milestone keeps it; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[ ]` |
-| #34 / PR #35 | gosec configuration audit | M0a — the Rust analogue is the clippy lint set + cargo-deny config; audit it there; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes with the mapping table | `[ ]` |
-| #36 / PR #37 | Pre-commit hook installer running `make lint` | M0a; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[ ]` |
+| PR #12 | Multi-milestone GitHub process in CLAUDE.md | Bootstrap (`CLAUDE.md`); [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[x]` `CLAUDE.md`, "Work that needs more than one milestone uses a parent issue, sub-issues, and a stack of branches" |
+| #23 / PR #24 | Parent commands (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) list their children in their own help | P1 · M0b (registry/help), each parent's children as they land; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes with the whole-surface help test | `[x]` every parent (`vault`, `identity`, `recipient`, `recovery`, `git`, `auth`) lists its children: `every_go_help_fixture_has_its_registered_command` (`crates/gage-cli/src/help_surface_tests.rs`) compares each of the six parents' children to its fixture, in the registry and in the clap tree |
+| #25 / PR #26 | Codecov reporting alongside the cover-check gate | M0a; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[x]` `test.yml` "Upload coverage to Codecov" step (per-OS `flags:` linux/macos/windows, `fail_ci_if_error: false`) beside the `make cover-check` gate; `codecov.yml` (informational statuses, per-OS flags, `gittest` ignored) |
+| #27, #28, #29 / PRs #30–#32 | Coverage toward 90% with honest tests; library and CLI coverage gate | M0a sets up the gate; every milestone keeps it; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[x]` `make cover-check` gates total line coverage at `COVER_MIN = 80` in `test.yml`, as Go's `.testcoverage.yml` does (`total: 80`). Measured by `make cover` at S2: **95.61%** total lines (94.25% regions, 93.83% functions) against Go's 86.55% baseline; the gate is not raised ([S2](p9-parity-signoff/s2-ledger-and-help.md) decision 5). Unlike Go's, the workspace figure includes `crates/reset-local-state`, the analogue of Go's excluded `scripts/`, at 77.88% |
+| #34 / PR #35 | gosec configuration audit | M0a — the Rust analogue is the clippy lint set + cargo-deny config; audit it there; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes with the mapping table | `[x]` the mapping table in [S2](p9-parity-signoff/s2-ledger-and-help.md#the-gosec-and-golangci-mapping): every golangci linter and gosec rule Go uses, mapped to a clippy lint, cargo-deny, the purity lint, a guard test, a language guarantee, or n/a |
+| #36 / PR #37 | Pre-commit hook installer running `make lint` | M0a; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[x]` `scripts/install-pre-commit-hook.sh`, run by `make install-hooks`; the hook runs `make lint` |
 | #40 / PR #41 | Go toolchain/x/net bump for govulncheck | n/a — Go toolchain; Rust gets `make audit` in M0a | n/a |
 
 ## 2. Pre-move work, identified by commit
@@ -77,7 +77,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `a0dcf7c` | — | Resolution prefers title over UUID | P3 · M5 ([plan](p3-query-session/m5-query-resolution.md)) | `[x]` `resolve_query` runs both title stages before either UUID stage; `resolve_exact_title_wins_over_uuid_match`, `cat_resolves_by_exact_title_even_when_query_is_also_a_uuid_substring` |
 | `844f880` | — | Memory-locking bug fix | P2 · M2 (regression test) | `[x]` `memlock::LockedBuf` gives each key its own pages; `alloc_gives_each_buffer_its_own_page`, `unlocking_one_buffer_leaves_another_locked` |
 | `e52828a` | — | Scrypt work-factor test hook and its guard tests | P2 · M2 | `[x]` identity-file halves (Q-SCRYPT-HOOK); the enrollment halves in P7 · E2 ([plan](p7-enrollment/e2-sealed-request.md), [Q-ENROLL-SCRYPT-HOOK](open-questions.md#q-enroll-scrypt-hook)) |
-| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[~]` M0b: id validator and id-keyed path builders; M1: `[vault].id`, format 2 with the directional refusal, the registration-vs-vault id check; M2: identity files filed under the committed id, the `vault-name.txt` marker, `init`'s rollback; M10: the trust cache under `$GAGE_STATE/<vault-id>/`, deleted by `vault remove` from the registration's recorded id (`two_vaults_under_one_local_name_share_neither_directory`) `[x]` |
+| `0d710d4` | — | E0 vault-id keying | Folded: M0b (lock path), M1, M2, M10 | `[x]` M0b: id validator and id-keyed path builders; M1: `[vault].id`, format 2 with the directional refusal, the registration-vs-vault id check; M2: identity files filed under the committed id, the `vault-name.txt` marker, `init`'s rollback; M10: the trust cache under `$GAGE_STATE/<vault-id>/`, deleted by `vault remove` from the registration's recorded id (`two_vaults_under_one_local_name_share_neither_directory`) |
 | `3fd784c`, `fbc887f` | #46 | E1a unconditional re-encrypt + recipient regression fixes | Folded: P5 · M9b ([#43](https://github.com/distillerylabs/gage-rs/issues/43)): `recipient add` has no `--reencrypt` and always re-encrypts; the `RequireFullAccess` pre-flight with its clean-tree gate | `[x]` |
 | `045bf24`, `9d72384` | #48 | E1b shared recipient write + fixes | P7 · E1b ([plan](p7-enrollment/e1b-shared-recipient-write.md)) | `[x]` |
 | `798ed47` | — | E2 sealed request | P7 · E2 ([plan](p7-enrollment/e2-sealed-request.md)) | `[x]` |
@@ -87,8 +87,8 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `f0e17db`, `f1e391f` | #55 / #60, #61 | `cat`: display-only short id, column-aligned labels, flush-left multi-line values | P6 · M12b | `[x]` `entry::key_layout`, `commands/catfmt.rs` |
 | `fb2f1e9` | #54 / #62 | `ls -H/--header` labelled `\|`-delimited table | P6 · M12b | `[x]` `render_ls_table` |
 | `0aa325c` | #25 / #63 | M13 session Tab completion and command abbreviation | P3 · M13 ([plan](p3-query-session/m13-tab-completion.md)) | `[x]` |
-| `bbb24ba` | #64 / #65 | Coverage and vulnerability reporting | M0a; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[ ]` |
-| `30b21df` | #66 / #67 | Apache-2.0 license; fixture-data cleanup | Bootstrap (`LICENSE`); [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[~]` |
+| `bbb24ba` | #64 / #65 | Coverage and vulnerability reporting | M0a; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[x]` Codecov upload in `test.yml` and `codecov.yml` (coverage reporting); `audit.yml` running `make audit`, cargo-deny's advisories, as the analogue of govulncheck |
+| `30b21df` | #66 / #67 | Apache-2.0 license; fixture-data cleanup | Bootstrap (`LICENSE`); [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[x]` `LICENSE` (Apache-2.0). Go's fixture-data cleanup is Go-only: gage-rs commits no Go-written fixture data ([Q-COMPAT](open-questions.md#q-compat)) |
 | `df3c0fe` | #4, #5 | Enrollment-design issues resolved in the TDD | Covered by the copied TDD; P7 · E4 closes it with the shipped behavior | `[x]` |
 | `6aa019a` | — | TOTP design begun | n/a — [Q-TOTP](open-questions.md#q-totp) | n/a |
 
@@ -109,7 +109,7 @@ before `distillerylabs/gage`; the commit is the stable reference.
 | `gage-cli-init-design/` | E0, E1a | Folded (see §2) | `[x]` |
 | | E1b, E2, E3, E4 | P7 ([plan](p7-enrollment/index.md), [#63](https://github.com/distillerylabs/gage-rs/issues/63)): one to one | `[x]` |
 | `recovery-key/` | R0–R5 (D1–D12) | P8 ([plan](p8-recovery-key/index.md), [#74](https://github.com/distillerylabs/gage-rs/issues/74)): regrouped as RK1–RK4 ([Q-P8-SPLIT](open-questions.md#q-p8-split)) | `[x]` |
-| `test-coverage/` | R0, R1 (coverage) | M0a gate + every milestone; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[ ]` |
+| `test-coverage/` | R0, R1 (coverage) | M0a gate + every milestone; [P9 · S2](p9-parity-signoff/s2-ledger-and-help.md) closes | `[x]` R0 and R1 are the `make cover-check` gate (§1 #27–#29: 95.61% against Go's 86.55%). Their test lists are inventory rows S1 already accounted for. Coverage rises through honest tests; the only path excluded is `gittest`, test scaffolding that does not ship |
 
 ## 4. Help surface (`tests/fixtures/go/help/`)
 

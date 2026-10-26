@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::editor::fake::{Action, FakeEditor, Set};
 use crate::entry_tests::{DEVICE, ExplodingReader, env_with_vault, unlocks, with_value};
+use crate::fixture_support::fixture_flags;
 use crate::lifecycle_tests::{CliResult, Env};
 
 impl Env {
@@ -763,22 +764,6 @@ fn a_registration_without_an_id_fails_show_before_any_path_is_built() {
 }
 
 // --- registration and parity --------------------------------------------------
-
-/// The long and short flag spellings in a Go help fixture's `Flags:`
-/// section.
-fn fixture_flags(help: &str) -> Vec<String> {
-    help.lines()
-        .skip_while(|l| !l.starts_with("Flags:"))
-        .skip(1)
-        .flat_map(|l| {
-            l.split_whitespace()
-                .take(2)
-                .map(|w| w.trim_end_matches(',').to_string())
-                .filter(|w| w.starts_with('-'))
-                .collect::<Vec<_>>()
-        })
-        .collect()
-}
 
 // Each command M5 touches has every flag of its Go fixture, with Go's
 // description: `show` and `generate` gained `-c/--clip` and `-q/--qr` in

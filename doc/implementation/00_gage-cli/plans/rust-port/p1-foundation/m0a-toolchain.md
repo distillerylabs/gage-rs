@@ -141,12 +141,13 @@ Tests first, at task granularity.
       licenses (allowlist compatible with Apache-2.0), bans (deny wildcard
       versions, warn duplicates), sources (crates.io only). `make audit`
       runs it; it needs the network, like Go's `govulncheck`.
-- [ ] Record in the PR description which Go `gosec`/golangci checks have a
+- [x] Record in the PR description which Go `gosec`/golangci checks have a
       Rust equivalent in this set and which don't apply (the ledger's #34
       row asks for that audit).
       - This was only ever in a PR description. The durable mapping is
         [P9 · S2](../p9-parity-signoff/s2-ledger-and-help.md)'s table; S2
-        writes it and ticks this box.
+        wrote it and ticked this box: [the gosec and golangci
+        mapping](../p9-parity-signoff/s2-ledger-and-help.md#the-gosec-and-golangci-mapping).
 
 ### 5. Coverage
 
