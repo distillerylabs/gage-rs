@@ -31,7 +31,7 @@ serde = { version = "1", features = ["derive"] }
 age = "0.12.1"
 # The trust cache's `.age-recipients` hash (Q-TRUST-HASH). The version age
 # already uses, so the tree gains no second copy.
-sha2 = "0.10"
+sha2 = "0.11"
 zeroize = "1"
 # remoteauth's remote-URL parsing. Already in the graph through git2's
 # `cred` feature.
