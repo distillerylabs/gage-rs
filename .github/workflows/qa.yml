@@ -1,0 +1,76 @@
+name: QA
+
+# Only on the way into main: PRs whose base is main, and main itself. A
+# stack's intermediate PRs (base = another branch) skip it, since the stack
+# lands on main through one PR that runs it anyway. Unlike test.yml this
+# isn't run on every PR because it is slow: the shipped scrypt work factor
+# makes every unlock real, a few minutes per OS.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Supersede in-flight runs on the same PR; never cancel runs on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Black-box QA of the built binary (scripts/qa/README.md): several personas,
+# each its own HOME and XDG roots, sharing vaults through bare repos on local
+# paths. Offline. Linux and macOS only: the harness is bash plus expect, and
+# Windows support is tracked separately (#104).
+jobs:
+  qa:
+    name: qa (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      QA: ${{ runner.temp }}/gage-qa
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # The pty steps (recipient-change review, conflict menu, recovery key
+      # shown on screen, interactive session) need expect. macOS ships it;
+      # make qa fails rather than skipping those steps if it's missing.
+      - name: Install expect (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -y -q expect
+
+      - name: make qa
+        run: make qa
+
+      - name: QA summary
+        if: always()
+        run: |
+          {
+            echo "## QA (${{ runner.os }})"
+            echo '```'
+            cat "$QA/summary.txt" 2>/dev/null || echo "no summary: the run did not get that far"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Every command's stdin, exit code and output, per scenario. Holds
+      # only throwaway sandbox keys and tokens; passphrases are redacted.
+      - name: Upload transcripts
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qa-${{ runner.os }}
+          path: ${{ runner.temp }}/gage-qa
+          retention-days: 7

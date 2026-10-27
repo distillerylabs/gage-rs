@@ -19,6 +19,7 @@ make test        # cargo fetch, then CARGO_NET_OFFLINE=true cargo test --locked 
 make lint        # cargo fmt --check + cargo clippy --workspace --all-targets --locked -- -D warnings
 make fmt         # cargo fmt --all
 make lint-selftest  # proves the library-purity lint still fires (CI runs it with lint)
+make qa          # black-box multi-persona QA of the binary (scripts/qa); slow, CI runs it only into main
 make audit       # cargo-deny (advisories, bans, licenses); needs network, like govulncheck
 make cover       # instrumented test run -> lcov.info + summary (cargo-llvm-cov)
 make cover-check # fail if total line coverage < COVER_MIN (80); run `make cover` first
