@@ -1,9 +1,9 @@
 #!/bin/sh
 # Proves the library-purity lint (crates/gage/clippy.toml, plus the denies
 # in crates/gage/src/lib.rs) still fires. crates/gage must never print, touch
-# stdin/stdout/stderr, or exit the process; a lint that quietly stopped
-# firing (a renamed path, a dropped deny) would let that regress silently
-# forever, so this plants each forbidden item in a scratch copy of the
+# stdin/stdout/stderr, exit the process, or spawn a subprocess; a lint that
+# quietly stopped firing (a renamed path, a dropped deny) would let that
+# regress silently forever, so this plants each forbidden item in a scratch copy of the
 # workspace and requires clippy to reject it. It also requires that a test
 # can opt out locally, and that the untouched crate passes.
 #
@@ -70,6 +70,9 @@ probe "std::io::stdin" fail 'pub fn probe() { let _ = std::io::stdin(); }'
 probe "std::io::stdout" fail 'pub fn probe() { let _ = std::io::stdout(); }'
 probe "std::io::stderr" fail 'pub fn probe() { let _ = std::io::stderr(); }'
 probe "std::process::exit" fail 'pub fn probe() { std::process::exit(1); }'
+probe "std::process::Command::new" fail 'pub fn probe() { let _ = std::process::Command::new("git"); }'
+probe "Command::new through a use" fail 'use std::process::Command as Probe;
+pub fn probe() { let _ = Probe::new("git"); }'
 probe "a test may opt out locally" pass '#[cfg(test)]
 mod probe_tests {
     #[test]

@@ -456,6 +456,7 @@ fn lock_holder_trampoline() {
 
 /// Whether another process finds the lock at `path` taken right now: what
 /// a concurrent gage write would see first.
+#[allow(clippy::disallowed_methods)]
 pub(crate) fn lock_is_held_elsewhere(path: &Path) -> bool {
     let out = Command::new(std::env::current_exe().unwrap())
         .args([
@@ -488,6 +489,7 @@ pub(crate) struct Holder {
 
 impl Holder {
     /// Starts a process holding the lock at `path`; returns once it has it.
+    #[allow(clippy::disallowed_methods)]
     pub(crate) fn spawn(path: &Path) -> Holder {
         let mut child = Command::new(std::env::current_exe().unwrap())
             .args([

@@ -2,9 +2,13 @@
 # gage-cli (and a future GUI/TUI) decides how to show it. So the library
 # never prints, never touches the process's standard streams, and never
 # exits the process: anything needing a human is a typed return value.
+# It also never spawns a subprocess: git runs in-process, never by
+# shelling out (Go's gosec G204 covered the same ground).
 #
 # lib.rs denies both lints crate-wide. Tests opt out locally with
-# #[allow(clippy::disallowed_macros)], never crate-wide. `make
+# #[allow(clippy::disallowed_macros)] or
+# #[allow(clippy::disallowed_methods)] (a test that spawns a child
+# process), never crate-wide. `make
 # lint-selftest` proves these paths still fire.
 disallowed-macros = [
     { path = "std::print", reason = "crates/gage never prints; return a value and let the frontend render it" },
@@ -18,4 +22,5 @@ disallowed-methods = [
     { path = "std::io::stdout", reason = "output is a return value; the frontend owns the terminal" },
     { path = "std::io::stderr", reason = "output is a return value; the frontend owns the terminal" },
     { path = "std::process::exit", reason = "the library returns an error carrying an exit code; only the binary exits" },
+    { path = "std::process::Command::new", reason = "crates/gage never spawns a subprocess; git runs in-process, never by shelling out" },
 ]

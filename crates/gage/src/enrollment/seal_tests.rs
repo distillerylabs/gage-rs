@@ -51,6 +51,7 @@ pub(crate) const CHILD_ENV: &str = "GAGE_ENROLL_TEST_CHILD";
 
 /// Runs `test` alone in a child test process with `CHILD_ENV` set, and
 /// returns its stderr. Panics if the child failed.
+#[allow(clippy::disallowed_methods)]
 pub(crate) fn run_child(test: &str) -> String {
     let out = std::process::Command::new(std::env::current_exe().unwrap())
         .args([test, "--exact", "--nocapture", "--test-threads=1"])

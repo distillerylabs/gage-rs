@@ -99,6 +99,7 @@ fn hostile_git_config_trampoline() {
 // libgit2 does, and honors `url.<base>.insteadOf` (Q-GIT-CRATE's spike),
 // which would let a global config redirect a vault's pushes.
 #[test]
+#[allow(clippy::disallowed_methods)]
 fn hostile_git_config_is_ignored() {
     let home = tempfile::tempdir().unwrap();
     let real = slashed(&home.path().join("real.git"));

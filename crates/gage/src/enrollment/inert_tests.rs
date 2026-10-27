@@ -117,6 +117,7 @@ fn garbage_in_pending_is_never_fatal() {
 // the open and one pointing at a real sealed file can't stand in for it.
 #[cfg(unix)]
 #[test]
+#[allow(clippy::disallowed_methods)]
 fn symlinks_in_pending_are_never_followed() {
     let f = vault();
     let req = seal_into(&f.vault, "phone", &f.pubkey(), DAY);
