@@ -33,12 +33,17 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    env:
-      QA: ${{ runner.temp }}/gage-qa
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+
+      # Where run-all.sh keeps its personas, transcripts and summary. Set
+      # through GITHUB_ENV, not a job-level env: the runner context (and so
+      # runner.temp) isn't available there, and using it rejects the whole
+      # workflow file before any job starts.
+      - name: Set the QA root
+        run: echo "QA=$RUNNER_TEMP/gage-qa" >> "$GITHUB_ENV"
 
       - name: Install the pinned toolchain
         run: rustup toolchain install
