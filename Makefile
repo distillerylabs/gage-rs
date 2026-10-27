@@ -86,6 +86,13 @@ cover-report: $(CARGO_LLVM_COV_BIN)
 cover-check: $(CARGO_LLVM_COV_BIN)
 	"$(CARGO_LLVM_COV_BIN)" llvm-cov report --ignore-filename-regex '$(COVER_IGNORE)' --fail-under-lines $(COVER_MIN)
 
+# The README coverage badge (shields.io endpoint JSON) from the lcov.info
+# `make cover` wrote. Needs no cargo tools, so CI's badge job can run it on
+# the downloaded artifact alone.
+.PHONY: cover-badge
+cover-badge:
+	scripts/coverage-badge.sh lcov.info $(COVER_MIN) > coverage.json
+
 # Unlike the rest of the toolchain this needs the network: cargo-deny
 # fetches the RustSec advisory database at run time. The result can also
 # change without a code change, when a new advisory is published.
