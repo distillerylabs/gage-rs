@@ -1,5 +1,12 @@
 # gage-rs
 
+[![Test](https://github.com/distillerylabs/gage-rs/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/distillerylabs/gage-rs/actions/workflows/test.yml)
+[![Lint](https://github.com/distillerylabs/gage-rs/actions/workflows/lint.yml/badge.svg?branch=main)](https://github.com/distillerylabs/gage-rs/actions/workflows/lint.yml)
+[![Audit](https://github.com/distillerylabs/gage-rs/actions/workflows/audit.yml/badge.svg?branch=main)](https://github.com/distillerylabs/gage-rs/actions/workflows/audit.yml)
+[![QA](https://github.com/distillerylabs/gage-rs/actions/workflows/qa.yml/badge.svg?branch=main)](https://github.com/distillerylabs/gage-rs/actions/workflows/qa.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/distillerylabs/gage-rs/badges/coverage.json)](https://github.com/distillerylabs/gage-rs/actions/workflows/test.yml)
+[![Dependencies](https://deps.rs/repo/github/distillerylabs/gage-rs/status.svg)](https://deps.rs/repo/github/distillerylabs/gage-rs)
+
 A Rust port of [`gage`](https://github.com/distillerylabs/gage) (`git` + `age`), a git-backed, age-encrypted secret and notes manager for the command line.
 
 **Status: behavioral parity reached, not released.** gage-rs reaches behavioral parity with Go gage at commit [`64b6cf0`](https://github.com/distillerylabs/gage/commit/64b6cf078f3e756efb9d868cc1518dc1d9060748): the same commands, behavior and vault layout. It has not been released or independently audited, so **use [Go gage](https://github.com/distillerylabs/gage) for real secrets** until a release decision is made. It does not read vaults Go gage wrote, and Go's exact bytes and help layout are not reproduced.

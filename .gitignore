@@ -4,6 +4,7 @@
 
 # Coverage output, written by `make cover`
 /lcov.info
+/coverage.json
 /coverage/
 
 # OS cruft
