@@ -667,6 +667,7 @@ mod tests {
     // without the race: the live factor's *initial* value is the shipped
     // one, it reaches age, and the cap admits it on a real file.
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn shipped_work_factor_reaches_a_real_age_file() {
         let out = std::process::Command::new(std::env::current_exe().unwrap())
             .args([

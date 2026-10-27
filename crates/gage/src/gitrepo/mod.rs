@@ -616,6 +616,7 @@ mod tests {
     // A child process, because HOME is process-wide and libgit2 reads it
     // once: setting it here would race every other test.
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn init_and_commit_ignores_the_users_git_config() {
         let home = tempfile::tempdir().unwrap();
         std::fs::write(

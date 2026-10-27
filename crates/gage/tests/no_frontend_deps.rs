@@ -132,6 +132,7 @@ fn fixture(deps_of_gage: &[(&str, &str)], deps_of_foo: &[(&str, &str)]) -> Value
 }
 
 #[test]
+#[allow(clippy::disallowed_methods)]
 fn the_real_library_depends_on_no_frontend_crate() {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     // No --offline: `cargo metadata` needs every package in the lockfile on
@@ -178,6 +179,7 @@ fn is_host_specific(name: &str) -> bool {
 // Go: TestNoHostSpecificDependencies: no host SDK or OAuth crate anywhere
 // in the workspace's graph, and no OAuth client id in its sources.
 #[test]
+#[allow(clippy::disallowed_methods)]
 fn no_host_specific_dependencies() {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let output = Command::new(cargo)

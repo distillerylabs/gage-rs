@@ -965,6 +965,7 @@ fn lock_probe_trampoline() {
 }
 
 /// Runs [`lock_probe_trampoline`] in a child process against `lock`.
+#[allow(clippy::disallowed_methods)]
 fn probe(lock: &Path) -> String {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args([

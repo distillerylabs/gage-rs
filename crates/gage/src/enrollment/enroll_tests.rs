@@ -488,6 +488,7 @@ fn lock_is_held_child() {
 
 /// Asserts, from a child process, that `lock_file` is held by someone
 /// else right now.
+#[allow(clippy::disallowed_methods)]
 fn assert_another_process_cannot_take(lock_file: &std::path::Path) {
     let out = std::process::Command::new(std::env::current_exe().unwrap())
         .args([

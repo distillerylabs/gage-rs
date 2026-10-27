@@ -201,15 +201,17 @@ ones its `#nosec` comments cite (G101, G103, G104, G204, G302, G304).
 | G101 hardcoded credentials | 1 | None. Neither clippy nor cargo-deny scans for secrets. The control is review, plus the fact that tests build their keys at run time (`make test` needs no pre-existing keys). | No |
 | G103 use of `unsafe` | 6 | `unsafe_code = "deny"` in `[workspace.lints.rust]`. The syscall modules opt in locally with `#[allow(unsafe_code)]` (`memlock.rs`, `coredump.rs`, `editor.rs`, `prompter.rs`, `gitrepo/mod.rs`); nothing else may use `unsafe`. | Yes |
 | G104 unhandled errors | 2 | `unused_must_use`, as for `errcheck` above. | Yes |
-| G204 subprocess with a variable | 7 | No lint. The library never shells out: `git` is in-process, and every `Command::new` in `crates/gage` sits in test code. The CLI's one non-test spawn is `$EDITOR` (`editor.rs`), which is the operator's own program, as in Go's G204 suppression. | No |
+| G204 subprocess with a variable | 7 | The purity lint: `std::process::Command::new` is in `crates/gage`'s `disallowed-methods` (added after this milestone, [#94](https://github.com/distillerylabs/gage-rs/issues/94)), and `make lint-selftest` proves it fires. The library never shells out: `git` is in-process, and the tests that spawn child processes opt out locally. The CLI's one non-test spawn is `$EDITOR` (`editor.rs`), which is the operator's own program, as in Go's G204 suppression. | Yes (library) |
 | G302, G306 file and directory modes | 2 | No lint. `atomicfile::write` and `write_new` take the mode as a parameter and set it before the rename; its tests assert the resulting mode (`applies_the_requested_mode`). | Yes (`make test`) |
 | G304 path from a variable | 43 | No lint. The control is validating every untrusted component before a path is built from it: `devicename`, the vault-id validator, host validation for token paths (`CLAUDE.md`, "Key invariants"). | No |
 | G602 slice index out of range | 0 | Language guarantee: indexing is bounds-checked and a violation panics, never reads out of bounds. | n/a |
 
 G101, G204 and G304 are the three rows where Go has a static check and
-Rust has none. Go suppressed the last two at 50 call sites with a written
-reason each; Rust has no equivalent suppression to audit, so those paths
-are held by their validators and tests instead.
+Rust had none when this milestone closed. Go suppressed the last two at 50
+call sites with a written reason each; Rust has no equivalent suppression
+to audit, so those paths are held by their validators and tests instead.
+G204 has since gained a library-side lint (#94); the CLI's `$EDITOR` spawn
+stays unlinted, as Go's suppression left it.
 
 ### Follow-ups: cheap clippy equivalents that are not enabled
 
@@ -218,7 +220,7 @@ gets its own issue.
 
 | Lint | Go check it echoes | Why it is cheap |
 |---|---|---|
-| `clippy::disallowed_methods` on `std::process::Command::new` in `crates/gage` | G204, and the "no shelling out" invariant | The library has no non-test caller today; tests already `#[allow]` locally for the purity lint. |
+| `clippy::disallowed_methods` on `std::process::Command::new` in `crates/gage` | G204, and the "no shelling out" invariant | The library has no non-test caller today; tests already `#[allow]` locally for the purity lint. **Enabled in #94.** |
 | `clippy::undocumented_unsafe_blocks` | G103: every Go `unsafe` use carries a `#nosec G103 -- reason` | It enforces a `// SAFETY:` comment on each `unsafe` block, the same discipline. |
 | `clippy::let_underscore_must_use` | G104, and `errcheck` with `check-blank: true` | Go's config deliberately sets `check-blank: false`, so this is stricter than parity and is listed only as an option. |
 
