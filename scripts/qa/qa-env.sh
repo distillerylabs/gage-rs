@@ -34,6 +34,7 @@ QA_COVERAGE="$QA/coverage.tsv"
 QA_SCENARIO=""
 QA_S=""
 QA_STEP=""
+QA_STEP_SKIPPED=0
 QA_N=0
 QA_FAILS=0
 QA_PASSES=0
@@ -63,6 +64,7 @@ scenario() {
 # step <description>: name what the next commands and assertions prove.
 step() {
     QA_STEP="$*"
+    QA_STEP_SKIPPED=0
     printf '\n## %s\n' "$QA_STEP" >>"$QA_S/log/transcript.txt"
 }
 
@@ -152,7 +154,7 @@ g() {
 # prompts in <dialogue> ("<regex>\t<reply>" per line; see dialogue below).
 # For the paths that refuse piped stdin by design. OUT is everything the
 # terminal showed (stdout and stderr together). Without expect installed,
-# CODE is "skip" and the expect_* assertions record SKIP, not FAIL.
+# CODE is "skip" and the step's remaining assertions record SKIP, not FAIL.
 gtty() {
     local who="$1" dlg="$2" extra=()
     shift 2
@@ -165,6 +167,8 @@ gtty() {
     done
     if ! command -v expect >/dev/null 2>&1; then
         CODE=skip OUT="" ERR=""
+        # The rest of this step builds on what didn't run: skip it too.
+        QA_STEP_SKIPPED=1
         printf '\n[skip] %s$ gage %s (no expect)\n' "$who" "$*" >>"$QA_S/log/transcript.txt"
         return 0
     fi
@@ -230,7 +234,7 @@ _run() {
 # _record <ok:0|1> <assertion> [detail]
 _record() {
     local status=PASS
-    if [[ "$CODE" == skip ]]; then
+    if [[ "$CODE" == skip || "$QA_STEP_SKIPPED" == 1 ]]; then
         status=SKIP
     elif (($1)); then
         status=FAIL
@@ -282,6 +286,10 @@ expect_true() {
     "$@" >/dev/null 2>&1
     _record $? "$d"
 }
+
+# file_mode <path>: the octal permission bits, e.g. 600. GNU stat first:
+# GNU's `stat -f` means filesystem status and succeeds with other output.
+file_mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 
 # bare_remote <name>: an empty bare repo on branch main, echoing its path.
 bare_remote() {

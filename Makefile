@@ -114,6 +114,15 @@ clippy:
 lint-selftest:
 	sh scripts/lint-selftest.sh
 
+# Black-box QA of the built binary: several personas sharing vaults through
+# local bare repos, offline (scripts/qa/README.md). Slow (real scrypt
+# unlocks), so CI runs it only on the way into main, on Linux and macOS.
+# QA_REQUIRE_TTY fails the run if expect is missing rather than skipping the
+# pty steps. Pass QA=<dir> to keep the transcripts somewhere known.
+.PHONY: qa
+qa: build
+	GAGE=$(CURDIR)/target/debug/gage$(EXE) QA_REQUIRE_TTY=1 bash scripts/qa/run-all.sh $(ARGS)
+
 # Deletes every directory gage owns on this machine, after showing them
 # and asking for "yes". A developer convenience, never a gage subcommand.
 .PHONY: reset-local-state

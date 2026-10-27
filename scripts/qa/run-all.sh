@@ -50,6 +50,11 @@ done
     echo "QA root: $QA"
     echo
     awk -F'\t' '{n[$4]++} END {printf "assertions: %d passed, %d failed, %d skipped\n", n["PASS"], n["FAIL"], n["SKIP"]}' "$QA/results.tsv"
+    # CI sets this (make qa): a skipped pty step there means expect went
+    # missing, and a green run without them would prove much less.
+    if [[ "${QA_REQUIRE_TTY:-}" == 1 ]] && awk -F'\t' '$4 == "SKIP"' "$QA/results.tsv" | grep -q .; then
+        echo "SKIPPED TTY STEPS: expect is required here (QA_REQUIRE_TTY=1)"
+    fi
     if ((${#failed[@]})); then
         echo "failed scenarios: ${failed[*]}"
         echo
@@ -94,6 +99,6 @@ done
 } | tee "$QA/summary.txt"
 
 # The pipe ran the summary in a subshell: re-derive the verdict from it.
-if grep -qE 'failed scenarios:|NOT COVERED|NEVER ASSERTED|CHANGED' "$QA/summary.txt"; then
+if grep -qE 'failed scenarios:|NOT COVERED|NEVER ASSERTED|CHANGED|SKIPPED TTY STEPS' "$QA/summary.txt"; then
     exit 1
 fi

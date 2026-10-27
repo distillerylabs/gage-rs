@@ -6,8 +6,9 @@ the in-process suite (`make test`): it runs the real binary with real
 prompts, real git remotes and real terminals, the way users do.
 
 ```
-scripts/qa/run-all.sh         # build, run every scenario, check coverage
-scripts/qa/run-all.sh 04 06   # only scenarios whose names start with these
+make qa                       # build, run every scenario, check coverage
+make qa ARGS="04 06"          # only scenarios whose names start with these
+scripts/qa/run-all.sh 04 06   # the same without make
 ```
 
 The whole catalog takes a few minutes. The summary reports assertion
@@ -80,6 +81,19 @@ finish
   ignored.
 - To get a divergence, take one persona offline (`git set-remote` to a
   missing path) while both write. Every unlock fetches and fast-forwards.
+
+## CI
+
+`.github/workflows/qa.yml` runs `make qa` on Ubuntu and macOS for PRs
+whose base is `main`, and for pushes to `main`. A stack's intermediate PRs
+into other branches skip it. It is advisory, not a required check, while
+its stability on Linux is established. Windows isn't covered yet (#104).
+
+`make qa` sets `QA_REQUIRE_TTY=1`, so a run where `expect` is missing fails
+instead of quietly recording the pty steps as SKIP. The job writes
+`summary.txt` into the job summary, and on failure uploads the whole `$QA`
+directory as the `qa-Linux`/`qa-macOS` artifact. Start with
+`summary.txt`, then the failing scenario's `log/transcript.txt`.
 
 ## The QA agent
 

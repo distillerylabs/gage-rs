@@ -20,8 +20,8 @@ expect_exit 0
 expect_no_out "$TOKEN"
 expect_no_err "$TOKEN"
 expect_true "token file exists" test -f "$TOK_DIR/git.example.test"
-expect_true "token file is mode 0600" bash -c "[ \"\$(stat -f %Lp '$TOK_DIR/git.example.test' 2>/dev/null || stat -c %a '$TOK_DIR/git.example.test')\" = 600 ]"
-expect_true "tokens dir is mode 0700" bash -c "[ \"\$(stat -f %Lp '$TOK_DIR' 2>/dev/null || stat -c %a '$TOK_DIR')\" = 700 ]"
+expect_true "token file is mode 0600" test "$(file_mode "$TOK_DIR/git.example.test")" = 600
+expect_true "tokens dir is mode 0700" test "$(file_mode "$TOK_DIR")" = 700
 
 step "auth status names the host, never the token"
 g alice -- auth status
