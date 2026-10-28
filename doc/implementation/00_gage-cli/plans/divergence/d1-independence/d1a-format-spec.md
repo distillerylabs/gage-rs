@@ -217,6 +217,14 @@ so one change to both reader and writer can't slip through), and
 
 ## Definition of done
 
+Met. The first CI run on PR [#120](https://github.com/distillerylabs/gage-rs/pull/120)
+([test](https://github.com/distillerylabs/gage-rs/actions/runs/40642227331),
+[lint](https://github.com/distillerylabs/gage-rs/actions/runs/40642227278))
+was green on Linux, macOS and Windows. All 14 `format_v2_*` tests ran
+and passed on each OS, and the generator was skipped as `#[ignore]`d.
+No fixes were needed.
+
+
 - Every box above is ticked.
 - The `format_v2_*` tests are green on Linux, macOS and Windows CI.
 - `make lint` and `make test` are clean.
