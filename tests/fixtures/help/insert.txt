@@ -1,0 +1,17 @@
+Create a new entry
+
+Usage:
+  gage insert [OPTIONS] <title>
+
+Arguments:
+  <title>  
+
+Options:
+      --description <TEXT>  optional description
+  -e, --edit                open a template in $EDITOR to fill in value/fields (and optionally title/description)
+      --field <NAME=VALUE>  set a structured field as NAME=VALUE (repeatable; mutually exclusive with -e/--edit)
+  -f, --force               allow inserting a duplicate title
+  -m, --multiline           read the value as multiple lines from the terminal until EOF
+  -u, --use <NAME>          vault to operate on (default: the current vault)
+      --value-stdin         read the value verbatim from stdin (one trailing newline trimmed)
+  -h, --help                Print help

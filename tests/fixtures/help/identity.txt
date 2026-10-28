@@ -1,0 +1,12 @@
+Manage this device's identities for a vault
+
+Usage:
+  gage identity [command]
+
+Available Commands:
+  add     Register this device's identity and print its public key
+  enroll  Register this device's identity and publish a request to join
+  list    List the keys this machine holds for a vault
+
+Options:
+  -h, --help  Print help

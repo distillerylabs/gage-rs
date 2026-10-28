@@ -1,0 +1,14 @@
+Find entries by title, description, or body text
+
+Usage:
+  gage search [OPTIONS] <pattern>
+
+Aliases:
+  grep, search
+
+Arguments:
+  <pattern>  
+
+Options:
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

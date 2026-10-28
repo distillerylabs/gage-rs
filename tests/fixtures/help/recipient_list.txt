@@ -1,0 +1,8 @@
+List the keys this vault is encrypted to
+
+Usage:
+  gage recipient list [OPTIONS]
+
+Options:
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

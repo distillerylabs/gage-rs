@@ -64,7 +64,7 @@ done
 
     if (($# == 0)); then
         echo
-        echo "command coverage (Go's root help vs commands run):"
+        echo "command coverage (root help vs commands run):"
         missing=0
         while read -r cmd; do
             if ! awk -F'\t' -v c="$cmd" '$2 == c' "$QA/coverage.tsv" | grep -q .; then
@@ -72,7 +72,7 @@ done
                 missing=$((missing + 1))
             fi
         done < <(awk '/^  [a-z]/ && !/^  gage / {sub(/,.*/, ""); sub(/^  /, ""); n = split($0, w, / +/); if (w[1] ~ /^(vault|identity|recipient|recovery|auth|git)$/) print w[1] " " w[2]; else print w[1]}' \
-            "$REPO/tests/fixtures/go/help/root.txt")
+            "$REPO/tests/fixtures/help/root.txt")
         ((missing == 0)) && echo "  every command was run at least once"
         ((missing)) && failed+=("coverage")
 

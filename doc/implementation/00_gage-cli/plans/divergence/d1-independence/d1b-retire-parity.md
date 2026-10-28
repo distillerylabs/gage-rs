@@ -63,56 +63,59 @@ file that reads `tests/fixtures/go/`. The full list is regenerated with
 
 ### 1. Snapshots first, before any deletion
 
-- [ ] `help_snapshots_match`, in `crates/gage-cli/src/help_snapshot_tests.rs`,
+- [x] `help_snapshots_match`, in `crates/gage-cli/src/help_snapshot_tests.rs`,
       covers the decision-2 surfaces.
-- [ ] Generate the snapshots on the unmodified tree. Commit them with
+- [x] Generate the snapshots on the unmodified tree. Commit them with
       `tests/fixtures/help/README.md` explaining the update switch.
-- [ ] `help_snapshots_cover_every_registered_command`: every registry
+- [x] `help_snapshots_cover_every_registered_command`: every registry
       path has a snapshot file and every snapshot file has a registry
       path, so a new command can't ship without one.
-- [ ] Prove the guard fails once by hand: change one description, watch
+- [x] Prove the guard fails once by hand: change one description, watch
       the test go red, revert. Record that here.
+      Done: changed "Create a new vault" to "Create a NEW vault" in
+      `registry.rs`; `help_snapshots_match` failed (`root.txt differs`),
+      then passed after the revert.
 
 ### 2. Delete the Go guards
 
-- [ ] Delete `crates/gage-cli/tests/parity_inventory.rs`, `tests/parity/`,
+- [x] Delete `crates/gage-cli/tests/parity_inventory.rs`, `tests/parity/`,
       `tests/fixtures/go/` and `scripts/go-reference/`.
-- [ ] Delete `crates/gage-cli/src/fixture_support.rs` and
+- [x] Delete `crates/gage-cli/src/fixture_support.rs` and
       `help_surface_tests.rs`, and their `mod` lines in `lib.rs`.
-- [ ] Delete the eleven `*_have_their_go_fixture_flags_and_descriptions`
+- [x] Delete the eleven `*_have_their_go_fixture_flags_and_descriptions`
       tests, plus the parent-fixture checks at `approve_cli_tests.rs:601`,
       `auth_tests.rs:271` and `recovery_cli_tests.rs:1514`. Before
       deleting each one, confirm the snapshots cover everything it
       asserted: flags, aliases, descriptions and long help.
-- [ ] `script_tests.rs` `the_script_flags_are_hidden_root_flags`: drop
+- [x] `script_tests.rs` `the_script_flags_are_hidden_root_flags`: drop
       the Go fixture read, assert against the clap tree, and re-justify
       per decision 3.
-- [ ] `exitcode.rs`: rename and re-comment the code-values test per
+- [x] `exitcode.rs`: rename and re-comment the code-values test per
       decision 3.
 
 ### 3. QA harness
 
-- [ ] `scripts/qa/run-all.sh`: compute command coverage from
+- [x] `scripts/qa/run-all.sh`: compute command coverage from
       `tests/fixtures/help/root.txt` instead of Go's.
-- [ ] `scripts/qa/scenarios/11-help-surface.sh`: compare the built
+- [x] `scripts/qa/scenarios/11-help-surface.sh`: compare the built
       binary against `tests/fixtures/help/`.
-- [ ] `scripts/qa/README.md`: update the wording.
-- [ ] `make qa` is green locally.
+- [x] `scripts/qa/README.md`: update the wording.
+- [x] `make qa` is green locally.
 
 ### 4. Tooling and templates
 
-- [ ] `.github/pull_request_template.md`: replace the two Go checkboxes
+- [x] `.github/pull_request_template.md`: replace the two Go checkboxes
       with:
   - "on-disk format change → `format_version` bump, new fixture, ADR"
   - "help snapshot changed → intended, and the reason given"
-- [ ] Reword the Go-citing comments in `Makefile` (`stamp-check`),
+- [x] Reword the Go-citing comments in `Makefile` (`stamp-check`),
       `.github/workflows/test.yml`, `deny.toml`, `Cargo.toml`,
       `crates/gage/clippy.toml` and `crates/gage-cli/Cargo.toml`.
-- [ ] `shipped_features.rs`: drop the Go references only.
+- [x] `shipped_features.rs`: drop the Go references only.
 
 ### 5. Check
 
-- [ ] `grep -rn 'fixtures/go\|GO_GAGE_SHA\|go-reference\|parity_inventory'`
+- [x] `grep -rn 'fixtures/go\|GO_GAGE_SHA\|go-reference\|parity_inventory'`
       over `crates/ scripts/ .github/ Makefile` is empty.
 
 ## Definition of done

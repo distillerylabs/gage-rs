@@ -27,7 +27,7 @@ hostname = "0.4"
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system"] }
 rpassword = "7.5"
 # The session's line editor (Q-LINE-EDITOR). No default features: gage
-# owns the history file itself (0600, append-only, as Go), so rustyline's
+# owns the history file itself (0600, append-only), so rustyline's
 # file history and its home-directory lookup aren't needed.
 rustyline = { version = "19.0.0", default-features = false }
 # $EDITOR's PATH lookup before any scratch file exists (Q-EDITOR); handles
@@ -38,7 +38,7 @@ uuid = "1"
 zeroize = "1"
 # `-c/--clip` (Q-CLIPBOARD): in-process on every platform, so the value
 # never passes through a child process. No image support; Wayland through
-# data-control, as Go's wl-copy.
+# data-control.
 arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
 # A one-shot `-c`'s Ctrl-C, installed only for its wait.
 ctrlc = "3.5.2"

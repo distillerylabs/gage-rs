@@ -1,0 +1,11 @@
+Fast-forward this vault from its remote.
+
+Fast-forward only: if the remote has moved in a way this vault can't simply
+catch up to, nothing local is touched and the divergence is reported.
+
+Usage:
+  gage pull [OPTIONS]
+
+Options:
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

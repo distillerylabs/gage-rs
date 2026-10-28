@@ -1,0 +1,10 @@
+Git-specific vault operations
+
+Usage:
+  gage git [command]
+
+Available Commands:
+  set-remote  Set or change a vault's git remote (origin)
+
+Options:
+  -h, --help  Print help

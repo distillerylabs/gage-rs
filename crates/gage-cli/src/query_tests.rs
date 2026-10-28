@@ -11,7 +11,6 @@ use uuid::Uuid;
 
 use crate::editor::fake::{Action, FakeEditor, Set};
 use crate::entry_tests::{DEVICE, ExplodingReader, env_with_vault, unlocks, with_value};
-use crate::fixture_support::fixture_flags;
 use crate::lifecycle_tests::{CliResult, Env};
 
 impl Env {
@@ -764,85 +763,6 @@ fn a_registration_without_an_id_fails_show_before_any_path_is_built() {
 }
 
 // --- registration and parity --------------------------------------------------
-
-// Each command M5 touches has every flag of its Go fixture, with Go's
-// description: `show` and `generate` gained `-c/--clip` and `-q/--qr` in
-// P6 · M12c. A reference, not a byte gate (Q-COMPAT).
-#[test]
-fn m5_commands_have_their_go_fixture_flags_and_descriptions() {
-    let fixtures = [
-        (
-            "show",
-            include_str!("../../../tests/fixtures/go/help/show.txt"),
-        ),
-        (
-            "edit",
-            include_str!("../../../tests/fixtures/go/help/edit.txt"),
-        ),
-        (
-            "rename",
-            include_str!("../../../tests/fixtures/go/help/rename.txt"),
-        ),
-        (
-            "generate",
-            include_str!("../../../tests/fixtures/go/help/generate.txt"),
-        ),
-        (
-            "insert",
-            include_str!("../../../tests/fixtures/go/help/insert.txt"),
-        ),
-    ];
-    let env = Env::new();
-    for (name, fixture) in fixtures {
-        let help = env.ok(&[name, "--help"]).stdout;
-        assert!(
-            help.starts_with(fixture.lines().next().unwrap()),
-            "{name}: description:\n{help}"
-        );
-        // The positionals, in order; the usage line's layout is clap's.
-        let usage = fixture.lines().nth(3).unwrap();
-        let positionals: Vec<&str> = usage
-            .split_whitespace()
-            .filter(|w| w.starts_with('<'))
-            .collect();
-        let help_usage = help
-            .lines()
-            .find(|l| l.trim_start().starts_with("gage "))
-            .unwrap();
-        let got: Vec<&str> = help_usage
-            .split_whitespace()
-            .filter(|w| w.starts_with('<'))
-            .collect();
-        assert_eq!(got, positionals, "{name}: {help_usage}");
-        for flag in fixture_flags(fixture) {
-            assert!(help.contains(&flag), "{name}: missing {flag}:\n{help}");
-        }
-    }
-    // -c and -q, with Go's help on each command.
-    let show = env.ok(&["show", "--help"]).stdout;
-    assert!(show.contains("-c, --clip"), "{show}");
-    assert!(show.contains("-q, --qr"), "{show}");
-    assert!(
-        show.contains("render a QR code instead of printing the value"),
-        "{show}"
-    );
-    let generate = env.ok(&["generate", "--help"]).stdout;
-    assert!(
-        generate
-            .contains("copy the generated value to the clipboard, and clear it after a timeout"),
-        "{generate}"
-    );
-    assert!(
-        generate.contains("render the generated value as a QR code"),
-        "{generate}"
-    );
-    // The help for --field names -e as its exclusive partner again.
-    let insert = env.ok(&["insert", "--help"]).stdout;
-    assert!(
-        insert.contains("mutually exclusive with -e/--edit"),
-        "{insert}"
-    );
-}
 
 // Go: TestNoCommandDoublesGagesOwnPrefix, M5's rows: every failure the new
 // commands add, prefixed exactly once.

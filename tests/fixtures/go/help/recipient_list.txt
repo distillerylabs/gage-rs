@@ -1,7 +1,0 @@
-List the keys this vault is encrypted to
-
-Usage:
-  gage recipient list [flags]
-
-Flags:
-  -u, --use string   vault to operate on (default: the current vault)

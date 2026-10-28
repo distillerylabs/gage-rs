@@ -56,7 +56,7 @@ g alice -- vault info personal
 expect_exit 0
 expect_out 'git'
 expect_out 'passphrase'
-# Go's vault info takes a name, not -u (tests/fixtures/go/help/vault_info.txt).
+# vault info takes a vault name, not -u.
 g alice -- vault info -u personal
 expect_exit 2
 

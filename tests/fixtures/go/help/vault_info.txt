@@ -1,4 +1,0 @@
-Show a vault's type, method, recipient count, and (for git) remote/status
-
-Usage:
-  gage vault info [name]

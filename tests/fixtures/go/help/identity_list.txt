@@ -1,7 +1,0 @@
-List the keys this machine holds for a vault
-
-Usage:
-  gage identity list [flags]
-
-Flags:
-  -u, --use string   vault to operate on (default: the current vault)

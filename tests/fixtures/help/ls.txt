@@ -1,0 +1,13 @@
+List entries with their ids, dates, and last writer.
+
+Columns: title, short id, created, updated, updated_by.
+Dates are UTC, to the day; `gage cat <query>` shows the full entry.
+--header prints a labelled table instead of plain rows.
+
+Usage:
+  gage ls [OPTIONS]
+
+Options:
+  -H, --header      print a labelled, |-delimited table instead of plain unlabelled rows
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

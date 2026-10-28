@@ -223,11 +223,9 @@ mod enroll_cli_tests;
 #[cfg(test)]
 mod entry_tests;
 #[cfg(test)]
-mod fixture_support;
-#[cfg(test)]
 mod format_v2_tests;
 #[cfg(test)]
-mod help_surface_tests;
+mod help_snapshot_tests;
 #[cfg(test)]
 mod identity_cli_tests;
 #[cfg(test)]

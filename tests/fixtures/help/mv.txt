@@ -1,0 +1,12 @@
+Move an entry to another vault — the sharing mechanism
+
+Usage:
+  gage mv [OPTIONS] --to-vault <string> <query>
+
+Arguments:
+  <query>  
+
+Options:
+      --to-vault <string>  destination vault to share the entry into (required)
+  -u, --use <NAME>         vault to operate on (default: the current vault)
+  -h, --help               Print help

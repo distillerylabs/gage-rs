@@ -439,36 +439,3 @@ fn script_file_at_a_terminal_takes_the_create_path_normally() {
     assert!(r.stdout.contains("GAGE-"), "{}", r.stdout);
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
 }
-
-// Parity: `identity enroll` has the name, group, flags and defaults of its
-// Go help fixture (a reference, not a byte gate).
-#[test]
-fn p7_identity_enroll_has_its_go_fixture_flags_and_descriptions() {
-    let fixture = include_str!("../../../tests/fixtures/go/help/identity_enroll.txt");
-    let env = Env::new();
-    let help = env.ok(&["identity", "enroll", "--help"]).stdout;
-
-    let first = fixture.lines().next().unwrap().trim_end_matches('.');
-    assert!(help.starts_with(first), "{help}");
-    for line in fixture
-        .lines()
-        .skip(1)
-        .take_while(|l| !l.starts_with("Usage:"))
-    {
-        assert!(help.contains(line.trim()), "{line:?}\n{help}");
-    }
-    for line in fixture.lines().filter(|l| l.trim_start().starts_with('-')) {
-        let text = line.split("   ").last().unwrap().trim();
-        assert!(help.contains(text), "{text:?}\n{help}");
-    }
-    for flag in ["--device", "--ttl", "-u", "--use"] {
-        assert!(help.contains(flag), "{flag}\n{help}");
-    }
-
-    let command = crate::registry::registry()
-        .find("identity enroll")
-        .expect("identity enroll is registered")
-        .clone();
-    assert_eq!(command.group, crate::registry::GROUP_IDENTITY);
-    assert_eq!(command.availability, crate::registry::Availability::Both);
-}

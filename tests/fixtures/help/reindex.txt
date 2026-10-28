@@ -1,0 +1,8 @@
+Force a session's cached metadata index to rebuild
+
+Usage:
+  gage reindex [OPTIONS]
+
+Options:
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

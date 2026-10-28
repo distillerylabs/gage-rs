@@ -1,8 +1,8 @@
 # Config for cargo-deny, run by `make audit` and CI's audit workflow.
 #
-# This is the Rust analogue of Go gage's golangci-lint/gosec/govulncheck
-# setup: known-vulnerable or yanked dependencies, licences we can't ship
-# under Apache-2.0, surprise dependency sources, and wildcard versions.
+# Supply-chain policy: known-vulnerable or yanked dependencies, licences we
+# can't ship under Apache-2.0, surprise dependency sources, and wildcard
+# versions.
 # (The library-purity half of that setup is clippy.toml; the dependency half
 # is crates/gage/tests/no_frontend_deps.rs.)
 

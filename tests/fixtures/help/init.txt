@@ -1,0 +1,36 @@
+Create a new vault.
+
+Generates this device's identity, wraps its private key with a passphrase
+you choose, and writes the public half into the vault's recipient files.
+The wrapped key is stored outside the vault and is never committed or synced.
+
+A vault that depends on one identity file surviving forever has no recovery
+story, so init also generates an offline recovery key and shows it once. It is
+not encrypted and gage keeps no copy: write it down, store it offline, and
+treat the paper as you would the secrets it opens. --no-recovery-key skips it;
+--recovery-key-out writes it to a file instead of the screen.
+
+--recipient is additive: each one is written alongside this device's own key,
+for recipients you already hold public keys for.
+
+--remote publishes the new vault immediately. If its host needs a token and
+none is stored yet, init asks for one on the spot (leave blank to skip and
+try anonymously) — the same prompt as `gage auth login`, so a private repo
+doesn't need a separate auth login round trip before the first push succeeds.
+
+Usage:
+  gage init [OPTIONS] <name>
+
+Arguments:
+  <name>  
+
+Options:
+      --device <NAME>            this device's name (default: normalized hostname)
+      --dir <PATH>               target directory (default: $GAGE_DATA/vaults/<name>)
+      --method <METHOD>          default identity method for devices joining this vault (accepted: [passphrase]) [default: passphrase]
+      --no-recovery-key          don't generate an offline recovery key (leaves this device's identity file the only way in)
+      --recipient <KEY>          additional recipient public key (repeatable; this device's own key is always included)
+      --recovery-key-out <FILE>  write the recovery key to this file (mode 0600) instead of showing it
+      --remote <URL>             git remote (origin) URL; omit to start local-only
+      --type <TYPE>              vault type (accepted: [git]) [default: git]
+  -h, --help                     Print help

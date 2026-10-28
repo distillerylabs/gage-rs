@@ -1,0 +1,14 @@
+unrecognized subcommand 'no-such-subcommand'
+
+Manage tokens for git hosts
+
+Usage:
+  gage auth [command]
+
+Available Commands:
+  login   Store a token for a git host
+  status  Show which git hosts have a token
+  logout  Forget a git host's token
+
+Options:
+  -h, --help  Print help

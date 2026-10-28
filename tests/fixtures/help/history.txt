@@ -1,0 +1,16 @@
+Decrypt every past revision of one entry (surfaces old secret values).
+
+Walks one entry's revisions and decrypts each, so old values — including
+passwords already rotated away — are printed. --decrypt is required and
+names exactly that. Use `gage log` for timestamps without any plaintext.
+
+Usage:
+  gage history [OPTIONS] <query>
+
+Arguments:
+  <query>  
+
+Options:
+      --decrypt     required: decrypt and print every past revision of the entry
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

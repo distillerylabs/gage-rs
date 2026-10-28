@@ -1,8 +1,0 @@
-Move an entry to another vault — the sharing mechanism
-
-Usage:
-  gage mv <query> --to-vault <name> [flags]
-
-Flags:
-      --to-vault string   destination vault to share the entry into (required)
-  -u, --use string        vault to operate on (default: the current vault)

@@ -17,8 +17,7 @@ unsafe_code = "deny"
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
-# Every `unsafe` block carries a `// SAFETY:` comment, the Rust form of
-# gosec G103 (`#nosec G103 -- reason` on each Go `unsafe` use).
+# Every `unsafe` block carries a `// SAFETY:` comment saying why it is sound.
 undocumented_unsafe_blocks = "warn"
 
 # scrypt is ~50x slower unoptimized: a debug build took 36 s for one pass at
