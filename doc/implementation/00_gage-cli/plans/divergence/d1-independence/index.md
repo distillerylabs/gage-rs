@@ -86,7 +86,7 @@ See the [divergence plan](../index.md#resolved-decisions). Specific to D1:
 
 | Milestone | Status | Model | Depends on |
 |---|---|---|---|
-| [D1a Format v2 spec + golden vault](d1a-format-spec.md) ([#116](https://github.com/distillerylabs/gage-rs/issues/116)) | `[ ]` | **Opus** | parent branch |
+| [D1a Format v2 spec + golden vault](d1a-format-spec.md) ([#116](https://github.com/distillerylabs/gage-rs/issues/116)) | `[~]` awaiting review and CI | **Opus** | parent branch |
 | [D1b Retire parity machinery](d1b-retire-parity.md) ([#117](https://github.com/distillerylabs/gage-rs/issues/117)) | `[ ]` | Sonnet | D1a |
 | [D1c Docs archive, re-home, process](d1c-docs-process.md) ([#118](https://github.com/distillerylabs/gage-rs/issues/118)) | `[ ]` | Sonnet (⚑ Opus review of the security ADRs) | D1b |
 

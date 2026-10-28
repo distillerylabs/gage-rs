@@ -34,8 +34,12 @@ use crate::remotesync::SyncError;
 use crate::syncerr::Kind;
 use crate::vault::Vault;
 use crate::{agekey, atomicfile, config, crypt, gitrepo, identityfile, paths, vaultconfig};
+#[cfg(test)]
+pub(crate) use code::normalize_code;
 use name::{expiry_live, parse_pending_file_name};
 use seal::Attempt;
+#[cfg(test)]
+pub(crate) use seal::Payload;
 
 /// How long a request lives when nobody says otherwise: long enough for a
 /// request made in one timezone and approved the next morning in another,
@@ -349,7 +353,15 @@ impl Vault {
     /// skipped. Nothing here reads git history, needs an unlock, or opens a
     /// file.
     pub fn pending_enrollments(&self) -> Result<Vec<PendingRequest>, EnrollmentError> {
-        let now = Timestamp::now();
+        self.pending_enrollments_at(Timestamp::now())
+    }
+
+    /// [`Vault::pending_enrollments`] as of `now`, so a test can list a
+    /// committed request at an instant inside its life.
+    pub(crate) fn pending_enrollments_at(
+        &self,
+        now: Timestamp,
+    ) -> Result<Vec<PendingRequest>, EnrollmentError> {
         let mut out = Vec::new();
         for (name, path, size) in self.pending_files()? {
             let Some((id, expires)) = parse_pending_file_name(&name) else {
@@ -419,6 +431,17 @@ impl Vault {
         requests: &[PendingRequest],
         codes: &[Zeroizing<String>],
     ) -> Result<Vec<OpenedRequest>, EnrollmentError> {
+        self.open_enrollment_at(requests, codes, Timestamp::now())
+    }
+
+    /// [`Vault::open_enrollment`] as of `now`, so a test can open a
+    /// committed request at an instant inside its life.
+    pub(crate) fn open_enrollment_at(
+        &self,
+        requests: &[PendingRequest],
+        codes: &[Zeroizing<String>],
+        now: Timestamp,
+    ) -> Result<Vec<OpenedRequest>, EnrollmentError> {
         // Before any decryption, against the scope handed in.
         if requests.len() > MAX_ENROLLMENT_ATTEMPTS {
             return Err(EnrollmentError::TooManyPending {
@@ -437,7 +460,6 @@ impl Vault {
             return Err(EnrollmentError::CodeWrong);
         }
 
-        let now = Timestamp::now();
         let mut opened = Vec::new();
         let mut refused = None;
         for request in requests {

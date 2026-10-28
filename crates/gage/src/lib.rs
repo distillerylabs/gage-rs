@@ -15,6 +15,8 @@ pub mod devicename;
 pub mod enrollment;
 pub mod entry;
 pub mod exitcode;
+#[cfg(test)]
+mod format_v2_tests;
 pub mod generate;
 pub mod gitrepo;
 #[cfg(any(test, feature = "test-support"))]

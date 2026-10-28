@@ -1,0 +1,17 @@
+[vault]
+name = "personal"
+id = "ff336b5e-3a36-4164-a014-1b6890bb9785"
+type = "git"
+format_version = 2
+created = "2026-10-28"
+
+[method]
+default = "passphrase"
+
+[[recipients]]
+device = "laptop-1"
+pubkey = "age1yrmhdexp2nu9m4ty3m7s8yyupyv5kdcgkwxce9nkr82jycnmde6qxph5l3"
+
+[[recipients]]
+device = "recovery-paper-key"
+pubkey = "age1g6ltwxkauxtfhedctepamjta92w5cteyxe0zuxju4twpaleleamsjjgs30"
