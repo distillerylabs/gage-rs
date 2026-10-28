@@ -221,8 +221,8 @@ gets its own issue.
 | Lint | Go check it echoes | Why it is cheap |
 |---|---|---|
 | `clippy::disallowed_methods` on `std::process::Command::new` in `crates/gage` | G204, and the "no shelling out" invariant | The library has no non-test caller today; tests already `#[allow]` locally for the purity lint. **Enabled in #94.** |
-| `clippy::undocumented_unsafe_blocks` | G103: every Go `unsafe` use carries a `#nosec G103 -- reason` | It enforces a `// SAFETY:` comment on each `unsafe` block, the same discipline. |
-| `clippy::let_underscore_must_use` | G104, and `errcheck` with `check-blank: true` | Go's config deliberately sets `check-blank: false`, so this is stricter than parity and is listed only as an option. |
+| `clippy::undocumented_unsafe_blocks` | G103: every Go `unsafe` use carries a `#nosec G103 -- reason` | It enforces a `// SAFETY:` comment on each `unsafe` block, the same discipline. **Enabled in #95.** |
+| `clippy::let_underscore_must_use` | G104, and `errcheck` with `check-blank: true` | Go's config deliberately sets `check-blank: false`, so this is stricter than parity and is listed only as an option. **Not enabled (#96):** it flagged 101 sites across both crates, nearly all deliberate best-effort calls (`writeln!` to the terminal, cleanup `remove_file`/`kill`/`wait`, test channel sends). Satisfying it means respelling them as `.ok()` or `drop(..)`, which checks nothing more. |
 
 ## Definition of done
 
