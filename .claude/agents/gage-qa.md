@@ -31,8 +31,8 @@ You do not fix anything: you never edit files under `crates/`, `doc/` or
 scripts/qa/run-all.sh            # builds, runs every scenario, prints summary
 ```
 
-`$QA/summary.txt` gives pass/fail counts, command coverage against Go's root
-help, which exit codes 0-7 were asserted, and whether the real gage state
+`$QA/summary.txt` gives pass/fail counts, command coverage against the root
+help snapshot, which exit codes 0-7 were asserted, and whether the real gage state
 was left untouched. For every FAIL:
 
 1. Open that scenario's transcript (`$QA/s/<scenario>/log/transcript.txt`).
@@ -121,12 +121,10 @@ expect_exit 0; expect_out '^s3cret$'
 
 ## What counts as a finding
 
-The spec, in order: the Go reference behavior at
-`tests/fixtures/go/GO_GAGE_SHA` (captured help in
-`tests/fixtures/go/help/`), then `doc/cli/*.md`, then the `Q-` entries in
-`doc/implementation/00_gage-cli/plans/rust-port/open-questions.md`, which
-record deliberate deviations. Output bytes and layout are not behavior.
-Before reporting, grep the docs and the open questions: much that looks
+The spec, in order: `doc/cli/*.md` (with the help snapshots in
+`tests/fixtures/help/`), then `doc/format/`, then the ADRs in
+`doc/decisions/`. Output bytes and layout are not behavior.
+Before reporting, grep the docs and the ADRs: much that looks
 odd is documented (`pending` doesn't fetch, `push` merges divergence over
 different files, `cp` allows a duplicate title, `log` needs an unlock).
 When the spec is silent or ambiguous, report it as a **question**, not a
@@ -139,7 +137,7 @@ Write `$QA/report.md`:
 1. **Summary**: the git commit tested (`git rev-parse --short HEAD`), the
    catalog result (from `summary.txt`), probe count, and findings by
    severity.
-2. **Coverage**: each command in `tests/fixtures/go/help/root.txt`, with the
+2. **Coverage**: each command in `tests/fixtures/help/root.txt`, with the
    scenarios and probes that exercised it.
 3. **Findings**, most severe first. Each has:
    - a title and severity: **critical** (secret disclosure, access after
@@ -147,7 +145,7 @@ Write `$QA/report.md`:
      corrupted vault), **medium** (wrong exit code or a misleading message
      that changes what a user or script does), **low** (cosmetic, a doc
      gap), or **question**;
-   - the expected behavior, quoting the doc line or Go help that says so
+   - the expected behavior, quoting the doc line, ADR or help snapshot that says so
      (file:line);
    - the actual behavior;
    - the repro: the probe script path plus the exact transcript excerpt

@@ -88,7 +88,7 @@ See the [divergence plan](../index.md#resolved-decisions). Specific to D1:
 |---|---|---|---|
 | [D1a Format v2 spec + golden vault](d1a-format-spec.md) ([#116](https://github.com/distillerylabs/gage-rs/issues/116), PR [#120](https://github.com/distillerylabs/gage-rs/pull/120)) | `[x]` | **Opus** | parent branch |
 | [D1b Retire parity machinery](d1b-retire-parity.md) ([#117](https://github.com/distillerylabs/gage-rs/issues/117)) | `[x]` | Sonnet | D1a |
-| [D1c Docs archive, re-home, process](d1c-docs-process.md) ([#118](https://github.com/distillerylabs/gage-rs/issues/118)) | `[ ]` | Sonnet (⚑ Opus review of the security ADRs) | D1b |
+| [D1c Docs archive, re-home, process](d1c-docs-process.md) ([#118](https://github.com/distillerylabs/gage-rs/issues/118)) | `[~]` | Sonnet (⚑ Opus review of the security ADRs) | D1b |
 
 **Why D1a is Opus.** The spec becomes the contract that D3 and D4 are
 checked against. A fixture that is wrong, or that leaves out an artifact,

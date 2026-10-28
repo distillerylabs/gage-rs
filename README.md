@@ -7,14 +7,38 @@
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/distillerylabs/gage-rs/badges/coverage.json)](https://github.com/distillerylabs/gage-rs/actions/workflows/test.yml)
 [![Dependencies](https://deps.rs/repo/github/distillerylabs/gage-rs/status.svg)](https://deps.rs/repo/github/distillerylabs/gage-rs)
 
-A Rust port of [`gage`](https://github.com/distillerylabs/gage) (`git` + `age`), a git-backed, age-encrypted secret and notes manager for the command line.
+`gage` (`git` + `age`) is a git-backed, age-encrypted secret and notes manager for the command line, written in Rust.
 
-**Status: behavioral parity reached, not released.** gage-rs reaches behavioral parity with Go gage at commit [`64b6cf0`](https://github.com/distillerylabs/gage/commit/64b6cf078f3e756efb9d868cc1518dc1d9060748): the same commands, behavior and vault layout. It has not been released or independently audited, so **use [Go gage](https://github.com/distillerylabs/gage) for real secrets** until a release decision is made. It does not read vaults Go gage wrote, and Go's exact bytes and help layout are not reproduced.
+Secrets and notes are stored as individual [age](https://age-encryption.org/)-encrypted files in a git repository. Git handles history, sync and multi-device distribution; `gage` handles encryption, recipient management, and a fast CLI (and REPL) for storing and retrieving entries. There is no server, no daemon and no proprietary storage format: a vault is a git repo you can clone, back up and inspect like any other.
 
-- Using gage-rs: [getting started](doc/cli/getting-started.md), then the rest of [doc/cli/](doc/cli/README.md). Build it with `make build`.
-- What gage is and how it works: the [Go gage README](https://github.com/distillerylabs/gage#readme) and the design docs in [doc/implementation/00_gage-cli/tdds/](doc/implementation/00_gage-cli/tdds/).
-- How the port was built: [the port plan](doc/implementation/00_gage-cli/plans/rust-port/index.md), and the [parity ledger](doc/implementation/00_gage-cli/plans/rust-port/parity-ledger.md) mapping what Go shipped to where it landed.
-- Where gage-rs deliberately differs from Go gage: the [open-questions register](doc/implementation/00_gage-cli/plans/rust-port/open-questions.md), one `Q-` entry per decision.
-- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security: [SECURITY.md](SECURITY.md).
+## Why
+
+- **No server to trust or run.** Vaults sync over plain git remotes (self-hosted, a private GitHub repo, whatever you already use).
+- **You already know how to inspect it.** A vault is a normal git repo on disk; `git log`, `git clone` and `git remote` all work as expected.
+- **Opaque on disk.** One `.age` file per entry, named by random UUID. Someone with read access to the repo but not a decryption key sees ciphertext and meaningless filenames, not even titles or categories.
+- **No long-lived agent process.** Unlocking happens in-process; the decrypted key lives only as long as that `gage` process runs.
+- **Pluggable decryption, per device.** Each device chooses its own decryption method independently of what a vault's other devices use.
+
+## How it works
+
+A **vault** is a git repository plus:
+
+- `.age-recipients`: the public keys of every device allowed to decrypt the vault. Recipients are vault-wide; there is no finer-grained per-entry sharing. A different set of readers means a different vault.
+- `.gage/config.toml`: vault-level config (vault id, type, default decryption method, device metadata).
+- `entries/*.age`: one encrypted file per entry. Everything a human would recognize (title, description, the secret value, structured fields) lives *inside* the encrypted payload as YAML.
+
+Every write is a git commit; `gage sync` pulls, merges what can be cleanly merged, and pushes. Because entries are opaque encrypted blobs, git cannot three-way-merge a genuine conflict (both sides changed the same entry), so that case is always surfaced to you rather than silently resolved.
+
+## Status
+
+**Not released, and not independently audited.** The on-disk format is specified and frozen as version 2 ([doc/format/](doc/format/README.md)); the CLI is pre-1.0. gage leans on the `age` library for all cryptography, but the surrounding vault, sync and key-handling logic is new. Evaluate it accordingly before trusting it with secrets you cannot afford to lose or expose, and keep independent backups. See the [security model](doc/design/security-model.md).
+
+## Documentation
+
+- Using gage: [getting started](doc/cli/getting-started.md), then the rest of [doc/cli/](doc/cli/README.md). Build it with `make build`.
+- Design rationale: [doc/design/](doc/design/gage-cli-design.md), including the [security model](doc/design/security-model.md).
+- The on-disk format: [doc/format/](doc/format/README.md).
+- Decisions that constrain the code: the [decision log](doc/decisions/README.md).
+- Contributing: [CONTRIBUTING.md](CONTRIBUTING.md). Security reports: [SECURITY.md](SECURITY.md).
 
 Licensed under [Apache-2.0](LICENSE).

@@ -1,7 +1,7 @@
 # Divergence from Go gage — plan
 
 Roadmap [#114](https://github.com/distillerylabs/gage-rs/issues/114) ·
-follows the [Rust port](../rust-port/index.md) (P1–P9, closed)
+follows the [Rust port](../../../../archive/rust-port/index.md) (P1–P9, closed)
 
 The port reached behavioral parity with Go gage at `64b6cf0`. Go gage is
 being deprecated, and development continues only here. This plan turns

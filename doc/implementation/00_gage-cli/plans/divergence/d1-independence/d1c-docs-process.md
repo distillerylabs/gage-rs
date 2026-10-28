@@ -84,51 +84,58 @@ vendored:
 
 ### 1. Link guard, red first
 
-- [ ] `doc_links_resolve` (`crates/gage-cli/tests/doc_links.rs`, `std::fs`
+- [x] `doc_links_resolve` (`crates/gage-cli/tests/doc_links.rs`, `std::fs`
       only, no new dependency): every relative Markdown link, and every
       `#anchor` within a file, outside `doc/archive/` resolves. Make it
       red once by moving the register, and record that here.
+      *Done.* Written first, it already failed on 9 real links (the
+      Go-only plan links in the enrollment TDD, two `GO_GAGE_SHA` links, and
+      a `session-mode.md#yes-in-a-script` anchor whose heading slug is
+      `--yes-in-a-script`). Moving `rust-port/` to `doc/archive/` took it to
+      27, which is the red-once. It is green at the end.
 
 ### 2. Archive
 
-- [ ] `git mv doc/implementation/00_gage-cli/plans/rust-port doc/archive/rust-port`.
-- [ ] Add `doc/archive/README.md`: frozen, kept as history, not
+- [x] `git mv doc/implementation/00_gage-cli/plans/rust-port doc/archive/rust-port`.
+- [x] Add `doc/archive/README.md`: frozen, kept as history, not
       maintained, with links that may point at a Go repo that has been
       archived.
-- [ ] Fix the divergence plan's links into `../rust-port/`.
+- [x] Fix the divergence plan's links into `../rust-port/`.
 
 ### 3. Decision log
 
-- [ ] `doc/decisions/README.md`: the format, the index, and "every new
+- [x] `doc/decisions/README.md`: the format, the index, and "every new
       decision is an ADR".
-- [ ] `0001-divergence-from-go-gage.md`: the resolved decisions in the
+- [x] `0001-divergence-from-go-gage.md`: the resolved decisions in the
       divergence plan. This is the one document outside the archive
       that names Go gage.
-- [ ] One ADR per decision-2 entry, each with its origin anchors.
-- [ ] Opus review of the security ADRs listed in the model note.
-- [ ] `doc/design/lint-rationale.md`: the gosec/golangci → clippy and
+- [x] One ADR per decision-2 entry, each with its origin anchors.
+- [ ] Opus review of the security ADRs listed in the model note. *Not done:
+      the ADRs were written in a Sonnet session. Review ADR-0023, 0024,
+      0025, 0026, 0027 and 0010 before merging.*
+- [x] `doc/design/lint-rationale.md`: the gosec/golangci → clippy and
       cargo-deny mapping table, moved out of
       `p9-parity-signoff/s2-ledger-and-help.md`.
 
 ### 4. Design docs and imported content
 
-- [ ] Move the TDDs to `doc/design/` per decision 4.
-- [ ] `doc/design/security-model.md`, from the Go README's "Security
+- [x] Move the TDDs to `doc/design/` per decision 4.
+- [x] `doc/design/security-model.md`, from the Go README's "Security
       model and limitations", rewritten for gage-rs (for example, SSH
       per Q-SSH).
-- [ ] README: say what gage is (from the Go README) and drop "use Go
+- [x] README: say what gage is (from the Go README) and drop "use Go
       gage for real secrets" and "a Rust port of". Keep "not released,
       not independently audited". Link `doc/cli/`, `doc/design/`,
       `doc/format/` and `doc/decisions/`.
-- [ ] `SECURITY.md`: point at `doc/design/security-model.md` and drop
+- [x] `SECURITY.md`: point at `doc/design/security-model.md` and drop
       the port wording.
-- [ ] `CODE_OF_CONDUCT.md:64`: report through this repo.
-- [ ] `doc/cli/README.md`, `command-reference.md` and `exit-codes.md`:
+- [x] `CODE_OF_CONDUCT.md:64`: report through this repo.
+- [x] `doc/cli/README.md`, `command-reference.md` and `exit-codes.md`:
       drop the Go framing and point the `Q-` links at ADRs.
 
 ### 5. Process docs
 
-- [ ] CLAUDE.md:
+- [x] CLAUDE.md:
   - Remove: "Compatibility and parity", the ledger/inventory phase
     planning, "Port the current Go behavior", the "Go sources" item in
     milestone docs, the parity item in "Before considering any change
@@ -136,8 +143,8 @@ vendored:
   - Add: "Format stability" (D1a's rule) and "Decisions" (an ADR in
     `doc/decisions/`).
   - Point "Full design rationale" at `doc/design/`.
-- [ ] CONTRIBUTING.md: remove "parity gaps" and "Go is the reference".
-- [ ] `.claude/agents/gage-qa.md`: the spec order becomes
+- [x] CONTRIBUTING.md: remove "parity gaps" and "Go is the reference".
+- [x] `.claude/agents/gage-qa.md`: the spec order becomes
       `doc/cli/` → `doc/format/` → ADRs. Coverage is computed from the
       help snapshots.
 
@@ -146,6 +153,12 @@ vendored:
 - [ ] `grep -rn 'Go gage\|GO_GAGE_SHA\|parity'` outside `doc/archive/`
       hits only ADR-0001 and the "Retired" history line in
       `doc/decisions/README.md`, if one is kept.
+
+      *Status.* Hits remain in places this milestone does not own: four
+      source-comment mentions in `crates/gage-cli/src/` (D2's sweep), the
+      divergence and D1 plan documents (they describe this change), and
+      one unrelated use of "parity" in `doc/design/gage-cli-design.md`
+      ("parity with POSIX").
 
 ## Definition of done
 

@@ -1,6 +1,6 @@
 # `gage` — a git-backed, age-encrypted secret & notes manager
 
-> **gage-rs note.** This spec is shared with [Go gage](https://github.com/distillerylabs/gage) and copied here verbatim, apart from this note. The Go implementation is the reference for on-disk compatibility. Rust-specific deviations and decisions live in [plans/rust-port/](../plans/rust-port/index.md), not in this file. Links into `plans/gage-cli-design/` and other Go plan directories resolve only in the Go repo.
+> **Design document.** This is gage-rs's design rationale: why things are the way they are. Decisions that bind future code are recorded as ADRs in [../decisions/](../decisions/README.md); the on-disk format is specified in [../format/](../format/README.md); user-facing behavior in [../cli/](../cli/README.md). Where this document and one of those disagree, they win.
 
 *(working name: `gage` = "git" + "age"; rename freely)*
 
@@ -46,9 +46,9 @@
    are first-class so plaintext never has to sit in scrollback or a file.
 7. **The CLI is a frontend, not the implementation.** Every command is a
    method on a small set of library types (`Vault`, `Session`, `Entry`)
-   that know nothing about terminals, flags, or stdin — no `fmt.Print`, no
-   reading a passphrase off stdin, no `os.Exit`. `cmd/gage` is a thin
-   Cobra layer that calls into that library and renders the result. This
+   that know nothing about terminals, flags, or stdin — no `println!`, no
+   reading a passphrase off stdin, no `process::exit`. `gage-cli` is a thin
+   clap layer that calls into that library and renders the result. This
    isn't speculative: a GUI and/or TUI are planned on top of the same
    library, in-process, with no authentication layer between them and
    it — same binary module, same process, so principle 5's trust boundary
@@ -63,12 +63,12 @@
 GUI and/or TUI are expected to sit on top of the same functionality later,
 and the goal is for that to be additive — new frontends consuming an
 existing library — rather than a rewrite of core logic that happened to be
-buried inside Cobra command handlers.
+buried inside command handlers.
 
 **The library layer.** All the behavior described in this document —
 vault lifecycle, entry CRUD, identity/recipient management, session
-unlocking, sync, the trust cache — lives in a library package
-(`internal/gage`) built around a small set of types:
+unlocking, sync, the trust cache — lives in a library crate
+(`crates/gage`) built around a small set of types:
 
 - **`Vault`** — a single vault's on-disk state: config, recipients,
   entries. Handles the vault-generic operations (`init`, `ls`, `insert`,
@@ -83,7 +83,7 @@ None of these types do their own I/O. No `fmt.Print`, no reading a
 passphrase from stdin, no `os.Exit`. A method either returns a value/error,
 or — for the handful of operations that need a human decision mid-flight —
 returns a structured request for one (see "Interactive decisions" below).
-`cmd/gage` (Cobra) is a thin layer on top: it parses flags, calls into
+`gage-cli` (clap) is a thin layer on top: it parses flags, calls into
 `Session`/`Vault`, and renders the result as terminal output, prompts, or
 an exit code. A future GUI or TUI would be an equally thin layer calling
 the same methods and rendering the same results differently — a dialog
@@ -151,7 +151,7 @@ reworked" bar the rest of this document holds itself to. `Unlock` returns
 distinguishable typed errors (wrong passphrase, a corrupt identity file,
 no local identity registered for this device) rather than an opaque one,
 so retry policy — whether and how many times to re-prompt after a wrong
-passphrase — stays a decision `cmd/gage` makes, not one the library bakes
+passphrase — stays a decision `gage-cli` makes, not one the library bakes
 in.
 
 **What's deliberately CLI-only.** Some things in the command reference are
@@ -813,8 +813,8 @@ only makes the second way in exist from the first commit.
   it.
 
 Known gap: the secret is never page-locked, unlike identity secrets. Showing
-it needs a Go string copy that can be neither locked nor zeroed, so locking
-the `[]byte` beside it would look like protection it does not give.
+it needs a plain copy that can be neither locked nor zeroed, so locking
+a buffer beside it would look like protection it does not give.
 
 ---
 
@@ -989,8 +989,8 @@ other. That's an implementation detail, but a load-bearing one: two
 hand-maintained lists would drift the first time a command is added.
 
 **A usage rejection carries its command's usage, not just the bare
-complaint.** `gage edit` with no query used to print only Cobra's own
-`accepts 1 arg(s), received 0` and leave the operator to go dig up `gage
+complaint.** `gage edit` with no query used to print only the argument parser's own terse complaint
+and leave the operator to go dig up `gage
 help edit` themselves. Any error that never opted into an explicit exit
 code — a bad argument count, an unknown flag, an unrecognized (sub)command
 — gets that command's usage block folded into the same message before
@@ -1002,7 +1002,7 @@ route through the same helper, so they can't drift on when or how much
 help is shown. A command's own error — wrong passphrase, entry not found,
 a sync conflict — already opted into a specific exit code and message via
 the exit-code taxonomy, and is left exactly as that command built it; only
-Cobra's own parsing rejections gain the extra text.
+the argument parser's own rejections gain the extra text.
 
 ### Addressing entries & the metadata index
 
@@ -1084,8 +1084,7 @@ vault, prefer session mode for anything beyond a single known lookup.
 
 The interactive REPL has two related conveniences, both scoped to
 session mode only — neither exists in one-shot mode, and neither is
-shell-side completion (`gage completion bash|zsh|fish`, Cobra's built-in
-generator, is a separate mechanism entirely and isn't implemented):
+shell-side completion (`gage completion bash|zsh|fish` is a separate mechanism entirely and isn't implemented):
 
 - **Tab completion** at the `gage>` prompt, for command/subcommand names,
   flags, vault names, and entry queries.
@@ -1339,10 +1338,11 @@ would discard the per-write history a secrets manager may later want.
 
 ### Remote authentication: HTTPS and a token
 
-`gage` speaks to remotes through go-git, never a `git` binary (see
+`gage` speaks to remotes in-process through libgit2, never a `git` binary (see
 "Git-specific commands"), and that has one consequence worth stating
-plainly rather than discovering: **go-git does not read `~/.ssh/config`,
-git credential helpers, or `insteadOf` rewrites.** SSH host aliases,
+plainly rather than discovering: **gage does not read `~/.ssh/config`,
+git credential helpers, or `insteadOf` rewrites** (libgit2's config search
+paths are deliberately emptied, [ADR-0016](../decisions/0016-git-isolation.md)). SSH host aliases,
 `IdentityFile`, `ProxyCommand` — none of it applies. A remote spelled
 `git@internal:secrets/work-vault.git`, relying on a `Host internal` block
 to resolve, simply won't connect.
@@ -1519,7 +1519,7 @@ The mechanism behind "change detection" above:
   1 recipient added. Proceed and trust this recipient list? [y/N]
   ```
   At the library level this is a typed value (the diff, plus whether
-  `.age-recipients` matches `config.toml`) that `cmd/gage` renders as the
+  `.age-recipients` matches `config.toml`) that `gage-cli` renders as the
   terminal prompt above — see "Library architecture."
 - **Resolving it — two different outcomes depending on `verify`.**
   - **`.age-recipients` matches `config.toml`** (the ordinary case: a
@@ -1556,7 +1556,7 @@ The mechanism behind "change detection" above:
 
 ## Command reference
 
-Every command below is `cmd/gage`'s rendering of a `Vault`/`Session`
+Every command below is `gage-cli`'s rendering of a `Vault`/`Session`
 library method (see "Library architecture") — flags become method
 parameters, and prompts become terminal renderings of the structured
 results those methods return.
@@ -1942,7 +1942,7 @@ one.
 
 **There's deliberately no generic `gage git -- <args...>` passthrough.**
 `gage` never shells out to a `git` binary for anything — every command
-above, `set-remote` included, goes through `go-git`. For git operations
+above, `set-remote` included, goes through libgit2. For git operations
 `gage` doesn't model at all (branch/tag management, `gc`, `fsck`, reflog
 inspection, and the rest of git's long tail), the vault is just a normal
 git repository sitting at a well-known path (`gage vault info` reports
@@ -1959,7 +1959,7 @@ here" — by construction, nothing would replace it.
 - **The library has no idea it's being driven by a terminal.**
   `Vault`/`Session` methods return values, errors, or structured requests
   for a decision (unlock, confirm, disambiguate) — never printed text or a
-  stdin read. `cmd/gage` owns all of that. This is what keeps a future
+  stdin read. `gage-cli` owns all of that. This is what keeps a future
   GUI/TUI from needing to rework any of the above — it's a second thin
   layer over the same calls, not a fork of the logic. See "Library
   architecture."
