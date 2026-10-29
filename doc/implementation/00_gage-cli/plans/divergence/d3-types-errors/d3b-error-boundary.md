@@ -495,4 +495,7 @@ rename:
   exit-code tests are green unedited.
 - `make lint`, `make test` and `make qa` are clean. The help snapshots and
   `format_v2_*` tests are green and unedited.
-- CI is green on Linux, macOS and Windows.
+- CI is green on Linux, macOS and Windows. Done: PR #137, at `6e6c430`.
+  Two Windows-only lint fixes were needed first: `OpenError`'s large
+  variants are boxed (`result_large_err`), and the Unix-only golden's
+  `FakePrompter` import moved into its test (`unused_imports`).
