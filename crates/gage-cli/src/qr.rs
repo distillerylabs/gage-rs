@@ -1,4 +1,4 @@
-//! `-q/--qr`: a value as a terminal QR code (Q-QR-CRATE). The crate does
+//! `-q/--qr`: a value as a terminal QR code (ADR-0049). The crate does
 //! the encoding and gage does the drawing; see "Terminal ASCII QR
 //! rendering" in the design doc, which names that split and notes that a
 //! GUI would draw the same modules as an image instead.

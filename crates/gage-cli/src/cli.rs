@@ -1,7 +1,7 @@
 //! The clap command tree, built from the registry, and one-shot dispatch.
 //!
 //! clap parses and renders per-command help and usage errors
-//! (Q-HELP-RENDER). The root listing is gage's own: grouped in registry
+//! (ADR-0030). The root listing is gage's own: grouped in registry
 //! group order, aliases beside the canonical name, one-shot commands only.
 //! `gage --help` and `gage help` render it through the same function, so
 //! they can't differ.
@@ -64,8 +64,7 @@ pub fn build(reg: &Registry, build: &BuildInfo) -> Command {
     let mut root = Command::new("gage")
         .about(ROOT_ABOUT)
         .version(build.version_text())
-        // Go's spellings, `-v, --version` (Cobra's default for a root with
-        // a version), in place of clap's `-V, --version`.
+        // `-v, --version` in place of clap's `-V, --version`.
         .disable_version_flag(true)
         .arg(
             Arg::new("version")
@@ -74,7 +73,7 @@ pub fn build(reg: &Registry, build: &BuildInfo) -> Command {
                 .action(ArgAction::Version),
         )
         // The first root persistent flag. Global, so it reaches every
-        // encrypting command wherever it's typed; hidden, as Go's help
+        // encrypting command wherever it's typed; hidden, because help
         // shows no inherited flags. What it answers is one question: see
         // `assumeyes`.
         .arg(
@@ -211,8 +210,8 @@ fn usage_args(usage: &str) -> Vec<Arg> {
     usage
         .split_whitespace()
         .map(|token| {
-            // `...` may sit inside the brackets (`[ID...]`, Cobra's
-            // spelling) or after them.
+            // `...` may sit inside the brackets (`[ID...]`)
+            // or after them.
             let required = token.starts_with('<');
             let inner = token
                 .trim_end_matches("...")
@@ -262,7 +261,7 @@ pub fn render_root_help(reg: &Registry) -> String {
 /// filtered to what a session can run (its own verbs and every command
 /// available in both modes). Vault selection shows as `use <vault>`, not
 /// the `-u/--use` flag, which per-command help documents
-/// (Q-HELP-SURFACES).
+/// (ADR-0031).
 pub fn render_session_help(reg: &Registry) -> String {
     let mut lines = vec!["gage session commands".to_string(), String::new()];
     for group in crate::registry::group_commands(&reg.session()) {
@@ -321,7 +320,7 @@ pub fn parse(
             }));
         }
         // Bare `gage --yes`: on the way into a session on a terminal, and
-        // Go refuses it the same way when there is none.
+        // It is refused the same way when there is none.
         if crate::assumeyes::given(&matches) {
             return Err(crate::assumeyes::refused_in_session());
         }
@@ -363,7 +362,7 @@ fn script_source(matches: &ArgMatches) -> Result<Option<ScriptSource>, CliError>
 }
 
 /// Descends to the leaf the matches name. A parent with no subcommand
-/// prints its own help, as Go's group commands do.
+/// prints its own help.
 fn resolve(
     root: &Command,
     reg: &Registry,

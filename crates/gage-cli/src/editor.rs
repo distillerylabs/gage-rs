@@ -1,10 +1,10 @@
-//! The `$EDITOR` round trip `edit` and `insert -e` share (Go's
-//! `editor.go` and `scratchdir_*.go`): write an entry's YAML to a scratch
+//! The `$EDITOR` round trip `edit` and `insert -e` share: write an entry's
+//! YAML to a scratch
 //! file, run `$EDITOR` on it, read it back. It has no library counterpart
 //! on purpose: a GUI edits fields directly rather than shelling out to a
 //! text editor ("What's deliberately CLI-only" in the design doc).
 //!
-//! It is the one place gage puts a decrypted entry on disk, so (Q-EDITOR):
+//! It is the one place gage puts a decrypted entry on disk, so (ADR-0036):
 //! `$EDITOR` is resolved before any file exists; the file is created
 //! exclusively, with an unpredictable name, 0600 on Unix, in a tmpfs
 //! directory where Linux can verify one; and on every way out once it
@@ -243,8 +243,7 @@ fn is_tmpfs(dir: &Path) -> bool {
 
 /// A fake `$EDITOR` for tests: the test binary itself, re-executed to run
 /// only [`fake::fake_editor_trampoline`], told what to do by a config file
-/// named on its command line (Go's `setFakeEditor`, with a file where Go
-/// sets environment variables: in-process tests share one environment).
+/// named on its command line.
 /// libtest takes the trailing arguments, the config file and the scratch
 /// path, as extra name filters that match nothing.
 #[cfg(test)]
@@ -517,7 +516,6 @@ mod tests {
         fs::read_dir(dir).unwrap().next().is_none()
     }
 
-    // Go: TestEditYAMLUnsetEditorFailsBeforeAnyScratchFile
     #[test]
     fn edit_yaml_unset_editor_fails_before_any_scratch_file() {
         for editor in [None, Some(""), Some("   \t ")] {
@@ -532,7 +530,6 @@ mod tests {
         }
     }
 
-    // Go: TestEditYAMLUnusableEditorFailsBeforeAnyScratchFile
     #[test]
     fn edit_yaml_unusable_editor_fails_before_any_scratch_file() {
         let missing = format!(
@@ -546,7 +543,7 @@ mod tests {
         assert!(is_empty(dir.path()), "a scratch file was created");
     }
 
-    // Go: TestEditYAMLScratchFileCreated0600. As Go, Unix only: Windows has
+    // Unix only: Windows has
     // no mode bits to check.
     #[cfg(unix)]
     #[test]
@@ -556,7 +553,7 @@ mod tests {
         assert_eq!(fake.scratch_mode(), "600");
     }
 
-    // Go: TestEditYAMLScratchFileLandsInScratchDir. Through the public
+    // Through the public
     // entry point, so scratch_dir() can't be right and unused.
     #[test]
     fn edit_yaml_scratch_file_lands_in_scratch_dir() {
@@ -575,7 +572,6 @@ mod tests {
         );
     }
 
-    // Go: TestEditYAMLSetValueReportsChanged
     #[test]
     fn edit_yaml_set_value_reports_changed() {
         let fake = FakeEditor::new(Action::Set(&[Set::Value("new-secret")]));
@@ -586,7 +582,7 @@ mod tests {
         assert_eq!(edited.entry.title, "ProtonMail");
     }
 
-    // Go: TestEditYAMLUnchangedReportsUnchangedAndParsesBackIdentically. Also
+    // Also
     // checks what the editor was handed is the seed's YAML.
     #[test]
     fn edit_yaml_unchanged_reports_unchanged_and_parses_back_identically() {
@@ -599,7 +595,6 @@ mod tests {
         assert_eq!(fake.template(), entry::marshal(&seed).unwrap().to_vec());
     }
 
-    // Go: TestEditYAMLNonZeroExitFails
     #[test]
     fn edit_yaml_non_zero_exit_fails() {
         let fake = FakeEditor::new(Action::Fail);
@@ -612,7 +607,6 @@ mod tests {
         );
     }
 
-    // Go: TestEditYAMLInvalidYAMLFailsToParse
     #[test]
     fn edit_yaml_invalid_yaml_fails_to_parse() {
         let fake = FakeEditor::new(Action::InvalidYaml);
@@ -622,7 +616,7 @@ mod tests {
         assert!(err.to_string().contains("parsing entry"), "{err}");
     }
 
-    // Go: TestEditYAMLScratchFileRemovedOnEveryExitPath. Through the public
+    // Through the public
     // entry point (the path the editor saw is gone) and in a private
     // directory (nothing at all is left behind in it).
     #[test]
@@ -651,7 +645,7 @@ mod tests {
         }
     }
 
-    // Not a Go row: the editor removing the file fails the read-back
+    // The editor removing the file fails the read-back
     // cleanly, and the cleanup that follows has nothing to remove.
     #[test]
     fn edit_yaml_fails_cleanly_when_the_editor_deletes_the_file() {
@@ -666,12 +660,12 @@ mod tests {
         assert!(is_empty(dir.path()));
     }
 
-    // Not a Go row: the real flow, not just the helper, overwrites before
+    // The real flow, not just the helper, overwrites before
     // it unlinks. The fake editor hard-links the scratch file to a witness
     // that outlives the unlink; a cleanup reduced to a bare remove would
     // leave the plaintext readable there. Hard links work in the temp dir
     // on every CI platform, so a failed one fails the test rather than
-    // skipping it (Go skips).
+    // skipping it.
     #[test]
     fn edit_yaml_overwrites_the_scratch_file_before_unlinking_it() {
         let fake = FakeEditor::new(Action::LinkWitness);
@@ -686,11 +680,11 @@ mod tests {
         assert!(witness.iter().all(|b| *b == 0), "the plaintext survived");
     }
 
-    // Not a Go row: an editor that saves by writing a new file and renaming
+    // An editor that saves by writing a new file and renaming
     // it over the path unlinks the original inode itself, so zeroing the
     // path only reaches the replacement. The handle gage keeps open still
     // reaches the original. Unix only: on Windows the handle is closed
-    // before the editor runs and this exposure stays (Q-EDITOR).
+    // before the editor runs and this exposure stays (ADR-0036).
     #[cfg(unix)]
     #[test]
     fn edit_yaml_zeroes_the_original_when_the_editor_replaces_the_file() {
@@ -706,7 +700,6 @@ mod tests {
         assert!(witness.iter().all(|b| *b == 0), "the original survived");
     }
 
-    // Go: TestOverwriteFileZeroesContentsInPlace
     #[test]
     fn overwrite_file_zeroes_contents_in_place() {
         let dir = tempfile::tempdir().unwrap();
@@ -722,10 +715,10 @@ mod tests {
         assert!(got.iter().all(|b| *b == 0), "every byte zeroed");
     }
 
-    // Go: TestOverwriteThenRemoveOverwritesBeforeUnlinking. A hard link
+    // A hard link
     // keeps the inode reachable after the unlink, so the order is
-    // observable: zeroed if the overwrite ran first, plaintext if not. Go
-    // skips where hard links fail; every CI platform has them, so here a
+    // observable: zeroed if the overwrite ran first, plaintext if not. Skipping
+    // where hard links fail would hide a regression, and every CI platform has them, so here a
     // failure fails.
     #[test]
     fn overwrite_then_remove_overwrites_before_unlinking() {
@@ -747,7 +740,7 @@ mod tests {
         );
     }
 
-    // Not a Go row: a file the editor deleted is not an error worth
+    // A file the editor deleted is not an error worth
     // reporting over, and nothing is left either way.
     #[test]
     fn overwrite_then_remove_of_a_missing_file_only_fails_the_unlink() {
@@ -756,7 +749,6 @@ mod tests {
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
     }
 
-    // Go: TestScratchDirIsAWritableDirectory
     #[test]
     fn scratch_dir_is_a_writable_directory() {
         let dir = scratch_dir();
@@ -815,7 +807,7 @@ mod tests {
         mount_fstype(path).as_deref() == Some("tmpfs")
     }
 
-    // Not a Go row: is_tmpfs agrees with /proc/self/mounts, both ways, on
+    // Is_tmpfs agrees with /proc/self/mounts, both ways, on
     // every candidate this host has. Without a positive case, an is_tmpfs
     // that always said no would send scratch files to disk with every test
     // green.
@@ -843,7 +835,7 @@ mod tests {
         }
     }
 
-    // Go: TestScratchDirPrefersTmpfsOnLinux. Availability comes from
+    // Availability comes from
     // /proc/self/mounts, not from is_tmpfs, and is required on CI.
     #[cfg(target_os = "linux")]
     #[test]
@@ -859,7 +851,7 @@ mod tests {
         assert!(tmpfs_per_mounts(&dir), "{} is not tmpfs", dir.display());
     }
 
-    // Not a Go row: $XDG_RUNTIME_DIR is verified, not trusted for being
+    // $XDG_RUNTIME_DIR is verified, not trusted for being
     // set. A directory on a disk-backed filesystem is passed over. Not the
     // temp dir as a candidate: it is also the last-resort answer.
     #[cfg(target_os = "linux")]
@@ -884,7 +876,7 @@ mod tests {
         );
     }
 
-    // Not a Go row: $XDG_RUNTIME_DIR comes before /dev/shm when both are
+    // $XDG_RUNTIME_DIR comes before /dev/shm when both are
     // tmpfs, and an unset or empty one falls through to /dev/shm.
     #[cfg(target_os = "linux")]
     #[test]
@@ -903,7 +895,6 @@ mod tests {
         assert_eq!(pick_scratch_dir(Some("".into())), shm);
     }
 
-    // Go: TestIsTmpfsRejectsANonExistentDirectory
     #[cfg(target_os = "linux")]
     #[test]
     fn is_tmpfs_rejects_a_non_existent_directory() {
@@ -913,7 +904,6 @@ mod tests {
         assert!(!is_tmpfs(Path::new("bad\0path")));
     }
 
-    // Go: TestScratchDirIsTheOSTempDirOffLinux
     #[cfg(not(target_os = "linux"))]
     #[test]
     fn scratch_dir_is_the_os_temp_dir_off_linux() {

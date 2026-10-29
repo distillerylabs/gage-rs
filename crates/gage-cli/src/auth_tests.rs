@@ -1,6 +1,5 @@
-//! `gage auth login|status|logout` through the real CLI, in-process: Go's
-//! `cmd/gage/auth_test.go`. Vaults get an origin through `git set-remote`,
-//! since `init --remote` arrives with M8a2.
+//! `gage auth login|status|logout` through the real CLI, in-process.
+//! Vaults get an origin through `git set-remote`.
 
 use gage::exitcode::Code;
 use gage::prompter::FakePrompter;
@@ -30,7 +29,6 @@ impl Env {
     }
 }
 
-// Go: TestAuthLoginStoresATokenAndStatusReportsIt
 #[test]
 fn auth_login_stores_a_token_and_status_reports_it() {
     let env = Env::new();
@@ -57,7 +55,6 @@ fn auth_login_stores_a_token_and_status_reports_it() {
     assert_eq!(r.stdout, "github.com  configured\n");
 }
 
-// Go: TestAuthLogoutForgetsTheToken
 #[test]
 fn auth_logout_forgets_the_token() {
     let env = Env::new();
@@ -84,7 +81,6 @@ fn auth_logout_forgets_the_token() {
     env.ok(&["auth", "logout", "--host", "github.com"]);
 }
 
-// Go: TestHostDefaultsToTheCurrentVaultsOrigin
 #[test]
 fn host_defaults_to_the_current_vaults_origin() {
     let env = Env::new();
@@ -98,7 +94,6 @@ fn host_defaults_to_the_current_vaults_origin() {
     assert!(!env.token_path("git.example.com").exists());
 }
 
-// Go: TestAuthOnALocalRemoteSaysNoTokenIsNeeded
 #[test]
 fn auth_on_a_local_remote_says_no_token_is_needed() {
     let env = Env::new();
@@ -110,7 +105,6 @@ fn auth_on_a_local_remote_says_no_token_is_needed() {
     assert!(!env.dirs.state.join("tokens").exists());
 }
 
-// Go: TestAuthStatusWithNoTokensAndNoVaultSaysSo
 #[test]
 fn auth_status_with_no_tokens_and_no_vault_says_so() {
     let env = Env::new();
@@ -118,7 +112,6 @@ fn auth_status_with_no_tokens_and_no_vault_says_so() {
     assert_eq!(r.stdout, "gage: no tokens are stored on this machine\n");
 }
 
-// Go: TestAuthStatusWithNoTokensFallsBackToTheCurrentVaultsHost
 #[test]
 fn auth_status_with_no_tokens_falls_back_to_the_current_vaults_host() {
     let env = Env::new();
@@ -129,7 +122,7 @@ fn auth_status_with_no_tokens_falls_back_to_the_current_vaults_host() {
     }
 }
 
-// Go: TestAuthLoginReadsTheOriginFromTheRepositoryWhenConfigLags. A
+// A
 // `git remote set-url` run outside gage moves the real origin without
 // touching the global config; the repository is the authority.
 #[test]
@@ -144,7 +137,6 @@ fn auth_login_reads_the_origin_from_the_repository_when_config_lags() {
     assert!(r.stdout.contains("git.example.com"), "{}", r.stdout);
 }
 
-// Go: TestAuthLoginOnAVaultWithNoRemoteNamesTheVault
 #[test]
 fn auth_login_on_a_vault_with_no_remote_names_the_vault() {
     let env = Env::new();
@@ -156,7 +148,7 @@ fn auth_login_on_a_vault_with_no_remote_names_the_vault() {
     }
 }
 
-// Go: TestAuthCommandsWorkInBothModes, auth half: the registry tags them
+// Auth half: the registry tags them
 // both-mode, and they run in a session. The sync/pull/push/clone half is
 // M8a2's, which adds those commands.
 #[test]
@@ -185,7 +177,7 @@ fn auth_commands_work_in_both_modes() {
     assert!(r.stdout.contains("forgot the token"), "{}", r.stdout);
 }
 
-// Go: TestNoTokenValueEverAppearsInOutput: stdout, stderr and the
+// Stdout, stderr and the
 // session's history file. The token is prompted, never an argument, so no
 // command line carries it to a history file in the first place.
 #[test]
@@ -219,7 +211,7 @@ fn no_token_value_ever_appears_in_output() {
     }
 }
 
-// Go: TestExpiredTokenErrorNamesTheHostAndTheCommand. Asserted at the
+// Asserted at the
 // source: a real expiry needs a server to refuse us. The library's wire
 // tests (`push_after_logout_names_the_host_and_the_command`) prove the hint
 // reaches a real refusal.
@@ -231,7 +223,7 @@ fn expired_token_error_names_the_host_and_the_command() {
     }
 }
 
-// Go: TestNoCommandDoublesGagesOwnPrefix, auth's failures.
+// Auth's failures.
 #[test]
 fn no_auth_failure_doubles_gages_own_prefix() {
     let env = Env::new();

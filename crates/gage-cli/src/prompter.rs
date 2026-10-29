@@ -35,8 +35,7 @@ pub const MAX_PASSPHRASE_ATTEMPTS: u32 = 3;
 pub const MAX_CHOOSE_ATTEMPTS: u32 = 3;
 
 /// How many times the conflict menu re-asks an answer it doesn't
-/// recognize before giving up without choosing (Go's
-/// `maxConflictAttempts`).
+/// recognize before giving up without choosing.
 pub const MAX_CONFLICT_ATTEMPTS: u32 = 5;
 
 /// Where masked secrets come from.
@@ -199,8 +198,7 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
             Kind::Passphrase => {}
             // Kind is non_exhaustive: a method this build can't render is
             // refused, never answered with whatever a passphrase prompt
-            // would read (Go's TestPrompterRefusesAMethodItCannotSatisfy;
-            // untestable until a second Kind exists).
+            // would read (untestable until a second Kind exists).
             other => return Err(PromptError::UnsupportedKind(other.to_string())),
         }
         if req.purpose == Purpose::Create {
@@ -231,7 +229,7 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
 
     /// A bare Enter means yes: the one question whose default is to go
     /// ahead, rendered `[Y/n]` so the default is visible. Only Enter, `y`
-    /// and `yes` accept, as in Go: anything else, a typo included,
+    /// and `yes` accept; anything else, a typo included,
     /// declines, since a yes here commits and pushes.
     fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError> {
         let answer = self.ask(&format!("{prompt} [Y/n] "))?;
@@ -279,9 +277,9 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
     }
 
     /// Refused without a human at the other end, before drawing or reading
-    /// anything (Q-RECIPIENT-PROMPT): Go reads a line regardless, which on
-    /// piped input spends a value or a command as the answer. The outcome
-    /// is Go's default-no; a script that means yes says `--yes`.
+    /// anything (ADR-0033): reading a line regardless would, on
+    /// piped input, spend a value or a command as the answer. The outcome
+    /// is the default, no; a script that means yes says `--yes`.
     fn confirm_recipient_change(&self, w: &RecipientChangeWarning) -> Result<bool, PromptError> {
         if !self.interactive {
             return Err(PromptError::NotInteractive);
@@ -512,7 +510,6 @@ mod tests {
         assert!(matches!(err, PromptError::Io(_)), "{err}");
     }
 
-    // Go: TestReadingBufferedInputDoesNotSwallowFollowingLines
     #[test]
     fn reading_buffered_input_does_not_swallow_following_lines() {
         let (p, _) = prompter("first\nsecond\n");
@@ -529,7 +526,6 @@ mod tests {
         assert_eq!(passphrase(p.unlock(&unlock_req(2)).unwrap()), "last");
     }
 
-    // Go: TestReadingPastEndOfInputFails
     #[test]
     fn reading_past_end_of_input_fails() {
         let (p, _) = prompter("");
@@ -538,7 +534,7 @@ mod tests {
         assert_eq!(err.code(), Code::LockedOrAuth);
     }
 
-    // Go: TestRetryPolicyLivesInThePrompter: the library re-asks while it
+    // The library re-asks while it
     // is answered, so the policy is this prompter refusing attempt 4.
     #[test]
     fn retry_policy_lives_in_the_prompter() {
@@ -554,7 +550,6 @@ mod tests {
         assert_eq!(MAX_PASSPHRASE_ATTEMPTS, 3);
     }
 
-    // Go: TestRetryPromptTellsTheUserWhichAttemptThisIs
     #[test]
     fn retry_prompt_tells_the_user_which_attempt_this_is() {
         let (p, out) = prompter("first\nsecond\n");
@@ -573,7 +568,6 @@ mod tests {
         assert!(out.text().contains("attempt 2 of 3"), "{}", out.text());
     }
 
-    // Go: TestNewPassphraseIsConfirmed
     #[test]
     fn new_passphrase_is_confirmed() {
         let create = request(Purpose::Create, 1);
@@ -606,7 +600,6 @@ mod tests {
         assert_eq!(err.code(), Code::LockedOrAuth);
     }
 
-    // Go: TestNewPassphraseRejectsAnEmptyOne
     #[test]
     fn new_passphrase_rejects_an_empty_one() {
         let (p, out) = prompter("\ns3cret\ns3cret\n");
@@ -621,7 +614,6 @@ mod tests {
         );
     }
 
-    // Go: TestConfirmDefaultsToNo
     #[test]
     fn confirm_defaults_to_no() {
         for (input, want) in [
@@ -638,7 +630,6 @@ mod tests {
         }
     }
 
-    // Go: TestConfirmDefaultYesDefaultsToYes
     #[test]
     fn confirm_default_yes_defaults_to_yes() {
         for (input, want) in [
@@ -662,7 +653,6 @@ mod tests {
         assert!(!p.confirm("enroll?").unwrap());
     }
 
-    // Go: TestConfirmStillRendersDefaultNo
     #[test]
     fn confirm_still_renders_default_no() {
         let (p, out) = prompter("\n");
@@ -683,7 +673,6 @@ mod tests {
         ));
     }
 
-    // Go: TestWarnIsSurfacedAndReturnsNothing
     #[test]
     fn warn_is_surfaced_and_returns_nothing() {
         let (p, out) = prompter("");
@@ -711,7 +700,6 @@ mod tests {
         }
     }
 
-    // Go: TestChooseOnAnEmptyCandidateListIsInternal
     #[test]
     fn choose_on_an_empty_candidate_list_is_internal() {
         let (p, _) = prompter("1\n");
@@ -725,7 +713,7 @@ mod tests {
         assert_eq!(err.code(), Code::Internal);
     }
 
-    // Go: TestChooseRetriesThenGivesUp. A number outside the list and a
+    // A number outside the list and a
     // non-number are both re-asked with the range spelled out, and running
     // out of attempts is Ambiguous, never a pick made on the human's
     // behalf: that would hand them a different secret than they meant.
@@ -777,8 +765,7 @@ mod tests {
         (p.interactive(true), out)
     }
 
-    /// A conflict built by hand, for the tests of the menu alone (Go's
-    /// `sampleConflict`).
+    /// A conflict built by hand, for the tests of the menu alone.
     fn sample_conflict() -> EntryConflict {
         let side = |updated: &str, by: &str, value: &str| ConflictSide {
             entry: Some(Entry {
@@ -797,7 +784,7 @@ mod tests {
         }
     }
 
-    // Go: TestConflictPromptRendersTheDesignDocsMenu. The title, both sides'
+    // The title, both sides'
     // provenance and the five options; never either secret value.
     #[test]
     fn conflict_prompt_renders_the_design_docs_menu() {
@@ -826,7 +813,6 @@ mod tests {
         }
     }
 
-    // Go: TestConflictPromptMapsEveryKey
     #[test]
     fn conflict_prompt_maps_every_key() {
         for (typed, want) in [
@@ -846,7 +832,7 @@ mod tests {
         }
     }
 
-    // Go: TestConflictPromptReAsksOnAnUnknownAnswer. No default: a guessed
+    // No default: a guessed
     // keystroke is how a secret gets discarded.
     #[test]
     fn conflict_prompt_re_asks_on_an_unknown_answer() {
@@ -867,8 +853,8 @@ mod tests {
             out.text()
         );
 
-        // And it gives up, without choosing, after its retry policy (Go:
-        // TestResolveConflictNeverGuesses): re-asked on every attempt.
+        // And it gives up, without choosing, after its retry policy:
+        // re-asked on every attempt.
         let (p, out) = interactive(&"x\n".repeat(MAX_CONFLICT_ATTEMPTS as usize));
         let err = p.resolve_conflict(&sample_conflict()).unwrap_err();
         assert!(matches!(err, PromptError::NoResolution(_)), "{err}");
@@ -885,7 +871,6 @@ mod tests {
         assert!(matches!(err, PromptError::Cancelled), "{err}");
     }
 
-    // Go: TestDeleteModifyPromptSaysOneSideDeletedIt
     #[test]
     fn delete_modify_prompt_says_one_side_deleted_it() {
         let (p, out) = interactive("r\n");
@@ -900,7 +885,7 @@ mod tests {
         );
     }
 
-    // Go: TestNonInteractivePrompterRefusesToResolve. Refused by the
+    // Refused by the
     // frontend, before any menu is drawn or any input read.
     #[test]
     fn non_interactive_prompter_refuses_to_resolve() {
@@ -941,7 +926,6 @@ mod tests {
         }
     }
 
-    // Go: TestTerminalPrompterRendersTheRecipientChangeAsTheDesignDocPrompt.
     // The library hands over a value; this is the CLI turning it into the
     // design doc's diff and [y/N]. A mismatch gets its own, more severe
     // lines; a bare Enter is no.
@@ -983,7 +967,6 @@ mod tests {
         );
     }
 
-    // Go: TestConfirmRecipientChangeNamesBothDirectionsOfAMismatch (from P2).
     // A key only .age-recipients has and a key only config.toml has are
     // different problems, and the question lists both.
     #[test]
@@ -1010,7 +993,7 @@ mod tests {
         }
     }
 
-    // Go: TestRecipientChangeCountSummarizesEveryShape (from P2): the design
+    // The design
     // doc's "1 recipient added." line, for every shape of change.
     #[test]
     fn recipient_change_count_summarizes_every_shape() {
@@ -1041,7 +1024,7 @@ mod tests {
     }
 
     // With nobody at the terminal the question is refused before anything
-    // is drawn or read (Q-RECIPIENT-PROMPT): on piped input the next line
+    // is drawn or read (ADR-0033): on piped input the next line
     // belongs to someone else, a value or a session command.
     #[test]
     fn non_interactive_prompter_refuses_the_recipient_question() {
@@ -1054,10 +1037,10 @@ mod tests {
         assert_eq!(&*p.value("x").unwrap(), "y", "the answer line was consumed");
     }
 
-    // Go: TestRealPrompterReadsAPassphraseWithoutEchoing. One of the few
+    // One of the few
     // tests that needs a real terminal: "not echoed" is a property of the
     // tty's line discipline, so an in-memory reader would pass whether or
-    // not the echo-off read were wired up at all. Unix only, as Go's is
+    // not the echo-off read were wired up at all. Unix only
     // (`linux || darwin`): a pty is a POSIX object.
     #[cfg(unix)]
     #[test]

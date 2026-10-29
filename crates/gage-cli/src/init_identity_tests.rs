@@ -1,7 +1,6 @@
 //! `gage init` generating this device's identity, through the real CLI
-//! in-process. Ports Go's `init_identity_test.go`, plus the rows P1 moved
-//! here from `vault_lifecycle_test.go` and `vaultid_keying_test.go` (their
-//! registration halves stay in `lifecycle_tests`).
+//! in-process, with the vault-id keying rows (their registration halves stay in
+//! `lifecycle_tests`).
 
 use std::path::{Path, PathBuf};
 
@@ -49,7 +48,7 @@ fn non_empty_dir(env: &Env) -> PathBuf {
     dir
 }
 
-// Go: TestInitThenUnlockDecryptsSomethingEncryptedToTheVault: the
+// The
 // milestone's definition of done, end to end. A vault created with a real
 // identity; that identity unlocked from what init recorded; and used to
 // decrypt something encrypted to the key in the vault's own recipient
@@ -82,7 +81,6 @@ fn init_then_unlock_decrypts_something_encrypted_to_the_vault() {
     assert_eq!(crypt::decrypt(&ct, &id).unwrap(), payload);
 }
 
-// Go: TestInitAsksForTheNewPassphraseThroughThePrompter
 #[test]
 fn init_asks_for_the_new_passphrase_through_the_prompter() {
     let env = Env::new();
@@ -114,7 +112,7 @@ fn init_asks_for_the_new_passphrase_through_the_prompter() {
     );
 }
 
-// Go: TestInitReportsTheDeviceAndPublicKey: the key is what a user hands
+// The key is what a user hands
 // another device's `recipient add`, so init prints it.
 #[test]
 fn init_reports_the_device_and_public_key() {
@@ -136,7 +134,7 @@ fn init_reports_the_device_and_public_key() {
     );
 }
 
-// Go: TestUnlockTypedErrorsCarryTheRightExitCode: the library's typed
+// The library's typed
 // error reaches the exit status a script branches on.
 #[test]
 fn unlock_typed_errors_carry_the_right_exit_code() {
@@ -155,7 +153,7 @@ fn unlock_typed_errors_carry_the_right_exit_code() {
     assert_eq!(CliError::from(err).code(), Code::LockedOrAuth);
 }
 
-// Beyond Go's row above, which takes one error to the exit status: every
+// Beyond the row above, which takes one error to the exit status: every
 // way a real unlock of a real vault fails keeps its library code through
 // the CLI's error type, so no conversion on the way out (added context, a
 // wrapped source) can turn an authentication failure into an Internal
@@ -230,8 +228,8 @@ fn every_unlock_failure_keeps_its_exit_code_through_the_cli() {
     }
 }
 
-// Go: TestInitLeavesNoVaultBehindWhenCreateFails. The target directory is
-// checked after the identity exists (as Go does), so the rollback is what
+// The target directory is
+// checked after the identity exists, so the rollback is what
 // stands between a fixable failure and an orphaned private key.
 #[test]
 fn init_leaves_no_vault_behind_when_create_fails() {
@@ -271,7 +269,6 @@ fn init_leaves_no_vault_behind_when_create_fails() {
     ]);
 }
 
-// Go: TestInitWithARejectedDeviceNameWritesNoIdentityFile
 #[test]
 fn init_with_a_rejected_device_name_writes_no_identity_file() {
     let env = Env::new();
@@ -289,7 +286,7 @@ fn init_with_a_rejected_device_name_writes_no_identity_file() {
     assert!(!identities_root(&env).exists());
 }
 
-// Go: TestTwoFailedInitsLeaveNoOrphanedIdentities: every attempt mints a
+// Every attempt mints a
 // new id, so a rollback that did nothing would leave one directory per
 // attempt, each holding a key for a vault that never existed.
 #[test]
@@ -320,8 +317,7 @@ fn two_failed_inits_leave_no_orphaned_identities() {
     assert!(left.is_empty(), "{left:?}");
 }
 
-// Go: TestInitAfterVaultRemoveGeneratesAFreshKeyRatherThanReusingTheOldOne
-// (A20): a new vault under an old local name gets its own id and keypair,
+// (ADR-0006): a new vault under an old local name gets its own id and keypair,
 // and the first vault's wrapped key is never touched.
 #[test]
 fn init_after_vault_remove_generates_a_fresh_key_rather_than_reusing_the_old_one() {
@@ -380,7 +376,7 @@ fn init_after_vault_remove_generates_a_fresh_key_rather_than_reusing_the_old_one
     );
 }
 
-// Go: TestInitWritesTheWrappedIdentityFile (from P1): 0700/0600, and not
+// The identity file is 0700/0600, and not
 // inside the vault, so never in the git tree that syncs.
 #[test]
 fn init_writes_the_wrapped_identity_file() {
@@ -404,7 +400,6 @@ fn init_writes_the_wrapped_identity_file() {
     );
 }
 
-// Go: TestInitExtraRecipientFollowsTheDeviceKey (from P1)
 #[test]
 fn init_extra_recipient_follows_the_device_key() {
     let env = Env::new();
@@ -427,7 +422,6 @@ fn init_extra_recipient_follows_the_device_key() {
     );
 }
 
-// Go: TestTheIDInitFilesTheIdentityUnderIsTheIDItCommits (from P1, A20)
 #[test]
 fn the_id_init_files_the_identity_under_is_the_id_it_commits() {
     let env = Env::new();
@@ -448,8 +442,8 @@ fn the_id_init_files_the_identity_under_is_the_id_it_commits() {
     assert_eq!(env.entry("personal").id, committed);
 }
 
-// Go: TestCreateDeviceNameLandsInRecipientAndIdentityPath, the identity
-// half (the [[recipients]] half is the library's, ported in M1).
+// The identity
+// half (the [[recipients]] half is the library's).
 #[test]
 fn create_device_name_lands_in_recipient_and_identity_path() {
     let env = Env::new();
@@ -474,8 +468,8 @@ fn create_device_name_lands_in_recipient_and_identity_path() {
     assert!(path.is_file());
 }
 
-// Go: TestInitAndIdentityAddRecordThePubkeyAndCloneDoesNot, the init half
-// (clone's is P4 · M8a's, identity add's arrives with that command).
+// The init half
+// (clone's and identity add's have their own tests).
 #[test]
 fn init_records_the_pubkey() {
     let env = Env::new();
@@ -492,7 +486,7 @@ fn init_records_the_pubkey() {
     );
 }
 
-// Q-INIT-ORDER: a failure knowable from the flags is reported before a
+// A failure knowable from the flags is reported before a
 // human is asked to type a new passphrase twice. FakePrompter::new() fails
 // the test if it is asked anything.
 #[test]
@@ -586,7 +580,7 @@ fn init_that_gets_no_passphrase_fails_locked_and_writes_nothing() {
     }
 }
 
-// The plan's in-process half of Go's TestPromptsGoToTheErrorStreamNotStdout:
+// The in-process half of "prompts go to the error stream, not stdout":
 // init driven through the real terminal prompter (on piped input) prints
 // its prompts on the prompter's stream and nothing but its report on
 // stdout. That main gives the prompter stderr is the smoke test's to prove.

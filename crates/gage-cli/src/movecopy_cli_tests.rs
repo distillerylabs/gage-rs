@@ -1,5 +1,4 @@
-//! `gage mv` and `gage cp` through the real CLI, in-process: Go's
-//! `cmd/gage/move_test.go`. Each test names its Go row.
+//! `gage mv` and `gage cp` through the real CLI, in-process.
 
 use gage::exitcode::Code;
 use gage::gitrepo;
@@ -27,7 +26,6 @@ impl Env {
     }
 }
 
-// Go: TestMvThroughTheCLIMovesEntryBetweenVaults.
 #[test]
 fn mv_through_the_cli_moves_entry_between_vaults() {
     let env = two_vaults();
@@ -55,7 +53,6 @@ fn mv_through_the_cli_moves_entry_between_vaults() {
     );
 }
 
-// Go: TestCpThroughTheCLILeavesOriginalAndAddsCopy.
 #[test]
 fn cp_through_the_cli_leaves_original_and_adds_copy() {
     let env = two_vaults();
@@ -70,7 +67,7 @@ fn cp_through_the_cli_leaves_original_and_adds_copy() {
     }
 }
 
-// Go: TestMvRequiresToVaultFlag. A usage error, and nothing unlocked.
+// A usage error, and nothing unlocked.
 #[test]
 fn mv_requires_the_to_vault_flag() {
     let env = two_vaults();
@@ -85,7 +82,7 @@ fn mv_requires_the_to_vault_flag() {
     assert!(p.unlock_requests().is_empty());
 }
 
-// Go: TestMvToUnregisteredVaultFailsCleanly. Nothing is decrypted: the
+// Nothing is decrypted: the
 // source was never unlocked, and nothing was committed anywhere.
 #[test]
 fn mv_to_an_unregistered_vault_fails_cleanly() {
@@ -109,7 +106,6 @@ fn mv_to_an_unregistered_vault_fails_cleanly() {
     assert!(env.titles_in("personal").contains("GitHub"));
 }
 
-// Go: TestMvToItsOwnSourceVaultIsRejected.
 #[test]
 fn mv_to_its_own_source_vault_is_rejected() {
     let env = two_vaults();
@@ -147,7 +143,7 @@ fn mv_to_its_own_source_vault_is_rejected() {
     assert!(p.unlock_requests().is_empty());
 }
 
-// Go: TestMvDecliningTheTrustCheckAbortsThroughTheCLI. The destination's
+// The destination's
 // recipient list changed since this device last looked: a no leaves both
 // vaults exactly as they were.
 #[test]
@@ -185,7 +181,7 @@ fn mv_declining_the_trust_check_aborts_through_the_cli() {
     assert!(gitrepo::is_clean(&shared).unwrap());
 }
 
-// Go: TestMvInASessionNeverUnlocksTheDestination. One passphrase, for the
+// One passphrase, for the
 // source; the entry arrives, and the session's own index follows.
 #[test]
 fn mv_in_a_session_never_unlocks_the_destination() {

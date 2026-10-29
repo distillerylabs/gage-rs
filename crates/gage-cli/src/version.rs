@@ -2,7 +2,7 @@
 //!
 //! The version is the Makefile's `GAGE_VERSION` at build time (a tag, or
 //! `dev`), the commit its `GAGE_COMMIT`. Unset falls back to `dev` and
-//! `unknown`; unlike Go's `runtime/debug`, Rust embeds no module version or
+//! `unknown`; Rust embeds no module version or
 //! VCS revision to fall back to first.
 
 use std::fmt;
@@ -50,21 +50,18 @@ pub fn resolve_build_info(version: Option<&str>, commit: Option<&str>) -> BuildI
 mod tests {
     use super::*;
 
-    // Go: TestVersionStringTaggedBuild
     #[test]
     fn version_string_tagged_build() {
         let b = resolve_build_info(Some("v2.0.0"), Some("deadbee"));
         assert_eq!(b.to_string(), "gage v2.0.0 (commit deadbee)");
     }
 
-    // Go: TestVersionStringUntaggedBuild
     #[test]
     fn version_string_untagged_build() {
         let b = resolve_build_info(Some("dev"), Some("abcdef1"));
         assert_eq!(b.to_string(), "gage dev (commit abcdef1)");
     }
 
-    // Go: TestResolveBuildInfoPrefersLinkerValues
     #[test]
     fn resolve_build_info_prefers_stamped_values() {
         let b = resolve_build_info(Some("v9.9.9"), Some("cafef00"));
@@ -74,17 +71,13 @@ mod tests {
         );
     }
 
-    // Go: TestResolveBuildInfoKeepsExplicitDev
     #[test]
     fn resolve_build_info_keeps_explicit_dev() {
         assert_eq!(resolve_build_info(Some("dev"), None).version, "dev");
     }
 
-    // Go: TestResolveBuildInfoWithoutEmbeddedInfo.
-    // Go: TestResolveBuildInfoFallsBackToModuleVersion and
-    // TestResolveBuildInfoFallsBackToVCSRevision are excused: they test
-    // runtime/debug's embedded build info, which Rust has no equivalent
-    // of, so unset goes straight to dev/unknown.
+    // Rust has no embedded module version or VCS revision to fall back to,
+    // so unset goes straight to dev/unknown.
     #[test]
     fn resolve_build_info_without_stamps() {
         for (v, c) in [(None, None), (Some(""), Some(""))] {
@@ -93,7 +86,7 @@ mod tests {
         }
     }
 
-    // Go: TestMakefileLdflagsTargetTheRealSymbols. Rust: the Makefile
+    // Rust: the Makefile
     // exports exactly the variable names build.rs reads, from the one
     // shared definition.
     #[test]

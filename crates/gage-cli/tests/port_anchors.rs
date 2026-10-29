@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 /// `.rs`, `.toml` and `.sh` files; a file is scanned as it is.
 const ROOTS: &[&str] = &[
     "crates/gage",
+    "crates/gage-cli",
+    "scripts/qa",
     "Cargo.toml",
     "deny.toml",
     "rust-toolchain.toml",
@@ -20,6 +22,10 @@ const ROOTS: &[&str] = &[
 /// `(path, substring, reason)`: a line under `path` containing `substring` is
 /// not reported. Empty unless a real false positive survives.
 const ALLOWED: &[(&str, &str, &str)] = &[];
+
+/// The guard names every anchor it looks for, in its detector and in the
+/// lines that prove the detector fires, so it cannot pass its own scan.
+const THIS_FILE: &str = "crates/gage-cli/tests/port_anchors.rs";
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -189,6 +195,9 @@ fn no_port_anchors() {
     let mut hits = Vec::new();
     for path in files(&root) {
         let rel = rel_str(&root, &path);
+        if rel == THIS_FILE {
+            continue;
+        }
         let text = fs::read_to_string(&path).expect("read source file");
         for (i, line) in text.lines().enumerate() {
             if let Some(kind) = anchor(line)

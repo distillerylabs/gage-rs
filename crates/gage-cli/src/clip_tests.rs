@@ -33,7 +33,7 @@ fn set_clipboard_timeout(env: &Env, raw: &str) {
 
 // --- the keeper ---------------------------------------------------------------
 
-// Go: TestClipboardKeeperClearIsIdempotentAndSkipsWhenNothingPending. The
+// The
 // session's exit path calls clear unconditionally, so with nothing
 // outstanding it must not wipe whatever is on the clipboard.
 #[test]
@@ -55,7 +55,7 @@ fn clipboard_keeper_clear_is_idempotent_and_skips_when_nothing_pending() {
     );
 }
 
-// Go: TestClipboardKeeperLeavesAnUnreadableClipboardAlone. With no way to
+// With no way to
 // tell whose value is there, the safe answer is not to destroy a
 // stranger's, and the human is told.
 #[test]
@@ -74,7 +74,7 @@ fn clipboard_keeper_leaves_an_unreadable_clipboard_alone() {
     );
 }
 
-// Go: TestClipboardClearWithNothingPendingIsANoOp. "Nothing was ever
+// "Nothing was ever
 // copied" is silent and successful, and writes nothing.
 #[test]
 fn clipboard_clear_with_nothing_pending_is_a_no_op() {
@@ -87,7 +87,7 @@ fn clipboard_clear_with_nothing_pending_is_a_no_op() {
     assert!(cb.writes().is_empty(), "{:?}", cb.writes());
 }
 
-// Go: TestClipboardScheduledClearWithNothingPendingSchedulesNothing. A
+// A
 // timer armed with nothing copied would later race whatever the human
 // copies next.
 #[test]
@@ -98,7 +98,7 @@ fn clipboard_scheduled_clear_with_nothing_pending_schedules_nothing() {
     assert_eq!(timer.scheduled(), 0);
 }
 
-// Go: TestClipboardCopyReportsAWriteFailure. A refused write fails the
+// A refused write fails the
 // command, says what was being attempted, never carries the secret, and
 // leaves nothing pending.
 #[test]
@@ -121,7 +121,7 @@ fn clipboard_copy_reports_a_write_failure() {
     assert_eq!(k.pending_digest(), None);
 }
 
-// Go: TestSecondCopySupersedesTheFirstsPendingClear. The clipboard holds one
+// The clipboard holds one
 // value; the first copy's timer must not later wipe the second.
 #[test]
 fn second_copy_supersedes_the_firsts_pending_clear() {
@@ -141,9 +141,9 @@ fn second_copy_supersedes_the_firsts_pending_clear() {
     assert_eq!(cb.get(), "");
 }
 
-// Beyond Go's rows: a first timer that had already fired, and reaches the
+// A first timer that had already fired, and reaches the
 // keeper only after a second copy landed, is a no-op rather than a wipe of
-// the second copy ahead of its own timeout. (Go's keeper has this race.)
+// the second copy ahead of its own timeout.
 #[test]
 fn a_stale_timer_firing_after_a_second_copy_does_nothing() {
     let cb = FakeClipboard::default();
@@ -158,7 +158,7 @@ fn a_stale_timer_firing_after_a_second_copy_does_nothing() {
     assert_eq!(k.pending_digest(), Some(sha256("two")));
 }
 
-// Go: TestScheduledClearReportsItsFailure. A timer firing has no caller to
+// A timer firing has no caller to
 // return to, so its failure says so itself: silence would leave the human
 // believing the secret was wiped when it is still there.
 #[test]
@@ -188,7 +188,7 @@ fn scheduled_clear_reports_its_failure() {
     assert_eq!(cb.get(), "hunter2", "the value really is still there");
 }
 
-// Go: TestSessionClipTimerClearsWhenItFires. The session is still running
+// The session is still running
 // when the timeout arrives.
 #[test]
 fn session_clip_timer_clears_when_it_fires() {
@@ -205,7 +205,7 @@ fn sha256(text: &str) -> [u8; 32] {
     Sha256::digest(text.as_bytes()).into()
 }
 
-// Beyond Go's rows: the keeper holds a digest of what it wrote, never the
+// The keeper holds a digest of what it wrote, never the
 // value. The value reached the port once, and what the keeper remembers is
 // its SHA-256.
 #[test]
@@ -219,7 +219,7 @@ fn the_keeper_holds_a_digest_never_the_value() {
 
 // --- clipboard_timeout -----------------------------------------------------------
 
-// Go: TestClipboardTimeoutIsConfigurable. [shell].clipboard_timeout
+// [shell].clipboard_timeout
 // overrides the default and reaches the wait.
 #[test]
 fn clipboard_timeout_is_configurable() {
@@ -229,7 +229,7 @@ fn clipboard_timeout_is_configurable() {
     assert_eq!(env.clip.waits(), [Duration::from_secs(5)]);
 }
 
-// Go: TestClipboardTimeoutBelowTheMinimumIsRejected. Fails before anything
+// Fails before anything
 // reaches the clipboard, naming the setting at fault.
 #[test]
 fn clipboard_timeout_below_the_minimum_is_rejected() {
@@ -247,7 +247,7 @@ fn clipboard_timeout_below_the_minimum_is_rejected() {
 
 // --- one-shot -c --------------------------------------------------------------------
 
-// Go: TestClipCopiesAndClearsAfterTheTimeout. The value reaches the
+// The value reaches the
 // clipboard, and it does not stay there.
 #[test]
 fn clip_copies_and_clears_after_the_timeout() {
@@ -257,7 +257,7 @@ fn clip_copies_and_clears_after_the_timeout() {
     assert_eq!(env.clip.cb.get(), "");
 }
 
-// Go: TestClipBlocksUntilTheTimeoutThenExitsZero. A one-shot waits in the
+// A one-shot waits in the
 // foreground rather than leaving a clearer behind (principle 5).
 #[test]
 fn clip_blocks_until_the_timeout_then_exits_zero() {
@@ -269,7 +269,7 @@ fn clip_blocks_until_the_timeout_then_exits_zero() {
     assert_eq!(env.clip.timer.scheduled(), 0);
 }
 
-// Go: TestClipInterruptDuringTheWaitClearsAndExitsZero. Ctrl-C is "I've
+// Ctrl-C is "I've
 // finished pasting": the wait returns as it would at the timeout, so the
 // clear runs and the command succeeds either way.
 #[test]
@@ -288,7 +288,7 @@ fn clip_interrupt_during_the_wait_clears_and_exits_zero() {
     assert_eq!(env.clip.cb.get(), "");
 }
 
-// Go: TestClipDoesNotWipeAClipboardSomeoneElseChanged. Someone copies
+// Someone copies
 // something else while gage waits out the timeout, the window the
 // conditional clear exists for.
 #[test]
@@ -299,7 +299,7 @@ fn clip_does_not_wipe_a_clipboard_someone_else_changed() {
     assert_eq!(env.clip.cb.get(), "someone else's copy");
 }
 
-// Go: TestClipPrintsNoPlaintextAndNoticesOnStderr. -c copies instead of
+// -c copies instead of
 // printing, and the notice goes to stderr so a redirected stdout carries
 // nothing.
 #[test]
@@ -316,7 +316,7 @@ fn clip_prints_no_plaintext_and_notices_on_stderr() {
     assert!(!r.stderr.contains("hunter2"), "{}", r.stderr);
 }
 
-// Go: TestClipAndQRAreMutuallyExclusive. Two answers to one question, so
+// Two answers to one question, so
 // both is a usage error, and the clipboard is untouched.
 #[test]
 fn clip_and_qr_are_mutually_exclusive() {
@@ -332,7 +332,7 @@ fn clip_and_qr_are_mutually_exclusive() {
     assert!(!r.stdout.contains("hunter2"), "{}", r.stdout);
 }
 
-// Go (show): TestShowClipCopiesTheNamedFieldNotTheValue. --field chooses
+// --field chooses
 // which value; -c chooses where it goes.
 #[test]
 fn show_clip_copies_the_named_field_not_the_value() {
@@ -348,7 +348,7 @@ fn show_clip_copies_the_named_field_not_the_value() {
     );
 }
 
-// Go (generate): TestGenerateClipCopiesTheValueAndPrintsNone. Plain
+// Plain
 // generate never prints the value; -c is how it gets out without landing
 // in the scrollback. The confirmation still prints, before the wait.
 #[test]
@@ -364,7 +364,7 @@ fn generate_clip_copies_the_value_and_prints_none() {
     assert_eq!(env.clip.cb.get(), "");
 }
 
-// Go (generate): TestGenerateClipAndQRAreMutuallyExclusive. Refused before
+// Refused before
 // anything is generated or committed, so the vault is untouched.
 #[test]
 fn generate_clip_and_qr_are_mutually_exclusive() {
@@ -400,7 +400,7 @@ fn session_show_clip(env: &Env) -> crate::lifecycle_tests::CliResult {
     r
 }
 
-// Go: TestSessionClipSchedulesRatherThanBlocking. A session hands the
+// A session hands the
 // prompt straight back and clears on a timer.
 #[test]
 fn session_clip_schedules_rather_than_blocking() {
@@ -427,7 +427,7 @@ fn session_clip_schedules_rather_than_blocking() {
     assert!(!r.stderr.contains("hunter2"), "{}", r.stderr);
 }
 
-// Go: TestSessionExitClearsAPendingCopy. `exit` a second after `show -c`
+// `exit` a second after `show -c`
 // does not leave the secret for the remaining 44: the timer never fired,
 // and the value is gone anyway.
 #[test]
@@ -450,7 +450,7 @@ fn session_end_of_input_clears_a_pending_copy() {
     assert_eq!(env.clip.cb.get(), "");
 }
 
-// Go: TestSessionScheduledClearFailureReachesStderr. The wiring half: a
+// The wiring half: a
 // session's keeper reports a failed scheduled clear to the human, not to
 // nowhere. The timer fires mid-session, from the session's own clock read
 // between two lines, which is outside any command, as a real timer's

@@ -60,7 +60,7 @@ pub fn add(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cli
             }
         };
         // The vault's own method is a suggestion for a joining device; this
-        // device's is its own choice, recorded locally (Q-METHOD-SCOPE).
+        // device's is its own choice, recorded locally (ADR-0011).
         let method = match matches.get_one::<String>("method") {
             Some(method) => method.clone(),
             None => vault.info()?.method,

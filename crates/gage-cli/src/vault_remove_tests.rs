@@ -1,6 +1,5 @@
-//! `gage vault remove`'s orphan cleanup through the real CLI, in-process:
-//! Go's `vault_lifecycle_test.go` and `vaultid_keying_test.go` rows for
-//! #39 as revised by E0. Each test names its Go row; ⚑ marks the ones that
+//! `gage vault remove`'s orphan cleanup through the real CLI, in-process;
+//! ⚑ marks the tests that
 //! guard an irreversible delete (the only copy of a private key).
 //!
 //! The library's [`gage::orphan`] tests prove each keep reason without a
@@ -81,7 +80,7 @@ fn listing(root: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     out
 }
 
-// Go: TestVaultRemoveDeletesAnOrphanedIdentityFile. Confirmed, the file is
+// Confirmed, the file is
 // gone: laptop-1 dropped its own recipiency, leaving phone-1 the only
 // recipient.
 #[test]
@@ -107,7 +106,7 @@ fn vault_remove_deletes_an_orphaned_identity_file() {
     assert!(!env.global().vaults.contains_key("personal"));
 }
 
-// Go: TestVaultRemoveKeepsIdentityFileStillListedAsRecipient ⚑. Deleting
+// ⚑ Deleting
 // it would destroy the only copy of the key that reads the vault.
 #[test]
 fn vault_remove_keeps_identity_file_still_listed_as_recipient() {
@@ -132,7 +131,7 @@ fn vault_remove_keeps_identity_file_still_listed_as_recipient() {
     assert!(p.confirm_prompts().is_empty());
 }
 
-// Go: TestVaultRemoveKeepsIdentityFileWhenRecipientsUnreadable ⚑. With the
+// ⚑ With the
 // store deleted, gage cannot confirm the key was dropped, so it keeps it.
 #[test]
 fn vault_remove_keeps_identity_file_when_recipients_unreadable() {
@@ -150,7 +149,7 @@ fn vault_remove_keeps_identity_file_when_recipients_unreadable() {
     assert!(p.confirm_prompts().is_empty());
 }
 
-// Go: TestVaultRemoveNeverDeletesAKeyBelongingToADifferentVault ⚑ (the A20
+// ⚑ (the vault-id keying
 // regression, end to end). Removing B, cloned under A's freed-up name, must
 // not touch A's key.
 #[test]
@@ -202,7 +201,7 @@ fn vault_remove_never_deletes_a_key_belonging_to_a_different_vault() {
     assert!(a_identity.is_file(), "removing B destroyed A's only key");
 }
 
-// Not a Go row ⚑: the registration-versus-vault check, reached through the
+// ⚑ The registration-versus-vault check, reached through the
 // CLI. "personal" is registered with the id of a different vault ("other")
 // whose key this device holds, and the recorded key is one "personal" does
 // not list. Without the check the key would be judged against the wrong
@@ -231,7 +230,7 @@ fn vault_remove_keeps_the_file_when_the_registration_points_at_another_vault() {
     assert!(r.stderr.contains("different vault"), "{}", r.stderr);
 }
 
-// Go: TestVaultRemoveKeepsARelabelledRecipientsKey ⚑ (Q-ORPHAN-BY-NAME's
+// ⚑ (ADR-0013's
 // false-delete case). The vault lists this key under another label; the key
 // matches, so it stays, and the message names the label the vault uses.
 #[test]
@@ -257,7 +256,7 @@ fn vault_remove_keeps_a_relabelled_recipients_key() {
     assert!(p.confirm_prompts().is_empty());
 }
 
-// Go: TestVaultRemoveIdentifiesAStaleKeyWhoseNameNowLabelsAnother (the
+// A stale key whose name now labels another (the
 // false-keep direction). The name matches and the key does not, so the
 // file is a genuine orphan and the offer is made.
 #[test]
@@ -280,7 +279,7 @@ fn vault_remove_identifies_a_stale_key_whose_name_now_labels_another() {
     );
 }
 
-// Go: TestVaultRemoveNeverDeletesWithoutConfirming ⚑. The prompt names the
+// ⚑ The prompt names the
 // path, which is the whole content of the decision.
 #[test]
 fn vault_remove_never_deletes_without_confirming() {
@@ -302,7 +301,7 @@ fn vault_remove_never_deletes_without_confirming() {
     assert!(r.stderr.contains("not confirmed"), "{}", r.stderr);
 }
 
-// Go: TestNonInteractiveVaultRemoveNeverDeletesAnIdentity ⚑. Through the
+// ⚑ Through the
 // real terminal prompter with nothing to read, the answer is no, by
 // construction rather than by a check somebody remembered.
 #[test]
@@ -336,7 +335,7 @@ fn vault_remove_treats_a_failed_confirmation_as_no() {
     assert!(r.stderr.contains("not confirmed"), "{}", r.stderr);
 }
 
-// Go: TestVaultRemoveKeepsTheFileWhenNoPubkeyIsRecorded ⚑. A clone that
+// ⚑ A clone that
 // never ran `identity add` leaves nothing to compare: say so, don't ask.
 #[test]
 fn vault_remove_keeps_the_file_when_no_pubkey_is_recorded() {
@@ -362,7 +361,7 @@ fn vault_remove_keeps_the_file_when_no_pubkey_is_recorded() {
     );
 }
 
-// Go: TestVaultRemoveOnAPendingEnrollmentAsksBeforeDeleting ⚑. A local key
+// ⚑ A local key
 // the vault doesn't list yet looks exactly like an orphan, so gage offers,
 // and the confirmation is all that stands between the human and a key whose
 // approval is in flight.
@@ -386,8 +385,8 @@ fn vault_remove_on_a_pending_enrollment_asks_before_deleting() {
     assert!(id_path.is_file(), "answering no deleted a pending key");
 }
 
-// Beyond Go's rows: the same guard against a *real* pending request, in
-// place of M12b's `identity add` simulation. The request is in flight, the
+// The same guard against a *real* pending request, in
+// place of a simulated `identity add`. The request is in flight, the
 // key is not yet a recipient, and the confirmation is all that stands
 // between the human and a key whose approval is on its way.
 #[test]
@@ -409,7 +408,7 @@ fn vault_remove_with_a_real_pending_request_asks_before_deleting() {
     assert!(id_path.is_file(), "answering no deleted a pending key");
 }
 
-// Go: TestVaultRemoveLeavesTheVaultsOwnFilesUntouched. `vault remove`
+// `vault remove`
 // forgets a local registration and never touches the store, even when the
 // identity file is deleted.
 #[test]
@@ -426,7 +425,7 @@ fn vault_remove_leaves_the_vaults_own_files_untouched() {
     assert_eq!(listing(&path), before, "vault remove changed the store");
 }
 
-// Go: TestOneRepositoryRegisteredTwiceSharesOneIdentitiesDirectory ⚑.
+// ⚑ One repository registered twice shares one identities directory.
 // Removing either registration keeps a key the other still needs: the one
 // still a recipient (by the key comparison), and the one that holds a key
 // but is not yet a recipient (by the confirmation).
@@ -458,7 +457,7 @@ fn one_repository_registered_twice_shares_one_identities_directory() {
     assert!(id_path.is_file());
 }
 
-// Not a Go row: no identity file means nothing to say.
+// No identity file means nothing to say.
 #[test]
 fn vault_remove_with_no_identity_file_says_nothing() {
     let t = TwoDevices::new();

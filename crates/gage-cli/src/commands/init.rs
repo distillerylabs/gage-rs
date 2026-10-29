@@ -151,7 +151,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     // rather than minted there: the identity file is filed under it, and
     // an id that only existed after the file was written would leave the
     // vault carrying one id and this device's only key filed under
-    // another, with nothing visibly wrong (A20).
+    // another, with nothing visibly wrong (ADR-0006).
     let mut spec = CreateSpec {
         name: name.to_string(),
         id: vaultconfig::new_id(),
@@ -164,8 +164,8 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         remote: flag("remote"),
     };
     // Everything knowable from the flags fails before a human types a
-    // passphrase twice (Q-INIT-ORDER). The target directory is checked by
-    // create, after the key exists, as Go does; the rollback below covers
+    // passphrase twice. The target directory is checked by
+    // create, after the key exists; the rollback below covers
     // it.
     spec.validate_without_device_key()?;
 
@@ -214,7 +214,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
             device: spec.device.clone(),
             // Recorded now, the one moment gage holds this device's key
             // without an unlock, so "is my key still a recipient?" can be
-            // answered by comparing keys (Q-ORPHAN-BY-NAME).
+            // answered by comparing keys (ADR-0013).
             pubkey: pubkey.clone(),
             method: spec.method.clone(),
             git: GitMeta {
@@ -289,8 +289,8 @@ fn publish(io: &mut Io, prompter: &dyn Prompter, v: &Vault, remote: &str) -> Res
     // Offline at creation is not a failure: the next successful sync
     // publishes it. A local path that isn't there is not offline, though:
     // gage never creates a repository, so at init it is one that hasn't
-    // been made yet (Go reports it as such; for a sync, the same path is
-    // an unmounted drive, Q-SYNC-CLASSIFY).
+    // been made yet (for a sync, the same path is
+    // an unmounted drive, ADR-0017).
     let missing_path =
         remoteauth::host(remote).is_ok_and(|h| h.is_empty()) && !Path::new(remote).exists();
     if err.remote_kind() == Some(Kind::Unreachable) && !missing_path {

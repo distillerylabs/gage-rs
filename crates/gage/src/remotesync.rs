@@ -287,8 +287,7 @@ impl SyncError {
 
     /// Which `syncerr` bucket the failure is in, if any. A real conflict
     /// is [`Kind::Diverged`] too, so one question covers both "the push
-    /// was rejected" and "the rejection turned out to be a conflict"
-    ///.
+    /// was rejected" and "the rejection turned out to be a conflict".
     ///
     /// A resolution that was skipped or aborted is still diverged: the
     /// divergence it declined to resolve is there, as it was before anyone

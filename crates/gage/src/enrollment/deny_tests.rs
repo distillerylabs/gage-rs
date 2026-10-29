@@ -10,8 +10,7 @@ use crate::exitcode::Code;
 use crate::prompter::FakePrompter;
 use crate::remotesync::tests::{FakeSyncer, SyncVault, unreachable_error};
 
-/// One hex digit every pending id carries, so it matches all of them
-///.
+/// One hex digit every pending id carries, so it matches all of them.
 fn common_substring(v: &Vault) -> String {
     let pending = v.pending_enrollments().unwrap();
     "0123456789abcdef"

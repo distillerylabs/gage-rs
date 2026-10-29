@@ -167,7 +167,7 @@ Specific to D2:
 | Milestone | Status | Model | Depends on |
 |---|---|---|---|
 | [D2a Library sweep](d2a-library-sweep.md) ([#125](https://github.com/distillerylabs/gage-rs/issues/125)) | `[x]` | Sonnet | parent branch |
-| [D2b CLI sweep](d2b-cli-sweep.md) ([#126](https://github.com/distillerylabs/gage-rs/issues/126)) | `[ ]` | Sonnet | D2a |
+| [D2b CLI sweep](d2b-cli-sweep.md) ([#126](https://github.com/distillerylabs/gage-rs/issues/126)) | `[x]` | Sonnet | D2a |
 
 **Why Sonnet.** The work is mechanical and pattern-following. The one
 place meaning can be lost is rewriting a comment that carries a security

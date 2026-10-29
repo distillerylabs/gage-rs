@@ -1,7 +1,7 @@
 //! How the REPL reads a command line: through `rustyline` on a real
 //! terminal, or from `Io.stdin` otherwise (in-process tests, and anything
 //! else that isn't a terminal). Both behind [`LineReader`], which is what
-//! keeps the whole REPL testable without a pty (Q-LINE-EDITOR).
+//! keeps the whole REPL testable without a pty (ADR-0050).
 //!
 //! Only command lines come through here. A passphrase, a value or a
 //! candidate number is the prompter's to read: `rustyline` holds the

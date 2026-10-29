@@ -537,27 +537,18 @@ fn session_status(session: &mut Session, io: &mut Io, args: &[String]) -> Result
         let state = if st.unlocked { "unlocked" } else { "locked" };
         let mut line = format!("{marker}{:<12} {state:<8}", st.name);
         if let Some(idle) = st.idle {
-            line.push_str(&format!("  (last used {} ago)", go_duration(idle)));
+            line.push_str(&format!(
+                "  (last used {} ago)",
+                crate::duration::format_rounded(idle)
+            ));
         }
         print(io, line.trim_end());
     }
     Ok(())
 }
 
-/// A duration as Go prints one rounded to the second: `5s`, `2m5s`,
-/// `1h0m0s`.
-fn go_duration(d: std::time::Duration) -> String {
-    let secs = d.as_secs() + u64::from(d.subsec_millis() >= 500);
-    let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
-    match (h, m) {
-        (0, 0) => format!("{s}s"),
-        (0, _) => format!("{m}m{s}s"),
-        _ => format!("{h}h{m}m{s}s"),
-    }
-}
-
 /// In-session `help` and `help <command>`, from the same registry and the
-/// same clap tree as the one-shot surfaces (Q-HELP-SURFACES).
+/// same clap tree as the one-shot surfaces (ADR-0031).
 fn session_help(reg: &Registry, io: &mut Io, topic: &[String]) -> Result<(), CliError> {
     if topic.is_empty() {
         print(io, &cli::render_session_help(reg));

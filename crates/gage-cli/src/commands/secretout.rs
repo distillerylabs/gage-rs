@@ -1,4 +1,4 @@
-//! The one place a decrypted value leaves gage (Go's `secretout.go`).
+//! The one place a decrypted value leaves gage.
 //! The default prints it; `-q` renders a QR code *instead*; `-c` copies it
 //! *instead*. Nothing prints the value alongside either one: that would
 //! defeat the point of asking for them (principle 6, "plaintext should be
@@ -10,7 +10,7 @@ use gage::exitcode::Code;
 use super::{Keys, fail, load_global};
 use crate::Io;
 use crate::error::CliError;
-use crate::{qr, shell};
+use crate::{duration, qr, shell};
 
 /// `-c/--clip`, with each command's own help.
 pub(super) fn clip_flag(help: &'static str) -> Arg {
@@ -98,7 +98,7 @@ pub(super) fn emit_secret(
 fn copy_secret(io: &mut Io, keys: &Keys, value: &str) -> Result<(), CliError> {
     let timeout = clipboard_timeout(io)?;
     io.clipboard.copy(value)?;
-    let shown = shell::go_duration_string(timeout);
+    let shown = duration::format(timeout);
     if keys.in_session() {
         io.clipboard.schedule_clear(timeout);
         let _ = writeln!(io.stderr, "gage: copied to clipboard; clears in {shown}.");

@@ -1,6 +1,6 @@
-//! `gage init`'s recovery key through the real CLI, in-process: Go's
-//! `init_recoverykey_test.go`, plus the destination guard's own helpers.
-//! Each test names its Go row. `recovery rotate` is in
+//! `gage init`'s recovery key through the real CLI, in-process.
+//! The destination guard's own helpers are here too.
+//! `recovery rotate` is in
 //! `recovery_cli_tests`, which shares the harness below.
 
 use std::cell::RefCell;
@@ -21,7 +21,7 @@ use crate::commands::{
 use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE, SharedBuf, Tty};
 
 /// Answers a re-type the way a human does: by reading the key off the
-/// screen and typing its last characters back (Go's `recoveryPrompter`).
+/// screen and typing its last characters back.
 /// Answering from the screen rather than from a planted value is what
 /// makes "the key shown is the key that satisfies the confirmation"
 /// something a test proves. Everything but `value` goes to `inner`.
@@ -40,7 +40,7 @@ pub(crate) struct ScreenPrompter {
     /// Run on each unlock (init's identity passphrase), before answering.
     pub(crate) on_unlock: Option<Box<dyn Fn()>>,
     /// Answers to the first value prompts, ahead of any re-type:
-    /// `recovery enroll`'s paste (Go's `enrollPrompter`).
+    /// `recovery enroll`'s paste.
     pub(crate) pastes: RefCell<std::collections::VecDeque<String>>,
 }
 
@@ -133,8 +133,8 @@ impl Prompter for ScreenPrompter {
     }
 }
 
-/// `init` at a terminal, confirming the key from the screen (Go's
-/// `runInitWithRecoveryKey`): the result, and the key shown, if any.
+/// `init` at a terminal, confirming the key from the screen:
+/// the result, and the key shown, if any.
 fn run_init_with_recovery_key(env: &Env, args: &[&str]) -> (CliResult, Option<String>) {
     let r = ScreenPrompter::new().run(env, args);
     let shown = secret_keys(&r.stderr).into_iter().next();
@@ -150,7 +150,7 @@ fn identity_files(env: &Env) -> Vec<PathBuf> {
 }
 
 /// Every `AGE-SECRET-KEY-1...` in `text`, in order: how a test reads a key
-/// back off the screen (Go's `ageSecretKeyPattern`). Every hygiene
+/// back off the screen. Every hygiene
 /// assertion then searches for the real key, not this pattern.
 pub(crate) fn secret_keys(text: &str) -> Vec<String> {
     const PREFIX: &str = "AGE-SECRET-KEY-1";
@@ -198,7 +198,7 @@ fn refused_before_anything(env: &Env, args: &[&str]) -> String {
 
 // --- the destination guard --------------------------------------------------
 
-// Go: TestInitRefusesToWriteTheRecoveryKeyWhereGageWillDeleteIt. gage
+// Gage
 // resets a vault's working tree after an interrupted write, which removes
 // untracked files, and the data dir is gage's to rewrite: a key filed in
 // either is a key gage deletes itself.
@@ -251,7 +251,7 @@ fn init_refuses_to_write_the_recovery_key_where_gage_will_delete_it() {
     }
 }
 
-// Go: TestRecoveryKeyOutRejectsARelativePathInsideAVault. The ancestor walk
+// The ancestor walk
 // has to start from an absolute path, or a bare `recovery.key` run from
 // inside a vault walks only its own relative prefix and is allowed. The
 // working directory is a parameter, so no test moves the process's.
@@ -274,7 +274,6 @@ fn recovery_key_out_rejects_a_relative_path_inside_a_vault() {
     }
 }
 
-// Go: TestRecoveryKeyOutRejectsAParentThatDoesNotExist
 #[test]
 fn recovery_key_out_rejects_a_parent_that_does_not_exist() {
     let env = Env::new();
@@ -290,11 +289,9 @@ fn recovery_key_out_rejects_a_parent_that_does_not_exist() {
     assert!(stderr.contains("cannot write"), "{stderr}");
 }
 
-// Go: TestRecoveryKeyOutRejectsAParentThatIsARegularFile. Go's existence
-// stat took ENOTDIR for an error and answered Internal; its test leaves
-// the code unpinned and asks to be tightened when that is fixed. Here it
-// is: a path through a regular file does not exist, so the parent check
-// answers, with Usage.
+// A stat through a regular file fails with ENOTDIR, which is not an
+// internal error: a path through a regular file does not exist, so the
+// parent check answers, with Usage.
 #[test]
 fn recovery_key_out_rejects_a_parent_that_is_a_regular_file() {
     let env = Env::new();
@@ -312,10 +309,10 @@ fn recovery_key_out_rejects_a_parent_that_is_a_regular_file() {
     );
 }
 
-// Go: TestInitChecksTheRecoveryKeyDestinationIsWritableBeforeCreating. A
+// A
 // read-only directory stats perfectly well and fails at the write, by
 // which time the vault exists with the lost key as a recipient. Unix only,
-// as Go's: Windows doesn't enforce directory write permission this way.
+// Windows doesn't enforce directory write permission this way.
 #[cfg(unix)]
 #[test]
 fn init_checks_the_recovery_key_destination_is_writable_before_creating() {
@@ -350,7 +347,7 @@ fn init_checks_the_recovery_key_destination_is_writable_before_creating() {
     );
 }
 
-// Go: TestInitRecoveryKeyOutRefusesToClobberAnExistingFile. The realistic
+// The realistic
 // thing at a path named recovery.key is another vault's recovery key.
 #[test]
 fn init_recovery_key_out_refuses_to_clobber_an_existing_file() {
@@ -363,7 +360,6 @@ fn init_recovery_key_out_refuses_to_clobber_an_existing_file() {
     assert_eq!(std::fs::read_to_string(&out).unwrap(), "someone else's key");
 }
 
-// Go: TestPathIsInsideWithNoRootIsNotInside
 #[test]
 fn path_is_inside_with_no_root_is_not_inside() {
     let dir = tempfile::tempdir().unwrap();
@@ -436,7 +432,7 @@ fn an_accepted_destination_is_made_absolute_against_the_given_cwd() {
 
 // --- planning and refusals --------------------------------------------------
 
-// Go: TestInitWithoutATerminalRefusesRatherThanLoggingTheKey (D2). With
+// With
 // nowhere a human can read, init won't make a key that would land in a
 // log, and says which flags resolve it. Nothing is asked or created.
 #[test]
@@ -454,7 +450,7 @@ fn init_without_a_terminal_refuses_rather_than_logging_the_key() {
     assert!(!env.default_vault_path("personal").exists());
 }
 
-// Go: TestInitWithRedirectedStderrRefusesToo. `gage init foo 2>build.log`
+// `gage init foo 2>build.log`
 // has a human at the keyboard and nowhere on screen for the key: stdin
 // being a terminal doesn't stand in for stderr.
 #[test]
@@ -491,7 +487,6 @@ fn init_with_redirected_stderr_refuses_too() {
     assert_eq!(snapshot(&env), before);
 }
 
-// Go: TestInitRejectsRecoveryKeyOutWithNoRecoveryKey
 #[test]
 fn init_rejects_recovery_key_out_with_no_recovery_key() {
     let env = Env::new();
@@ -510,7 +505,7 @@ fn init_rejects_recovery_key_out_with_no_recovery_key() {
     assert!(!out.exists());
 }
 
-// Go: TestInitRejectsADeviceNamedLikeTheRecoveryLabel, as R5 flipped it:
+// As R5 flipped it:
 // refused before the passphrase prompt, and --no-recovery-key doesn't
 // free the label, since `recovery rotate` can add a key later and would
 // evict whatever device held it.
@@ -539,7 +534,6 @@ fn init_rejects_a_device_named_like_the_recovery_label() {
     assert!(stderr.contains("reserved"), "{stderr}");
 }
 
-// Go: TestInitNoRecoveryKeyOptsOut
 #[test]
 fn init_no_recovery_key_opts_out() {
     let env = Env::new();
@@ -556,7 +550,7 @@ fn init_no_recovery_key_opts_out() {
     assert!(!all.contains(RECOVERY_DEVICE_LABEL), "{all}");
 }
 
-// Go: TestInitShowsNoRecoveryKeyWhenCreateFails. The key is shown only once
+// The key is shown only once
 // the vault it opens exists, so a failed init never leaves anyone holding
 // a key to nothing; and the rollback leaves no identity behind.
 #[test]
@@ -659,7 +653,6 @@ fn default_init(env: &Env) -> (CliResult, String) {
     (r, shown)
 }
 
-// Go: TestInitRegistersARecoveryRecipientByDefault
 #[test]
 fn init_registers_a_recovery_recipient_by_default() {
     let env = Env::new();
@@ -680,7 +673,7 @@ fn init_registers_a_recovery_recipient_by_default() {
     assert!(r.stdout.contains(RECOVERY_DEVICE_LABEL), "{}", r.stdout);
 }
 
-// Go: TestInitRecoveryKeyAloneDecryptsTheVault, through a real entry: one
+// Through a real entry: one
 // inserted after init decrypts with the shown key and nothing else.
 #[test]
 fn init_recovery_key_alone_decrypts_the_vault() {
@@ -706,7 +699,7 @@ fn init_recovery_key_alone_decrypts_the_vault() {
     );
 }
 
-// Go: TestInitRecoveryKeyIsNeverStored ⚑. No copy anywhere gage writes,
+// ⚑ No copy anywhere gage writes,
 // git objects included; shown exactly once, on stderr; and the re-type
 // doesn't echo what it asked for.
 #[test]
@@ -725,7 +718,7 @@ fn init_recovery_key_is_never_stored() {
     );
 }
 
-// Go: TestInitRecoveryKeyIsShownWithItsWarningsAndAQR. The key is
+// The key is
 // unencrypted, so what's printed beside it is all that stands between it
 // and a screenshot in a synced notes app. All of it on stderr.
 #[test]
@@ -765,7 +758,7 @@ fn init_recovery_key_is_shown_with_its_warnings_and_a_qr() {
     assert!(at(&crate::qr::QR_BOTH.to_string()) < at("not encrypted"));
 }
 
-// Go: TestInitRecoveryKeyOutWritesAPrivateFileAndNothingToStdout. No
+// No
 // terminal needed, and no re-type: the prompter answers only the
 // passphrase, so a value request would fail the test.
 #[test]
@@ -803,7 +796,7 @@ fn init_recovery_key_out_writes_a_private_file_and_nothing_to_stdout() {
     assert_never_stored(&env, &env.entry("personal").path, secret, "recovery key");
 }
 
-// Go: TestInitRecoveryKeyConfirmationAsksForTheKeysOwnCharacters (D3): one
+// One
 // masked re-type of a fixed number of the key's last characters.
 #[test]
 fn init_recovery_key_confirmation_asks_for_the_keys_own_characters() {
@@ -833,7 +826,6 @@ fn init_recovery_key_confirmation_ignores_case_and_whitespace() {
     assert_eq!(p.asked.borrow().len(), 1);
 }
 
-// Go: TestInitRecoveryKeyWrongConfirmationRetriesThenFailsWithoutReshowing.
 // The vault exists by the time the question is asked, so a wrong answer
 // undoes nothing, but it doesn't pass silently, and the key is never
 // printed a second time.
@@ -866,7 +858,7 @@ fn init_recovery_key_wrong_confirmation_retries_then_fails_without_reshowing() {
     assert!(r.stdout.contains("initialized vault"), "{}", r.stdout);
 }
 
-// Go: TestInitStillPublishesWhenTheRecoveryConfirmationFails. The re-type
+// The re-type
 // is the last gate, not an early exit: skipping the push would leave a
 // vault created, registered and quietly unpublished.
 #[test]
@@ -893,7 +885,7 @@ fn init_still_publishes_when_the_recovery_confirmation_fails() {
     assert!(gage::gittest::Device::clone(remote.path()).exists(".age-recipients"));
 }
 
-// Beyond Go: the key is shown only once the vault it opens is committed
+// The key is shown only once the vault it opens is committed
 // and registered. Checked at the moment the re-type is asked, which is
 // after the key is on screen.
 #[test]
@@ -917,7 +909,7 @@ fn init_key_is_shown_only_after_the_commit_exists() {
     assert!(checked.get(), "the re-type was never asked");
 }
 
-// Beyond Go (Go's R1 review): when both delivery and the push fail, the
+// When both delivery and the push fail, the
 // delivery error sets the exit code — an unpublished vault can be pushed
 // again, a key nobody has can't be reissued — and the push failure is
 // reported beside it. Both failures are real: a file appearing at the
@@ -974,11 +966,11 @@ fn init_delivery_error_outranks_a_failed_push() {
     assert!(r.stderr.contains("create an empty one"), "{}", r.stderr);
 }
 
-// Found by RK3's review: an empty `--recovery-key-out` named the working
+// An empty `--recovery-key-out` named the working
 // directory, which then "already exists". It is refused as what it is,
-// before anything is created, rather than treated as unset as Go's empty
-// string flag was, which would show the key on a terminal the user asked
-// to keep it off (Q-RECOVERY-EMPTY-OUT).
+// before anything is created, rather than treated as unset, which would
+// show the key on a terminal the user asked
+// to keep it off (ADR-0051).
 #[test]
 fn an_empty_recovery_key_out_is_refused_as_empty() {
     let env = Env::new();

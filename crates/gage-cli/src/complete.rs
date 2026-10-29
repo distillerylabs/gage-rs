@@ -12,7 +12,7 @@
 //! without a terminal. [`SessionHelper`] is the thin `rustyline` adapter.
 //! Completion never unlocks anything and never prompts, and entry titles
 //! come from the *current* vault alone. See "Session model" in the design
-//! doc and Go's Q-HELP-SURFACES / Q-CMD-AVAILABILITY.
+//! doc and ADR-0031 / ADR-0032.
 
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -37,7 +37,7 @@ use crate::registry::Registry;
 /// Commands whose first positional addresses an entry: `show`, `cat`,
 /// `edit`, `rename`, `rm`, and `generate`, whose argument names a *new*
 /// entry but for which existing titles are still worth seeing (to avoid a
-/// duplicate). Go's `mv` and `cp` join when they are registered. One list,
+/// duplicate). `mv` and `cp` take a query too. One list,
 /// so the decision lives in one place.
 const ENTRY_QUERY_COMMANDS: [&str; 8] = [
     "show", "cat", "edit", "rename", "generate", "rm", "mv", "cp",
@@ -57,7 +57,7 @@ pub fn prefix_matches(candidates: &[String], prefix: &str) -> Vec<String> {
 /// Every top-level command word a session accepts: each session-visible
 /// registry name's first word (so `vault` for `vault list`, though
 /// `vault` is no entry of its own) and every alias. `init` never appears
-/// (Q-CMD-AVAILABILITY): the same filter session help follows, read off
+/// (ADR-0032): the same filter session help follows, read off
 /// the same registry.
 pub fn top_level_session_names(reg: &Registry) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();

@@ -163,8 +163,7 @@ pub(crate) fn unreachable_error() -> syncerr::Error {
     }
 }
 
-/// A push rejected for divergence, by the real classifier's elimination
-///.
+/// A push rejected for divergence, by the real classifier's elimination.
 pub(crate) fn diverged_error() -> syncerr::Error {
     syncerr::classify_push(&std::io::Error::other(
         "non-fast-forward update: refs/heads/main",

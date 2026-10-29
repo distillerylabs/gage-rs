@@ -1,6 +1,5 @@
 //! `gage recipient add` and `recipient remove` through the real CLI,
-//! in-process: the write-side rows of Go's `recipient_cli_test.go`. Each
-//! test names its Go row. Built on M9a's [`TwoDevices`], so the key a
+//! in-process: the write side. Built on [`TwoDevices`], so the key a
 //! recipient change grants is a real second device's, and what it can read
 //! is checked from that device.
 
@@ -63,7 +62,7 @@ fn b_identity(t: &TwoDevices) -> String {
     key
 }
 
-// Go: TestRecipientAddCommitsBothFilesInOneCommit. One commit, a clean
+// One commit, a clean
 // tree, the key in both files and labelled with its device.
 #[test]
 fn recipient_add_commits_both_files_in_one_commit() {
@@ -94,7 +93,7 @@ fn recipient_add_commits_both_files_in_one_commit() {
     assert_eq!(t.a.head().1, "gage: recipient add phone-1 (reencrypt)");
 }
 
-// Go: TestRecipientAddMakesHistoryReadable, end to end across two devices:
+// End to end across two devices:
 // no flag asks for the re-encryption, the count line reports it, and B
 // reads what A wrote before the add.
 #[test]
@@ -127,7 +126,7 @@ fn recipient_add_makes_history_readable() {
     }
 }
 
-// Go: TestRecipientAddRejectsTheRemovedReencryptFlag. A usage error naming
+// A usage error naming
 // the flag, never a silently ignored no-op.
 #[test]
 fn recipient_add_rejects_the_removed_reencrypt_flag() {
@@ -155,7 +154,7 @@ fn recipient_add_rejects_the_removed_reencrypt_flag() {
     assert!(!t.a.recipients_file().contains(&key));
 }
 
-// Go: TestRecipientAddShortDescribesTheReEncryption. The add is a
+// The add is a
 // whole-vault rewrite, which is what makes it refusable, so its one-line
 // description says so, on the surface people read it from.
 #[test]
@@ -165,7 +164,7 @@ fn recipient_add_short_describes_the_re_encryption() {
     assert!(help.contains(ADD_SHORT), "{help}");
 }
 
-// Go: TestIdentityAddPrintsANextCommandThatWorks. The printed line is
+// The printed line is
 // copy-pasted, so it is taken from B's stdout and run verbatim on A, the
 // device that can already read the vault, as the text says.
 #[test]
@@ -191,7 +190,7 @@ fn identity_add_prints_a_next_command_that_works() {
     assert!(t.b.ok(&["show", "ProtonMail"]).stdout.contains("hunter2"));
 }
 
-// Go: TestRecipientRemoveWithoutReencryptIsRejectedByTheCLI. Refused
+// Refused
 // before the unlock: nobody types a passphrase only to be told the command
 // line was wrong.
 #[test]
@@ -214,7 +213,7 @@ fn recipient_remove_without_reencrypt_is_rejected_by_the_cli() {
     assert!(t.a.recipients_file().contains(&key));
 }
 
-// Go: TestRecipientRemoveReencryptPrintsTheRevocationWarning. On stderr, so
+// On stderr, so
 // stdout stays usable in a pipe; and the removed device can no longer read.
 #[test]
 fn recipient_remove_reencrypt_prints_the_revocation_warning() {
@@ -236,7 +235,7 @@ fn recipient_remove_reencrypt_prints_the_revocation_warning() {
     assert_ne!(r.code, Code::Success, "B still reads it:\n{}", r.stdout);
 }
 
-// Go: TestRecipientCommandsAreAvailableInBothModes. Vault-domain commands,
+// Vault-domain commands,
 // in both help surfaces, in their own groups.
 #[test]
 fn recipient_commands_are_available_in_both_modes() {
@@ -266,7 +265,7 @@ fn recipient_commands_are_available_in_both_modes() {
     }
 }
 
-// Go: TestRecipientListMatchesConfigAndReflectsChanges. Line for line, in
+// Line for line, in
 // config order, through an add and a remove in the same run.
 #[test]
 fn recipient_list_matches_config_and_reflects_changes() {
@@ -293,7 +292,6 @@ fn recipient_list_matches_config_and_reflects_changes() {
     assert!(!assert_matches("after remove").contains(&key));
 }
 
-// Go: TestShortHashLeavesShortStringsAlone
 #[test]
 fn short_hash_leaves_short_strings_alone() {
     for s in ["", "abc", "0123456789ab"] {
@@ -303,7 +301,7 @@ fn short_hash_leaves_short_strings_alone() {
     assert_eq!(short_hash(full), &full[..12]);
 }
 
-// Not a Go row: removing this device's own key through the CLI asks, and
+// Removing this device's own key through the CLI asks, and
 // the default no aborts with nothing written; the library half is
 // `recipient_remove_of_this_device_needs_confirmation`.
 #[test]

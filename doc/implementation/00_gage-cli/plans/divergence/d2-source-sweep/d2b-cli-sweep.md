@@ -46,20 +46,20 @@ D2a, for the guard and the library sweep.
 
 ### 1. Extend the guard, red
 
-- [ ] Add `crates/gage-cli` and `scripts/qa` to `port_anchors.rs`'s
+- [x] Add `crates/gage-cli` and `scripts/qa` to `port_anchors.rs`'s
       roots. Confirm it fails.
 
 ### 2. Duration module, tests first
 
-- [ ] Move `go_duration_string_matches_gos_spelling` to
+- [x] Move `go_duration_string_matches_gos_spelling` to
       `duration::tests::format_spells_durations`.
-- [ ] Move `durations_follow_gos_grammar` to
+- [x] Move `durations_follow_gos_grammar` to
       `duration::tests::parse_accepts_the_grammar`.
-- [ ] Add `format_rounded_rounds_half_up`. It pins `1.499s` → `1s`,
+- [x] Add `format_rounded_rounds_half_up`. It pins `1.499s` → `1s`,
       `1.5s` → `2s`, `59.5s` → `1m0s` and `3599.5s` → `1h0m0s`, which are
       today's `go_duration` outputs.
-- [ ] Implement `duration.rs` to green. Delete both old functions.
-- [ ] Update the call sites:
+- [x] Implement `duration.rs` to green. Delete both old functions.
+- [x] Update the call sites:
   - `shell.rs:101`
   - `commands/secretout.rs:101`
   - `commands/enroll.rs:23,48-49`
@@ -69,26 +69,26 @@ D2a, for the guard and the library sweep.
 
 ### 3. New ADRs
 
-- [ ] ADR-0049 The QR crate: encode-only, no decoder
+- [x] ADR-0049 The QR crate: encode-only, no decoder
       (Origin: Q-QR-CRATE).
-- [ ] ADR-0050 The line editor and the history file
+- [x] ADR-0050 The line editor and the history file
       (Origin: Q-LINE-EDITOR).
-- [ ] ADR-0051 What `--recovery-key-out` refuses
+- [x] ADR-0051 What `--recovery-key-out` refuses
       (Origin: Q-RECOVERY-DATA-DIR, Q-RECOVERY-EMPTY-OUT).
-- [ ] Link them from `doc/decisions/README.md`. Fix any D2a comment that
+- [x] Link them from `doc/decisions/README.md`. Fix any D2a comment that
       reworded around Q-LINE-EDITOR.
 
 ### 4. Sweep `crates/gage-cli`
 
 Work one file at a time, following the [sweep rules](index.md#resolved-decisions).
 
-- [ ] `src/*_tests.rs` and the `tests/` directory: about 600 `// Go:`
+- [x] `src/*_tests.rs` and the `tests/` directory: about 600 `// Go:`
       lines, plus "from P2", "M1's half" and "Ported late, in P9 · S1".
-- [ ] Production code: `Q-` ids become ADRs, and `D2`, `D3` and `D5` in
+- [x] Production code: `Q-` ids become ADRs, and `D2`, `D3` and `D5` in
       the recovery code are inlined.
-- [ ] `Cargo.toml`: Q-LINE-EDITOR, Q-EDITOR, Q-CLIPBOARD, Q-QR-CRATE and
+- [x] `Cargo.toml`: Q-LINE-EDITOR, Q-EDITOR, Q-CLIPBOARD, Q-QR-CRATE and
       Q-RECOVERY-LOCAL-IDENTITY-ERROR are replaced.
-- [ ] Renames:
+- [x] Renames:
   - `scriptprompt::for_script_picks_the_source_in_go_s_order` becomes
     `for_script_picks_the_source_in_order`.
   - `smoke::prompts_go_to_the_error_stream_not_stdout` uses "go" as a
@@ -96,16 +96,26 @@ Work one file at a time, following the [sweep rules](index.md#resolved-decisions
 
 ### 5. Sweep `scripts/qa`
 
-- [ ] `scenarios/03-share-by-key.sh:67`: Q-RECIPIENT-PROMPT becomes
+- [x] `scenarios/03-share-by-key.sh:67`: Q-RECIPIENT-PROMPT becomes
       ADR-0033.
-- [ ] Sweep any other hits the guard reports.
+- [x] Sweep any other hits the guard reports.
 
 ### 6. Green
 
-- [ ] `no_port_anchors` is green, and the allowlist is recorded.
-- [ ] Prove it fails by hand in a gage-cli file. Record that here.
-- [ ] `git diff --stat main -- tests/fixtures` is empty.
-- [ ] `make qa` is green.
+- [x] `no_port_anchors` is green, and the allowlist is recorded.
+
+      The `ALLOWED` list stays empty. The guard skips its own file
+      (`THIS_FILE`) instead, because its detector and the lines proving the
+      detector fire must name every anchor. D2a also left three dangling
+      `///.` doc lines in `crates/gage` (`remotesync.rs`,
+      `remotesync_tests.rs`, `enrollment/deny_tests.rs`); D2b fixed them.
+- [x] Prove it fails by hand in a gage-cli file. Record that here.
+
+      Proven: appending `// Go: TestProbe` to `crates/gage-cli/src/shell.rs`
+      failed `no_port_anchors` with `shell.rs:462: Go comment`. The line was
+      then removed.
+- [x] `git diff --stat main -- tests/fixtures` is empty.
+- [x] `make qa` is green.
 
 ## Definition of done
 

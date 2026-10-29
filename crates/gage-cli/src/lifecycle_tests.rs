@@ -1,9 +1,7 @@
 //! Vault lifecycle through the real CLI, in-process: `init`, `vault
 //! list/info/remove/set-default` and `git set-remote`, each run against a
 //! fresh temp directory standing in for gage's config, data and state
-//! roots, and an injected hostname. The Go rows each test ports are named
-//! above it; where only part of a Go test can run before identities
-//! exist, the comment says which part and where the rest went.
+//! roots, and an injected hostname.
 
 use std::path::{Path, PathBuf};
 
@@ -83,7 +81,7 @@ impl std::io::Write for SharedBuf {
 /// The test's prompter, with every warning also written to stderr, as the
 /// real `TerminalPrompter` writes it. Without this, a library warning is
 /// invisible to every CLI test that reads stderr, and a command could stop
-/// emitting one with nothing going red (Go's M9 review fix). Everything
+/// emitting one with nothing going red. Everything
 /// else is forwarded untouched, so the inner fake still scripts and
 /// records.
 struct EchoingPrompter<'p> {
@@ -130,8 +128,8 @@ impl Prompter for EchoingPrompter<'_> {
     }
 }
 
-/// One isolated machine: its own config, data and state roots (Go's
-/// `isolateXDG`) and hostname.
+/// One isolated machine: its own config, data and state roots
+/// and hostname.
 pub(crate) struct Env {
     pub(crate) root: tempfile::TempDir,
     pub(crate) dirs: Dirs,
@@ -229,8 +227,8 @@ impl Env {
     }
 
     /// Runs `args` and returns the command's error itself rather than its
-    /// exit code, so a test can match the typed error inside it (Go's
-    /// `errors.Is`). Nothing is printed for it: rendering is `run`'s.
+    /// exit code, so a test can match the typed error inside it.
+    /// Nothing is printed for it: rendering is `run`'s.
     pub(crate) fn dispatch(
         &self,
         args: &[&str],
@@ -296,7 +294,7 @@ impl Env {
 
     /// `gage init <name> <extra...>`; returns the registered path. Without
     /// a recovery flag in `extra` it passes `--no-recovery-key`: every run
-    /// here is a pipe, where a default init refuses (Q-RECOVERY-TEST-INIT).
+    /// here is a pipe, where a default init refuses.
     pub(crate) fn init(&self, name: &str, extra: &[&str]) -> PathBuf {
         let mut args = vec!["init", name];
         args.extend_from_slice(&with_recovery_flag(extra));
@@ -356,7 +354,7 @@ pub(crate) fn with_recovery_flag<'a>(extra: &[&'a str]) -> Vec<&'a str> {
 }
 
 /// `gage init <name> --device laptop-1 --recovery-key-out <file>`, and the
-/// key it wrote (Go's `initVaultWithRecoveryKeyFile`). The file sits in
+/// key it wrote. The file sits in
 /// the env's root, outside every directory gage manages.
 pub(crate) fn init_vault_with_recovery_key_file(env: &Env, name: &str) -> String {
     let out = env.root.path().join(format!("{name}-recovery.key"));
@@ -389,7 +387,7 @@ pub(crate) fn config_file(vault: &Path) -> PathBuf {
 }
 
 /// Replaces the first line of a vault's committed config starting with
-/// `prefix`, standing in for any git-writer (Q-DEVICE-NAME).
+/// `prefix`, standing in for any git-writer (ADR-0010).
 fn rewrite_config_line(vault: &Path, prefix: &str, replacement: &str) {
     let path = config_file(vault);
     let text = std::fs::read_to_string(&path).unwrap();
@@ -411,7 +409,6 @@ fn rewrite_config_line(vault: &Path, prefix: &str, replacement: &str) {
 
 // --- device name ------------------------------------------------------------
 
-// Go: TestResolveDeviceNameExplicitOverridesHostname
 #[test]
 fn resolve_device_name_explicit_overrides_hostname() {
     assert_eq!(
@@ -420,7 +417,6 @@ fn resolve_device_name_explicit_overrides_hostname() {
     );
 }
 
-// Go: TestResolveDeviceNameFallsBackToNormalizedHostname
 #[test]
 fn resolve_device_name_falls_back_to_normalized_hostname() {
     assert_eq!(
@@ -429,7 +425,7 @@ fn resolve_device_name_falls_back_to_normalized_hostname() {
     );
 }
 
-// Go: TestResolveDeviceNameExplicitFailingAllowlistIsUsageError. Refused,
+// Refused,
 // never normalized into some other device's name.
 #[test]
 fn resolve_device_name_explicit_failing_allowlist_is_usage_error() {
@@ -439,7 +435,6 @@ fn resolve_device_name_explicit_failing_allowlist_is_usage_error() {
     }
 }
 
-// Go: TestResolveDeviceNameHostnameNormalizesToNothingPromptsRatherThanInventing.
 // One-shot mode has no free-text prompt, so "asking" is a usage error that
 // names the flag, never an invented name.
 #[test]
@@ -481,7 +476,6 @@ fn init_defaults_the_device_to_the_normalized_hostname() {
 
 // --- init -------------------------------------------------------------------
 
-// Go: TestInitCreatesFullSkeletonAndRegisters
 #[test]
 fn init_creates_full_skeleton_and_registers() {
     let env = Env::new();
@@ -508,7 +502,7 @@ fn init_creates_full_skeleton_and_registers() {
     assert_eq!(r.stderr, "");
 }
 
-// Go: TestInitWithoutDirUsesGageDataVaultsDir. Both halves: created there,
+// Both halves: created there,
 // and registered under exactly that path.
 #[test]
 fn init_without_dir_uses_gage_data_vaults_dir() {
@@ -519,7 +513,6 @@ fn init_without_dir_uses_gage_data_vaults_dir() {
     assert_eq!(env.entry("personal").path, want);
 }
 
-// Go: TestInitWithDirUsesGivenPath
 #[test]
 fn init_with_dir_uses_given_path() {
     let env = Env::new();
@@ -532,7 +525,6 @@ fn init_with_dir_uses_given_path() {
     assert!(!env.default_vault_path("personal").exists());
 }
 
-// Go: TestInitIntoNonEmptyNonGageDirectoryFailsWithoutTouchingFiles
 #[test]
 fn init_into_non_empty_non_gage_directory_fails_without_touching_files() {
     let env = Env::new();
@@ -561,7 +553,6 @@ fn init_into_non_empty_non_gage_directory_fails_without_touching_files() {
     assert!(env.global().vaults.is_empty());
 }
 
-// Go: TestInitIntoAlreadyRegisteredNameFailsAndLeavesExistingVaultUntouched
 #[test]
 fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched() {
     let env = Env::new();
@@ -591,7 +582,6 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
     assert_eq!(keys, keys_before);
 }
 
-// Go: TestInitDefaultsLandInVaultConfigAndGlobalConfig
 #[test]
 fn init_defaults_land_in_vault_config_and_global_config() {
     let env = Env::new();
@@ -611,7 +601,7 @@ fn init_defaults_land_in_vault_config_and_global_config() {
     assert_eq!(entry.method, "passphrase");
 }
 
-// Go: TestInitExplicitTypeAndMethodEquivalentToDefault. Equivalent, not
+// Equivalent, not
 // merely accepted: the files must match bar the name, id, date and this
 // device's key, which every vault generates afresh.
 #[test]
@@ -640,7 +630,6 @@ fn init_explicit_type_and_method_equivalent_to_default() {
     assert_eq!((a.vault_type, a.method), (b.vault_type, b.method));
 }
 
-// Go: TestInitUnknownTypeFailsWithUsageAndListsGit
 #[test]
 fn init_unknown_type_fails_with_usage_and_lists_git() {
     let env = Env::new();
@@ -653,7 +642,6 @@ fn init_unknown_type_fails_with_usage_and_lists_git() {
     assert!(!env.default_vault_path("personal").exists());
 }
 
-// Go: TestInitUnknownMethodFailsWithUsage
 #[test]
 fn init_unknown_method_fails_with_usage() {
     let env = Env::new();
@@ -679,7 +667,6 @@ fn init_unknown_method_fails_with_usage() {
     }
 }
 
-// Go: TestInitMalformedRecipientFailsBeforeCreatingFiles
 #[test]
 fn init_malformed_recipient_fails_before_creating_files() {
     let env = Env::new();
@@ -701,7 +688,7 @@ fn init_malformed_recipient_fails_before_creating_files() {
     }
 }
 
-// Go: TestInitRepeatedRecipientWritesAll. This device's key first, then
+// This device's key first, then
 // every --recipient in the order given (repeats included), labelled by
 // position.
 #[test]
@@ -734,7 +721,6 @@ fn init_repeated_recipient_writes_all() {
     );
 }
 
-// Go: TestInitDeviceFlagOverridesHostnameDefault
 #[test]
 fn init_device_flag_overrides_hostname_default() {
     let env = Env::new();
@@ -742,7 +728,6 @@ fn init_device_flag_overrides_hostname_default() {
     assert_eq!(env.entry("personal").device, "custom-device");
 }
 
-// Go: TestInitDeviceFlagFailingAllowlistRejectedBeforeCreatingFiles
 #[test]
 fn init_device_flag_failing_allowlist_rejected_before_creating_files() {
     let env = Env::new();
@@ -761,7 +746,7 @@ fn init_device_flag_failing_allowlist_rejected_before_creating_files() {
     assert!(env.global().vaults.is_empty());
 }
 
-// Go: TestInitRecordsThisDevicesDeviceAndMethod. Unlock (M2) resolves the
+// Unlock resolves the
 // identity file from the recorded device and dispatches on the recorded
 // method, so both must be written.
 #[test]
@@ -773,7 +758,7 @@ fn init_records_this_devices_device_and_method() {
     assert_eq!(entry.method, "passphrase");
 }
 
-// Go: TestInitDeviceFlagAgreesEverywhere: global config, [[recipients]]
+// Global config, [[recipients]]
 // and the identity file's name.
 #[test]
 fn init_device_flag_agrees_everywhere() {
@@ -798,7 +783,7 @@ fn init_device_flag_agrees_everywhere() {
     );
 }
 
-// Go: TestReinitAfterVaultRemoveIsAnOrdinaryRetry: re-init under a
+// Re-init under a
 // removed name succeeds, mints a new id, and files a new identity under it,
 // leaving the removed vault's leftover identity file untouched.
 #[test]
@@ -830,8 +815,6 @@ fn reinit_after_vault_remove_is_an_ordinary_retry() {
     );
 }
 
-// Go: TestInitWithNoRecipientGeneratesThisDevicesIdentity. Replaces M1's
-// interim "init requires --recipient" (Q-INIT-INTERIM, closed by M2).
 #[test]
 fn init_with_no_recipient_generates_this_devices_identity() {
     let env = Env::new();
@@ -852,7 +835,6 @@ fn init_with_no_recipient_generates_this_devices_identity() {
     assert_eq!(keys, std::slice::from_ref(pubkey));
 }
 
-// Go: TestInitMintsADistinctUUIDv4PerVault
 #[test]
 fn init_mints_a_distinct_uuid_v4_per_vault() {
     let env = Env::new();
@@ -874,7 +856,6 @@ fn init_mints_a_distinct_uuid_v4_per_vault() {
     assert_eq!(env.entry("work").id, second);
 }
 
-// Go: TestInitWritesFormatVersionTwo
 #[test]
 fn init_writes_format_version_two() {
     let env = Env::new();
@@ -883,7 +864,7 @@ fn init_writes_format_version_two() {
 }
 
 // init's help describes what has shipped: the identity it generates, an
-// additive --recipient, (P4 · M8a2) --remote, and (P8 · RK3) the recovery
+// additive --recipient, --remote, and the recovery
 // key on by default with its two flags.
 #[test]
 fn init_help_describes_this_milestone() {
@@ -919,7 +900,6 @@ fn init_help_describes_this_milestone() {
 
 // --- vault list / info ------------------------------------------------------
 
-// Go: TestVaultListIncludesFreshlyInitedVault
 #[test]
 fn vault_list_includes_freshly_inited_vault() {
     let env = Env::new();
@@ -933,7 +913,7 @@ fn vault_list_includes_freshly_inited_vault() {
     assert_eq!(r.stdout, "* personal\n  work\n");
 }
 
-// Go: TestVaultInfoByNameReportsExpectedFields. Three: this device's own
+// Three: this device's own
 // generated key plus the two --recipient keys, which are additive to it.
 #[test]
 fn vault_info_by_name_reports_expected_fields() {
@@ -955,7 +935,6 @@ fn vault_info_by_name_reports_expected_fields() {
     );
 }
 
-// Go: TestVaultInfoNoArgumentReportsOnCurrent
 #[test]
 fn vault_info_no_argument_reports_on_current() {
     let env = Env::new();
@@ -995,7 +974,6 @@ fn vault_info_of_an_unregistered_name_is_not_found() {
     assert_eq!(r.stderr, "gage: no such vault \"nope\"\n");
 }
 
-// Go: TestVaultInfoReportsDirtyWorkingTree
 #[test]
 fn vault_info_reports_dirty_working_tree() {
     let env = Env::new();
@@ -1009,7 +987,6 @@ fn vault_info_reports_dirty_working_tree() {
 
 // --- untrusted input through a real command ---------------------------------
 
-// Go: TestTamperedFormatVersionRefusedByRealCommand
 #[test]
 fn tampered_format_version_refused_by_real_command() {
     let env = Env::new();
@@ -1023,7 +1000,7 @@ fn tampered_format_version_refused_by_real_command() {
     assert_eq!(r.stdout, "", "rendered fields from a config it refused");
 }
 
-// Go: TestTamperedDeviceNameRefusedByRealCommand. The committed config is
+// The committed config is
 // git-writable, so a device name that isn't a safe path component is
 // refused by the command that reads it, and nothing appears anywhere a
 // traversal would have escaped to.
@@ -1050,7 +1027,7 @@ fn tampered_device_name_refused_by_real_command() {
     }
 }
 
-// Go: TestAVaultFromBeforeThisChangeIsRefusedWithARecreateMessage. Exactly
+// Exactly
 // what a v1 vault looks like: format_version 1 and no [vault].id at all.
 #[test]
 fn a_vault_from_before_this_change_is_refused_with_a_recreate_message() {
@@ -1074,7 +1051,7 @@ fn a_vault_from_before_this_change_is_refused_with_a_recreate_message() {
     assert!(!r.stderr.contains("upgrade gage"), "{}", r.stderr);
 }
 
-// Go: TestAnUnsafeCommittedIDIsRejectedBeforeAnyPathIsBuilt. The committed
+// The committed
 // id is edited by hand, exactly as a git-writer would; nothing may be
 // built from it under the data or state roots.
 #[test]
@@ -1101,8 +1078,8 @@ fn an_unsafe_committed_id_is_rejected_before_any_path_is_built() {
     }
 }
 
-// Go: TestAMismatchedRegistrationIsRefusedRatherThanSilentlyPreferred,
-// through `vault info`, M1's read command (Go's uses `show`, P2 · M4).
+// A mismatched registration is refused rather than silently preferred,
+// through `vault info`.
 #[test]
 fn a_mismatched_registration_is_refused_rather_than_silently_preferred() {
     let env = Env::new();
@@ -1120,10 +1097,10 @@ fn a_mismatched_registration_is_refused_rather_than_silently_preferred() {
     assert_eq!(r.stdout, "");
 }
 
-// Go: TestAnUnreadableVaultFallsBackToGlobalConfigsIDAlone, the half M1
+// The half that
 // can run: `vault remove` works on a vault whose files are gone. The
-// identity-file and stderr-names-the-identities-dir halves move to
-// P6 · M12 (orphan cleanup).
+// identity-file and stderr-names-the-identities-dir halves are in
+// vault_remove_tests.
 #[test]
 fn an_unreadable_vault_falls_back_to_global_configs_id_alone() {
     let env = Env::new();
@@ -1135,10 +1112,10 @@ fn an_unreadable_vault_falls_back_to_global_configs_id_alone() {
     assert!(!env.global().vaults.contains_key("personal"));
 }
 
-// Go: TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath, M1's half: a
+// A
 // registration with no id fails `vault info` (the vault still carries an
 // id, so it is a mismatch), and with the vault gone every path builder
-// refuses "". The show/insert/identity-list halves move to P2 · M4 and P5.
+// refuses "". The show/insert/identity-list halves are in their own test files.
 #[test]
 fn a_vault_without_an_id_fails_loudly_on_every_derived_path() {
     let env = Env::new();
@@ -1160,7 +1137,6 @@ fn a_vault_without_an_id_fails_loudly_on_every_derived_path() {
 
 // --- vault remove / set-default ---------------------------------------------
 
-// Go: TestVaultRemoveDropsRegistrationButLeavesFiles
 #[test]
 fn vault_remove_drops_registration_but_leaves_files() {
     let env = Env::new();
@@ -1186,7 +1162,6 @@ fn vault_remove_of_an_unregistered_name_is_not_found_and_changes_nothing() {
     assert_eq!(env.global(), before);
 }
 
-// Go M1's set-default bullet.
 #[test]
 fn vault_set_default_changes_current_and_refuses_an_unknown_name() {
     let env = Env::new();
@@ -1204,7 +1179,7 @@ fn vault_set_default_changes_current_and_refuses_an_unknown_name() {
 
 // --- git set-remote ---------------------------------------------------------
 
-// Go M1's set-remote bullets: origin and [vaults.<name>.git].origin set in
+// set-remote: origin and [vaults.<name>.git].origin set in
 // one call; changing it updates both, and `vault info` shows the new URL.
 #[test]
 fn git_set_remote_sets_and_changes_origin_in_both_places() {
@@ -1254,8 +1229,8 @@ fn git_set_remote_on_an_unregistered_name_is_not_found() {
 
 // --- error prefix -----------------------------------------------------------
 
-// Go: TestNoCommandDoublesGagesOwnPrefix, M1's and M2's rows (M0b's are in
-// `tests`): every failure this milestone added, prefixed exactly once.
+// Every failure the vault commands can produce, prefixed exactly once
+// (the base error types are in `tests`).
 #[test]
 fn no_vault_command_doubles_gages_own_prefix() {
     let doubled = format!("{ERROR_PREFIX}{ERROR_PREFIX}");
@@ -1313,7 +1288,7 @@ fn no_vault_command_doubles_gages_own_prefix() {
         .map(|(name, args)| (*name, env.run(args)))
         .collect();
     results.push(("vault info no current", no_current.run(&["vault", "info"])));
-    // M2's rows: init failing at the passphrase, and failing after the
+    // init failing at the passphrase, and failing after the
     // identity exists (the rollback path, whose error can carry the
     // rollback's own failure appended).
     results.push((

@@ -102,7 +102,7 @@ fn commits(vault: &Path) -> usize {
     gage::gitrepo::commit_count(vault).unwrap()
 }
 
-// Go: TestConcurrentInsertsThroughTheCLIBothSucceed. Two real gage
+// Two real gage
 // processes insert at the same moment (each pays an unlock of about a
 // second, so they overlap): both succeed, each leaves exactly one commit,
 // and both entries are readable afterwards.
@@ -139,7 +139,7 @@ fn concurrent_inserts_through_the_cli_both_succeed() {
     assert!(gage::gitrepo::is_clean(&m.vault_dir()).unwrap());
 }
 
-// Go: TestConcurrentReadsDoNotBlockEachOther. A reader takes no lock, so
+// A reader takes no lock, so
 // with another process holding the vault's write lock for the whole test,
 // two concurrent reads (`ls` and `cat`) still complete.
 #[test]
@@ -180,8 +180,8 @@ fn value_stdin_after_a_piped_passphrase_stores_the_value() {
     assert_eq!(e.value, "the-value");
 }
 
-// Go: TestInsertMultilineCapturesFromARealTerminalUntilEOF. A pty is a
-// POSIX object, so Unix only, as Go's (`linux || darwin`).
+// A pty is a
+// POSIX object, so Unix only (`linux || darwin`).
 //
 // The real binary runs with the pty as its controlling terminal: the
 // passphrase is read masked from it, then `-m` reads the terminal until

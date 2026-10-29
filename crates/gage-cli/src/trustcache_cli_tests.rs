@@ -1,7 +1,6 @@
-//! M10's trust cache through the real CLI, in-process: Go's
-//! `trustcache_cli_test.go`, the two `--repair` rows of
-//! `recipient_cli_test.go`, and the P1 row about two vaults under one
-//! local name. Each test names its Go row. The terminal rendering of the
+//! The trust cache through the real CLI, in-process, including the two
+//! `--repair` rows and the row about two vaults under one
+//! local name. The terminal rendering of the
 //! question is tested beside the prompter (`prompter.rs`).
 
 use std::path::{Path, PathBuf};
@@ -125,7 +124,7 @@ pub(crate) fn env_with_vault() -> Env {
     env
 }
 
-// Go: TestInsertBlocksOnAnUnreviewedRecipientChange. A change nobody here
+// A change nobody here
 // reviewed stops the write; declining leaves the vault as it was.
 #[test]
 fn insert_blocks_on_an_unreviewed_recipient_change() {
@@ -145,7 +144,7 @@ fn insert_blocks_on_an_unreviewed_recipient_change() {
     assert!(!env.cmd_ok(&["ls"]).stdout.contains("ProtonMail"));
 }
 
-// Go: TestYesBypassesTheRecipientPromptForScripting. `--yes` answers before
+// `--yes` answers before
 // the prompter is asked (this one fails the test if it is), and a routine
 // change stays acknowledged afterwards, as an interactive yes would.
 #[test]
@@ -172,7 +171,7 @@ fn yes_bypasses_the_recipient_prompt_for_scripting() {
     assert_eq!(r.code, Code::Success, "the warning came back: {}", r.stderr);
 }
 
-// Go: TestYesDoesNotRegenerateTheCacheOnAMismatch. `--yes` proceeds but
+// `--yes` proceeds but
 // buys no silence: regeneration is decided from `verify`, so who answered
 // can't change it.
 #[test]
@@ -200,7 +199,7 @@ fn yes_does_not_regenerate_the_cache_on_a_mismatch() {
     assert!(verify.stderr.contains(&stray), "{}", verify.stderr);
 }
 
-// Go: TestYesDoesNotAnswerTheSelfRemovalConfirmation. `--yes` answers the
+// `--yes` answers the
 // trust question and nothing else: "this device will no longer be able to
 // read this vault" still fails closed in a script.
 #[test]
@@ -217,7 +216,7 @@ fn yes_does_not_answer_the_self_removal_confirmation() {
     assert!(env.age_recipients().contains(&own), "removed anyway");
 }
 
-// Go: TestRecipientAddIsRefusedOverADivergedVaultFromTheCLI. Refused,
+// Refused,
 // naming the difference, and the stray key left for `verify`.
 #[test]
 fn recipient_add_is_refused_over_a_diverged_vault_from_the_cli() {
@@ -238,7 +237,7 @@ fn recipient_add_is_refused_over_a_diverged_vault_from_the_cli() {
     );
 }
 
-// Go: TestRecipientVerifyRepairFixesTheDivergence. The refusal's exit:
+// The refusal's exit:
 // the same overwrite, deliberate, saying what it dropped.
 #[test]
 fn recipient_verify_repair_fixes_the_divergence() {
@@ -271,7 +270,6 @@ fn recipient_verify_repair_fixes_the_divergence() {
     assert!(gitrepo::is_clean(&env.vault_dir()).unwrap());
 }
 
-// Go: recipient_cli TestRecipientVerifyRepairOnAVaultInSyncSaysThereIsNothingToDo.
 #[test]
 fn recipient_verify_repair_on_a_vault_in_sync_says_there_is_nothing_to_do() {
     let env = env_with_vault();
@@ -283,7 +281,7 @@ fn recipient_verify_repair_on_a_vault_in_sync_says_there_is_nothing_to_do() {
     assert_eq!(gitrepo::head_commit(&env.vault_dir()).unwrap(), before);
 }
 
-// Go: recipient_cli TestRecipientVerifyRepairReportsWhatItAdded. A key only
+// A key only
 // config.toml knew about is added by the rewrite, and can read everything
 // written from here on: saying so matters as much as what was dropped.
 #[test]
@@ -328,7 +326,7 @@ fn recipient_verify_repair_declined_writes_nothing() {
     assert_eq!(env.age_recipients(), before);
 }
 
-// Go: TestVaultRemoveDeletesTheTrustCache. Keeping it would let a re-add
+// Keeping it would let a re-add
 // inherit an approval of a list nobody looked at in between.
 #[test]
 fn vault_remove_deletes_the_trust_cache() {
@@ -340,7 +338,7 @@ fn vault_remove_deletes_the_trust_cache() {
     assert!(!dir.exists(), "{} is still there", dir.display());
 }
 
-// Go: TestYesIsRefusedInASession. On a line it would do nothing (the
+// On a line it would do nothing (the
 // question goes through the prompter the session holds); on the way in it
 // would approve every change for the session's life. Both say so.
 #[test]
@@ -375,7 +373,7 @@ fn yes_is_refused_in_a_session() {
     assert!(!r.stdout.contains("gage> "), "a session started anyway");
 }
 
-// Go: TestReadsWarnOpportunisticallyInOneShotMode. `ls` and `show` warn on
+// `ls` and `show` warn on
 // stderr (stdout carries only the entry), succeed, ask nothing, and leave
 // the cache alone.
 #[test]
@@ -404,7 +402,7 @@ fn reads_warn_opportunistically_in_one_shot_mode() {
     assert_eq!(env.known_config(), cache, "a read regenerated the cache");
 }
 
-// Go: TestSessionModeAsksTheSameRecipientQuestion. The real terminal
+// The real terminal
 // prompter, in a session, asks the same question from the same hook a
 // one-shot write uses; `rename` has no value prompt, so the `n` can only
 // be answering it. Declining blocks, as outside a session.
@@ -432,8 +430,7 @@ fn session_mode_asks_the_same_recipient_question() {
     );
 }
 
-// Go: vaultid_keying TestTwoVaultsUnderOneLocalNameShareNeitherDirectory
-// (from P1): an unrelated vault cloned under a removed vault's local name
+// An unrelated vault cloned under a removed vault's local name
 // inherits neither its identity nor its trust cache.
 #[test]
 fn two_vaults_under_one_local_name_share_neither_directory() {

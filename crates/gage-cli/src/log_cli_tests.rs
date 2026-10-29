@@ -1,6 +1,5 @@
 //! `gage log` and `gage history --decrypt` through the real CLI,
-//! in-process: Go's `cmd/gage/log_test.go`. The Go row each test ports is
-//! named above it.
+//! in-process.
 
 use gage::entry::Entry;
 use gage::exitcode::Code;
@@ -57,7 +56,7 @@ fn is_log_line(line: &str) -> bool {
         && &line[25..27] == "  "
 }
 
-// Go: TestLogShowsTimestampsAndNoDecryptedContent. The title resolves the
+// The title resolves the
 // query, so it is typed; nothing decrypted comes back out.
 #[test]
 fn log_shows_timestamps_and_no_decrypted_content() {
@@ -84,7 +83,7 @@ fn log_shows_timestamps_and_no_decrypted_content() {
     }
 }
 
-// Go: TestLogRevealsNoTitlesFromCommitMessages. Commit messages are UUIDs;
+// Commit messages are UUIDs;
 // the output prints neither them nor any title.
 #[test]
 fn log_reveals_no_titles_from_commit_messages() {
@@ -100,7 +99,7 @@ fn log_reveals_no_titles_from_commit_messages() {
     }
 }
 
-// Go: TestLogShowsADeletedEntrysEnd. After `rm` the title no longer
+// After `rm` the title no longer
 // resolves, but the full id does.
 #[test]
 fn log_shows_a_deleted_entrys_end() {
@@ -120,7 +119,7 @@ fn log_shows_a_deleted_entrys_end() {
     );
 }
 
-// Go: TestLogOnAQueryThatIsNeitherATitleNorAUUID. A substring of a removed
+// A substring of a removed
 // entry's id is not an id, and a title still resolves title-first.
 #[test]
 fn log_on_a_query_that_is_neither_a_title_nor_a_uuid() {
@@ -137,7 +136,6 @@ fn log_on_a_query_that_is_neither_a_title_nor_a_uuid() {
     assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
 }
 
-// Go: TestLogAndHistoryOnAnEntryWithNoHistorySayNothingIsThere
 #[test]
 fn log_and_history_on_an_entry_with_no_history_say_nothing_is_there() {
     let env = env_with_vault();
@@ -152,7 +150,7 @@ fn log_and_history_on_an_entry_with_no_history_say_nothing_is_there() {
     }
 }
 
-// Go: TestLogAndHistoryWorkInASession. One unlock serves both commands, and
+// One unlock serves both commands, and
 // the history file records what was typed, never what was decrypted.
 #[test]
 fn log_and_history_work_in_a_session() {
@@ -176,7 +174,7 @@ fn log_and_history_work_in_a_session() {
     assert!(r.stdout.contains("first-secret-value"), "{}", r.stdout);
     assert!(r.stdout.contains("second-secret-value"), "{}", r.stdout);
 
-    // Beyond Go: nothing `history` decrypted reaches the history file.
+    // Nothing `history` decrypted reaches the history file.
     let history = std::fs::read_to_string(env.dirs.state.join("history")).unwrap();
     assert_eq!(
         history,
@@ -184,7 +182,7 @@ fn log_and_history_work_in_a_session() {
     );
 }
 
-// Beyond Go: a vault-wide log tags each line with its entry's short id,
+// A vault-wide log tags each line with its entry's short id,
 // and covers every entry.
 #[test]
 fn a_vault_wide_log_tags_each_line_with_its_entry() {
@@ -212,7 +210,7 @@ fn a_vault_wide_log_of_an_empty_vault_says_nothing_is_there() {
     assert!(r.stderr.contains("no history"), "{}", r.stderr);
 }
 
-// Go: TestHistoryRequiresDecrypt. Refused before anything is unlocked.
+// Refused before anything is unlocked.
 #[test]
 fn history_requires_decrypt() {
     let env = env_with_vault();
@@ -225,7 +223,7 @@ fn history_requires_decrypt() {
     assert!(prompter.unlock_requests().is_empty());
 }
 
-// Go: TestHistoryWithNoQueryIsAUsageError. No bulk form.
+// No bulk form.
 #[test]
 fn history_with_no_query_is_a_usage_error() {
     let env = env_with_vault();
@@ -236,7 +234,7 @@ fn history_with_no_query_is_a_usage_error() {
     assert_eq!(env.cmd(&["history"]).code, Code::Usage);
 }
 
-// Go: TestHistoryDecryptWalksRevisionsAndDiffs. Oldest first; the first
+// Oldest first; the first
 // revision is all additions, the next shows only what changed.
 #[test]
 fn history_decrypt_walks_revisions_and_diffs() {
@@ -266,7 +264,6 @@ fn history_decrypt_walks_revisions_and_diffs() {
     assert!(second.contains("  fields.pin: 424242"), "{second}");
 }
 
-// Go: TestHistoryDecryptMarksADescriptionChange
 #[test]
 fn history_decrypt_marks_a_description_change() {
     let env = env_with_vault();
@@ -283,7 +280,6 @@ fn history_decrypt_marks_a_description_change() {
     assert!(!r.stdout.contains("- value"), "{}", r.stdout);
 }
 
-// Go: TestHistoryDecryptShowsAFieldThatWasRemoved
 #[test]
 fn history_decrypt_shows_a_field_that_was_removed() {
     let env = env_with_vault();
@@ -296,7 +292,6 @@ fn history_decrypt_shows_a_field_that_was_removed() {
     assert!(r.stdout.contains("- fields.pin: 9999"), "{}", r.stdout);
 }
 
-// Go: TestHistoryDecryptShowsADeletedRevision
 #[test]
 fn history_decrypt_shows_a_deleted_revision() {
     let env = env_with_vault();

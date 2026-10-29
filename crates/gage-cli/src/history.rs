@@ -1,5 +1,5 @@
 //! The session's command history file. gage owns it rather than the line
-//! editor (Q-LINE-EDITOR, as amended in M6): it is created 0600, or
+//! editor (ADR-0050): it is created 0600, or
 //! tightened to 0600 if it already exists, and only ever appended to, one
 //! typed command line per submit. A line editor that saves by rewriting
 //! the file would be one more place its mode could be lost.
@@ -121,7 +121,7 @@ fn open_private(path: &Path) -> std::io::Result<File> {
 mod tests {
     use super::*;
 
-    // Go: TestHistoryIgnoresBlankLinesAndUnreadableFiles. History is a
+    // History is a
     // convenience: neither a blank line nor a file it can't read may
     // become an error in a working session.
     #[test]
@@ -140,7 +140,7 @@ mod tests {
         h.add("ls").unwrap();
         assert_eq!(h.lines(), ["ls"]);
 
-        // Go overflows bufio.Scanner; here the unreadable file is one
+        // Here the unreadable file is one
         // that isn't UTF-8.
         std::fs::write(&path, [0xff, 0xfe, b'\n']).unwrap();
         assert!(h.lines().is_empty());
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(h.lines(), ["one", "two"]);
     }
 
-    // The mode half of TestSessionHistoryFileIsCreated0600, including the
+    // The mode half of creating the file 0600, including the
     // tightening of a file that already existed with a looser mode.
     #[cfg(unix)]
     #[test]

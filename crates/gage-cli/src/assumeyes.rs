@@ -1,6 +1,6 @@
 //! `--yes`: not a library concept at all, but this frontend deciding that in
 //! a scripted run there is nobody to show a recipient diff to and the
-//! answer is already known (Q-RECIPIENT-PROMPT).
+//! answer is already known (ADR-0033).
 
 use gage::entry::CandidateList;
 use gage::prompter::{PromptError, Prompter, UnlockRequest, UnlockResponse};
@@ -18,7 +18,7 @@ pub const FLAG: &str = "yes";
 /// Answers the recipient-change question yes, without rendering it, and
 /// passes every other call to the prompter it wraps.
 ///
-/// Only that question. `confirm` is passed through, so M9b's "remove this
+/// Only that question. `confirm` is passed through, so the "remove this
 /// device's own key?" (a question about locking a device out, not about
 /// reviewing a list) is still a real question in a script, and still
 /// defaults to no. So is `resolve_conflict`: `sync --yes` answers no

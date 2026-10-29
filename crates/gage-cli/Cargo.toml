@@ -26,29 +26,28 @@ hostname = "0.4"
 # read, so jiff bundles one there.
 jiff = { version = "0.2", default-features = false, features = ["std", "tz-system"] }
 rpassword = "7.5"
-# The session's line editor (Q-LINE-EDITOR). No default features: gage
+# The session's line editor (ADR-0050). No default features: gage
 # owns the history file itself (0600, append-only), so rustyline's
 # file history and its home-directory lookup aren't needed.
 rustyline = { version = "19.0.0", default-features = false }
-# $EDITOR's PATH lookup before any scratch file exists (Q-EDITOR); handles
+# $EDITOR's PATH lookup before any scratch file exists (ADR-0036); handles
 # Windows PATHEXT.
 which = "8"
 tempfile = "3"
 uuid = "1"
 zeroize = "1"
-# `-c/--clip` (Q-CLIPBOARD): in-process on every platform, so the value
+# `-c/--clip` (ADR-0035): in-process on every platform, so the value
 # never passes through a child process. No image support; Wayland through
 # data-control.
 arboard = { version = "3.7.0", default-features = false, features = ["wayland-data-control"] }
 # A one-shot `-c`'s Ctrl-C, installed only for its wait.
 ctrlc = "3.5.2"
-# `-q/--qr` (Q-QR-CRATE): encoding only, no image rendering.
+# `-q/--qr` (ADR-0049): encoding only, no image rendering.
 qrcode = { version = "0.14.1", default-features = false }
 # The clipboard keeper remembers a digest of what it wrote, never the value.
 sha2 = "0.11"
 subtle = "2"
-# Typed refusals a caller can match through `CliError::downcast_ref`
-# (Q-RECOVERY-LOCAL-IDENTITY-ERROR).
+# Typed refusals a caller can match through `CliError::downcast_ref`.
 thiserror = "2"
 
 [dev-dependencies]

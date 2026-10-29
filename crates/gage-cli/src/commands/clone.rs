@@ -117,7 +117,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         // record until `identity add` puts one here.
         pubkey: String::new(),
         // The vault's default is a suggestion for joining devices, and
-        // what a later `identity add` offers (Q-METHOD-SCOPE).
+        // what a later `identity add` offers (ADR-0011).
         method: file.method.default.clone(),
         git: GitMeta {
             origin: url.to_string(),

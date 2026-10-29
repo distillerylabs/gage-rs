@@ -1,7 +1,6 @@
 //! `gage recovery verify`, `enroll` and `rotate`, the `recovery` parent,
-//! and the recovery label's reservation through the CLI, in-process: Go's
-//! `cmd/gage/recovery_test.go` and `recovery_enroll_test.go`. Each test
-//! names its Go row; rows beyond Go say so. The harness (a prompter that
+//! and the recovery label's reservation through the CLI, in-process.
+//! The harness (a prompter that
 //! pastes and answers the re-type from the screen, the hygiene walk) is
 //! `init_recoverykey_tests`'.
 
@@ -14,7 +13,7 @@ use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE, init_vault_with_recover
 
 const VAULT: &str = "personal";
 
-/// Go's `assertVerifies`, through the real `recovery verify`: whether
+/// Through the real `recovery verify`: whether
 /// `key` is still the vault's recovery key, the one enroll accepts.
 fn assert_verifies(env: &Env, key: &str, want: bool) {
     let p = FakePrompter::new().with_value(key);
@@ -42,7 +41,7 @@ fn insert(env: &Env, title: &str, value: &str) {
 }
 
 /// `recovery rotate <args>` at a terminal, confirming from the screen
-/// (Go's `runRotate`): the result, the last key shown, and the prompter.
+///: the result, the last key shown, and the prompter.
 fn run_rotate(env: &Env, args: &[&str]) -> (CliResult, Option<String>, ScreenPrompter) {
     let p = ScreenPrompter::new();
     let mut all = vec!["recovery", "rotate"];
@@ -52,7 +51,7 @@ fn run_rotate(env: &Env, args: &[&str]) -> (CliResult, Option<String>, ScreenPro
     (r, shown, p)
 }
 
-// Go: TestRecoveryRotateReplacesTheKey. One commit; the old key retired,
+// One commit; the old key retired,
 // the new one shown and registered under the label; the vault still reads.
 #[test]
 fn recovery_rotate_replaces_the_key() {
@@ -93,7 +92,7 @@ fn recovery_rotate_replaces_the_key() {
     assert!(r.stderr.contains(crate::qr::QR_BOTH), "{}", r.stderr);
 }
 
-// Go: TestRecoveryRotateAddsOneToAVaultWithout: the way back from having
+// The way back from having
 // said --no-recovery-key.
 #[test]
 fn recovery_rotate_adds_one_to_a_vault_without() {
@@ -109,7 +108,7 @@ fn recovery_rotate_adds_one_to_a_vault_without() {
     assert!(!r.stdout.contains("retired"), "{}", r.stdout);
 }
 
-// Go: TestRecoveryRotateWithoutATerminalRefusesBeforeAnyPrompt. Nowhere to
+// Nowhere to
 // show the key, so it doesn't even ask for the passphrase (the prompter is
 // unscripted). And rotate has no opt-out flag to name: producing a key is
 // the whole command.
@@ -126,8 +125,8 @@ fn recovery_rotate_without_a_terminal_refuses_before_any_prompt() {
     assert!(secret_keys(&(r.stdout + &r.stderr)).is_empty());
 }
 
-// Go: TestRecoveryRotateChecksTheKeyDestinationBeforeTheUnlock (R5's
-// review). Knowable from the path alone; found after the passphrase and a
+// The key destination is checked before the unlock.
+// Knowable from the path alone; found after the passphrase and a
 // sync, it charges the user twice for one mistake.
 #[test]
 fn recovery_rotate_checks_the_key_destination_before_the_unlock() {
@@ -150,7 +149,7 @@ fn recovery_rotate_checks_the_key_destination_before_the_unlock() {
     assert!(!inside.exists());
 }
 
-// Go: TestRecoveryRotateKeyOutWritesAPrivateFile. No terminal, no re-type
+// No terminal, no re-type
 // (a value request would fail the unscripted prompter).
 #[test]
 fn recovery_rotate_key_out_writes_a_private_file() {
@@ -179,7 +178,7 @@ fn recovery_rotate_key_out_writes_a_private_file() {
     assert_verifies(&env, &old, false);
 }
 
-// Go: TestRecoveryRotateKeepsNoCopyOfEitherKey. Neither the retired key
+// Neither the retired key
 // nor the new one is anywhere gage writes, git objects included, and the
 // new one is shown exactly once.
 #[test]
@@ -201,7 +200,7 @@ fn recovery_rotate_keeps_no_copy_of_either_key() {
     assert!(!all.contains(&old), "the retired key was printed");
 }
 
-// Go: TestRecoveryRotateStillPublishesWhenTheConfirmationFails. As init:
+// As init:
 // the re-type is the last gate, not an early exit, and the swap is pushed
 // before it is asked.
 #[test]
@@ -231,7 +230,7 @@ fn recovery_rotate_still_publishes_when_the_confirmation_fails() {
     assert!(r.stderr.contains("gage recovery rotate"), "{}", r.stderr);
 }
 
-// Go: TestRecoveryRotateIsListedInHelp, and in its parent's help too.
+// And in its parent's help too.
 #[test]
 fn recovery_rotate_is_listed_in_help() {
     let env = Env::new();
@@ -248,7 +247,7 @@ fn recovery_rotate_is_listed_in_help() {
 // --- recovery verify ---------------------------------------------------------
 
 /// `recovery verify` with `pasted` as the answer to its one prompt, no
-/// terminal (Go's `runRecoveryVerify`). A passphrase is scripted so that
+/// terminal. A passphrase is scripted so that
 /// a verify that unlocked would succeed and be caught by the request log,
 /// not fail for want of an answer.
 fn run_verify(env: &Env, pasted: &str) -> (CliResult, FakePrompter) {
@@ -267,7 +266,6 @@ fn stranger() -> String {
         .to_string()
 }
 
-// Go: TestRecoveryVerifyAcceptsTheVaultsRecoveryKey
 #[test]
 fn recovery_verify_accepts_the_vaults_recovery_key() {
     let env = Env::new();
@@ -277,7 +275,6 @@ fn recovery_verify_accepts_the_vaults_recovery_key() {
     assert!(r.stdout.contains(VAULT), "{}", r.stdout);
 }
 
-// Go: TestRecoveryVerifyToleratesPastedWhitespace
 #[test]
 fn recovery_verify_tolerates_pasted_whitespace() {
     let env = Env::new();
@@ -286,8 +283,8 @@ fn recovery_verify_tolerates_pasted_whitespace() {
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
 }
 
-// Go: TestRecoveryVerifyNeedsNoUnlock. The check a lost identity file
-// sends you to can't depend on that file. Beyond Go: no lock either; it
+// The check a lost identity file
+// sends you to can't depend on that file. No lock either; it
 // reads only the plaintext recipient list. The lock file is removed first,
 // so taking the lock would leave a new one behind.
 #[test]
@@ -304,7 +301,7 @@ fn recovery_verify_needs_no_unlock() {
     assert!(!lock.exists(), "verify took the vault lock");
 }
 
-// Go: TestRecoveryVerifyRejectsAKeyThatIsNotARecipient. Nothing on
+// Nothing on
 // stdout, which is where success goes.
 #[test]
 fn recovery_verify_rejects_a_key_that_is_not_a_recipient() {
@@ -315,7 +312,7 @@ fn recovery_verify_rejects_a_key_that_is_not_a_recipient() {
     assert_eq!(r.stdout, "");
 }
 
-// Go: TestRecoveryVerifyRejectsAMalformedKey. A public key is the likely
+// A public key is the likely
 // wrong paste.
 #[test]
 fn recovery_verify_rejects_a_malformed_key() {
@@ -328,7 +325,7 @@ fn recovery_verify_rejects_a_malformed_key() {
     }
 }
 
-// Go: TestRecoveryVerifyNeverEchoesTheKey: not on success, not in either
+// Not on success, not in either
 // failure, on neither stream.
 #[test]
 fn recovery_verify_never_echoes_the_key() {
@@ -350,7 +347,6 @@ fn recovery_verify_never_echoes_the_key() {
     }
 }
 
-// Go: TestRecoveryVerifyIsListedInHelp
 #[test]
 fn recovery_verify_is_listed_in_help() {
     let env = Env::new();
@@ -358,8 +354,8 @@ fn recovery_verify_is_listed_in_help() {
     assert!(help.contains("recovery verify"), "{help}");
 }
 
-// Go: TestRecoveryVerifyDistinguishesDecryptingFromEnrolling (Go's R3
-// review). "Is a recipient" and "enroll will take it" are different
+// Verify distinguishes decrypting from enrolling.
+// "Is a recipient" and "enroll will take it" are different
 // claims, and verify is the check the docs say to trust, so it must not
 // pass a key enroll refuses. The third case, enroll refusing that key,
 // needs enroll and is below with its rows.
@@ -404,7 +400,7 @@ fn recovery_verify_distinguishes_decrypting_from_enrolling() {
 // --- recovery enroll: refusals before the paste ------------------------------
 
 /// Deletes every wrapped identity this machine holds, the state `recovery
-/// enroll` is for (Go's `loseTheIdentityFile`). The registration stays, as
+/// enroll` is for. The registration stays, as
 /// on a machine whose data dir was lost while its config survived.
 fn lose_the_identity_file(env: &Env) {
     std::fs::remove_dir_all(env.dirs.data.join("identities")).unwrap();
@@ -428,7 +424,7 @@ fn identity_files(env: &Env) -> Vec<std::path::PathBuf> {
 
 /// `recovery enroll <args>` at a terminal, pasting `pasted`, choosing
 /// [`PASSPHRASE`] and confirming the replacement key from the screen
-/// (Go's `runEnroll`): the result, the last key shown, and the prompter.
+///: the result, the last key shown, and the prompter.
 fn run_enroll(
     env: &Env,
     pasted: &str,
@@ -442,7 +438,7 @@ fn run_enroll(
     (r, shown, p)
 }
 
-// Go: TestRecoveryEnrollWithoutATerminalRefusesBeforeAnything. The
+// The
 // replacement key is shown once, and a run with nowhere to show it must
 // not get as far as asking for the old one. The refusal names enroll's own
 // opt-out, not init's.
@@ -465,7 +461,7 @@ fn recovery_enroll_without_a_terminal_refuses_before_anything() {
     assert_eq!(env.vault_config(VAULT).recipients, before);
 }
 
-// Go: TestRecoveryEnrollRefusesACollidingNameBeforeThePaste. A name the
+// A name the
 // vault lists is visible in the plaintext recipient list, so it must not
 // cost a paste and a passphrase to find out. It is the recipient verbs'
 // own `RecipientExists`, with the way out added.
@@ -502,8 +498,8 @@ fn recovery_enroll_refuses_a_colliding_name_before_the_paste() {
     );
 }
 
-// Go: TestRecoveryEnrollLocalIdentityErrorIsMatchable (Go's R4 review: the
-// sentinel was formatted with %v, so nothing could match it). A local
+// The local-identity error is matchable (it was once formatted with %v,
+// so nothing could match it). A local
 // identity file under a name the vault doesn't list, so the identity-file
 // check is what refuses rather than the name collision. Its passphrase is
 // never asked for: a forgotten one is why anyone is here.
@@ -553,9 +549,9 @@ fn recovery_enroll_local_identity_error_is_matchable() {
     );
 }
 
-// Beyond Go (RK4's review): `--replaces recovery-paper-key` is knowable
+// `--replaces recovery-paper-key` is knowable
 // from the flags alone, so it is refused with the paste, not after a new
-// passphrase. Go's library refuses it only from inside the swap, which
+// passphrase. The library refuses it only from inside the swap, which
 // still backs this up.
 #[test]
 fn recovery_enroll_refuses_replacing_the_recovery_key_before_the_paste() {
@@ -578,7 +574,7 @@ fn recovery_enroll_refuses_replacing_the_recovery_key_before_the_paste() {
     assert!(identity_files(&env).is_empty());
 }
 
-// Go: TestRecoveryEnrollChecksTheKeyBeforeTheNewPassphrase. A wrong paste
+// A wrong paste
 // is the likeliest mistake, and it must not cost a passphrase entry first.
 #[test]
 fn recovery_enroll_checks_the_key_before_the_new_passphrase() {
@@ -601,7 +597,6 @@ fn recovery_enroll_checks_the_key_before_the_new_passphrase() {
     );
 }
 
-// Go: TestRecoveryEnrollIsListedInHelp
 #[test]
 fn recovery_enroll_is_listed_in_help() {
     let env = Env::new();
@@ -609,7 +604,7 @@ fn recovery_enroll_is_listed_in_help() {
     assert!(help.contains("recovery enroll"), "{help}");
 }
 
-// Go: TestRecoveryVerifyDistinguishesDecryptingFromEnrolling, its third
+// Its third
 // case: verify's caveat has to be true, so enroll really does refuse a
 // recipient's key that isn't under the recovery label.
 #[test]
@@ -663,7 +658,7 @@ fn show(env: &Env, title: &str) -> CliResult {
     env.run(&["show", title])
 }
 
-// Go: TestRecoveryEnrollGetsAWorkingDeviceBack: the milestone end to end.
+// The milestone end to end.
 // A vault whose only identity is gone, opened again with nothing but the
 // paper key.
 #[test]
@@ -721,7 +716,7 @@ fn recovery_enroll_gets_a_working_device_back() {
     assert!(r.stdout.contains("re-encrypted 1 entry"), "{}", r.stdout);
 }
 
-// Go: TestRecoveryEnrollWorksOnAFreshClone. A brand-new machine with
+// A brand-new machine with
 // nothing but the clone and the paper.
 #[test]
 fn recovery_enroll_works_on_a_fresh_clone() {
@@ -753,7 +748,7 @@ fn recovery_enroll_works_on_a_fresh_clone() {
     assert!(published.contains(&env.entry(VAULT).pubkey), "{published}");
 }
 
-// Go: TestRecoveryEnrollRebuildsADeviceWhosePassphraseIsForgotten: the
+// The
 // half a blanket "refuse an existing identity file" rule would block. The
 // file survives; only its passphrase is gone, so it is never asked for.
 #[test]
@@ -789,7 +784,7 @@ fn recovery_enroll_rebuilds_a_device_whose_passphrase_is_forgotten() {
     assert_eq!(read.code, Code::Success, "{}", read.stderr);
 }
 
-// Beyond Go (RK4's review): the commonest rebuild, a new machine under the
+// The commonest rebuild, a new machine under the
 // old one's name, with the old file gone rather than unopenable. Nothing to
 // back up, and the name is free because --replaces names it.
 #[test]
@@ -812,7 +807,7 @@ fn recovery_enroll_rebuilds_under_the_same_name_after_losing_the_file() {
     assert_eq!(read.code, Code::Success, "{}", read.stderr);
 }
 
-// Go: TestRecoveryEnrollReplacesADifferentLostDevice: a new machine
+// A new machine
 // taking over from one that is gone, under a new name, in the same commit.
 #[test]
 fn recovery_enroll_replaces_a_different_lost_device() {
@@ -833,7 +828,7 @@ fn recovery_enroll_replaces_a_different_lost_device() {
     assert!(r.stdout.contains("removed \"laptop-1\""), "{}", r.stdout);
 }
 
-// Go: TestRecoveryEnrollRollsBackTheIdentityWhenTheSwapFails. --replaces
+// --replaces
 // names nobody, which the library refuses after the new identity exists:
 // no orphan identity, no registration change, no commit.
 #[test]
@@ -873,8 +868,8 @@ fn recovery_enroll_rolls_back_the_identity_when_the_swap_fails() {
     assert_verifies(&env, &pasted, true);
 }
 
-// Go: TestRecoveryEnrollRestoresTheIdentityItDisplacedWhenAborted (Go's
-// R4 review). The identity is kept, not deleted first: every earlier
+// Recovery enroll restores the identity it displaced when aborted.
+// The identity is kept, not deleted first: every earlier
 // rollback test deleted it, so the restore never ran. The abort is at the
 // new-passphrase prompt, after the old file has been cleared, and it was
 // the vault's only identity, so its directory was pruned with it.
@@ -938,7 +933,7 @@ fn recovery_enroll_restores_the_identity_it_displaced_when_aborted() {
     );
 }
 
-// Beyond Go: the restore when the *swap* fails, not the passphrase. The
+// The restore when the *swap* fails, not the passphrase. The
 // row above aborts at step 4; this one gets the new identity made and
 // written over the old one's place, then has the swap refuse, so both the
 // removal of the new file and the restore of the old one have to run. The
@@ -993,7 +988,7 @@ fn recovery_enroll_restores_the_displaced_identity_when_the_swap_fails() {
     assert_eq!(read.code, Code::Success, "{}", read.stderr);
 }
 
-// Go: TestRecoveryEnrollNoNewRecoveryKeyLeavesNone. No key made or
+// No key made or
 // printed, no recovery recipient left, and a warning that says so.
 #[test]
 fn recovery_enroll_no_new_recovery_key_leaves_none() {
@@ -1035,8 +1030,8 @@ fn run_enroll_piped(env: &Env, pasted: &str, extra: &[&str]) -> (CliResult, Fake
     (r, p)
 }
 
-// Go: TestRecoveryEnrollShowsTheNewKeyEvenIfRegistrationFails (Go's R4
-// review). Once the swap has committed and pushed, the replacement key is
+// Recovery enroll shows the new key even if registration fails.
+// Once the swap has committed and pushed, the replacement key is
 // the vault's and its private half exists only in this process, so the
 // registration failing after it must not be what swallows it. The config
 // directory is made read-only: reads still work, so the run reaches the
@@ -1096,7 +1091,7 @@ fn recovery_enroll_shows_the_new_key_even_if_registration_fails() {
     assert!(r.stdout.contains("enrolled \"laptop-2\""), "{}", r.stdout);
 }
 
-// Beyond Go (RK4's review): step 8's precedence. Delivery and
+// Precedence: delivery and
 // registration both fail: the lost key is the worse of the two, so it sets
 // the exit code, and the registration failure is still reported beside it
 // with its remedy. The destination is taken between the up-front check and
@@ -1154,7 +1149,7 @@ fn recovery_enroll_reports_both_when_delivery_and_registration_fail() {
     assert_eq!(std::fs::read_to_string(&out).unwrap(), "x");
 }
 
-// Go: TestRecoveryEnrollStillPublishesWhenTheConfirmationFails. As init's:
+// As init's:
 // the re-type is the last gate, not an early exit. The swap reached the
 // remote; the key is shown once and not reprinted; the device is
 // registered anyway, since a failed re-type is the key's problem, not the
@@ -1191,7 +1186,6 @@ fn recovery_enroll_still_publishes_when_the_confirmation_fails() {
     assert_eq!(env.entry(VAULT).device, "laptop-2");
 }
 
-// Go: TestRecoveryEnrollKeyOutWritesAPrivateFile
 #[test]
 fn recovery_enroll_key_out_writes_a_private_file() {
     let env = Env::new();
@@ -1220,7 +1214,7 @@ fn recovery_enroll_key_out_writes_a_private_file() {
     assert_verifies(&env, &pasted, false);
 }
 
-// Go: TestRecoveryEnrollKeepsNoCopyOfEitherKey. Neither the pasted key
+// Neither the pasted key
 // nor its replacement is anywhere gage writes, git objects included; the
 // pasted one is never echoed and the new one is shown exactly once.
 #[test]
@@ -1243,7 +1237,7 @@ fn recovery_enroll_keeps_no_copy_of_either_key() {
     assert_eq!(all.matches(&pasted).count(), 0, "the pasted key was echoed");
 }
 
-// Go: TestNoRecoveryKeyWarningNamesARealCommand. Pointing at a command
+// Pointing at a command
 // that doesn't exist is worse than saying nothing: the suggested fix
 // prints usage and exits 0, and the user believes the vault has a key.
 #[test]
@@ -1267,7 +1261,7 @@ fn no_recovery_key_warning_names_a_real_command() {
 
 // --- the reservation through the CLI ----------------------------------------
 
-// Go: TestNoCommandLetsADeviceTakeTheRecoveryLabel. `recovery rotate`
+// `recovery rotate`
 // evicts whatever holds the label, so no command that names a device may
 // let one take it, `recovery enroll` included.
 #[test]
@@ -1356,10 +1350,9 @@ fn named_commands(text: &str) -> Vec<String> {
         .collect()
 }
 
-// Beyond Go: every command init's and rotate's recovery messages tell the
-// user to run exists in this build (Go's
-// TestNoRecoveryKeyWarningNamesARealCommand guard, which is RK4's row,
-// applied here). The messages are read off real runs: the two terminal
+// Every command init's and rotate's recovery messages tell the
+// user to run exists in this build.
+// The messages are read off real runs: the two terminal
 // refusals, a refused re-type, and a failed file write.
 #[test]
 fn every_command_init_and_rotate_messages_name_is_registered() {
