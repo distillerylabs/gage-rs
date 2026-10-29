@@ -18,7 +18,7 @@ use crate::vault::Vault;
 use crate::{paths, vaultconfig};
 
 fn vault(i: &Installed) -> Vault {
-    let global = config::read(&paths::global_config_file(&i.dirs)).unwrap();
+    let global = config::load(&paths::global_config_file(&i.dirs)).unwrap();
     Vault::from_registration(&i.dirs, fx::VAULT_NAME, &global.vaults[fx::VAULT_NAME]).unwrap()
 }
 
@@ -26,13 +26,13 @@ fn text(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
 }
 
-/// `committed`, read with `vaultconfig::read` and written back with
-/// `vaultconfig::write`.
+/// `committed`, read with `vaultconfig::load` and written back with
+/// `vaultconfig::save`.
 fn rewrite_vault_config(committed: &str) -> String {
     let dir = tempfile::tempdir().unwrap();
     let (src, dst) = (dir.path().join("in.toml"), dir.path().join("out.toml"));
     std::fs::write(&src, committed).unwrap();
-    vaultconfig::write(&dst, &vaultconfig::read(&src).unwrap()).unwrap();
+    vaultconfig::save(&dst, &vaultconfig::load(&src).unwrap()).unwrap();
     text(&dst)
 }
 
@@ -61,7 +61,7 @@ fn format_v2_global_config_reserializes_byte_identically() {
     let dir = tempfile::tempdir().unwrap();
     let (src, dst) = (dir.path().join("in.toml"), dir.path().join("out.toml"));
     std::fs::write(&src, &committed).unwrap();
-    config::write(&dst, &config::read(&src).unwrap()).unwrap();
+    config::save(&dst, &config::load(&src).unwrap()).unwrap();
     assert_eq!(text(&dst), committed);
 }
 
@@ -82,7 +82,7 @@ fn format_v2_trust_record_reserializes_byte_identically() {
         .unwrap()
         .expect("the fixture has one");
     std::fs::remove_dir_all(&trust_dir).unwrap();
-    vault.store_trust_cache(&cache).unwrap();
+    vault.save_trust_cache(&cache).unwrap();
 
     assert_eq!(text(&trust_dir.join(KNOWN_CONFIG_FILE)), known);
     assert_eq!(text(&trust_dir.join(TRUST_FILE)), trust);

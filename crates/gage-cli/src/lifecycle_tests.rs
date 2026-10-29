@@ -307,11 +307,11 @@ impl Env {
     }
 
     pub(crate) fn global(&self) -> Global {
-        config::load(&paths::global_config_file(&self.dirs)).unwrap()
+        config::load_or_default(&paths::global_config_file(&self.dirs)).unwrap()
     }
 
     pub(crate) fn save_global(&self, global: &Global) {
-        config::save(&paths::global_config_file(&self.dirs), global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&self.dirs), global).unwrap();
     }
 
     pub(crate) fn entry(&self, name: &str) -> VaultEntry {
@@ -325,7 +325,7 @@ impl Env {
     /// The registered vault's committed config: the file init wrote, not
     /// the global registry.
     pub(crate) fn vault_config(&self, name: &str) -> vaultconfig::File {
-        vaultconfig::read(&config_file(&self.entry(name).path)).unwrap()
+        vaultconfig::load(&config_file(&self.entry(name).path)).unwrap()
     }
 
     pub(crate) fn default_vault_path(&self, name: &str) -> PathBuf {
@@ -562,7 +562,7 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
     let env = Env::new();
     let path = env.init("personal", &[]);
     let before = env.global();
-    let keys_before = recipients::read(&path.join(".age-recipients")).unwrap();
+    let keys_before = recipients::load(&path.join(".age-recipients")).unwrap();
 
     let r = env.run_with(
         &[
@@ -582,7 +582,7 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
         r.stderr
     );
     assert_eq!(env.global(), before);
-    let keys = recipients::read(&path.join(".age-recipients")).unwrap();
+    let keys = recipients::load(&path.join(".age-recipients")).unwrap();
     assert_eq!(keys, keys_before);
 }
 
@@ -732,7 +732,7 @@ fn init_repeated_recipient_writes_all() {
         ],
     );
 
-    let keys = recipients::read(&path.join(".age-recipients")).unwrap();
+    let keys = recipients::load(&path.join(".age-recipients")).unwrap();
     assert_eq!(Some(&keys[0]), env.entry("personal").pubkey.as_ref());
     assert_eq!(keys[1..], [RECIPIENT_1, RECIPIENT_2, RECIPIENT_1]);
     let labels: Vec<String> = env
@@ -857,7 +857,7 @@ fn init_with_no_recipient_generates_this_devices_identity() {
     gage::agekey::validate_recipient(pubkey).unwrap();
     assert_eq!(file.recipients[0].device, entry.device);
     // The same key, in both recipient-defining files.
-    let keys = recipients::read(&entry.path.join(".age-recipients")).unwrap();
+    let keys = recipients::load(&entry.path.join(".age-recipients")).unwrap();
     assert_eq!(keys, std::slice::from_ref(pubkey));
 }
 

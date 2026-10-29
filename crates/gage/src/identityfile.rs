@@ -148,7 +148,7 @@ pub fn create(
     p: &dyn Prompter,
 ) -> Result<String, UnlockError> {
     let path = paths::identity_file_path(dirs, vault_id, device)?;
-    if let Some(wrapped) = read(&path)? {
+    if let Some(wrapped) = load(&path)? {
         let key = open(vault_name, device, &wrapped, p)?;
         p.warn(&Warning::from(format!(
             "reusing the existing local identity file for {vault_name:?} (device {device}) rather than generating a new one"
@@ -252,14 +252,14 @@ pub fn backup(
     device: &str,
 ) -> Result<Option<IdentityBackup>, UnlockError> {
     let path = paths::identity_file_path(dirs, vault_id, device)?;
-    let Some(wrapped) = read(&path)? else {
+    let Some(wrapped) = load(&path)? else {
         return Ok(None);
     };
     let marker_path = path
         .parent()
         .expect("an identity file path has a directory")
         .join(MARKER_FILE_NAME);
-    let marker = read(&marker_path)?;
+    let marker = load(&marker_path)?;
     Ok(Some(IdentityBackup {
         path,
         wrapped: Zeroizing::new(wrapped),
@@ -311,7 +311,7 @@ fn holds_no_identities(dir: &Path) -> bool {
 }
 
 /// The wrapped file at `path`, or `None` if there is none.
-pub(crate) fn read(path: &Path) -> Result<Option<Vec<u8>>, UnlockError> {
+pub(crate) fn load(path: &Path) -> Result<Option<Vec<u8>>, UnlockError> {
     match std::fs::read(path) {
         Ok(data) => Ok(Some(data)),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),

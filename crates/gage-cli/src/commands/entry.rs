@@ -519,7 +519,7 @@ pub fn show(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
 pub fn cat(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = arg(matches, "query");
     let shown = keys.with_resolved(matches, io, query, |_, _, _, id, e| {
-        let yaml = entry::marshal(&e)?;
+        let yaml = e.to_yaml()?;
         Ok(Zeroizing::new(catfmt::align_cat_output(
             short_id(&id.to_string()),
             &yaml,

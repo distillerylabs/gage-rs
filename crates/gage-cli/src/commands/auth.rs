@@ -86,7 +86,7 @@ pub fn login(matches: &ArgMatches, io: &mut Io, keys: &Keys) -> Result<(), CliEr
         .prompter()
         .value(&format!("token for {host}"))
         .map_err(|e| fail(ExitCode::LockedOrAuth, e))?;
-    remoteauth::store(&dirs(io)?, &host, &token)?;
+    remoteauth::save(&dirs(io)?, &host, &token)?;
     out(io, &[format!("gage: stored a token for {host}")]);
     Ok(())
 }

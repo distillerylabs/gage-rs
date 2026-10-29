@@ -5,7 +5,7 @@
 //! `editor::fake`) set on the [`Env`].
 
 use crate::exitcode::ExitCode;
-use gage::entry::{self, Entry, Timestamp};
+use gage::entry::{Entry, Timestamp};
 use gage::prompter::FakePrompter;
 use uuid::Uuid;
 
@@ -23,7 +23,7 @@ impl Env {
     /// `gage cat <query>`, parsed back into an entry.
     fn cat_entry(&self, query: &str) -> Entry {
         let r = self.cmd_ok(&["cat", query]);
-        entry::unmarshal(r.stdout.as_bytes()).unwrap()
+        Entry::from_yaml(r.stdout.as_bytes()).unwrap()
     }
 
     /// Writes an entry under a chosen id through the library, so a test can
@@ -586,7 +586,7 @@ fn insert_edit_opens_a_pre_filled_template_with_empty_value_and_fields() {
     ]);
 
     let template = fake.template();
-    let seeded = entry::unmarshal(&template).unwrap();
+    let seeded = Entry::from_yaml(&template).unwrap();
     assert_eq!(seeded.title, "ProtonMail");
     assert_eq!(seeded.description, "personal email");
     assert_eq!(seeded.value, "");

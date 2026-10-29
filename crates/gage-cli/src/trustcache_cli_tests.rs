@@ -49,7 +49,7 @@ impl Env {
     }
 
     fn age_recipients(&self) -> Vec<String> {
-        recipients::read(&self.vault_dir().join(".age-recipients")).unwrap()
+        recipients::load(&self.vault_dir().join(".age-recipients")).unwrap()
     }
 
     /// `gage insert <title> --value-stdin <extra...>` through `p`.
@@ -95,16 +95,16 @@ impl Env {
 /// `recipient add` on another device arrives in after a pull.
 pub(crate) fn commit_routine_change(vault: &Path, device: &str, pubkey: &str) {
     let path = vault.join(".age-recipients");
-    let mut keys = recipients::read(&path).unwrap();
+    let mut keys = recipients::load(&path).unwrap();
     keys.push(pubkey.into());
-    recipients::write(&path, &keys).unwrap();
+    recipients::save(&path, &keys).unwrap();
     let config = vault.join(".gage").join("config.toml");
-    let mut file = vaultconfig::read(&config).unwrap();
+    let mut file = vaultconfig::load(&config).unwrap();
     file.recipients.push(vaultconfig::Recipient {
         device: device.into(),
         pubkey: pubkey.into(),
     });
-    vaultconfig::write(&config, &file).unwrap();
+    vaultconfig::save(&config, &file).unwrap();
     gitrepo::commit_all(vault, &format!("gage: recipient add {device}")).unwrap();
 }
 
@@ -112,9 +112,9 @@ pub(crate) fn commit_routine_change(vault: &Path, device: &str, pubkey: &str) {
 /// `verify` reports and the trust cache refuses to forget.
 pub(crate) fn tamper_recipients_file(vault: &Path, pubkey: &str) {
     let path = vault.join(".age-recipients");
-    let mut keys = recipients::read(&path).unwrap();
+    let mut keys = recipients::load(&path).unwrap();
     keys.push(pubkey.into());
-    recipients::write(&path, &keys).unwrap();
+    recipients::save(&path, &keys).unwrap();
     gitrepo::commit_all(vault, "add a key").unwrap();
 }
 
@@ -294,12 +294,12 @@ fn recipient_verify_repair_reports_what_it_added() {
     let env = env_with_vault();
     let declared = new_key();
     let config = env.vault_dir().join(".gage").join("config.toml");
-    let mut file = vaultconfig::read(&config).unwrap();
+    let mut file = vaultconfig::load(&config).unwrap();
     file.recipients.push(vaultconfig::Recipient {
         device: "phone-1".into(),
         pubkey: declared.clone(),
     });
-    vaultconfig::write(&config, &file).unwrap();
+    vaultconfig::save(&config, &file).unwrap();
     gitrepo::commit_all(&env.vault_dir(), "declare a key in config only").unwrap();
 
     let r = env.run_with(

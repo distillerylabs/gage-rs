@@ -2,8 +2,8 @@
 //! (see "Entry format" in the design doc). This module is the type and its
 //! YAML form; [`store`] is where entries meet the vault's files.
 //!
-//! The YAML is written by gage's own emitter ([`marshal`]) and read with
-//! `saphyr`'s parser ([`unmarshal`]), because a password manager cannot
+//! The YAML is written by gage's own emitter ([`Entry::to_yaml`]) and read with
+//! `saphyr`'s parser ([`Entry::from_yaml`]), because a password manager cannot
 //! delegate "this string comes back byte for byte" to a library's style
 //! heuristics: see `yaml` for the rules and the check behind them.
 
@@ -28,7 +28,6 @@ pub use crud::{
     WriteError, resolve_query,
 };
 pub use layout::{KeyLine, key_layout};
-pub use yaml::{marshal, unmarshal};
 
 /// The vault-relative directory every entry file lives under ("On-disk
 /// layout").
@@ -156,7 +155,7 @@ impl fmt::Debug for Extra {
 
 /// One vault secret, decrypted. See "Entry format" in the design doc.
 ///
-/// [`marshal`] writes these field by field in the design doc's order;
+/// [`Entry::to_yaml`] writes these field by field in the design doc's order;
 /// `every_entry_field_is_marshaled` destructures the struct, so a field
 /// added here that the emitter and parser don't know fails to compile.
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -374,7 +373,7 @@ mod tests {
             created: Timestamp::from_unix(1_768_386_720),
             ..Entry::default()
         };
-        let text = String::from_utf8(marshal(&e).unwrap().to_vec()).unwrap();
+        let text = String::from_utf8(e.to_yaml().unwrap().to_vec()).unwrap();
         assert!(text.contains("\ncreated: 2026-01-14T10:32:00Z\n"), "{text}");
     }
 
@@ -403,7 +402,7 @@ mod tests {
             fields,
             extra,
         } = &e;
-        let text = String::from_utf8(marshal(&e).unwrap().to_vec()).unwrap();
+        let text = String::from_utf8(e.to_yaml().unwrap().to_vec()).unwrap();
         for needle in [
             title.as_str(),
             description,
@@ -419,7 +418,7 @@ mod tests {
             assert!(text.contains(needle), "{needle:?} missing from:\n{text}");
         }
         assert_eq!(extra.len(), 1);
-        assert_eq!(unmarshal(text.as_bytes()).unwrap(), e);
+        assert_eq!(Entry::from_yaml(text.as_bytes()).unwrap(), e);
     }
 
     #[test]

@@ -220,19 +220,76 @@ pub struct VaultState {
 /// and the prompt show it locked.
 struct HeldVault {
     vault: Vault,
-    /// `None` is locked.
-    identity: Option<Identity>,
+    /// When this vault last served a call. Kept across a lock, so `status`
+    /// can still say how long it has been idle.
     last_used: Option<Instant>,
-    /// The metadata index: `None` until a list, resolve or search needs
-    /// one, and again whenever the identity is dropped.
-    index: Option<Index>,
-    /// Whether this index's page-lock failure has been reported, so a
-    /// growing arena doesn't repeat it. Reset with the index: a rebuild
-    /// may meet a different limit.
-    index_warned: bool,
     /// Raised by the vault when a pull or merge moves its working tree:
     /// the index no longer describes `entries/`.
     pulled: Arc<AtomicBool>,
+    state: Held,
+}
+
+/// What a held vault holds. An index only exists beside the identity that
+/// built it: "locked but indexed" has no representation.
+enum Held {
+    Locked,
+    Unlocked {
+        identity: Identity,
+        /// `None` until a list, resolve or search needs one, and again
+        /// after a pull.
+        index: Option<Box<Indexed>>,
+    },
+}
+
+/// A vault's metadata index and whether its page-lock failure has been
+/// reported.
+struct Indexed {
+    index: Index,
+    /// So a growing arena doesn't repeat the report. Reset with the index:
+    /// a rebuild may meet a different limit.
+    warned: bool,
+}
+
+impl HeldVault {
+    fn is_unlocked(&self) -> bool {
+        matches!(self.state, Held::Unlocked { .. })
+    }
+
+    fn identity(&self) -> Option<&Identity> {
+        match &self.state {
+            Held::Unlocked { identity, .. } => Some(identity),
+            Held::Locked => None,
+        }
+    }
+
+    fn index(&self) -> Option<&Index> {
+        match &self.state {
+            Held::Unlocked {
+                index: Some(indexed),
+                ..
+            } => Some(&indexed.index),
+            _ => None,
+        }
+    }
+
+    fn index_mut(&mut self) -> Option<&mut Index> {
+        match &mut self.state {
+            Held::Unlocked {
+                index: Some(indexed),
+                ..
+            } => Some(&mut indexed.index),
+            _ => None,
+        }
+    }
+
+    /// Takes the key of a vault that was locked, with no index yet.
+    fn unlock_with(&mut self, identity: Identity) {
+        debug_assert!(!self.is_unlocked(), "replacing a live identity");
+        self.state = Held::Unlocked {
+            identity,
+            index: None,
+        };
+    }
 }
 
 pub struct Session<'a> {
@@ -285,7 +342,7 @@ impl<'a> Session<'a> {
                 hint: "use <vault>",
             });
         }
-        let was_unlocked = self.vaults.get(name).is_some_and(|h| h.identity.is_some());
+        let was_unlocked = self.vaults.get(name).is_some_and(HeldVault::is_unlocked);
         self.vault(Some(name))?;
         if was_unlocked {
             let prompter = self.prompter;
@@ -328,7 +385,7 @@ impl<'a> Session<'a> {
         self.vault(source)?;
         let source = self.target(source)?;
         let (src, dst) = (&self.vaults[&source], &self.vaults[dest]);
-        let identity = src.identity.as_ref().expect("unlocked above");
+        let identity = src.identity().expect("unlocked above");
         Ok((&src.vault, identity, &dst.vault))
     }
 
@@ -352,7 +409,7 @@ impl<'a> Session<'a> {
         let held = self.hold(&name)?;
         // The vault and its cached identity borrowed together: both are
         // shared borrows of one held vault.
-        let (vault, cached) = (&held.vault, held.identity.as_ref());
+        let (vault, cached) = (&held.vault, held.identity());
         let unlocked = OnceCell::new();
         let result = vault.sync_resolving_with(prompter, &mut || {
             if let Some(identity) = cached.or(unlocked.get()) {
@@ -362,9 +419,9 @@ impl<'a> Session<'a> {
             Ok(unlocked.get_or_init(|| identity))
         });
         if let Some(identity) = unlocked.into_inner() {
-            held.identity = Some(identity);
+            held.unlock_with(identity);
         }
-        if held.identity.is_some() {
+        if held.is_unlocked() {
             held.last_used = Some(now);
         }
         Ok(result)
@@ -381,11 +438,12 @@ impl<'a> Session<'a> {
         let now = (self.now)();
         let prompter = self.prompter;
         let held = self.hold(&name)?;
-        if held.identity.is_none() {
-            held.identity = Some(held.vault.unlock(prompter)?);
+        if !held.is_unlocked() {
+            let identity = held.vault.unlock(prompter)?;
+            held.unlock_with(identity);
         }
         held.last_used = Some(now);
-        let identity = held.identity.as_ref().expect("unlocked above");
+        let identity = held.identity().expect("unlocked above");
         Ok((&held.vault, identity))
     }
 
@@ -403,8 +461,8 @@ impl<'a> Session<'a> {
         let prompter = self.prompter;
         let (name, _) = self.ensure_index(name)?;
         let held = &self.vaults[&name];
-        let index = held.index.as_ref().expect("ensure_index built it");
-        let identity = held.identity.as_ref().expect("ensure_index unlocked it");
+        let index = held.index().expect("ensure_index built it");
+        let identity = held.identity().expect("ensure_index unlocked it");
         let list = match resolve_query(query, &index.titles()) {
             Ok(id) => return Ok((id, held.vault.read_entry(id, identity)?)),
             Err(ResolveError::Ambiguous(list)) => list,
@@ -426,8 +484,7 @@ impl<'a> Session<'a> {
     pub fn list(&mut self, name: Option<&str>) -> Result<Vec<ListEntry>, SessionError> {
         let (name, _) = self.ensure_index(name)?;
         Ok(self.vaults[&name]
-            .index
-            .as_ref()
+            .index()
             .expect("ensure_index built it")
             .list())
     }
@@ -446,15 +503,14 @@ impl<'a> Session<'a> {
         let held = &self.vaults[&name];
         let lower = pattern.to_lowercase();
         let mut matched = held
-            .index
-            .as_ref()
+            .index()
             .expect("ensure_index built it")
             .match_text(&lower);
         let bodies = match built {
             Some(entries) => entries,
             None => held
                 .vault
-                .decrypt_all(held.identity.as_ref().expect("ensure_index unlocked it"))?,
+                .decrypt_all(held.identity().expect("ensure_index unlocked it"))?,
         };
         for (id, e) in bodies {
             if !matched.contains_key(&id) && matches_body(&e, &lower) {
@@ -495,7 +551,7 @@ impl<'a> Session<'a> {
         self.enter();
         let prompter = self.prompter;
         if let Some(held) = self.indexed(name) {
-            held.index.as_mut().expect("indexed").put(id, e);
+            held.index_mut().expect("indexed").put(id, e);
             warn_index_lock_once(held, prompter);
         }
     }
@@ -512,13 +568,12 @@ impl<'a> Session<'a> {
         let Some(held) = self.indexed(name) else {
             return;
         };
-        let read = match &held.identity {
-            Some(identity) => held.vault.read_entry(id, identity).ok(),
-            None => None,
-        };
+        let read = held
+            .identity()
+            .and_then(|identity| held.vault.read_entry(id, identity).ok());
         match read {
             Some(e) => {
-                held.index.as_mut().expect("indexed").put(id, &e);
+                held.index_mut().expect("indexed").put(id, &e);
                 warn_index_lock_once(held, prompter);
             }
             None => discard_index(held),
@@ -529,7 +584,7 @@ impl<'a> Session<'a> {
     pub fn forget_entry(&mut self, name: Option<&str>, id: Uuid) {
         self.enter();
         if let Some(held) = self.indexed(name) {
-            held.index.as_mut().expect("indexed").remove(id);
+            held.index_mut().expect("indexed").remove(id);
         }
     }
 
@@ -549,15 +604,15 @@ impl<'a> Session<'a> {
             .current
             .as_deref()
             .and_then(|name| self.vaults.get_mut(name))
-            .filter(|h| h.identity.is_some())
+            .filter(|h| h.is_unlocked())
         else {
             return Vec::new();
         };
         settle(held);
-        if held.index.is_none() && build_index(held, prompter).is_err() {
+        if held.index().is_none() && build_index(held, prompter).is_err() {
             return Vec::new();
         }
-        let index = held.index.as_ref().expect("built above");
+        let index = held.index().expect("built above");
         let mut titles: Vec<String> = index.titles().into_iter().map(|(_, t)| t).collect();
         titles.sort();
         titles.dedup();
@@ -567,7 +622,7 @@ impl<'a> Session<'a> {
     /// Whether `name` currently has an index.
     #[cfg(test)]
     pub(crate) fn has_index(&self, name: &str) -> bool {
-        self.vaults.get(name).is_some_and(|h| h.index.is_some())
+        self.vaults.get(name).is_some_and(|h| h.index().is_some())
     }
 
     /// A copy of `name`'s arena bytes, empty with no index.
@@ -575,7 +630,7 @@ impl<'a> Session<'a> {
     pub(crate) fn index_arena(&self, name: &str) -> Vec<u8> {
         self.vaults
             .get(name)
-            .and_then(|h| h.index.as_ref())
+            .and_then(HeldVault::index)
             .map(Index::arena_bytes)
             .unwrap_or_default()
     }
@@ -606,7 +661,7 @@ impl<'a> Session<'a> {
             .iter()
             .map(|(name, held)| VaultState {
                 name: name.clone(),
-                unlocked: held.identity.is_some(),
+                unlocked: held.is_unlocked(),
                 current: self.current.as_deref() == Some(name),
                 idle: held.last_used.map(|t| now.saturating_duration_since(t)),
             })
@@ -645,7 +700,7 @@ impl<'a> Session<'a> {
             let idle = held
                 .last_used
                 .is_some_and(|t| now.saturating_duration_since(t) > timeout);
-            if held.identity.is_some() && idle {
+            if held.is_unlocked() && idle {
                 lock_held(held);
             }
         }
@@ -662,7 +717,7 @@ impl<'a> Session<'a> {
         let name = self.target(name)?;
         let prompter = self.prompter;
         let held = self.vaults.get_mut(&name).expect("vault() held it");
-        if held.index.is_some() {
+        if held.index().is_some() {
             return Ok((name, None));
         }
         let entries = build_index(held, prompter)?;
@@ -675,7 +730,7 @@ impl<'a> Session<'a> {
         let name = self.target(name).ok()?;
         let held = self.vaults.get_mut(&name)?;
         settle(held);
-        held.index.is_some().then_some(held)
+        held.index().is_some().then_some(held)
     }
 
     /// The vault a call operates on: the one named, else the current one.
@@ -701,11 +756,9 @@ impl<'a> Session<'a> {
                 name.to_string(),
                 HeldVault {
                     vault,
-                    identity: None,
                     last_used: None,
-                    index: None,
-                    index_warned: false,
                     pulled,
+                    state: Held::Locked,
                 },
             );
         }
@@ -726,14 +779,15 @@ impl<'a> Session<'a> {
 /// metadata must not outlive the key that produced it.
 fn lock_held(held: &mut HeldVault) {
     discard_index(held);
-    held.identity = None;
+    held.state = Held::Locked;
 }
 
 /// Drops a vault's index (zeroed, its pages released). The one place that
 /// happens, so locking, reindexing and a pull can't drift apart.
 fn discard_index(held: &mut HeldVault) {
-    held.index = None;
-    held.index_warned = false;
+    if let Held::Unlocked { index, .. } = &mut held.state {
+        *index = None;
+    }
 }
 
 /// Drops the index if the vault's tree moved since it was built, and
@@ -747,13 +801,18 @@ fn settle(held: &mut HeldVault) {
 /// Builds `held`'s index from one decrypt pass over its (unlocked) vault,
 /// and returns the entries decrypted to do it.
 fn build_index(held: &mut HeldVault, prompter: &dyn Prompter) -> Result<Decrypted, SessionError> {
-    let identity = held.identity.as_ref().expect("callers unlocked it");
+    let Held::Unlocked { identity, index } = &mut held.state else {
+        unreachable!("callers unlocked it");
+    };
     let entries = held.vault.decrypt_all(identity)?;
-    let mut index = Index::new(held.vault.locker(), identity.page_locked());
+    let mut built = Index::new(held.vault.locker(), identity.page_locked());
     for (id, e) in &entries {
-        index.put(*id, e);
+        built.put(*id, e);
     }
-    held.index = Some(index);
+    *index = Some(Box::new(Indexed {
+        index: built,
+        warned: false,
+    }));
     warn_index_lock_once(held, prompter);
     Ok(entries)
 }
@@ -762,9 +821,15 @@ fn build_index(held: &mut HeldVault, prompter: &dyn Prompter) -> Result<Decrypte
 /// when the vault's own key couldn't be either: the unlock already said
 /// so (see `Index::lock_ok`).
 fn warn_index_lock_once(held: &mut HeldVault, prompter: &dyn Prompter) {
-    let failed = held.index.as_ref().is_some_and(|i| !i.lock_ok());
-    if failed && !held.index_warned {
-        held.index_warned = true;
+    let Held::Unlocked {
+        index: Some(indexed),
+        ..
+    } = &mut held.state
+    else {
+        return;
+    };
+    if !indexed.index.lock_ok() && !indexed.warned {
+        indexed.warned = true;
         prompter.warn(&Warning::from(format!(
             "could not lock {}'s metadata index into memory; continuing without it, \
              so cached titles/descriptions may be written to swap.",

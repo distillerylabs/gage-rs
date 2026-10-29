@@ -82,7 +82,7 @@ pub fn remove(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
     let name = arg(matches, "name");
     let (path, mut global) = load_global(io)?;
     let entry = global.unregister(name)?;
-    config::save(&path, &global)?;
+    config::save_creating_dir(&path, &global)?;
     let dirs = dirs(io)?;
     if let Some(id) = &entry.id {
         trustcache::remove(&dirs, id)?;
@@ -159,6 +159,6 @@ fn offer_orphaned_identity(
 pub fn set_default(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
     let (path, mut global) = load_global(io)?;
     global.set_default(arg(matches, "name"))?;
-    config::save(&path, &global)?;
+    config::save_creating_dir(&path, &global)?;
     Ok(())
 }

@@ -33,7 +33,7 @@ pub fn align_cat_output(short_id: &str, data: &[u8]) -> Vec<u8> {
     let line_count = lines.len();
 
     // The id line goes where the first key's value ends: right after
-    // `title`, which `marshal` always writes first.
+    // `title`, which `to_yaml` always writes first.
     let id_at = layout
         .first()
         .and_then(|first| first.end)

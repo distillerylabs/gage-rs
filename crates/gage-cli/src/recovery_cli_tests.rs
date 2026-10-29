@@ -957,9 +957,9 @@ fn recovery_enroll_restores_the_displaced_identity_when_the_swap_fails() {
     let file = identity_files(&env).pop().unwrap();
     let original = std::fs::read(&file).unwrap();
     let path = env.entry(VAULT).path;
-    let mut listed = gage::recipients::read(&path.join(".age-recipients")).unwrap();
+    let mut listed = gage::recipients::load(&path.join(".age-recipients")).unwrap();
     listed.push(gage::recovery::new_recovery_key().unwrap().pubkey);
-    gage::recipients::write(&path.join(".age-recipients"), &listed).unwrap();
+    gage::recipients::save(&path.join(".age-recipients"), &listed).unwrap();
     gage::gitrepo::commit_all(&path, "diverge the recipient files").unwrap();
     let commits = gage::gitrepo::commit_count(&path).unwrap();
 

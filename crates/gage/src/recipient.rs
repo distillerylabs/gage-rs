@@ -65,7 +65,7 @@ impl Vault {
     /// Every recipient, with its device label, exactly as `.gage/config.toml`
     /// lists them.
     pub fn recipients(&self) -> Result<Vec<vaultconfig::Recipient>, vaultconfig::Error> {
-        Ok(vaultconfig::read(&self.config_path())?.recipients)
+        Ok(vaultconfig::load(&self.config_path())?.recipients)
     }
 
     /// Compares the keys in `.age-recipients` (what entries are encrypted
@@ -76,7 +76,7 @@ impl Vault {
     /// Takes no identity and no prompter: it reads two plaintext files.
     pub fn verify_recipients(&self) -> Result<RecipientVerification, VerifyError> {
         let config = self.recipients()?;
-        let file = recipients::read(&self.path.join(".age-recipients"))?;
+        let file = recipients::load(&self.path.join(".age-recipients"))?;
         let only_in_recipients_file = missing_from(&file, config.iter().map(|r| &r.pubkey));
         let only_in_config = missing_from(config.iter().map(|r| &r.pubkey), &file);
         Ok(RecipientVerification {
@@ -666,10 +666,10 @@ impl Vault {
     /// that order. Neither is ever written without the other.
     pub(crate) fn write_recipient_files(&self, list: &[Recipient]) -> Result<(), RecipientError> {
         let keys: Vec<String> = list.iter().map(|r| r.pubkey.clone()).collect();
-        recipients::write(&self.path.join(".age-recipients"), &keys)?;
-        let mut file = vaultconfig::read(&self.config_path())?;
+        recipients::save(&self.path.join(".age-recipients"), &keys)?;
+        let mut file = vaultconfig::load(&self.config_path())?;
         file.recipients = list.to_vec();
-        vaultconfig::write(&self.config_path(), &file)?;
+        vaultconfig::save(&self.config_path(), &file)?;
         Ok(())
     }
 }

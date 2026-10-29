@@ -51,7 +51,7 @@ impl Machine {
         let origin = first.remote.path().to_str().unwrap().to_string();
         let path = paths::vaults_dir(&dirs).join(NAME);
         gitrepo::clone(&origin, &path, &gittest::remote_options()).expect("cloning the origin");
-        let file = vaultconfig::read(&path.join(".gage").join("config.toml")).unwrap();
+        let file = vaultconfig::load(&path.join(".gage").join("config.toml")).unwrap();
         let entry = VaultEntry {
             path: path.clone(),
             id: Some(file.vault.id.clone()),
@@ -65,7 +65,7 @@ impl Machine {
         };
         let mut global = Global::default();
         global.register(NAME, entry.clone()).unwrap();
-        config::save(&paths::global_config_file(&dirs), &global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&dirs), &global).unwrap();
         let vault = Vault::from_registration(&dirs, NAME, &entry).unwrap();
         Machine {
             _root: root,
@@ -81,11 +81,11 @@ impl Machine {
         let p = FakePrompter::new().with_passphrase(B_PASSPHRASE);
         let pubkey = self.vault.add_identity(device, &p).unwrap();
         let path = paths::global_config_file(&self.dirs);
-        let mut global = config::load(&path).unwrap();
+        let mut global = config::load_or_default(&path).unwrap();
         let entry = global.vaults.get_mut(NAME).unwrap();
         entry.device = device.into();
         entry.pubkey = Some(pubkey.clone());
-        config::save(&path, &global).unwrap();
+        config::save_creating_dir(&path, &global).unwrap();
         pubkey
     }
 
@@ -99,16 +99,16 @@ impl Machine {
 /// Replaces `.age-recipients` in the vault's working tree, uncommitted: a
 /// hand edit, for the divergence tests.
 pub(crate) fn edit_recipients_file(vault: &Vault, keys: &[String]) {
-    recipients::write(&vault.path.join(".age-recipients"), keys).unwrap();
+    recipients::save(&vault.path.join(".age-recipients"), keys).unwrap();
 }
 
 /// Replaces `[[recipients]]` in the vault's `.gage/config.toml`,
 /// uncommitted.
 pub(crate) fn edit_config_recipients(vault: &Vault, list: Vec<vaultconfig::Recipient>) {
     let path = vault.config_path();
-    let mut file = vaultconfig::read(&path).unwrap();
+    let mut file = vaultconfig::load(&path).unwrap();
     file.recipients = list;
-    vaultconfig::write(&path, &file).unwrap();
+    vaultconfig::save(&path, &file).unwrap();
 }
 
 // Task 1: device A inits and pushes, device B clones and registers its own

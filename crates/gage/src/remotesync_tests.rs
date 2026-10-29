@@ -82,7 +82,7 @@ impl SyncVault {
                 },
             )
             .unwrap();
-        config::save(&paths::global_config_file(&dirs), &global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&dirs), &global).unwrap();
         gitrepo::push(&vault.path, &gittest::remote_options())
             .expect("publishing the first commit");
         SyncVault {

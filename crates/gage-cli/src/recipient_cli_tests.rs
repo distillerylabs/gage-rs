@@ -34,7 +34,7 @@ impl Env {
     }
 
     fn recipients_file(&self) -> Vec<String> {
-        recipients::read(&self.path().join(".age-recipients")).unwrap()
+        recipients::load(&self.path().join(".age-recipients")).unwrap()
     }
 
     /// `gage insert <title> --value-stdin`, with `value` on stdin.

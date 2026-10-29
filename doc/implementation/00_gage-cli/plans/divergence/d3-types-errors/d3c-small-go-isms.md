@@ -129,47 +129,84 @@ and, in `gage-cli`, from `editor.rs` and `commands/entry.rs`.
 
    Record the final table here before renaming anything.
 
+## Settled decisions
+
+1. **Page-lock return.** The proposal, as written: `Identity::from_key(...)
+   -> Unlocked { identity, page_lock }`, `enum PageLock { Locked,
+   Failed(io::Error) }`. Renamed from `new` because clippy's
+   `new_ret_no_self` refuses a `new` that returns another type.
+   `Identity` keeps its private `page_locked: bool` (its `Drop` needs it,
+   and `page_locked()` is public API), so the `io::Error` doesn't live as
+   long as the key.
+2. **`HeldVault`.** `{ vault, last_used, pulled, state: Held }`, with
+   `Held::{Locked, Unlocked { identity, index: Option<Box<Indexed>> }}`.
+   Two departures from the proposal:
+   - `last_used` stays on `HeldVault` as an `Option<Instant>`. `status()`
+     reports idle time for a locked vault today, and keeping it on the
+     enum would drop that.
+   - The index is boxed, because clippy's `large_enum_variant` fires on a
+     zero-sized `Locked` beside an inline arena.
+
+   `lock_held` still discards the index before setting `Locked`, so the
+   index is released before the key.
+3. **Entry YAML.** `Entry::to_yaml` and `Entry::from_yaml`, as proposed.
+   The free functions are gone. Callers in `format_v2_*` tests changed by
+   their call only.
+4. **Load and save.** `load` reads and parses; `save` writes atomically.
+
+   | Module | Load | Save |
+   |---|---|---|
+   | `config` | `load` (was `read`; a missing file is `NotFound`), `load_or_default` (was `load`) | `save` (was `write`), `save_creating_dir` (was `save`) |
+   | `vaultconfig`, `recipients` | `load` (was `read`) | `save` (was `write`) |
+   | `identityfile` | `load` (was `read`; a missing file gives `None`); `open` still decrypts | `create` unchanged |
+   | `remoteauth` | `load` unchanged (a missing token is `NoToken`) | `save` (was `store`) |
+   | trust cache | `Vault::load_trust_cache` unchanged | `Vault::save_trust_cache` (was `store_`) |
+
+   `config::save` is the plain atomic write, matching the other modules.
+   The directory-creating variant is the one that gets the longer name.
+   No missing-file semantics changed, so no new tests were needed.
+
 ## Tasks
 
 ### 1. `Identity::new`
 
-- [ ] Tests first. In `unlock_tests.rs`/`swap_tests.rs`, the page-lock
+- [x] Tests first. In `unlock_tests.rs`/`swap_tests.rs`, the page-lock
       failure cases assert on `PageLock::Failed` instead of a tuple
       element. `page_lock_failure_warns_once_and_proceeds` stays green
       unedited.
-- [ ] Implement decision 1. Callers: `vault.rs:620`, `swap.rs:329`, and
+- [x] Implement decision 1. Callers: `vault.rs:620`, `swap.rs:329`, and
       `Index::new`'s `lock_enabled`.
 
 ### 2. `HeldVault`
 
-- [ ] Tests first:
+- [x] Tests first:
   - lock, then unlock, then index, then lock again: the identity is
     dropped and the index is gone
   - a pull while indexed drops the index and keeps the identity
   - the idle timeout locks
 
   Most of these exist in `session_tests.rs`; add only the missing ones.
-- [ ] Implement decision 2. The `expect`s become matches, or move into
+- [x] Implement decision 2. The `expect`s become matches, or move into
       accessor methods that return the state they need.
-- [ ] `status()` and `enter()` read the enum.
+- [x] `status()` and `enter()` read the enum.
 
 ### 3. Entry YAML names
 
-- [ ] Rename per decision 3, in `entry/store.rs`, `editor.rs`,
+- [x] Rename per decision 3, in `entry/store.rs`, `editor.rs`,
       `commands/entry.rs` and the tests. This is a rename only; no test
       body changes beyond the call.
 
 ### 4. Load and save
 
-- [ ] Settle decision 4's table. Rename across the library and the CLI
+- [x] Settle decision 4's table. Rename across the library and the CLI
       callers (`repl.rs`, `shell.rs`, `complete.rs`, `commands/*`).
-- [ ] Where a rename changes missing-file semantics, which it shouldn't,
+- [x] Where a rename changes missing-file semantics, which it shouldn't,
       add a test first.
 
 ### 5. Green
 
-- [ ] `cargo check --workspace --all-targets` after each task.
-- [ ] `git diff --stat main -- tests/fixtures` is empty.
+- [x] `cargo check --workspace --all-targets` after each task.
+- [x] `git diff --stat main -- tests/fixtures` is empty.
 
 ## Definition of done
 

@@ -123,7 +123,7 @@ impl Fixture {
 
     /// `.age-recipients`, read as itself.
     pub(crate) fn recipients_file(&self) -> Vec<String> {
-        recipients::read(&self.vault.path.join(".age-recipients")).unwrap()
+        recipients::load(&self.vault.path.join(".age-recipients")).unwrap()
     }
 
     /// `.gage/config.toml`'s keys, in order.

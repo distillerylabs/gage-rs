@@ -60,7 +60,7 @@ fn create_writes_labelled_extra_recipient_to_both_files_in_one_commit() {
     assert_eq!(gitrepo::commit_count(&vault.path).unwrap(), 1);
     assert!(gitrepo::is_clean(&vault.path).unwrap());
     assert_eq!(labels(&vault), [DEVICE, RECOVERY_DEVICE_LABEL]);
-    let in_file = recipients::read(&vault.path.join(".age-recipients")).unwrap();
+    let in_file = recipients::load(&vault.path.join(".age-recipients")).unwrap();
     assert_eq!(in_file, [device_key, recovery]);
 }
 
@@ -88,7 +88,7 @@ fn create_orders_device_then_labelled_extras_then_generic_recipients() {
         .collect();
     assert_eq!(config_keys, expected);
     assert_eq!(
-        recipients::read(&vault.path.join(".age-recipients")).unwrap(),
+        recipients::load(&vault.path.join(".age-recipients")).unwrap(),
         expected
     );
 }
@@ -233,7 +233,7 @@ fn create_without_extra_recipients_still_allows_repeated_recipient_keys() {
     let s = spec(&root, vec![a.clone(), b.clone(), a.clone()]);
     let vault = Vault::create(&dirs_in(root.path()), &s).unwrap();
     assert_eq!(
-        recipients::read(&vault.path.join(".age-recipients")).unwrap(),
+        recipients::load(&vault.path.join(".age-recipients")).unwrap(),
         [a.clone(), b, a]
     );
 }

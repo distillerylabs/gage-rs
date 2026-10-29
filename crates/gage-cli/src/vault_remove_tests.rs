@@ -41,14 +41,14 @@ impl Env {
         let entry = self.entry(name);
         let replacement = new_key();
         let path = config_file(&entry.path);
-        let mut file = vaultconfig::read(&path).unwrap();
+        let mut file = vaultconfig::load(&path).unwrap();
         for r in &mut file.recipients {
             if Some(&r.pubkey) == entry.pubkey.as_ref() {
                 r.pubkey = replacement.clone();
             }
         }
-        vaultconfig::write(&path, &file).unwrap();
-        recipients::write(
+        vaultconfig::save(&path, &file).unwrap();
+        recipients::save(
             &entry.path.join(".age-recipients"),
             std::slice::from_ref(&replacement),
         )
@@ -239,9 +239,9 @@ fn vault_remove_keeps_a_relabelled_recipients_key() {
     let env = Env::new();
     let path = env.init("personal", &["--device", "laptop-1"]);
     let id_path = env.identity_file("personal", "laptop-1");
-    let mut file = vaultconfig::read(&config_file(&path)).unwrap();
+    let mut file = vaultconfig::load(&config_file(&path)).unwrap();
     file.recipients[0].device = "laptop-1-work".into();
-    vaultconfig::write(&config_file(&path), &file).unwrap();
+    vaultconfig::save(&config_file(&path), &file).unwrap();
 
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["vault", "remove", "personal"], &p);
@@ -266,10 +266,10 @@ fn vault_remove_identifies_a_stale_key_whose_name_now_labels_another() {
     let path = env.init("personal", &["--device", "laptop-1"]);
     let id_path = env.identity_file("personal", "laptop-1");
     // Someone else's key takes over the label "laptop-1".
-    let mut file = vaultconfig::read(&config_file(&path)).unwrap();
+    let mut file = vaultconfig::load(&config_file(&path)).unwrap();
     assert_eq!(file.recipients[0].device, "laptop-1");
     file.recipients[0].pubkey = new_key();
-    vaultconfig::write(&config_file(&path), &file).unwrap();
+    vaultconfig::save(&config_file(&path), &file).unwrap();
 
     let (_, p) = env.remove_answering("personal", true);
 

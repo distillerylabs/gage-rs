@@ -200,7 +200,7 @@ fn init_skips_the_token_when_the_answer_is_blank() {
 fn init_does_not_prompt_when_a_token_already_exists() {
     let env = Env::new();
     let recorder = HttpRecorder::start(Answer::Challenge);
-    remoteauth::store(&env.dirs, HOST, "tok_existing").unwrap();
+    remoteauth::save(&env.dirs, HOST, "tok_existing").unwrap();
     let p = unlocks();
     let r = env.run_with(
         &[

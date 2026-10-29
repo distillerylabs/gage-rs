@@ -97,7 +97,7 @@ impl HasKind for Error {
 /// Stores `host`'s token at 0600, creating `$GAGE_STATE/tokens` if this is
 /// the first one on this machine. Surrounding whitespace (a pasted
 /// newline) is not part of a token.
-pub fn store(dirs: &Dirs, host: &str, token: &str) -> Result<(), Error> {
+pub fn save(dirs: &Dirs, host: &str, token: &str) -> Result<(), Error> {
     let token = token.trim();
     if token.is_empty() {
         return Err(Error::EmptyToken);

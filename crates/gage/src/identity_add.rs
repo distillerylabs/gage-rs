@@ -100,7 +100,7 @@ impl Vault {
             return Err(IdentityAddError::InvalidDeviceName(device.to_string()));
         }
         check_device_label_free(device)?;
-        let file = vaultconfig::read(&self.config_path())?;
+        let file = vaultconfig::load(&self.config_path())?;
         if file.recipients.iter().any(|r| r.device == device) {
             return Err(IdentityAddError::DeviceNameTaken {
                 device: device.to_string(),
@@ -162,7 +162,7 @@ impl Vault {
     /// there is one. A listing is informational, so a missing or unreadable
     /// global config just means nothing is marked current.
     fn registered_device(&self) -> Option<String> {
-        let global = config::read(&paths::global_config_file(self.dirs())).ok()?;
+        let global = config::load(&paths::global_config_file(self.dirs())).ok()?;
         let device = &global.vaults.get(&self.name)?.device;
         (!device.is_empty()).then(|| device.clone())
     }

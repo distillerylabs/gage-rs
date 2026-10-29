@@ -195,7 +195,7 @@ impl HasKind for Error {
 /// Parses and validates a vault's `.gage/config.toml`: the format version
 /// first, then the id, then every recipient's device name. Nothing in a
 /// file that fails one check is looked at by the next.
-pub fn read(path: &Path) -> Result<File, Error> {
+pub fn load(path: &Path) -> Result<File, Error> {
     let at = || path.to_path_buf();
     let text = std::fs::read_to_string(path).map_err(|source| {
         if source.kind() == std::io::ErrorKind::NotFound {
@@ -239,7 +239,7 @@ pub fn read(path: &Path) -> Result<File, Error> {
 
 /// Atomically writes `file` to `path` (mode 0644: it is committed and
 /// public), so an interrupted write never leaves a truncated config.
-pub fn write(path: &Path, file: &File) -> Result<(), Error> {
+pub fn save(path: &Path, file: &File) -> Result<(), Error> {
     let text = toml::to_string(file).map_err(|source| Error::Encode {
         path: path.to_path_buf(),
         source,
@@ -299,7 +299,7 @@ mod tests {
         assert!(text.contains(&from));
         let to = format!("id = {}", toml::Value::from(id));
         std::fs::write(&path, text.replace(&from, &to)).unwrap();
-        read(&path)
+        load(&path)
     }
 
     #[test]
@@ -391,7 +391,7 @@ mod tests {
         assert_ne!(without, text);
         std::fs::write(&path, without).unwrap();
 
-        let err = read(&path).unwrap_err();
+        let err = load(&path).unwrap_err();
 
         assert!(
             matches!(
@@ -444,7 +444,7 @@ mod tests {
     #[test]
     fn read_missing_file() {
         let dir = tempfile::tempdir().unwrap();
-        let err = read(&dir.path().join("nope.toml")).unwrap_err();
+        let err = load(&dir.path().join("nope.toml")).unwrap_err();
         assert!(matches!(err, Error::NotFound { .. }), "{err:?}");
         assert_eq!(err.kind(), ErrorKind::Internal);
     }
@@ -454,7 +454,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         std::fs::write(&path, "[vault\nname = ").unwrap();
-        let err = read(&path).unwrap_err();
+        let err = load(&path).unwrap_err();
         assert!(matches!(err, Error::Parse { .. }), "{err:?}");
         assert_eq!(err.kind(), ErrorKind::Internal);
     }
@@ -499,7 +499,7 @@ mod tests {
             .map(|l| format!("{l}\n"))
             .collect();
         std::fs::write(&path, text).unwrap();
-        let err = read(&path).unwrap_err();
+        let err = load(&path).unwrap_err();
         assert!(matches!(err, Error::InvalidVaultId { .. }), "{err:?}");
     }
 
@@ -515,7 +515,7 @@ mod tests {
         assert!(text.contains(from), "{from:?} not in:\n{text}");
         let text = text.replace(from, to);
         std::fs::write(&path, &text).unwrap();
-        (text, read(&path))
+        (text, load(&path))
     }
 
     // ADR-0053: an unknown type is refused as the file is read, and the
@@ -623,7 +623,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("does/not/exist/config.toml");
 
-        let err = write(&path, &valid_file()).unwrap_err();
+        let err = save(&path, &valid_file()).unwrap_err();
 
         assert!(matches!(err, Error::Write { .. }), "{err:?}");
         let msg = err.to_string();
@@ -636,7 +636,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        write(&path, &valid_file()).unwrap();
+        save(&path, &valid_file()).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o644);
     }

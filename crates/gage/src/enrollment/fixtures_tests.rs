@@ -123,7 +123,7 @@ pub(crate) fn open_all(vault: &Vault, code: &str) -> Result<Vec<OpenedRequest>, 
 /// rest alone.
 pub(crate) fn register_also(vault: &Vault, name: &str, id: &VaultId) {
     let path = paths::global_config_file(vault.dirs());
-    let mut global = config::read(&path).unwrap_or_default();
+    let mut global = config::load(&path).unwrap_or_default();
     global.vaults.insert(
         name.to_string(),
         config::VaultEntry {
@@ -134,7 +134,7 @@ pub(crate) fn register_also(vault: &Vault, name: &str, id: &VaultId) {
         },
     );
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    config::write(&path, &global).unwrap();
+    config::save(&path, &global).unwrap();
 }
 
 /// Both halves of the contract at once: the variant a caller matches on

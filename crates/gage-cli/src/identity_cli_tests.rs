@@ -308,7 +308,7 @@ fn recipient_verify_exit_codes_and_differences() {
     let vault = t.a.vault_path();
     let own = t.a.vault_config(VAULT).recipients[0].pubkey.clone();
     let stray = stray_key();
-    recipients::write(&vault.join(".age-recipients"), &[own, stray.clone()]).unwrap();
+    recipients::save(&vault.join(".age-recipients"), &[own, stray.clone()]).unwrap();
 
     let r = t.a.run(&["recipient", "verify"]);
     assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
@@ -324,12 +324,12 @@ fn recipient_verify_names_a_key_missing_from_the_recipients_file() {
     let t = TwoDevices::new();
     let vault = t.a.vault_path();
     let ghost = stray_key();
-    let mut config = vaultconfig::read(&config_file(&vault)).unwrap();
+    let mut config = vaultconfig::load(&config_file(&vault)).unwrap();
     config.recipients.push(vaultconfig::Recipient {
         device: "ghost".into(),
         pubkey: ghost.clone(),
     });
-    vaultconfig::write(&config_file(&vault), &config).unwrap();
+    vaultconfig::save(&config_file(&vault), &config).unwrap();
 
     let r = t.a.run(&["recipient", "verify"]);
 

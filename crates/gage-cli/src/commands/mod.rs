@@ -201,7 +201,7 @@ fn cwd() -> Result<PathBuf, CliError> {
 /// A registered vault by name: the lookup a session's opener runs, the
 /// same one one-shot `--use` resolves through.
 pub(crate) fn open_registered(dirs: &Dirs, name: &str) -> Result<Vault, OpenError> {
-    let global = config::load(&paths::global_config_file(dirs))?;
+    let global = config::load_or_default(&paths::global_config_file(dirs))?;
     let entry = global.entry(name)?;
     Ok(Vault::from_registration(dirs, name, entry)?)
 }
@@ -209,7 +209,7 @@ pub(crate) fn open_registered(dirs: &Dirs, name: &str) -> Result<Vault, OpenErro
 /// The global config and where it lives.
 fn load_global(io: &Io) -> Result<(PathBuf, Global), CliError> {
     let path = paths::global_config_file(&dirs(io)?);
-    let global = config::load(&path)?;
+    let global = config::load_or_default(&path)?;
     Ok((path, global))
 }
 

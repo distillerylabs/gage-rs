@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::exitcode::ExitCode;
-use gage::entry::{self, Entry};
+use gage::entry::Entry;
 use zeroize::Zeroizing;
 
 use crate::error::CliError;
@@ -41,7 +41,7 @@ pub(crate) fn edit_yaml(editor: Option<&str>, seed: &Entry) -> Result<Edited, Cl
 /// [`edit_yaml`] with the scratch file in `dir`.
 fn edit_yaml_in(dir: &Path, editor: Option<&str>, seed: &Entry) -> Result<Edited, CliError> {
     let (program, args) = resolve_editor(editor)?;
-    let template = entry::marshal(seed)?;
+    let template = seed.to_yaml()?;
     // From here on the plaintext is on disk; `scratch`'s Drop overwrites
     // and unlinks it on every path out, an error or a panic included.
     let scratch = Scratch::create(dir, &template)?;
@@ -62,7 +62,7 @@ fn edit_yaml_in(dir: &Path, editor: Option<&str>, seed: &Entry) -> Result<Edited
             format!("reading the edited scratch file: {e}"),
         )
     })?);
-    let entry = entry::unmarshal(&edited)?;
+    let entry = Entry::from_yaml(&edited)?;
     Ok(Edited {
         entry,
         unchanged: *edited == *template,
@@ -251,7 +251,7 @@ pub(crate) mod fake {
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
 
-    use gage::entry::{self, Entry, Timestamp};
+    use gage::entry::{Entry, Timestamp};
 
     /// The config file's suffix: how the trampoline knows it was run as an
     /// editor rather than as part of the suite.
@@ -441,10 +441,10 @@ pub(crate) mod fake {
             }
             "replace" => {
                 let _ = std::fs::hard_link(path, cfg["witness"]);
-                let mut e: Entry = entry::unmarshal(&original).unwrap();
+                let mut e: Entry = Entry::from_yaml(&original).unwrap();
                 e.value = "replaced".into();
                 let new = path.with_extension("yaml.replace");
-                std::fs::write(&new, entry::marshal(&e).unwrap()).unwrap();
+                std::fs::write(&new, e.to_yaml().unwrap()).unwrap();
                 std::fs::rename(&new, path).unwrap();
                 0
             }
@@ -453,7 +453,7 @@ pub(crate) mod fake {
                 0
             }
             "set" => {
-                let mut e: Entry = entry::unmarshal(&original).unwrap();
+                let mut e: Entry = Entry::from_yaml(&original).unwrap();
                 if let Some(t) = cfg.get("title") {
                     e.title = t.to_string();
                 }
@@ -476,7 +476,7 @@ pub(crate) mod fake {
                     e.updated = y1999;
                     e.updated_by = "some-other-device".into();
                 }
-                std::fs::write(path, entry::marshal(&e).unwrap()).unwrap();
+                std::fs::write(path, e.to_yaml().unwrap()).unwrap();
                 0
             }
             other => panic!("unknown fake editor mode {other}"),
@@ -490,7 +490,7 @@ mod tests {
     use super::*;
 
     fn seed() -> Entry {
-        let now = entry::Timestamp::from_unix(1_768_386_720);
+        let now = gage::entry::Timestamp::from_unix(1_768_386_720);
         Entry {
             title: "ProtonMail".into(),
             description: "personal email".into(),
@@ -592,7 +592,7 @@ mod tests {
         let edited = r.unwrap();
         assert!(edited.unchanged);
         assert_eq!(edited.entry, seed);
-        assert_eq!(fake.template(), entry::marshal(&seed).unwrap().to_vec());
+        assert_eq!(fake.template(), seed.to_yaml().unwrap().to_vec());
     }
 
     #[test]
@@ -675,7 +675,7 @@ mod tests {
         r.unwrap();
         assert!(is_empty(dir.path()));
         let witness = fake.witness().expect("the fake editor's hard link failed");
-        let template = entry::marshal(&seed).unwrap();
+        let template = seed.to_yaml().unwrap();
         assert_eq!(witness.len(), template.len(), "overwritten in place");
         assert!(witness.iter().all(|b| *b == 0), "the plaintext survived");
     }
@@ -695,7 +695,7 @@ mod tests {
         assert_eq!(r.unwrap().entry.value, "replaced");
         assert!(is_empty(dir.path()));
         let witness = fake.witness().expect("the fake editor's hard link failed");
-        let template = entry::marshal(&seed).unwrap();
+        let template = seed.to_yaml().unwrap();
         assert_eq!(witness.len(), template.len(), "overwritten in place");
         assert!(witness.iter().all(|b| *b == 0), "the original survived");
     }

@@ -14,7 +14,7 @@ fn machine() -> (tempfile::TempDir, Dirs) {
 #[test]
 fn store_writes_the_token_under_state_at_0600() {
     let (_root, dirs) = machine();
-    store(&dirs, "github.com", "ghp_example").unwrap();
+    save(&dirs, "github.com", "ghp_example").unwrap();
 
     let path = paths::token_file_path(&dirs, "github.com").unwrap();
     // Under the state root, not config: dotfile managers sync config by
@@ -41,7 +41,7 @@ fn store_writes_the_token_under_state_at_0600() {
 fn load_refuses_a_token_others_can_read() {
     use std::os::unix::fs::PermissionsExt;
     let (_root, dirs) = machine();
-    store(&dirs, "github.com", "ghp_example").unwrap();
+    save(&dirs, "github.com", "ghp_example").unwrap();
     let path = paths::token_file_path(&dirs, "github.com").unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
 
@@ -64,7 +64,7 @@ fn load_refuses_a_token_others_can_read() {
 #[test]
 fn logout_forgets_the_token_and_is_safe_twice() {
     let (_root, dirs) = machine();
-    store(&dirs, "github.com", "ghp_example").unwrap();
+    save(&dirs, "github.com", "ghp_example").unwrap();
     remove(&dirs, "github.com").unwrap();
     assert!(matches!(
         load(&dirs, "github.com"),
@@ -76,7 +76,7 @@ fn logout_forgets_the_token_and_is_safe_twice() {
 #[test]
 fn two_vaults_on_one_host_share_one_token() {
     let (_root, dirs) = machine();
-    store(&dirs, "github.com", "ghp_shared").unwrap();
+    save(&dirs, "github.com", "ghp_shared").unwrap();
 
     for url in [
         "https://github.com/me/work-vault.git",
@@ -177,7 +177,7 @@ fn ssh_remote_with_a_real_host_is_attempted() {
 fn store_refuses_an_empty_token() {
     let (_root, dirs) = machine();
     for token in ["", "   ", "\n"] {
-        let err = store(&dirs, "github.com", token).unwrap_err();
+        let err = save(&dirs, "github.com", token).unwrap_err();
         assert!(matches!(err, Error::EmptyToken), "{token:?}");
         assert_eq!(err.kind(), ErrorKind::Usage);
     }
@@ -188,7 +188,7 @@ fn store_refuses_an_empty_token() {
 fn host_cannot_escape_the_tokens_directory() {
     let (root, dirs) = machine();
     for host in ["../../etc/cron.d/x", "..", "", "a/b", "."] {
-        assert!(store(&dirs, host, "tok").is_err(), "{host:?}");
+        assert!(save(&dirs, host, "tok").is_err(), "{host:?}");
         assert!(load(&dirs, host).is_err(), "{host:?}");
         assert!(remove(&dirs, host).is_err(), "{host:?}");
     }
@@ -216,8 +216,8 @@ fn an_auth_failure_offers_a_login_for_its_host() {
 fn hosts_lists_every_stored_host_sorted() {
     let (_root, dirs) = machine();
     assert!(hosts(&dirs).unwrap().is_empty());
-    store(&dirs, "gitlab.com", "a").unwrap();
-    store(&dirs, "github.com", "b").unwrap();
+    save(&dirs, "gitlab.com", "a").unwrap();
+    save(&dirs, "github.com", "b").unwrap();
     assert_eq!(hosts(&dirs).unwrap(), ["github.com", "gitlab.com"]);
 }
 

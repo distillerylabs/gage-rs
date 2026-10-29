@@ -900,7 +900,7 @@ fn init_key_is_shown_only_after_the_commit_exists() {
         assert_eq!(secret_keys(&screen.text()).len(), 1, "asked before shown");
         assert_eq!(gage::gitrepo::commit_count(&vault).unwrap(), 1);
         assert!(gage::gitrepo::is_clean(&vault).unwrap());
-        let registered = gage::config::load(&global).unwrap();
+        let registered = gage::config::load_or_default(&global).unwrap();
         assert!(registered.vaults.contains_key("personal"));
         seen.set(true);
     }));

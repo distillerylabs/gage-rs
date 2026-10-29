@@ -165,7 +165,7 @@ mod tests {
     fn a_cause_already_in_the_message_is_not_repeated() {
         let dir = std::env::temp_dir().join("gage-cli-error-test-missing-dir");
         let lib_err =
-            gage::config::write(&dir.join("config.toml"), &Default::default()).unwrap_err();
+            gage::config::save(&dir.join("config.toml"), &Default::default()).unwrap_err();
         let cause = std::error::Error::source(&lib_err).unwrap().to_string();
         let err: CliError = lib_err.into();
 

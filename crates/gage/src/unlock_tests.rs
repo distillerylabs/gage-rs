@@ -57,7 +57,7 @@ impl Machine {
                 },
             )
             .unwrap();
-        config::save(&paths::global_config_file(&self.dirs), &global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&self.dirs), &global).unwrap();
     }
 
     fn vault(&self, name: &str, id: &VaultId) -> Vault {

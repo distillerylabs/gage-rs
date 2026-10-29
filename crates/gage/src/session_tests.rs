@@ -135,7 +135,7 @@ impl Device {
         }
         // No `current`: each test seeds the session's own.
         global.current = None;
-        config::save(&paths::global_config_file(&dirs), &global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&dirs), &global).unwrap();
         Device {
             _root: root,
             vaults,

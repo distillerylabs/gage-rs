@@ -190,7 +190,7 @@ fn takes_vault_name(word: &str) -> bool {
 /// that can't be read offers nothing: completion has nowhere to report
 /// an error.
 pub fn vault_name_candidates(dirs: &Dirs) -> Vec<String> {
-    config::load(&paths::global_config_file(dirs))
+    config::load_or_default(&paths::global_config_file(dirs))
         .map(|g| g.vaults.into_keys().collect())
         .unwrap_or_default()
 }

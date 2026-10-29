@@ -221,7 +221,7 @@ fn insert_then_cat_round_trips_value_through_the_cli() {
     let id = inserted_id(&r);
     assert_eq!(r.stdout, format!("gage: inserted \"ProtonMail\" ({id})\n"));
     let cat = env.cmd_ok(&["cat", "ProtonMail"]);
-    let e = entry::unmarshal(cat.stdout.as_bytes()).unwrap();
+    let e = Entry::from_yaml(cat.stdout.as_bytes()).unwrap();
     assert_eq!(e.title, "ProtonMail");
     assert_eq!(e.value, "hunter2");
     // By id, too, in any spelling.
@@ -293,7 +293,7 @@ fn insert_value_stdin_trims_one_trailing_newline_and_round_trips() {
     );
     let cat = env.cmd_ok(&["cat", "Wifi"]);
     assert_eq!(
-        entry::unmarshal(cat.stdout.as_bytes()).unwrap().value,
+        Entry::from_yaml(cat.stdout.as_bytes()).unwrap().value,
         "p@ss w0rd="
     );
 }
@@ -962,7 +962,7 @@ fn insert_fields_round_trip_and_are_each_independently_readable() {
     assert_eq!(e.field("recoverycode").unwrap(), "1234 5678");
     assert_eq!(e.fields.len(), 3);
     let cat = env.cmd_ok(&["cat", "Account"]);
-    let shown = entry::unmarshal(cat.stdout.as_bytes()).unwrap();
+    let shown = Entry::from_yaml(cat.stdout.as_bytes()).unwrap();
     assert_eq!(shown.fields, e.fields);
 }
 
@@ -1169,7 +1169,7 @@ fn two_registrations_of_one_repository_share_one_lock() {
 const CAT_ID: &str = "0123abcd";
 
 fn aligned(e: &Entry) -> String {
-    let data = entry::marshal(e).unwrap();
+    let data = e.to_yaml().unwrap();
     String::from_utf8(align_cat_output(CAT_ID, &data)).unwrap()
 }
 
@@ -1279,7 +1279,7 @@ fn align_cat_output_round_trips() {
         .split_inclusive('\n')
         .filter(|l| !key_is(l, "id"))
         .collect();
-    assert_eq!(entry::unmarshal(stripped.as_bytes()).unwrap(), want);
+    assert_eq!(Entry::from_yaml(stripped.as_bytes()).unwrap(), want);
 }
 
 #[test]
@@ -1333,7 +1333,7 @@ fn align_cat_output_skips_alignment_for_quoted_keys() {
         .split_inclusive('\n')
         .filter(|l| !key_is(l, "id"))
         .collect();
-    assert_eq!(entry::unmarshal(stripped.as_bytes()).unwrap(), e);
+    assert_eq!(Entry::from_yaml(stripped.as_bytes()).unwrap(), e);
 }
 
 // Content that
@@ -1402,7 +1402,7 @@ fn cat_command_prints_id_line_through_the_cli() {
         .split_inclusive('\n')
         .filter(|l| !key_is(l, "id"))
         .collect();
-    let e = entry::unmarshal(stripped.as_bytes()).unwrap();
+    let e = Entry::from_yaml(stripped.as_bytes()).unwrap();
     assert_eq!(
         (e.title.as_str(), e.value.as_str()),
         ("ProtonMail", "secret")

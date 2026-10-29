@@ -113,7 +113,7 @@ pub(super) fn record_local_identity(
     entry.device = device.to_string();
     entry.method = method.clone();
     entry.pubkey = Some(pubkey.to_string());
-    gage::config::save(&path, &global)?;
+    gage::config::save_creating_dir(&path, &global)?;
     Ok(())
 }
 

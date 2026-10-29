@@ -5,7 +5,7 @@
 //! be trusted with a password manager's contents: a typical YAML emitter writes a
 //! block scalar that reads back one newline short for `"\nsecret"`, and one
 //! it cannot re-read for a value with a tab, so the entry would encrypt
-//! cleanly and never open again. So [`marshal`] owns the rule (see
+//! cleanly and never open again. So [`Entry::to_yaml`] owns the rule (see
 //! [`Writer::string`]) and then checks it: it parses its own output and
 //! compares everything, falls back to quoting every string if anything
 //! differs, and refuses to write if even that differs.
@@ -35,23 +35,25 @@ enum Quoting {
     Always,
 }
 
-/// Renders `e` as the YAML shown in "Entry format": `title`, `description`
-/// if set, `created`, `updated` (each only if present), `updated_by`,
-/// `value`, `fields` if any, then unknown keys, sorted. Fields are sorted
-/// too, so one entry is always one byte sequence.
-///
-/// Refuses ([`Error::Unfaithful`]) rather than return text that does not
-/// parse back to exactly `e`.
-pub fn marshal(e: &Entry) -> Result<Zeroizing<Vec<u8>>, Error> {
-    let readable = emit(e, Quoting::Readable);
-    if verify_faithful(readable.as_bytes(), e).is_ok() {
-        return Ok(Zeroizing::new(readable.as_bytes().to_vec()));
+impl Entry {
+    /// Renders the entry as the YAML shown in "Entry format": `title`,
+    /// `description` if set, `created`, `updated` (each only if present),
+    /// `updated_by`, `value`, `fields` if any, then unknown keys, sorted.
+    /// Fields are sorted too, so one entry is always one byte sequence.
+    ///
+    /// Refuses ([`Error::Unfaithful`]) rather than return text that does not
+    /// parse back to exactly this entry.
+    pub fn to_yaml(&self) -> Result<Zeroizing<Vec<u8>>, Error> {
+        let readable = emit(self, Quoting::Readable);
+        if verify_faithful(readable.as_bytes(), self).is_ok() {
+            return Ok(Zeroizing::new(readable.as_bytes().to_vec()));
+        }
+        // The readable styling did not survive its own round trip. Quote
+        // every string, the one style that round-trips everything tested.
+        let quoted = emit(self, Quoting::Always);
+        verify_faithful(quoted.as_bytes(), self).map_err(Error::Unfaithful)?;
+        Ok(Zeroizing::new(quoted.as_bytes().to_vec()))
     }
-    // The readable styling did not survive its own round trip. Quote every
-    // string, the one style that round-trips everything tested.
-    let quoted = emit(e, Quoting::Always);
-    verify_faithful(quoted.as_bytes(), e).map_err(Error::Unfaithful)?;
-    Ok(Zeroizing::new(quoted.as_bytes().to_vec()))
 }
 
 fn emit(e: &Entry, q: Quoting) -> Zeroizing<String> {
@@ -315,7 +317,7 @@ fn resolves_to_non_string(s: &str) -> bool {
 /// back unchanged. Names the fields, never their contents: the message
 /// ends up in an error a user may paste into an issue.
 pub(super) fn verify_faithful(data: &[u8], want: &Entry) -> Result<(), String> {
-    let got = unmarshal(data).map_err(|e| format!("the entry did not parse back: {e}"))?;
+    let got = Entry::from_yaml(data).map_err(|e| format!("the entry did not parse back: {e}"))?;
     let mut changed: Vec<String> = Vec::new();
     let mut check = |name: &str, same: bool| {
         if !same {
@@ -349,38 +351,40 @@ pub(super) fn verify_faithful(data: &[u8], want: &Entry) -> Result<(), String> {
     }
 }
 
-/// Parses the YAML [`marshal`] produces, or a human-edited variant of it
-/// (`gage edit`'s `$EDITOR` flow). Keys this build doesn't recognize land
-/// in [`Entry::extra`] rather than causing an error or being dropped.
-///
-/// Refused as [`Error::Parse`]: a mapping or sequence where a string
-/// belongs, a `fields` value that isn't a scalar, a duplicate key, more
-/// than one document, and a top level that isn't a mapping. An empty
-/// document is an empty entry. A leading byte-order mark is skipped.
-pub fn unmarshal(data: &[u8]) -> Result<Entry, Error> {
-    let text = std::str::from_utf8(data).map_err(|e| parse_error(format!("not UTF-8: {e}")))?;
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+impl Entry {
+    /// Parses the YAML [`Entry::to_yaml`] produces, or a human-edited variant of it
+    /// (`gage edit`'s `$EDITOR` flow). Keys this build doesn't recognize land
+    /// in [`Entry::extra`] rather than causing an error or being dropped.
+    ///
+    /// Refused as [`Error::Parse`]: a mapping or sequence where a string
+    /// belongs, a `fields` value that isn't a scalar, a duplicate key, more
+    /// than one document, and a top level that isn't a mapping. An empty
+    /// document is an empty entry. A leading byte-order mark is skipped.
+    pub fn from_yaml(data: &[u8]) -> Result<Entry, Error> {
+        let text = std::str::from_utf8(data).map_err(|e| parse_error(format!("not UTF-8: {e}")))?;
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
 
-    let mut loader = YamlLoader::<YamlOwned>::default();
-    loader.early_parse(false);
-    Parser::new_from_str(text)
-        .load(&mut loader, true)
-        .map_err(|e| parse_error(e.to_string()))?;
-    if let Some(e) = loader.error() {
-        return Err(parse_error(e.to_string()));
-    }
-    let mut docs = loader.into_documents();
-    if docs.len() > 1 {
-        return Err(parse_error("more than one YAML document".into()));
-    }
-    match docs.pop() {
-        None | Some(YamlOwned::BadValue) => Ok(Entry::default()),
-        // `~` or `null` alone: yaml.v3 leaves the zero value.
-        Some(YamlOwned::Representation(t, ScalarStyle::Plain, _)) if is_null(&t) => {
-            Ok(Entry::default())
+        let mut loader = YamlLoader::<YamlOwned>::default();
+        loader.early_parse(false);
+        Parser::new_from_str(text)
+            .load(&mut loader, true)
+            .map_err(|e| parse_error(e.to_string()))?;
+        if let Some(e) = loader.error() {
+            return Err(parse_error(e.to_string()));
         }
-        Some(YamlOwned::Mapping(m)) => entry_from(m.into_iter()),
-        Some(_) => Err(parse_error("the top level is not a mapping".into())),
+        let mut docs = loader.into_documents();
+        if docs.len() > 1 {
+            return Err(parse_error("more than one YAML document".into()));
+        }
+        match docs.pop() {
+            None | Some(YamlOwned::BadValue) => Ok(Entry::default()),
+            // `~` or `null` alone: yaml.v3 leaves the zero value.
+            Some(YamlOwned::Representation(t, ScalarStyle::Plain, _)) if is_null(&t) => {
+                Ok(Entry::default())
+            }
+            Some(YamlOwned::Mapping(m)) => entry_from(m.into_iter()),
+            Some(_) => Err(parse_error("the top level is not a mapping".into())),
+        }
     }
 }
 
@@ -520,7 +524,7 @@ fields:
     }
 
     fn marshaled(e: &Entry) -> String {
-        String::from_utf8(marshal(e).unwrap().to_vec()).unwrap()
+        String::from_utf8(e.to_yaml().unwrap().to_vec()).unwrap()
     }
 
     fn only_value(value: &str) -> Entry {
@@ -610,7 +614,10 @@ fields:
     // shape (fields sorted).
     #[test]
     fn entry_marshal_matches_design_doc_shape() {
-        assert_eq!(unmarshal(KEY_DOC.as_bytes()).unwrap(), design_doc_entry());
+        assert_eq!(
+            Entry::from_yaml(KEY_DOC.as_bytes()).unwrap(),
+            design_doc_entry()
+        );
         assert_eq!(
             marshaled(&design_doc_entry()),
             "\
@@ -651,7 +658,7 @@ fields:
         assert!(!text.contains("description"), "{text}");
         assert!(!text.contains("fields"), "{text}");
         assert!(!text.contains("null"), "{text}");
-        assert_eq!(unmarshal(text.as_bytes()).unwrap(), e);
+        assert_eq!(Entry::from_yaml(text.as_bytes()).unwrap(), e);
     }
 
     #[test]
@@ -669,7 +676,7 @@ fields:
                 text.contains(&format!("value: {header}\n")),
                 "{value:?}: {text}"
             );
-            assert_eq!(unmarshal(text.as_bytes()).unwrap().value, value);
+            assert_eq!(Entry::from_yaml(text.as_bytes()).unwrap().value, value);
         }
     }
 
@@ -678,7 +685,7 @@ fields:
         for s in hostile() {
             let text = marshaled(&only_value(&s));
             assert_eq!(
-                unmarshal(text.as_bytes()).unwrap().value,
+                Entry::from_yaml(text.as_bytes()).unwrap().value,
                 s,
                 "{s:?} via\n{text}"
             );
@@ -705,7 +712,11 @@ fields:
             };
             let text = marshaled(&e);
             // An empty description is absent, which reads back empty.
-            assert_eq!(unmarshal(text.as_bytes()).unwrap(), e, "{s:?} via\n{text}");
+            assert_eq!(
+                Entry::from_yaml(text.as_bytes()).unwrap(),
+                e,
+                "{s:?} via\n{text}"
+            );
         }
     }
 
@@ -739,8 +750,8 @@ fields:
                 fields: [(s.clone(), s.clone())].into(),
                 ..Entry::default()
             };
-            let bytes = marshal(&e).unwrap_or_else(|err| panic!("{s:?}: {err}"));
-            assert_eq!(unmarshal(&bytes).unwrap(), e, "{s:?}");
+            let bytes = e.to_yaml().unwrap_or_else(|err| panic!("{s:?}: {err}"));
+            assert_eq!(Entry::from_yaml(&bytes).unwrap(), e, "{s:?}");
         }
     }
 
@@ -757,7 +768,11 @@ fields:
             let text = emit(&e, Quoting::Always);
             let text: &str = &text;
             assert!(text.starts_with("\"title\": \""), "{text}");
-            assert_eq!(unmarshal(text.as_bytes()).unwrap(), e, "{s:?} via\n{text}");
+            assert_eq!(
+                Entry::from_yaml(text.as_bytes()).unwrap(),
+                e,
+                "{s:?} via\n{text}"
+            );
         }
     }
 
@@ -797,7 +812,7 @@ fields:
             extra: [("k".to_string(), Extra::Plain("a\nb: c".into()))].into(),
             ..Entry::default()
         };
-        let err = marshal(&e).unwrap_err();
+        let err = e.to_yaml().unwrap_err();
         assert!(matches!(err, Error::Unfaithful(_)), "{err}");
         assert_eq!(
             crate::error::HasKind::kind(&err),
@@ -817,10 +832,10 @@ future_list:
   - 1
   - two
 ";
-        let e = unmarshal(text.as_bytes()).unwrap();
+        let e = Entry::from_yaml(text.as_bytes()).unwrap();
         assert_eq!(e.extra.len(), 4);
         let out = marshaled(&e);
-        assert_eq!(unmarshal(out.as_bytes()).unwrap(), e);
+        assert_eq!(Entry::from_yaml(out.as_bytes()).unwrap(), e);
         // Plain stays plain, quoted stays quoted, and 0x1F is not 31.
         assert!(out.contains("\nfuture_flag: true\n"), "{out}");
         assert!(out.contains("\nfuture_count: 0x1F\n"), "{out}");
@@ -850,7 +865,7 @@ future_list:
             ..Entry::default()
         };
         let text = marshaled(&e);
-        assert_eq!(unmarshal(text.as_bytes()).unwrap(), e);
+        assert_eq!(Entry::from_yaml(text.as_bytes()).unwrap(), e);
     }
 
     // Rust's unknown
@@ -871,7 +886,7 @@ a_map: {k: v, \"q\": w}
 an_empty_seq: []
 an_empty_map: {}
 ";
-        let e = unmarshal(text.as_bytes()).unwrap();
+        let e = Entry::from_yaml(text.as_bytes()).unwrap();
         assert_eq!(e.extra["a_null"], Extra::Plain("null".into()));
         assert_eq!(e.extra["a_bare_null"], Extra::Plain(String::new()));
         assert_eq!(e.extra["a_bool"], Extra::Plain("true".into()));
@@ -895,7 +910,7 @@ an_empty_map: {}
         );
         assert_eq!(e.extra["an_empty_seq"], Extra::Seq(vec![]));
         assert_eq!(e.extra["an_empty_map"], Extra::Map(vec![]));
-        assert_eq!(unmarshal(marshaled(&e).as_bytes()).unwrap(), e);
+        assert_eq!(Entry::from_yaml(marshaled(&e).as_bytes()).unwrap(), e);
     }
 
     // Nested collections keep
@@ -903,35 +918,35 @@ an_empty_map: {}
     #[test]
     fn unknown_map_and_seq_recurse() {
         let text = "title: t\nouter:\n  zeta: [a, {b: 1}]\n  alpha:\n    - - x\n      - y\n";
-        let e = unmarshal(text.as_bytes()).unwrap();
+        let e = Entry::from_yaml(text.as_bytes()).unwrap();
         let Extra::Map(pairs) = &e.extra["outer"] else {
             panic!("not a map")
         };
         assert_eq!(pairs[0].0, "zeta");
         assert_eq!(pairs[1].0, "alpha");
-        assert_eq!(unmarshal(marshaled(&e).as_bytes()).unwrap(), e);
+        assert_eq!(Entry::from_yaml(marshaled(&e).as_bytes()).unwrap(), e);
     }
 
     // The parsing decisions in the plan, as Rust-side tests.
     #[test]
     fn gage_string_fields_take_the_raw_text_of_scalars() {
-        let e =
-            unmarshal(b"title: 0x1F\nvalue: 1e3\nupdated_by: true\ndescription: 007\n").unwrap();
+        let e = Entry::from_yaml(b"title: 0x1F\nvalue: 1e3\nupdated_by: true\ndescription: 007\n")
+            .unwrap();
         assert_eq!(e.title, "0x1F");
         assert_eq!(e.value, "1e3");
         assert_eq!(e.updated_by, "true");
         assert_eq!(e.description, "007");
-        let e = unmarshal(b"fields:\n  pin: 0123\n  on: yes\n").unwrap();
+        let e = Entry::from_yaml(b"fields:\n  pin: 0123\n  on: yes\n").unwrap();
         assert_eq!(e.fields["pin"], "0123");
         assert_eq!(e.fields["on"], "yes");
         // Quoted null is the string, not the empty string.
-        let e = unmarshal(b"title: \"null\"\nvalue: 'null'\n").unwrap();
+        let e = Entry::from_yaml(b"title: \"null\"\nvalue: 'null'\n").unwrap();
         assert_eq!((e.title.as_str(), e.value.as_str()), ("null", "null"));
     }
 
     #[test]
     fn null_and_empty_scalars_are_the_empty_string() {
-        let e = unmarshal(
+        let e = Entry::from_yaml(
             b"title: null\nvalue: ~\nupdated_by:\ndescription: Null\nfields:\n  k:\n  j: ~\n",
         )
         .unwrap();
@@ -941,9 +956,9 @@ an_empty_map: {}
         assert_eq!(e.description, "");
         assert_eq!(e.fields["k"], "");
         assert_eq!(e.fields["j"], "");
-        let e = unmarshal(b"fields:\ntitle: t\n").unwrap();
+        let e = Entry::from_yaml(b"fields:\ntitle: t\n").unwrap();
         assert!(e.fields.is_empty());
-        let e = unmarshal(b"fields: {}\n").unwrap();
+        let e = Entry::from_yaml(b"fields: {}\n").unwrap();
         assert!(e.fields.is_empty());
     }
 
@@ -951,7 +966,7 @@ an_empty_map: {}
     fn empty_documents_are_an_empty_entry() {
         for doc in ["", "\n", "---\n", "# only a comment\n", "~\n", "null\n"] {
             assert_eq!(
-                unmarshal(doc.as_bytes()).unwrap(),
+                Entry::from_yaml(doc.as_bytes()).unwrap(),
                 Entry::default(),
                 "{doc:?}"
             );
@@ -968,7 +983,7 @@ an_empty_map: {}
             "x:\n  k: 1\n  \"k\": 2\n",
             "x: 1\n\"x\": 2\n",
         ] {
-            let err = unmarshal(doc.as_bytes()).unwrap_err();
+            let err = Entry::from_yaml(doc.as_bytes()).unwrap_err();
             assert!(matches!(err, Error::Parse(_)), "{doc:?}: {err}");
             assert_eq!(
                 crate::error::HasKind::kind(&err),
@@ -979,7 +994,7 @@ an_empty_map: {}
 
     #[test]
     fn a_second_document_is_refused() {
-        let err = unmarshal(b"title: a\n---\ntitle: b\n").unwrap_err();
+        let err = Entry::from_yaml(b"title: a\n---\ntitle: b\n").unwrap_err();
         assert!(matches!(err, Error::Parse(_)), "{err}");
     }
 
@@ -987,7 +1002,7 @@ an_empty_map: {}
     fn a_byte_order_mark_is_accepted() {
         let mut doc = "\u{feff}".as_bytes().to_vec();
         doc.extend_from_slice(b"title: with bom\nvalue: v\n");
-        let e = unmarshal(&doc).unwrap();
+        let e = Entry::from_yaml(&doc).unwrap();
         assert_eq!((e.title.as_str(), e.value.as_str()), ("with bom", "v"));
     }
 
@@ -1014,27 +1029,28 @@ an_empty_map: {}
             "[unclosed\n",
             "? [complex]\n: key\n",
         ] {
-            let err = unmarshal(doc.as_bytes()).unwrap_err();
+            let err = Entry::from_yaml(doc.as_bytes()).unwrap_err();
             assert!(matches!(err, Error::Parse(_)), "{doc:?}: {err}");
         }
         assert!(matches!(
-            unmarshal(&[0xff, 0xfe, 0x00]),
+            Entry::from_yaml(&[0xff, 0xfe, 0x00]),
             Err(Error::Parse(_))
         ));
     }
 
     #[test]
     fn timestamps_from_any_offset_normalize_to_utc_seconds() {
-        let e =
-            unmarshal(b"created: 2026-01-14T11:32:00.5+01:00\nupdated: \"2026-01-14T10:32:00Z\"\n")
-                .unwrap();
+        let e = Entry::from_yaml(
+            b"created: 2026-01-14T11:32:00.5+01:00\nupdated: \"2026-01-14T10:32:00Z\"\n",
+        )
+        .unwrap();
         assert_eq!(e.created, e.updated);
         assert!(marshaled(&e).contains("created: 2026-01-14T10:32:00Z\n"));
     }
 
     #[test]
     fn missing_timestamps_are_none_and_stay_absent() {
-        let e = unmarshal(b"title: t\n").unwrap();
+        let e = Entry::from_yaml(b"title: t\n").unwrap();
         assert_eq!((e.created, e.updated), (None, None));
         let text = marshaled(&e);
         assert!(
@@ -1045,9 +1061,9 @@ an_empty_map: {}
 
     #[test]
     fn aliases_in_unknown_fields_come_back_expanded() {
-        let e = unmarshal(b"title: t\nbase: &b {k: v}\ncopy: *b\n").unwrap();
+        let e = Entry::from_yaml(b"title: t\nbase: &b {k: v}\ncopy: *b\n").unwrap();
         assert_eq!(e.extra["base"], e.extra["copy"]);
-        assert_eq!(unmarshal(marshaled(&e).as_bytes()).unwrap(), e);
+        assert_eq!(Entry::from_yaml(marshaled(&e).as_bytes()).unwrap(), e);
     }
 
     #[test]

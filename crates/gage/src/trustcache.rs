@@ -357,7 +357,7 @@ impl Vault {
     /// order is chosen for the safer torn state: a new config copy beside
     /// an old hash reads as a changed list and warns, which is the
     /// direction a half-finished write should fail in.
-    pub(crate) fn store_trust_cache(&self, cache: &TrustCache) -> Result<(), TrustError> {
+    pub(crate) fn save_trust_cache(&self, cache: &TrustCache) -> Result<(), TrustError> {
         let dir = self.trust_cache_dir();
         std::fs::create_dir_all(&dir).map_err(|source| TrustError::CreateDir {
             path: dir.clone(),
@@ -403,7 +403,7 @@ impl Vault {
             // First use. The first list a device sees is trusted on faith:
             // inherent to trust-on-first-use, and why this is a backstop
             // rather than a guarantee.
-            self.store_trust_cache(&current)?;
+            self.save_trust_cache(&current)?;
             return Ok(None);
         };
         if cache.known_config == current.known_config
@@ -440,7 +440,7 @@ impl Vault {
     /// copy, each in its own file's order.
     ///
     /// The cached bytes go through the plain TOML decoder, not
-    /// `vaultconfig::read`: gage wrote them from a file that was already
+    /// `vaultconfig::load`: gage wrote them from a file that was already
     /// validated, and an old copy a newer gage would refuse on
     /// `format_version` must still be describable. Refusing to describe the
     /// change would suppress the warning the refusal is about.
@@ -523,7 +523,7 @@ impl Vault {
     /// The mismatch-seen mark is not carried over: both files agreeing is
     /// what settles it.
     pub(crate) fn note_recipients_reviewed(&self) -> Result<(), TrustError> {
-        self.store_trust_cache(&self.current_trust_state()?)
+        self.save_trust_cache(&self.current_trust_state()?)
     }
 
     /// The other outcome: a mismatched change was confirmed, so the write
@@ -537,7 +537,7 @@ impl Vault {
             return Ok(());
         };
         cache.mismatch_seen = Some(self.current_trust_state()?.recipients_hash);
-        self.store_trust_cache(&cache)
+        self.save_trust_cache(&cache)
     }
 
     /// `recipient add`/`remove`'s precondition: both rebuild

@@ -104,7 +104,7 @@ impl Recover {
                 },
             )
             .unwrap();
-        config::save(&paths::global_config_file(&dirs), &global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&dirs), &global).unwrap();
         gitrepo::push(&vault.path, &gittest::remote_options()).unwrap();
         Recover {
             _root: root,
@@ -174,7 +174,7 @@ impl Recover {
 
     /// `.age-recipients`, read as itself.
     pub(super) fn recipients_file(&self) -> Vec<String> {
-        crate::recipients::read(&self.vault.path.join(".age-recipients")).unwrap()
+        crate::recipients::load(&self.vault.path.join(".age-recipients")).unwrap()
     }
 
     /// Whether `secret` opens every entry on disk.

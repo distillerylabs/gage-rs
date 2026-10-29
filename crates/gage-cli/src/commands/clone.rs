@@ -107,7 +107,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     // registering it anyway would trade one clear failure now for a
     // confusing one on every later command.
     let file =
-        vaultconfig::read(&path.join(".gage").join("config.toml")).map_err(|e| undo(e.into()))?;
+        vaultconfig::load(&path.join(".gage").join("config.toml")).map_err(|e| undo(e.into()))?;
 
     let entry = VaultEntry {
         path: path.clone(),
@@ -125,7 +125,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         },
     };
     global.register(&name, entry.clone())?;
-    gage::config::save(&config_path, &global)?;
+    gage::config::save_creating_dir(&config_path, &global)?;
 
     out(
         io,

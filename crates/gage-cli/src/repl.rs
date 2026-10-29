@@ -49,7 +49,7 @@ fn open<'a>(
     prompter: &'a dyn Prompter,
 ) -> Result<Opened<'a>, CliError> {
     let dirs = dirs?;
-    let global = config::load(&paths::global_config_file(&dirs))?;
+    let global = config::load_or_default(&paths::global_config_file(&dirs))?;
     let settings = shell::resolve(&global.shell, &dirs, &std::env::home_dir)?;
 
     let open_dirs = dirs.clone();

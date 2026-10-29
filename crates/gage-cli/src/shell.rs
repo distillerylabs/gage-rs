@@ -206,7 +206,7 @@ pub fn wants_dirty(template: &str) -> bool {
 /// registered, isn't git, or can't be read renders clean, since a prompt
 /// has nowhere to report an error and the next real command will.
 pub fn vault_is_dirty(name: &str, dirs: &Dirs) -> bool {
-    let Ok(global) = config::load(&paths::global_config_file(dirs)) else {
+    let Ok(global) = config::load_or_default(&paths::global_config_file(dirs)) else {
         return false;
     };
     let Ok(entry) = global.entry(name) else {

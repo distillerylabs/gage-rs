@@ -83,7 +83,7 @@ impl Vault {
         self.catch_up_for_enroll()?;
         self.warn_if_clock_is_behind_head(prompter);
 
-        let file = vaultconfig::read(&self.config_path())?;
+        let file = vaultconfig::load(&self.config_path())?;
         let recorded = self.recorded_registration();
         let listed = recorded
             .pubkey
@@ -181,7 +181,7 @@ impl Vault {
     /// when there is none: a missing or unreadable one skips the checks it
     /// feeds and is never an error here.
     fn recorded_registration(&self) -> Recorded {
-        let Ok(global) = config::read(&paths::global_config_file(self.dirs())) else {
+        let Ok(global) = config::load(&paths::global_config_file(self.dirs())) else {
             return Recorded::default();
         };
         global

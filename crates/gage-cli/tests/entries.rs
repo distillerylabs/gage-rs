@@ -134,7 +134,7 @@ fn concurrent_inserts_through_the_cli_both_succeed() {
     assert!(ls.contains("first") && ls.contains("second"), "{ls}");
     for (title, value) in [("first", "one"), ("second", "two")] {
         let yaml = m.ok(&["cat", title], "");
-        let e = gage::entry::unmarshal(yaml.as_bytes()).unwrap();
+        let e = gage::entry::Entry::from_yaml(yaml.as_bytes()).unwrap();
         assert_eq!(e.value, value);
     }
     assert!(gage::gitrepo::is_clean(&m.vault_dir()).unwrap());
@@ -177,7 +177,7 @@ fn value_stdin_after_a_piped_passphrase_stores_the_value() {
     m.ok(&["insert", "piped", "--value-stdin"], "the-value\n");
 
     let yaml = m.ok(&["cat", "piped"], "");
-    let e = gage::entry::unmarshal(yaml.as_bytes()).unwrap();
+    let e = gage::entry::Entry::from_yaml(yaml.as_bytes()).unwrap();
     assert_eq!(e.value, "the-value");
 }
 
@@ -273,7 +273,7 @@ fn insert_multiline_captures_from_a_real_terminal_until_eof() {
     );
 
     let yaml = m.ok(&["cat", "Notes"], "");
-    let e = gage::entry::unmarshal(yaml.as_bytes()).unwrap();
+    let e = gage::entry::Entry::from_yaml(yaml.as_bytes()).unwrap();
     assert_eq!(e.value, typed, "byte for byte what was typed");
 }
 

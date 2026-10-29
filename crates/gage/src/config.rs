@@ -228,8 +228,8 @@ impl Global {
 
 /// Reads the global config, treating a missing file as an empty registry:
 /// no vault has been registered on this machine yet.
-pub fn load(path: &Path) -> Result<Global, Error> {
-    match read(path) {
+pub fn load_or_default(path: &Path) -> Result<Global, Error> {
+    match load(path) {
         Err(Error::NotFound { .. }) => Ok(Global::default()),
         other => other,
     }
@@ -237,7 +237,7 @@ pub fn load(path: &Path) -> Result<Global, Error> {
 
 /// Writes the global config, creating its directory (mode 0700) first if
 /// this is the first vault ever registered here.
-pub fn save(path: &Path, global: &Global) -> Result<(), Error> {
+pub fn save_creating_dir(path: &Path, global: &Global) -> Result<(), Error> {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         let mut builder = std::fs::DirBuilder::new();
         builder.recursive(true);
@@ -248,11 +248,11 @@ pub fn save(path: &Path, global: &Global) -> Result<(), Error> {
             source,
         })?;
     }
-    write(path, global)
+    save(path, global)
 }
 
 /// Parses the global config at `path`.
-pub fn read(path: &Path) -> Result<Global, Error> {
+pub fn load(path: &Path) -> Result<Global, Error> {
     let text = std::fs::read_to_string(path).map_err(|source| {
         if source.kind() == std::io::ErrorKind::NotFound {
             Error::NotFound {
@@ -273,7 +273,7 @@ pub fn read(path: &Path) -> Result<Global, Error> {
 
 /// Atomically writes `global` to `path` with mode 0600, so an interrupted
 /// write never leaves a truncated config listing every registered vault.
-pub fn write(path: &Path, global: &Global) -> Result<(), Error> {
+pub fn save(path: &Path, global: &Global) -> Result<(), Error> {
     let text = toml::to_string(global).map_err(|source| Error::Encode {
         path: path.to_path_buf(),
         source,
@@ -357,9 +357,9 @@ mod tests {
             },
         };
 
-        write(&path, &want).unwrap();
+        save(&path, &want).unwrap();
 
-        assert_eq!(read(&path).unwrap(), want);
+        assert_eq!(load(&path).unwrap(), want);
         let text = std::fs::read_to_string(&path).unwrap();
         // The table and field names are the format's.
         for needle in [
@@ -395,7 +395,7 @@ mod tests {
     #[test]
     fn read_missing_file() {
         let dir = tempfile::tempdir().unwrap();
-        let err = read(&dir.path().join("nope.toml")).unwrap_err();
+        let err = load(&dir.path().join("nope.toml")).unwrap_err();
         assert!(matches!(err, Error::NotFound { .. }), "{err:?}");
     }
 
@@ -412,7 +412,7 @@ mod tests {
         )
         .unwrap();
 
-        let err = read(&path).unwrap_err();
+        let err = load(&path).unwrap_err();
 
         assert!(matches!(err, Error::Parse { .. }), "{err:?}");
         let msg = err.to_string();
@@ -427,14 +427,14 @@ mod tests {
         let path = dir.path().join("config.toml");
         std::fs::write(&path, "current = \"unterminated").unwrap();
 
-        let err = read(&path).unwrap_err();
+        let err = load(&path).unwrap_err();
 
         assert!(matches!(err, Error::Parse { .. }), "{err:?}");
         assert!(err.to_string().contains("parsing"), "{err}");
     }
 
     // Atomicfile's own discriminator,
-    // applied to config::write: a refactor that dropped the atomicfile
+    // applied to config::save: a refactor that dropped the atomicfile
     // call would leave atomicfile's tests green and only this one would
     // notice.
     // Unix only: Windows refuses to rename over a file that has an open
@@ -445,19 +445,19 @@ mod tests {
         use std::io::Read;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        write(&path, &one_vault()).unwrap();
+        save(&path, &one_vault()).unwrap();
         let mut old = std::fs::File::open(&path).unwrap();
 
         let work = Global {
             current: Some("work".into()),
             ..Default::default()
         };
-        write(&path, &work).unwrap();
+        save(&path, &work).unwrap();
 
         let mut seen = String::new();
         old.read_to_string(&mut seen).unwrap();
         assert_eq!(toml::from_str::<Global>(&seen).unwrap(), one_vault());
-        assert_eq!(read(&path).unwrap(), work);
+        assert_eq!(load(&path).unwrap(), work);
     }
 
     #[cfg(unix)]
@@ -467,7 +467,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        write(&path, &one_vault()).unwrap();
+        save(&path, &one_vault()).unwrap();
         std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500)).unwrap();
         struct Restore<'a>(&'a Path);
         impl Drop for Restore<'_> {
@@ -489,7 +489,7 @@ mod tests {
             return;
         }
 
-        let err = write(
+        let err = save(
             &path,
             &Global {
                 current: Some("work".into()),
@@ -499,7 +499,7 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, Error::Write { .. }), "{err:?}");
-        assert_eq!(read(&path).unwrap(), one_vault());
+        assert_eq!(load(&path).unwrap(), one_vault());
     }
 
     // Two writes, the second wins. This doesn't observe the old value surviving until the rename either; that
@@ -513,9 +513,9 @@ mod tests {
                 current: Some(current.into()),
                 ..Default::default()
             };
-            write(&path, &g).unwrap();
+            save(&path, &g).unwrap();
         }
-        assert_eq!(read(&path).unwrap().current, Some("b".into()));
+        assert_eq!(load(&path).unwrap().current, Some("b".into()));
     }
 
     fn entry(path: &str) -> VaultEntry {
@@ -600,7 +600,7 @@ mod tests {
     fn load_treats_a_missing_file_as_an_empty_registry() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(
-            load(&dir.path().join("config.toml")).unwrap(),
+            load_or_default(&dir.path().join("config.toml")).unwrap(),
             Global::default()
         );
     }
@@ -610,7 +610,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         std::fs::write(&path, "current = ").unwrap();
-        assert!(matches!(load(&path), Err(Error::Parse { .. })));
+        assert!(matches!(load_or_default(&path), Err(Error::Parse { .. })));
     }
 
     #[test]
@@ -618,9 +618,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config").join("gage").join("config.toml");
 
-        save(&path, &one_vault()).unwrap();
+        save_creating_dir(&path, &one_vault()).unwrap();
 
-        assert_eq!(load(&path).unwrap(), one_vault());
+        assert_eq!(load_or_default(&path).unwrap(), one_vault());
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -638,7 +638,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        write(&path, &one_vault()).unwrap();
+        save(&path, &one_vault()).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
     }

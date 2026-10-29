@@ -68,7 +68,7 @@ fn init_then_unlock_decrypts_something_encrypted_to_the_vault() {
 
     let entry = env.entry("personal");
     let from_config = env.vault_config("personal").recipients[0].pubkey.clone();
-    let from_file = recipients::read(&entry.path.join(".age-recipients")).unwrap();
+    let from_file = recipients::load(&entry.path.join(".age-recipients")).unwrap();
     assert_eq!(from_file, std::slice::from_ref(&from_config));
 
     let vault = Vault::from_registration(&env.dirs, "personal", &entry).unwrap();
@@ -435,7 +435,7 @@ fn init_extra_recipient_follows_the_device_key() {
     assert_eq!(file.recipients[0].device, entry.device);
     assert_eq!(file.recipients[1].pubkey, RECIPIENT_1);
     assert_eq!(
-        recipients::read(&entry.path.join(".age-recipients")).unwrap(),
+        recipients::load(&entry.path.join(".age-recipients")).unwrap(),
         [file.recipients[0].pubkey.clone(), RECIPIENT_1.to_string()],
         "same keys, same order, in both recipient-defining files"
     );

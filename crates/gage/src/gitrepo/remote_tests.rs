@@ -382,7 +382,7 @@ const TOKEN: &str = "tok_do_not_print_me";
 fn fetch_and_push_carry_the_stored_token_to_libgit2() {
     let (m, opts) = machine();
     let recorder = HttpRecorder::start(Answer::Challenge);
-    remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+    remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
     let dir = repo_with_origin(&recorder.url("me/vault.git"));
 
     let fetch_err = fetch(dir.path(), &opts).unwrap_err();
@@ -429,7 +429,7 @@ fn fetch_and_push_go_anonymous_with_no_stored_token() {
 fn push_after_logout_names_the_host_and_the_command() {
     let (m, opts) = machine();
     let recorder = HttpRecorder::start(Answer::Challenge);
-    remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+    remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
     remoteauth::remove(&m.dirs, "127.0.0.1").unwrap();
     let dir = repo_with_origin(&recorder.url("me/vault.git"));
 
@@ -458,7 +458,7 @@ fn no_token_value_leaks_into_a_sync_error() {
     ] {
         let (m, opts) = machine();
         let recorder = HttpRecorder::start(answer.clone());
-        remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+        remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
         let dir = repo_with_origin(&recorder.url("me/vault.git"));
         for err in [
             fetch(dir.path(), &opts).unwrap_err(),
@@ -507,7 +507,7 @@ fn a_token_is_not_offered_to_a_host_it_was_not_stored_for() {
     let redirector = HttpRecorder::start(Answer::RedirectFirst(
         recorder.localhost_url("me/vault.git/info/refs?service=git-upload-pack"),
     ));
-    remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+    remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
     let dir = repo_with_origin(&redirector.url("me/vault.git"));
 
     let err = fetch(dir.path(), &opts).unwrap_err();
@@ -546,7 +546,7 @@ fn a_redirect_after_the_token_does_not_carry_it_to_another_host() {
     let origin = HttpRecorder::start(Answer::RedirectAfterAuth(
         elsewhere.localhost_url("me/vault.git/info/refs?service=git-upload-pack"),
     ));
-    remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+    remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
     let dir = repo_with_origin(&origin.url("me/vault.git"));
 
     let err = fetch(dir.path(), &opts).unwrap_err();

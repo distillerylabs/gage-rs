@@ -223,7 +223,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
             },
         },
     )?;
-    gage::config::save(&config_path, &global)?;
+    gage::config::save_creating_dir(&config_path, &global)?;
 
     // After registration, so a key is never shown for a vault that isn't
     // usable yet, and before the summary, so the one thing needing action
@@ -345,7 +345,7 @@ fn ensure_remote_token(io: &mut Io, prompter: &dyn Prompter, remote: &str) -> Re
     if token.trim().is_empty() {
         return Ok(());
     }
-    remoteauth::store(&dirs, &host, &token)?;
+    remoteauth::save(&dirs, &host, &token)?;
     out(io, &[format!("gage: stored a token for {host}")]);
     Ok(())
 }

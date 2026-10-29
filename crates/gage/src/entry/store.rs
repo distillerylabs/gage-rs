@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use super::{ENTRIES_DIR_NAME, ENTRY_FILE_EXT, Entry, Error, marshal, unmarshal};
+use super::{ENTRIES_DIR_NAME, ENTRY_FILE_EXT, Entry, Error};
 use crate::vault::Vault;
 use crate::{atomicfile, crypt, identity::Identity, recipients};
 
@@ -27,7 +27,7 @@ impl Vault {
     /// (`age1yubikey1…`) is legal there but not encryptable by this build,
     /// and fails here, before anything is written.
     fn encrypt_recipients(&self) -> Result<Vec<crypt::Recipient>, Error> {
-        let keys = recipients::read(&self.path.join(".age-recipients"))?;
+        let keys = recipients::load(&self.path.join(".age-recipients"))?;
         Ok(keys
             .iter()
             .map(|k| crypt::Recipient::parse(k))
@@ -55,7 +55,7 @@ impl Vault {
         e: &Entry,
         to: &[crypt::Recipient],
     ) -> Result<(), Error> {
-        let ciphertext = crypt::encrypt(&marshal(e)?, to)?;
+        let ciphertext = crypt::encrypt(&e.to_yaml()?, to)?;
 
         let dir = self.entries_dir();
         std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
@@ -81,7 +81,7 @@ impl Vault {
     /// nothing: the entry is encrypted exactly as given.
     pub fn encrypt_entry(&self, e: &Entry) -> Result<Vec<u8>, Error> {
         let to = self.encrypt_recipients()?;
-        let plaintext = marshal(e)?;
+        let plaintext = e.to_yaml()?;
         Ok(crypt::encrypt(&plaintext, &to)?)
     }
 
@@ -94,7 +94,7 @@ impl Vault {
     ) -> Result<Entry, Error> {
         self.decrypts.bump();
         let plaintext = Zeroizing::new(crypt::decrypt(ciphertext, identity)?);
-        unmarshal(&plaintext)
+        Entry::from_yaml(&plaintext)
     }
 
     /// Reads and decrypts `entries/<id>.age` with `identity` and parses
@@ -209,7 +209,7 @@ mod tests {
                 .map(|_| age::x25519::Identity::generate())
                 .collect();
             let public: Vec<String> = keys.iter().map(|k| k.to_public().to_string()).collect();
-            recipients::write(&vault.path.join(".age-recipients"), &public).unwrap();
+            recipients::save(&vault.path.join(".age-recipients"), &public).unwrap();
             Fixture {
                 _root: root,
                 vault,
@@ -376,9 +376,9 @@ mod tests {
     #[test]
     fn write_entry_rejects_a_recipient_it_cannot_encrypt_to() {
         let f = Fixture::new(1);
-        let mut keys = recipients::read(&f.vault.path.join(".age-recipients")).unwrap();
+        let mut keys = recipients::load(&f.vault.path.join(".age-recipients")).unwrap();
         keys.push("age1yubikey1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9hkmc0".into());
-        recipients::write(&f.vault.path.join(".age-recipients"), &keys).unwrap();
+        recipients::save(&f.vault.path.join(".age-recipients"), &keys).unwrap();
         let err = f.vault.write_entry(new_id(), &sample()).unwrap_err();
         assert!(
             matches!(&err, Error::Crypt(crypt::Error::InvalidRecipient { .. })),

@@ -179,9 +179,9 @@ fn enroll_seals_the_public_key_this_device_actually_holds() {
 fn enroll_seals_the_passphrase_method_whatever_config_records() {
     let (a, b) = pair();
     let path = paths::global_config_file(&b.dirs);
-    let mut global = config::read(&path).unwrap();
+    let mut global = config::load(&path).unwrap();
     global.vaults.get_mut(&b.vault.name).unwrap().method = "yubikey".into();
-    config::save(&path, &global).unwrap();
+    config::save_creating_dir(&path, &global).unwrap();
 
     let req = b.vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap();
 

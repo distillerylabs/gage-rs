@@ -236,9 +236,9 @@ mod tests {
 
         // Relabelled in the vault: the key matches, the name does not.
         let config_path = c.fx.vault.path.join(".gage/config.toml");
-        let mut file = vaultconfig::read(&config_path).unwrap();
+        let mut file = vaultconfig::load(&config_path).unwrap();
         file.recipients[0].device = "phone-9".into();
-        vaultconfig::write(&config_path, &file).unwrap();
+        vaultconfig::save(&config_path, &file).unwrap();
         assert_eq!(
             c.kept(),
             KeepReason::StillARecipient {

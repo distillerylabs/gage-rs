@@ -15,7 +15,7 @@ use crate::config::{self, VaultEntry};
 use crate::devicename;
 use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::gitrepo;
-use crate::identity::Identity;
+use crate::identity::{Identity, PageLock, Unlocked};
 use crate::identityfile;
 use crate::locker::{Locker, MemLocker};
 use crate::paths;
@@ -535,7 +535,7 @@ impl Vault {
         name: &str,
         entry: &VaultEntry,
     ) -> Result<Vault, ResolveError> {
-        match vaultconfig::read(&config_path(&entry.path)) {
+        match vaultconfig::load(&config_path(&entry.path)) {
             Ok(file) if entry.id.as_ref() != Some(&file.vault.id) => {
                 return Err(ResolveError::Mismatch {
                     name: name.to_string(),
@@ -575,7 +575,7 @@ impl Vault {
     /// Reads the vault's committed config (validated) and, for a git
     /// vault, its remote and working-tree state.
     pub fn info(&self) -> Result<Info, InfoError> {
-        let file = vaultconfig::read(&self.config_path())?;
+        let file = vaultconfig::load(&self.config_path())?;
         let git = match file.vault.vault_type {
             VaultType::Git => Some(GitInfo {
                 remote: gitrepo::remote_url(&self.path)?,
@@ -620,13 +620,16 @@ impl Vault {
         }
         let path = paths::identity_file_path(&self.dirs, &self.id, &device)?;
         let wrapped =
-            identityfile::read(&path)?.ok_or_else(|| UnlockError::NoIdentityFile(path.clone()))?;
+            identityfile::load(&path)?.ok_or_else(|| UnlockError::NoIdentityFile(path.clone()))?;
         let key = identityfile::open(&self.name, &device, &wrapped, prompter)?;
 
         // One lock attempt per unlock, so "warn once" is structural rather
         // than a counter that could drift.
-        let (identity, lock_err) = Identity::new(&device, key, self.locker.get());
-        if let Some(e) = lock_err {
+        let Unlocked {
+            identity,
+            page_lock,
+        } = Identity::from_key(&device, key, self.locker.get());
+        if let PageLock::Failed(e) = page_lock {
             warn_page_lock_failed(prompter, &device, &e);
         }
         // The opportunistic trust check, and the first-use bootstrap with it.
@@ -649,7 +652,7 @@ impl Vault {
     /// what makes a second method additive. It also keeps the committed
     /// config from advertising which recipient is the softest target.
     fn local_identity_record(&self) -> Result<(String, UnlockMethod), UnlockError> {
-        let global = match config::read(&paths::global_config_file(&self.dirs)) {
+        let global = match config::load(&paths::global_config_file(&self.dirs)) {
             Ok(global) => global,
             Err(config::Error::NotFound { .. }) => {
                 return Err(UnlockError::NoLocalIdentity(
@@ -1050,8 +1053,8 @@ fn write_skeleton(spec: &CreateSpec) -> Result<(), CreateError> {
         },
         recipients,
     };
-    vaultconfig::write(&config_path(&spec.path), &file)?;
-    recipients::write(&spec.path.join(".age-recipients"), &pubkeys)?;
+    vaultconfig::save(&config_path(&spec.path), &file)?;
+    recipients::save(&spec.path.join(".age-recipients"), &pubkeys)?;
     for (name, content) in [(".gitignore", GITIGNORE), (".gitattributes", GITATTRIBUTES)] {
         let path = spec.path.join(name);
         atomicfile::write(&path, content.as_bytes(), 0o644)
@@ -1124,7 +1127,7 @@ mod tests {
 
     fn created(spec: &CreateSpec) -> vaultconfig::File {
         Vault::create(&test_dirs(), spec).unwrap();
-        vaultconfig::read(&config_path(&spec.path)).unwrap()
+        vaultconfig::load(&config_path(&spec.path)).unwrap()
     }
 
     /// Every rejection fails "before creating any files": an exit code
@@ -1325,7 +1328,7 @@ mod tests {
 
         let file = created(&spec);
 
-        let keys = recipients::read(&spec.path.join(".age-recipients")).unwrap();
+        let keys = recipients::load(&spec.path.join(".age-recipients")).unwrap();
         let config_keys: Vec<String> = file.recipients.into_iter().map(|r| r.pubkey).collect();
         assert_eq!(keys, config_keys);
     }
@@ -1340,7 +1343,7 @@ mod tests {
 
         let file = created(&spec);
 
-        let keys = recipients::read(&spec.path.join(".age-recipients")).unwrap();
+        let keys = recipients::load(&spec.path.join(".age-recipients")).unwrap();
         assert_eq!(keys, [RECIPIENT_1, RECIPIENT_2, RECIPIENT_1]);
         let labels: Vec<&str> = file.recipients.iter().map(|r| r.device.as_str()).collect();
         assert_eq!(labels, ["laptop-1", "recipient-2", "recipient-3"]);
@@ -1353,7 +1356,7 @@ mod tests {
 
         let vault = Vault::create(&test_dirs(), &spec).unwrap();
 
-        let file = vaultconfig::read(&vault.config_path()).unwrap();
+        let file = vaultconfig::load(&vault.config_path()).unwrap();
         assert_eq!(file.vault.id, spec.id);
         assert_eq!(vault.id, spec.id);
         assert_eq!(file.vault.format_version, 2);

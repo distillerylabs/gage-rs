@@ -582,7 +582,7 @@ impl Vault {
     /// name and nothing else; failing to build a message mustn't turn a
     /// refusal into a different error.
     fn describe_vault_id(&self, id: &VaultId) -> String {
-        config::read(&paths::global_config_file(self.dirs()))
+        config::load(&paths::global_config_file(self.dirs()))
             .ok()
             .and_then(|global| {
                 global
