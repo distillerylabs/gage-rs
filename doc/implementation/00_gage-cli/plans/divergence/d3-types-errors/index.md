@@ -129,7 +129,7 @@ Specific to D3:
 |---|---|---|---|
 | [D3a `VaultId`, enums, `Option` config](d3a-vaultid-enums.md) ([#132](https://github.com/distillerylabs/gage-rs/issues/132), PR [#136](https://github.com/distillerylabs/gage-rs/pull/136)) | `[x]` | **Opus** | parent branch |
 | [D3b Error/frontend boundary](d3b-error-boundary.md) ([#133](https://github.com/distillerylabs/gage-rs/issues/133), PR [#137](https://github.com/distillerylabs/gage-rs/pull/137)) | `[x]` | **Opus** | D3a |
-| [D3c Small Go-isms](d3c-small-go-isms.md) ([#134](https://github.com/distillerylabs/gage-rs/issues/134)) | `[ ]` | Sonnet | D3b |
+| [D3c Small Go-isms](d3c-small-go-isms.md) ([#134](https://github.com/distillerylabs/gage-rs/issues/134), PR [#138](https://github.com/distillerylabs/gage-rs/pull/138)) | `[x]` | Sonnet | D3b |
 
 **Why Opus for D3a.**
 

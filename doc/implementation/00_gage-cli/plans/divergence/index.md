@@ -87,7 +87,7 @@ ones learn.
 |---|---|---|---|---|
 | D1 Independence ([plan](d1-independence/index.md), [#115](https://github.com/distillerylabs/gage-rs/issues/115)) | D1a format v2 spec + golden vault · D1b retire parity machinery · D1c docs archive, re-home, process | `[x]` | **Opus** D1a; Sonnet D1b/D1c | — |
 | D2 Source sweep ([plan](d2-source-sweep/index.md), [#124](https://github.com/distillerylabs/gage-rs/issues/124)) | D2a `crates/gage` · D2b `crates/gage-cli` | `[x]` | Sonnet | D1 |
-| D3 Types and errors ([plan](d3-types-errors/index.md), [#131](https://github.com/distillerylabs/gage-rs/issues/131)) | D3a `VaultId`, enums, `Option` config · D3b error/frontend boundary · D3c small Go-isms | `[~]` | **Opus** D3a/D3b; Sonnet D3c | D2 |
+| D3 Types and errors ([plan](d3-types-errors/index.md), [#131](https://github.com/distillerylabs/gage-rs/issues/131)) | D3a `VaultId`, enums, `Option` config · D3b error/frontend boundary · D3c small Go-isms | `[x]` | **Opus** D3a/D3b; Sonnet D3c | D2 |
 | D4 API surface | D4a module hierarchy + re-exports · D4b test seams off production types · D4c typed CLI dispatch | `[ ]` | **Opus** D4b; Sonnet D4a/D4c | D3 |
 
 **Order.**
