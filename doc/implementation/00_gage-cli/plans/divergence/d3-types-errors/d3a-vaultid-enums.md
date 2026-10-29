@@ -327,7 +327,7 @@ Both live in `vaultconfig/kind.rs`, re-exported from `vaultconfig`.
 - [x] The help snapshots are green and unedited. The existing
       `format_v2_*` tests are green, with only the type-only edits listed
       under task 1.
-- [ ] CI green on Linux, macOS and Windows.
+- [x] CI green on Linux, macOS and Windows (PR #136).
 
 ## Definition of done
 

@@ -127,7 +127,7 @@ Specific to D3:
 
 | Milestone | Status | Model | Depends on |
 |---|---|---|---|
-| [D3a `VaultId`, enums, `Option` config](d3a-vaultid-enums.md) ([#132](https://github.com/distillerylabs/gage-rs/issues/132)) | `[~]` | **Opus** | parent branch |
+| [D3a `VaultId`, enums, `Option` config](d3a-vaultid-enums.md) ([#132](https://github.com/distillerylabs/gage-rs/issues/132), PR [#136](https://github.com/distillerylabs/gage-rs/pull/136)) | `[x]` | **Opus** | parent branch |
 | [D3b Error/frontend boundary](d3b-error-boundary.md) ([#133](https://github.com/distillerylabs/gage-rs/issues/133)) | `[ ]` | **Opus** | D3a |
 | [D3c Small Go-isms](d3c-small-go-isms.md) ([#134](https://github.com/distillerylabs/gage-rs/issues/134)) | `[ ]` | Sonnet | D3b |
 
