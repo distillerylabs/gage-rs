@@ -211,7 +211,7 @@ fn pick_scratch_dir(xdg: Option<std::ffi::OsString>) -> PathBuf {
 
 /// Off Linux: the OS's per-user temp directory. Neither macOS nor Windows
 /// gives an unprivileged, portable way to verify a memory-backed
-/// filesystem, so this is the narrower guarantee, not a claim of parity
+/// filesystem, so this is the narrower guarantee, not a claim of equivalence
 /// with Linux.
 #[cfg(not(target_os = "linux"))]
 pub(crate) fn scratch_dir() -> PathBuf {

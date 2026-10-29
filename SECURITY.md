@@ -23,26 +23,23 @@ keep you updated and coordinate disclosure with you.
 
 ## Supported versions
 
-`gage-rs` is an in-progress port of Go gage and has no releases yet. Until
-the port reaches parity, use Go gage for real secrets. Only the latest
-commit on `main` is supported; fixes are not backported.
+`gage-rs` has no releases yet. Only the latest commit on `main` is
+supported; fixes are not backported.
 
 ## Scope and known limitations
 
 `gage` has **not been independently audited**. Before reporting, please read
-the "Trust boundaries" section of the
-[design doc](doc/implementation/00_gage-cli/tdds/gage-cli-design.md) and the
-"Security model and limitations" section of the
-[Go gage README](https://github.com/distillerylabs/gage#readme), which
-applies equally to this port. These are
+the [security model](doc/design/security-model.md) and the "Trust boundaries"
+section of the [design doc](doc/design/gage-cli-design.md). These are
 documented limits rather than vulnerabilities:
 
 - Write access to a vault's git remote is, transitively, the ability to add a
   recipient for *future* writes (already-encrypted entries stay unreadable).
 - A compromised local machine, or one where an attacker can read an unlocked
   session's memory or an identity file, is out of scope.
-- Remote authentication supports HTTPS with a token only; SSH config and git
-  credential helpers are intentionally not honored.
+- Remote authentication supports HTTPS with a token, or ssh-agent for SSH
+  remotes; `~/.ssh/config`, git credential helpers and `insteadOf` rewrites
+  are intentionally not honored.
 
 Reports that break a guarantee the docs *do* make are in scope, for example:
 decrypting entries without a valid key, leaking titles or metadata into

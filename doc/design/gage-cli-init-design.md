@@ -1,11 +1,9 @@
 # Device enrollment — joining a vault without hand-carrying a public key
 
-> **gage-rs note.** This spec is shared with [Go gage](https://github.com/distillerylabs/gage) and copied here verbatim, apart from this note. The Go implementation is the reference for on-disk compatibility. Rust-specific deviations and decisions live in [plans/rust-port/](../plans/rust-port/index.md), not in this file. Links into `plans/gage-cli-design/` and other Go plan directories resolve only in the Go repo.
+> **Design document.** This is gage-rs's rationale for device enrollment. Decisions that bind future code are ADRs in [../decisions/](../decisions/README.md) (the `D-ENROLL-*` decisions are ADR-0038 to ADR-0046); the on-disk format is specified in [../format/](../format/README.md); user-facing behavior is in [../cli/enrollment.md](../cli/enrollment.md). Where this document and one of those disagree, they win.
 
-*Status: **design settled; not implemented.** An enhancement to
-[gage-cli-design.md](gage-cli-design.md), not a replacement.
-Implementation is planned in
-[plans/gage-cli-init-design/](../plans/gage-cli-init-design/index.md).*
+*Status: **implemented.** An enhancement to
+[gage-cli-design.md](gage-cli-design.md), not a replacement.*
 
 *All nine `D-ENROLL-*` decisions below are resolved.* Everything
 that document says about vaults, identities, recipients, and the trust
@@ -78,15 +76,15 @@ it was wrong, in two independent ways:
 
 Neither option is needed, because the code is just an argument.
 `OpenEnrollment(requests, codes)` is a pure function of what it's handed,
-the way `AddRecipient` takes a pubkey. `cmd/gage` collects codes from
+the way `AddRecipient` takes a pubkey. `gage-cli` collects codes from
 `--code` flags or, when none were given, by prompting with the existing
 `Prompter.Value` — masked, one line, carrying no vault/device/attempt
 context, which is exactly what that method's doc comment already
-describes. A wrong code returns `ErrEnrollmentCodeWrong`, and `cmd/gage`
+describes. A wrong code returns `ErrEnrollmentCodeWrong`, and `gage-cli`
 decides whether to ask again.
 
 That is the base design's stated split working as intended: "retry
-policy stays a decision `cmd/gage` makes, not one the library bakes in."
+policy stays a decision `gage-cli` makes, not one the library bakes in."
 The library gains no new interface surface for the code, and neither
 does `Prompter`.
 
@@ -110,7 +108,7 @@ displayed behind a cosmetic `GAGE-` prefix.**
 GAGE-7K4M-9QX2-P3RH-8WVN
 ```
 
-- **16 characters × 5 bits = 80 bits**, drawn from `crypto/rand`. Behind
+- **16 characters × 5 bits = 80 bits**, drawn from `OsRng`. Behind
   age's scrypt work factor that is not brute-forceable, which matters
   because the sealed blob is an offline, unlimited-guess target for
   anyone who can read the vault (see "The reframe"). It stays short
@@ -129,7 +127,7 @@ GAGE-7K4M-9QX2-P3RH-8WVN
   any decryption is attempted**, so a typo costs nothing instead of N
   scrypt runs across N pending requests.
 - **The library never persists the code.** It is returned once from
-  `Enroll` for `cmd/gage` to display, and the *joining* device writes it
+  `Enroll` for `gage-cli` to display, and the *joining* device writes it
   nowhere — not in the vault, not in local state, not in the session
   history file. That is a property of the joining side specifically:
   enroll generates the code and never takes one as input, so there is no
@@ -139,7 +137,7 @@ GAGE-7K4M-9QX2-P3RH-8WVN
   library's to fix.** `gage recipient approve --code GAGE-…` puts the
   code on a command line, which in a session lands in the history file
   verbatim and in a one-shot run lands in the user's own shell history —
-  neither of which `internal/gage` can see. Recorded as an accepted risk
+  neither of which `crates/gage` can see. Recorded as an accepted risk
   rather than papered over; the exposure is bounded (device-local, mode
   `0600` for gage's own file, dead in 24h, and the request is deleted on
   approval) and the approver who wants none of it omits `--code` and
@@ -171,9 +169,9 @@ whoever can write to the repository. Only the third is gage's alone, and
 it was inherited from a calculation done for a different threat.
 
 **First: the open path caps the claimed work factor, exactly as the
-identity path already does.** `unlock.go` calls
-`SetMaxWorkFactor(scryptMaxWorkFactor)` — 22 — before opening an
-identity file, and its comment gives the reason in one line: "a damaged
+identity path already does.** unlocking an
+identity file caps the factor the file may claim at 22, and the reason is
+one line: "a damaged
 or hostile file claiming 2^30 costs a bounded wait instead of hanging
 the process." Enrollment is a *new* decryption path and inherits nothing
 automatically. Without the same call, **one** committed file claiming
@@ -187,7 +185,7 @@ how many requests one run will attempt.**
 The identity file's factor of 19 (~2s) is set by what it defends: a
 *user-chosen* passphrase, where every doubling doubles an offline
 attacker's cost. An enrollment code defends nothing of the kind. It is
-16 Crockford characters from `crypto/rand` — ~80 bits — and 2^80 is
+16 Crockford characters from `OsRng` — ~80 bits — and 2^80 is
 infeasible at *any* work factor, including none. The KDF is doing
 approximately no work here that the entropy is not already doing.
 
@@ -204,17 +202,15 @@ the factor is ever raised again.
 
 #### Seals are written at work factor 14, not 19
 
-```go
-// shippedEnrollmentScryptWorkFactor is the log2 cost a sealed enrollment
-// request is written at. It is deliberately NOT
-// shippedScryptWorkFactor: the two protect different things and are
-// calibrated against different attacks. Do not collapse them.
-const shippedEnrollmentScryptWorkFactor = 14
+```rust
+/// The log2 cost a sealed enrollment request is written at. It is
+/// deliberately NOT `SHIPPED_SCRYPT_WORK_FACTOR`: the two protect different
+/// things and are calibrated against different attacks. Do not collapse them.
+pub const SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR: u8 = 14;
 
-// enrollmentScryptWorkFactor is the live copy, lowered by the test
-// binary through SetEnrollmentWorkFactorForTests and by nothing else —
-// the same shape, and for the same reason, as scryptWorkFactor.
-var enrollmentScryptWorkFactor = shippedEnrollmentScryptWorkFactor
+// The live copy is an atomic, lowered by test builds through
+// `set_enrollment_work_factor_for_tests` and by nothing else: the same shape,
+// and for the same reason, as the identity file's factor (ADR-0024, ADR-0025).
 ```
 
 **Both halves of that pattern are load-bearing, and taking only the first
@@ -241,7 +237,7 @@ live one is moved.
 factor buys cost *per guess*, which is what a user-chosen passphrase
 needs and what `shippedScryptWorkFactor`'s comment is entirely about. An
 enrollment code is not chosen by anyone: it is 80 bits from
-`crypto/rand` (D-ENROLL-CODE-FORMAT). At 80 bits the guess count is the
+`OsRng` (D-ENROLL-CODE-FORMAT). At 80 bits the guess count is the
 defence, and it is infeasible at *any* factor including none — so the
 extra doublings are being paid for in latency and bought nothing.
 
@@ -299,7 +295,7 @@ writer put in the directory.
 
 **The case this is really calibrated for is a typo, not an attack.** A
 wrong code must try every request before it can conclude it opens
-nothing, and `cmd/gage` retries on exactly that error. At 19 with ten
+nothing, and `gage-cli` retries on exactly that error. At 19 with ten
 pending, one mistyped character costs twenty seconds before the retry
 prompt returns. At 14, a wrong code against the full permitted 32 costs
 about two seconds, and the realistic handful costs a tenth of that. The
@@ -346,7 +342,7 @@ change removes both rather than solving either:
   was simply no honest value to print.
 - **It needed a git history walk that gage has nowhere else.** Deriving
   "when was this requested" from the introducing commit means a
-  first-appearance search through history, per request, in go-git. With
+  first-appearance search through history, per request, in git. With
   the epoch in the name, the question disappears: `PendingRequest` drops
   `Requested` entirely, and pruning becomes a parse and a comparison.
 
@@ -530,7 +526,7 @@ different fixes and the caller decides what to say about each:
 has one that can't be reached right now (fix: get on the network, or
 check the token). Folding them together would have been a small
 violation of the rule that library boundaries return distinguishable
-errors so `cmd/gage` — not the library — picks the advice.
+errors so `gage-cli` — not the library — picks the advice.
 
 Order of operations, with the reasons that fix each position:
 
@@ -561,7 +557,7 @@ Order of operations, with the reasons that fix each position:
 **The reset is not optional here, and it is the one step this list used
 to omit.** Every mutating method in `gage` runs `resetDirtyWorkTree`
 under the lock before it writes anything — that is what `withVaultWrite`
-*is* (`internal/gage/vault.go`), and it is why "no write folds a previous
+*is*, and it is why "no write folds a previous
 write's leftovers into its own commit" is structural rather than a rule
 each verb remembers. Enroll is a write and gets the same preamble, so it
 takes `withVaultWrite`, not the bare `withWriteLock`.
@@ -617,7 +613,7 @@ mode is an entry conflict.
 **The lock wraps the pull, not just the commit**, and an earlier draft of
 this section had that wrong. A fast-forward pull mutates the working
 tree, so it already runs under the write lock today —
-`tryPull` wraps `pull` in `underWriteLock` (`internal/gage/remotesync.go`).
+`tryPull` wraps `pull` in `underWriteLock`.
 Pulling outside the lock and taking it afterwards would leave a window
 for another `gage` process to move HEAD between the catch-up and the
 commit, which is exactly the interleaving the lock exists to prevent.
@@ -628,10 +624,10 @@ sequence."
 **Which means enroll cannot reach the network through the existing public
 sync entry points, and this is a trap rather than a detail.** `Pull`,
 `Push`, and `tryPull` each take the write lock *themselves*, via
-`underWriteLock` (`internal/gage/remotesync.go`) — that is the very
+`underWriteLock` — that is the very
 precedent cited above. But `vaultlock` is not re-entrant: every
 `acquireVaultLock` opens a fresh file descriptor
-(`internal/gage/vault.go`), and both `flock` and `LockFileEx` conflict
+(in `crates/gage`'s vault lock), and both `flock` and `LockFileEx` conflict
 across open file descriptions even within one process. So an `Enroll`
 that holds the lock and then calls `v.Pull(ctx)` does not recurse
 harmlessly — it blocks against itself until the acquisition times out and
@@ -862,8 +858,8 @@ the directory — including every vault that predates this feature.
 `PendingEnrollments` reports zero requests for a missing directory, the
 same answer it gives for an empty one, and no command creates it
 speculatively. (Recorded as
-[A22](../plans/gage-cli-design/open-questions.md#a22), which folds the
-directory into the base design's layout section when E3 ships.)
+[ADR-0008](../decisions/0008-pending-directory.md), which folds the
+directory into the base design's layout section.)
 
 Each file is one sealed enrollment request: an age file with a single
 scrypt (passphrase) recipient, whose plaintext is:
@@ -924,7 +920,7 @@ A payload that fails any of these is `ErrEnrollmentMalformedRequest`,
 deliberately **not** `ErrEnrollmentCodeWrong`: the code worked. It opened
 a request that is not one `gage` could have produced, which is a fact
 about the vault a human should look at rather than something to retype a
-code over. The distinction matters to `cmd/gage`'s retry loop, which
+code over. The distinction matters to `gage-cli`'s retry loop, which
 keys on the wrong-code error and would otherwise sit re-prompting for a
 correct code against a file no code can ever make valid.
 
@@ -990,7 +986,7 @@ vault's `[vault].id` (A20 / `Q-IDENTITY-VAULT-NAME`) and refuses a
 mismatch with `ErrEnrollmentWrongVault`, which is deliberately three
 things at once:
 
-- **Not `ErrEnrollmentCodeWrong`** — the code worked, and `cmd/gage`'s
+- **Not `ErrEnrollmentCodeWrong`** — the code worked, and `gage-cli`'s
   retry loop must not re-prompt for a code that can never be right here.
 - **Not `ErrEnrollmentMalformedRequest`** — the payload is well-formed
   and was produced by `gage`. Reporting it as corruption would send a
@@ -1437,7 +1433,7 @@ and `.method` in global config — rather than from the filesystem.
 
 Two constraints on whatever that becomes, both inherited rather than
 new: it must stay answerable **without an unlock** (prompting during a
-clone to report that the unlock was pointless is, per `clone.go`,
+clone to report that the unlock was pointless is, by the clone path's own rule,
 "exactly backwards"), and it must treat "the external holder isn't
 plugged in right now" as an unlock-time problem, not a
 not-registered signal — otherwise leaving your YubiKey at home would
@@ -1537,7 +1533,7 @@ The obvious test — "is this device's public key in the vault's recipient
 list?" — **cannot be run during a clone.** The local identity file is
 passphrase-wrapped, so deriving this device's public key from it
 requires an unlock. Prompting for a passphrase during a clone in order
-to tell someone their unlock was pointless is, as `clone.go` puts it,
+to tell someone their unlock was pointless is, as the clone path puts it,
 "exactly backwards."
 
 So the condition `gage` tests is the one that costs nothing:
@@ -1645,7 +1641,7 @@ isn't the title, the age, or anything `ls` displays.
 **And the state is contagious, which is the part that turns a wart into
 a trap.** `reencryptTo` decrypts *every* entry with the acting
 identity and fails on the first one it can't read
-(`internal/gage/recipient.go:409`). So a device that was itself added
+(in `crates/gage`'s re-encryption pass). So a device that was itself added
 without `--reencrypt`:
 
 - cannot repair its own access, and
@@ -1683,12 +1679,7 @@ it should do so legibly.
 **`recipient add` is being changed to match**, since leaving the flag on
 the older door would keep the vector that creates partial recipients in
 the first place. That change is
-[A19](../plans/gage-cli-design/open-questions.md#a19): accepted, applied
-to the base design doc, and reflected in M9's test list — but **not yet
-implemented in code**, which is tracked under "Accepted, not yet
-implemented" in [index.md](../plans/gage-cli-design/index.md).
-
-Implementing A19 before this feature is the tidier order: it makes
+[ADR-0009](../decisions/0009-unconditional-reencrypt.md), and it makes
 `ErrCannotGrantFullAccess` and the "always re-encrypt" behavior existing
 machinery that enrollment reuses, rather than two doors arriving at the
 same rule independently.
@@ -1705,7 +1696,7 @@ reasons inherited rather than introduced here — worth recording so the
 requirement doesn't look like a side effect of re-encryption that could
 be optimized away:
 
-- **`recipient add` already unlocks unconditionally.** `cmd/gage` wraps
+- **`recipient add` already unlocks unconditionally.** `gage-cli` wraps
   it in `withUnlockedVault` regardless of the flag, and approval is a
   recipient add — diverging would make the sanctioned path weaker than
   the manual one.
@@ -1881,7 +1872,7 @@ leaves HEAD untouched and every request still pending.
 unchanged" was wrong in a way worth correcting here rather than
 discovering in E4. `AddRecipient` is a complete write: it takes the lock,
 runs the reset, asks M10's question, appends **one** recipient, commits,
-and regenerates the cache (`internal/gage/recipient.go`). Calling it N
+and regenerates the cache. Calling it N
 times would take N locks, ask N trust questions, run N re-encryption
 passes and produce N commits — the exact shape batch approval exists to
 avoid.
@@ -1967,7 +1958,7 @@ requests get the same order, over the UUID portion only:
 2. **Substring of the UUID.** `e4f88b21` in the transcripts above is
    this case, and it is the one people actually type.
 3. **More than one match: ambiguous.** The matching `PendingRequest`s
-   come back as a *value* for `cmd/gage` to render, exactly as an
+   come back as a *value* for `gage-cli` to render, exactly as an
    ambiguous entry query returns a candidate list rather than printed
    text. `exitcode.Ambiguous`.
 4. **No match: `ErrEnrollmentNoSuchRequest`**, at `exitcode.NotFound`.
@@ -2039,7 +2030,7 @@ make it legible rather than baffling:
   `entries/`" and concluded a stray would survive to expire on its own
   epoch. That was wrong about the shipped code, and the base design doc
   was wrong in the same way — corrected as
-  [A21](../plans/gage-cli-design/open-questions.md#a21). The scope is
+  [ADR-0007](../decisions/0007-dirty-tree-reset.md). The scope is
   deliberate: a crash after `--reencrypt` writes the recipient files but
   before it commits dirties those two as well, so a reset scoped to
   `entries/` would leave the half-migrated state `--reencrypt` exists to
@@ -2238,12 +2229,15 @@ should have to reason about.
 
 ## Library surface
 
-Everything here obeys the library/CLI split: `internal/gage` returns
+Everything here obeys the library/CLI split: `crates/gage` returns
 typed values and never renders or reads a terminal.
 
-```go
+The blocks below are language-neutral sketches of the shapes, not the
+signatures; `crates/gage` is the source of truth for names and types.
+
+```text
 // EnrollmentRequest is what a joining device produced. Code is the
-// generated out-of-band secret — the one field cmd/gage must display
+// generated out-of-band secret — the one field gage-cli must display
 // and the library must never persist.
 //
 // Published is false in exactly one case: this device's recorded pubkey
@@ -2322,7 +2316,7 @@ type ApprovalResult struct {
 }
 
 // AmbiguousRequestError carries the requests an ID matched when it
-// matched more than one. It is a value cmd/gage renders, not printed
+// matched more than one. It is a value gage-cli renders, not printed
 // text — the same shape as M5's CandidateList, for the same reason.
 type AmbiguousRequestError struct {
     ID      string
@@ -2378,8 +2372,8 @@ func (v *Vault) OpenEnrollment(requests []PendingRequest, codes []string) ([]Ope
 // CheckEnrollmentLabels is the device-name collision pre-check, run
 // after the open and before the render, holding no Identity: it reads
 // the recipient list, which is plaintext. It lives here rather than in
-// cmd/gage so a second frontend inherits the check instead of
-// reimplementing it; "cmd/gage's pre-check" below describes where in the
+// gage-cli so a second frontend inherits the check instead of
+// reimplementing it; "gage-cli's pre-check" below describes where in the
 // sequence it runs, not which package holds it. The authoritative check
 // stays under the write lock and still returns ErrRecipientExists.
 func (v *Vault) CheckEnrollmentLabels(approvals []Approval) error
@@ -2419,10 +2413,10 @@ facts — how many entries were re-encrypted, which commit — stay on the
 result once, where they belong, since they are properties of the batch
 rather than of any one device.
 
-Typed errors at the boundary, so `cmd/gage` owns retry and exit-code
+Typed errors at the boundary, so `gage-cli` owns retry and exit-code
 policy exactly as it does for `Unlock`:
 
-```go
+```text
 var ErrEnrollmentExpired    = errors.New("gage: this enrollment request has expired")
 
 // ErrEnrollmentCodeWrong covers both ways a code fails to open anything:
@@ -2430,7 +2424,7 @@ var ErrEnrollmentExpired    = errors.New("gage: this enrollment request has expi
 // on length or alphabet (D-ENROLL-CODE-FORMAT) without a decryption
 // being attempted at all. They are deliberately the *same* error despite
 // being distinguishable, because the caller does the same thing with
-// both — cmd/gage's retry loop is keyed on this value, and a typo is
+// both — gage-cli's retry loop is keyed on this value, and a typo is
 // precisely the case that loop exists for. Splitting them would exit the
 // command on the likeliest mistake while retrying the rarer one.
 //
@@ -2445,7 +2439,7 @@ var ErrEnrollmentNoRemote   = errors.New("gage: this vault has no remote to publ
 
 // Distinct from NoRemote: a remote exists but could not be reached. Kept
 // separate because the fixes differ — configure one, versus get on the
-// network — and cmd/gage decides which to say. See D-ENROLL-REMOTE.
+// network — and gage-cli decides which to say. See D-ENROLL-REMOTE.
 var ErrEnrollmentRemoteUnreachable = errors.New("gage: could not reach this vault's remote, so the enrollment request was not published")
 
 // Distinct again from both: the remote was reached, but the two sides
@@ -2464,7 +2458,7 @@ var ErrEnrollmentDiverged = errors.New("gage: this vault's local and remote hist
 // unknown method, a request_id that is not a UUID.
 //
 // Deliberately *not* ErrEnrollmentCodeWrong: the code worked. Reporting
-// it as a wrong code would put cmd/gage's retry loop into a re-prompt no
+// it as a wrong code would put gage-cli's retry loop into a re-prompt no
 // correct code can ever satisfy. See "The sealed payload is untrusted
 // input".
 var ErrEnrollmentMalformedRequest = errors.New("gage: this enrollment request's sealed contents are malformed")
@@ -2473,7 +2467,7 @@ var ErrEnrollmentMalformedRequest = errors.New("gage: this enrollment request's 
 // vault — the sealed vault_id does not match this vault's [vault].id.
 //
 // Distinct from both its neighbours on purpose. Not ErrEnrollmentCodeWrong:
-// the code worked, and cmd/gage's retry loop would otherwise re-prompt for
+// the code worked, and gage-cli's retry loop would otherwise re-prompt for
 // a code that cannot be right here however carefully it is typed. Not
 // ErrEnrollmentMalformedRequest either: the payload is well-formed and gage
 // produced it, so reporting corruption would send a human looking for
@@ -2542,7 +2536,7 @@ a non-obvious home:
 | `--ttl` out of range, `--device` with a multi-request run | `Usage` | Rejections of the command line itself |
 
 **Two different errors describe one device-name collision, deliberately.**
-`cmd/gage`'s pre-check returns `ErrEnrollmentNameTaken`, which names
+`gage-cli`'s pre-check returns `ErrEnrollmentNameTaken`, which names
 `--device` as the fix. `AddRecipient`'s own check, under the write lock,
 returns the pre-existing `ErrRecipientExists`. Both are correct for where
 they sit: the first is the UX path, reached in every ordinary run; the
@@ -2555,7 +2549,7 @@ common case.
 `ApproveEnrollments` takes no `reencrypt` parameter — there is nothing
 to decide. See "Approval always re-encrypts".
 
-**Collisions are checked twice, on purpose.** `cmd/gage` checks the
+**Collisions are checked twice, on purpose.** `gage-cli` checks the
 recipient list as soon as a request is opened, so a name clash is
 reported before the confirmation and before any unlock — the same
 fail-early posture as `ErrCannotGrantFullAccess`. `AddRecipient` checks
@@ -2569,7 +2563,7 @@ this feature does add, `ConfirmDefaultYes`, belongs to clone's offer and
 is described immediately below; it has nothing to do with codes.
 The approver's code is an argument to
 `OpenEnrollment`, not something the library asks for mid-flight;
-`cmd/gage` gathers it from `--code` or from the existing
+`gage-cli` gathers it from `--code` or from the existing
 `Prompter.Value`, and owns the retry loop around
 `ErrEnrollmentCodeWrong`. The joining side needs no code prompt at all,
 since `gage` generates the code — it does still use the existing
@@ -2584,7 +2578,7 @@ specified to treat a bare Enter as *no*, and its doc comment says why —
 "every caller of Confirm is about to do something a user might not want,
 so the safe answer is the default."
 
-```go
+```text
 // ConfirmDefaultYes asks a yes/no question whose safe answer is yes, so
 // a bare Enter accepts. It is deliberately a second method rather than a
 // bool parameter on Confirm: the default is a property of the question,
@@ -2619,17 +2613,17 @@ considered was reusing `Confirm` and rendering `[Y/n]` while returning
 no on Enter, which would have been a silent behavioral lie of exactly
 the kind D-ENROLL-PROMPTER rejects.
 
-Note where the decision lives: `cmd/gage`'s clone handler asks and then
+Note where the decision lives: `gage-cli`'s clone handler asks and then
 calls `Vault.Enroll`, rather than `Enroll` itself asking. The library
 never learns whether a terminal was involved, and the "is there a TTY"
-test that decides whether to prompt at all is a `cmd/gage` concern — the
+test that decides whether to prompt at all is a `gage-cli` concern — the
 same split that keeps `--script`/`--stdin` out of the library today.
 
 **The signatures are what make the late unlock possible, and that's
 deliberate.** `PendingEnrollments` and `OpenEnrollment` take no
 `Identity` — listing and opening are keyed by the code, not by any
 vault key — while `ApproveEnrollments` takes one because it is a
-recipient write. So `cmd/gage` can call the first two, render, confirm,
+recipient write. So `gage-cli` can call the first two, render, confirm,
 and only then call `Vault.Unlock`. `approve` is therefore *not* wrapped
 in `withUnlockedVault` the way `recipient add` is; it unlocks in the
 middle. That is the one place this feature departs from the shape of an
@@ -2637,13 +2631,12 @@ existing command, and it departs toward `sync`'s lazy-unlock behavior
 rather than inventing anything.
 
 **`DenyEnrollment` takes a `Prompter`, and that is a deliberate
-exception to a rule rather than an oversight.** This codebase routes
-human interaction through the `Identity` — `warnTo()` returns nil when
-there is none, and `identity.go` says why: "human interaction rides the
-Identity rather than growing a `Prompter` parameter on every mutating
-method." `deny` is the first mutating method that legitimately holds no
-`Identity`, because refusing to grant access requires proving nothing.
-So the rule has nothing to attach to here.
+exception to a rule rather than an oversight.** Every write
+that can ask a human takes the `Prompter` as a parameter; an `Identity`
+carries none ([ADR-0033](../decisions/0033-recipient-prompt.md)). `deny` is
+the one mutating method that legitimately holds no `Identity`, because
+refusing to grant access requires proving nothing, so it has no unlock
+exchange to ride on.
 
 Without a `Prompter`, a `deny` whose push fails — offline, expired
 token — reports success, leaves the request live on the remote, and lets
@@ -2653,10 +2646,8 @@ available outcomes. The alternatives are worse still: requiring an
 unlock in order to *refuse* something contradicts the reason `deny`
 needs no code, and leaving it silent is the status quo being fixed.
 
-Recorded as an exception so it is not later "corrected" back: the rule
-exists so that methods which *already* take an `Identity` do not
-redundantly take a `Prompter` too. It was never a rule against a
-`Prompter` reaching a method with no identity to carry one.
+Recorded so it is not later "corrected" away: a method with no identity
+still takes a `Prompter`.
 
 **Approval's failed push needs the same treatment, and gets it for
 free.** `ApproveEnrollments` holds an `Identity`, so it warns through
@@ -2809,21 +2800,3 @@ option exists.
   "What changes when a method other than `passphrase` exists" — the
   analysis is in scope even though the implementation isn't, because
   getting the predicate wrong now would force a rework later.
-
----
-## Implementation plan
-
-The milestone breakdown, the per-milestone test lists that used to live
-here, and the sequencing live in
-[plans/gage-cli-init-design/](../plans/gage-cli-init-design/index.md) —
-the same split the core design uses, where the TDD holds the *why* and
-the plan holds the *how* and the definition of done.
-
-Six milestones: **E0**, **E1a** and **E1b** are prerequisites this design
-raised against already-shipped work — `A20`, and `A19` plus the
-extraction its consumer needs. **E2** proves the sealed request in
-isolation, and **E3**/**E4** are the joining and approving sides.
-
-**E0 should be done first and soon.** Its migration is free only while
-there is no installed base, which makes it the one piece of work in
-either plan that gets more expensive with time.

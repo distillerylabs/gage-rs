@@ -84,51 +84,74 @@ vendored:
 
 ### 1. Link guard, red first
 
-- [ ] `doc_links_resolve` (`crates/gage-cli/tests/doc_links.rs`, `std::fs`
+- [x] `doc_links_resolve` (`crates/gage-cli/tests/doc_links.rs`, `std::fs`
       only, no new dependency): every relative Markdown link, and every
       `#anchor` within a file, outside `doc/archive/` resolves. Make it
       red once by moving the register, and record that here.
+      *Done.* Written first, it already failed on 9 real links (the
+      Go-only plan links in the enrollment TDD, two `GO_GAGE_SHA` links, and
+      a `session-mode.md#yes-in-a-script` anchor whose heading slug is
+      `--yes-in-a-script`). Moving `rust-port/` to `doc/archive/` took it to
+      27, which is the red-once. It is green at the end.
 
 ### 2. Archive
 
-- [ ] `git mv doc/implementation/00_gage-cli/plans/rust-port doc/archive/rust-port`.
-- [ ] Add `doc/archive/README.md`: frozen, kept as history, not
+- [x] `git mv doc/implementation/00_gage-cli/plans/rust-port doc/archive/rust-port`.
+- [x] Add `doc/archive/README.md`: frozen, kept as history, not
       maintained, with links that may point at a Go repo that has been
       archived.
-- [ ] Fix the divergence plan's links into `../rust-port/`.
+- [x] Fix the divergence plan's links into `../rust-port/`.
 
 ### 3. Decision log
 
-- [ ] `doc/decisions/README.md`: the format, the index, and "every new
+- [x] `doc/decisions/README.md`: the format, the index, and "every new
       decision is an ADR".
-- [ ] `0001-divergence-from-go-gage.md`: the resolved decisions in the
+- [x] `0001-divergence-from-go-gage.md`: the resolved decisions in the
       divergence plan. This is the one document outside the archive
       that names Go gage.
-- [ ] One ADR per decision-2 entry, each with its origin anchors.
-- [ ] Opus review of the security ADRs listed in the model note.
-- [ ] `doc/design/lint-rationale.md`: the gosec/golangci → clippy and
+- [x] One ADR per decision-2 entry, each with its origin anchors.
+- [x] Opus review of the security ADRs listed in the model note.
+      *Done*, against the code, covering 0010, 0023–0028 and 0040.
+      Corrected:
+      - 0010 said gage prompts when the hostname normalizes to nothing
+        (it fails with Usage, naming `--device`) and that `clone` records
+        `pubkey` (it records none). It also omitted the all-dots rule,
+        which is what stops `..` and which the allowlist alone admits.
+      - 0026 said `scrypt_identity` takes the cap (one private
+        constructor does, with two named wrappers), and that an
+        over-cap request is "skipped" (age refuses it before the KDF, and
+        it reads as not opened).
+      - 0024 lacked the identity file's read cap (22).
+      - 0023 lacked the warn-once on page-lock failure.
+      - 0027 lacked the early drop and the dropped parse error.
+      - 0028 lacked the temp file's 0600 creation, and Windows' ACL
+        inheritance.
+      - 0040 lacked the 16 KiB request size limit.
+      No code change was needed; every corrected statement was the ADR
+      misdescribing correct code.
+- [x] `doc/design/lint-rationale.md`: the gosec/golangci → clippy and
       cargo-deny mapping table, moved out of
       `p9-parity-signoff/s2-ledger-and-help.md`.
 
 ### 4. Design docs and imported content
 
-- [ ] Move the TDDs to `doc/design/` per decision 4.
-- [ ] `doc/design/security-model.md`, from the Go README's "Security
+- [x] Move the TDDs to `doc/design/` per decision 4.
+- [x] `doc/design/security-model.md`, from the Go README's "Security
       model and limitations", rewritten for gage-rs (for example, SSH
       per Q-SSH).
-- [ ] README: say what gage is (from the Go README) and drop "use Go
+- [x] README: say what gage is (from the Go README) and drop "use Go
       gage for real secrets" and "a Rust port of". Keep "not released,
       not independently audited". Link `doc/cli/`, `doc/design/`,
       `doc/format/` and `doc/decisions/`.
-- [ ] `SECURITY.md`: point at `doc/design/security-model.md` and drop
+- [x] `SECURITY.md`: point at `doc/design/security-model.md` and drop
       the port wording.
-- [ ] `CODE_OF_CONDUCT.md:64`: report through this repo.
-- [ ] `doc/cli/README.md`, `command-reference.md` and `exit-codes.md`:
+- [x] `CODE_OF_CONDUCT.md:64`: report through this repo.
+- [x] `doc/cli/README.md`, `command-reference.md` and `exit-codes.md`:
       drop the Go framing and point the `Q-` links at ADRs.
 
 ### 5. Process docs
 
-- [ ] CLAUDE.md:
+- [x] CLAUDE.md:
   - Remove: "Compatibility and parity", the ledger/inventory phase
     planning, "Port the current Go behavior", the "Go sources" item in
     milestone docs, the parity item in "Before considering any change
@@ -136,16 +159,22 @@ vendored:
   - Add: "Format stability" (D1a's rule) and "Decisions" (an ADR in
     `doc/decisions/`).
   - Point "Full design rationale" at `doc/design/`.
-- [ ] CONTRIBUTING.md: remove "parity gaps" and "Go is the reference".
-- [ ] `.claude/agents/gage-qa.md`: the spec order becomes
+- [x] CONTRIBUTING.md: remove "parity gaps" and "Go is the reference".
+- [x] `.claude/agents/gage-qa.md`: the spec order becomes
       `doc/cli/` → `doc/format/` → ADRs. Coverage is computed from the
       help snapshots.
 
 ### 6. Check
 
-- [ ] `grep -rn 'Go gage\|GO_GAGE_SHA\|parity'` outside `doc/archive/`
+- [x] `grep -rn 'Go gage\|GO_GAGE_SHA\|parity'` outside `doc/archive/`
       hits only ADR-0001 and the "Retired" history line in
       `doc/decisions/README.md`, if one is kept.
+      *Done*, with one recorded exception: the plan docs under
+      `plans/divergence/` describe this very change (and quote the
+      pattern), so they match by construction. Outside them, only ADR-0001
+      matches. Five unrelated uses of "parity" were reworded (four comment
+      headings in `crates/gage-cli/src/`, one in the core design doc). No
+      "Retired" line was added to the decisions README; ADR-0001 carries it.
 
 ## Definition of done
 
@@ -155,3 +184,5 @@ vendored:
 - CI is green on all three OSes.
 - The D1b help snapshots and the D1a fixtures are unchanged.
 - The D1 index and the divergence plan's status columns are `[x]`.
+
+**Done.** `make lint`, `make test` and `make qa` clean locally; CI green on Linux, macOS and Windows on PR #122.

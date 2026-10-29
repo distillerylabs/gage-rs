@@ -5,13 +5,11 @@ repository; every secret is an age-encrypted entry inside it. This is the
 user documentation for the gage-rs binary: how to build it, create and use
 vaults, manage who can read them, and keep multiple devices in sync.
 
-gage-rs is a port of [Go gage](https://github.com/distillerylabs/gage) and
-follows its behavior. Where it deliberately differs, the page says so and
-links the decision in the
-[open-questions register](../implementation/00_gage-cli/plans/rust-port/open-questions.md).
-For the design rationale and the port's history, see
-[doc/implementation/](../implementation/00_gage-cli/) instead. This directory
-is written for people *using* `gage`, not developing it.
+These pages describe the behavior gage-rs commits to. Where a page rests on
+a recorded decision, it links the [ADR](../decisions/README.md). For the
+design rationale, see [doc/design/](../design/gage-cli-design.md); for the
+on-disk format, [doc/format/](../format/README.md). This directory is written
+for people *using* `gage`, not developing it.
 
 ## Contents
 
@@ -40,6 +38,6 @@ is written for people *using* `gage`, not developing it.
   argument that *names a new entry* (`insert`, `generate`).
 - Flags shown as `[--use NAME]` are optional everywhere except where a page
   says otherwise.
-- Example output shows gage-rs's own wording. `gage help` and `--help` follow
-  Go gage's names, aliases, groups, arguments and flags, but not its layout
-  ([Q-HELP-RENDER](../implementation/00_gage-cli/plans/rust-port/open-questions.md#q-help-render)).
+- Example output shows gage-rs's own wording. `gage help` and `--help` are
+  rendered by clap from the command registry
+  ([ADR-0030](../decisions/0030-help-render.md)).

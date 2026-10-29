@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs every scenario under one QA root, then checks the run as a whole:
-# every command in Go's root help was exercised, and every exit code 0-7 was
+# every command in the root help snapshot was exercised, and every exit code 0-7 was
 # asserted somewhere. Writes results.tsv, coverage.tsv and summary.txt
 # under $QA and exits non-zero if anything failed.
 #

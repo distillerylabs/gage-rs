@@ -2,7 +2,8 @@
 
 Every `gage` command exits with one of a fixed set of codes, so scripts and
 CI can branch on *why* a command failed rather than just that it did. The
-codes and their numbers are Go gage's.
+codes and their numbers are a contract
+([ADR-0037](../decisions/0037-exit-code-taxonomy.md)).
 
 | Code | Name | Meaning |
 |---|---|---|

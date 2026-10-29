@@ -321,7 +321,7 @@ change into a reviewed one, because that rule is applied inside the
 library from `verify`, not from who answered. It isn't listed in any
 command's `--help`.
 
-`--yes` is accepted in a [scripted session](session-mode.md#yes-in-a-script)
+`--yes` is accepted in a [scripted session](session-mode.md#--yes-in-a-script)
 (`gage --script deploy.gage --yes`, or `--stdin`), which is the CI case it
 exists for: it answers the question for every write the script makes. It
 is refused in an *interactive* session: a human is sitting right there,

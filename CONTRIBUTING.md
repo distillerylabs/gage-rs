@@ -1,6 +1,6 @@
 # Contributing to gage-rs
 
-Thanks for your interest! gage-rs is a port of [Go gage](https://github.com/distillerylabs/gage), and the [port plan](doc/implementation/00_gage-cli/plans/rust-port/index.md) is complete. The most useful contributions now are parity gaps (a place where gage-rs behaves differently from Go gage without a `Q-` entry saying so), bugs and platform problems. For anything non-trivial, please open an issue first so we can agree on the approach before you spend time on it. Security problems should go through [SECURITY.md](SECURITY.md), not a public issue.
+Thanks for your interest! The most useful contributions are bugs, platform problems, and places where the behavior documented in [doc/cli/](doc/cli/README.md) and the code disagree. For anything non-trivial, please open an issue first so we can agree on the approach before you spend time on it. Security problems should go through [SECURITY.md](SECURITY.md), not a public issue.
 
 By participating you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 Contributions are licensed under the project's [Apache-2.0 license](LICENSE).
@@ -29,7 +29,7 @@ Run a single test with `cargo test -p gage <test_name> -- --nocapture` (or `-p g
 
 The project's conventions are documented in [CLAUDE.md](CLAUDE.md) (written for AI coding assistants, but they apply to everyone). The ones that matter most:
 
-- **Go gage is the reference for behavior.** gage-rs ports Go gage's behavior and on-disk schema, not its bytes, and does not promise to read vaults Go wrote. If the two binaries behave differently, Go is right unless a decision in [open-questions.md](doc/implementation/00_gage-cli/plans/rust-port/open-questions.md) says otherwise.
+- **The docs and the format spec are the contract.** User-visible behavior is described in [doc/cli/](doc/cli/README.md) and pinned by the help snapshots in `tests/fixtures/help/`; the on-disk format is [doc/format/v2.md](doc/format/v2.md). A change to either needs a deliberate update to the snapshot or a format bump, and a decision that constrains future code is recorded as an ADR in [doc/decisions/](doc/decisions/README.md).
 - **Library/CLI split.** All real behavior lives in `crates/gage`; `crates/gage-cli` is a thin clap frontend. `crates/gage` must never use the print macros, touch stdin/stdout/stderr, or call `std::process::exit`. Clippy enforces this. Anything needing a human decision is a typed return value that the CLI renders.
 - **Tests first, at task granularity.** Write the tests for a change, then the implementation. Prefer in-process tests with injected IO and a fake `Prompter`; use a real terminal (pty) only where genuinely needed.
 - **No network, no real keys in tests.** Git behavior is tested against ephemeral local bare repos, not a mocked git crate. Use the existing seams (`Prompter`, `Locker`, `RemoteSyncer`) for failures that can't be produced honestly.
@@ -38,7 +38,7 @@ The project's conventions are documented in [CLAUDE.md](CLAUDE.md) (written for 
 - **No shelling out to `git`.** All git operations go through an in-process git crate.
 - **New commands** are registered in the single command registry, not just added as a clap subcommand.
 
-Design rationale for most non-obvious decisions is in [doc/implementation/00_gage-cli/tdds/gage-cli-design.md](doc/implementation/00_gage-cli/tdds/gage-cli-design.md); please read the relevant section before changing behavior it documents.
+Design rationale for most non-obvious decisions is in [doc/design/gage-cli-design.md](doc/design/gage-cli-design.md); please read the relevant section before changing behavior it documents.
 
 ## Dependencies and tooling
 

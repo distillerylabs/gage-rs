@@ -762,7 +762,7 @@ fn a_registration_without_an_id_fails_show_before_any_path_is_built() {
     assert_eq!(env.tree(), before, "no lock or identity path was created");
 }
 
-// --- registration and parity --------------------------------------------------
+// --- registration and error prefixes ------------------------------------------
 
 // Go: TestNoCommandDoublesGagesOwnPrefix, M5's rows: every failure the new
 // commands add, prefixed exactly once.

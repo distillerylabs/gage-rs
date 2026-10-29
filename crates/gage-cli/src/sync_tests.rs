@@ -1048,7 +1048,7 @@ fn current_format_version_is_what_clone_checks() {
     assert_ne!(vaultconfig::CURRENT_FORMAT_VERSION, 99);
 }
 
-// --- parity -----------------------------------------------------------------
+// --- error prefixes ---------------------------------------------------------
 
 // Go: TestNoCommandDoublesGagesOwnPrefix, for the sync verbs and the
 // warnings a write's push or an unlock's pull add (ledger `ddce8b1`). A

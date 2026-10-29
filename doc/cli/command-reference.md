@@ -8,8 +8,8 @@ a compact index of every command and its flags.
 
 `gage --help` and `gage help <command>` print the same names, aliases,
 groups, arguments and flags. The wording and layout of that output is
-gage-rs's own, not a copy of Go gage's
-([Q-HELP-RENDER](../implementation/00_gage-cli/plans/rust-port/open-questions.md#q-help-render)).
+rendered by clap from the command registry
+([ADR-0030](../decisions/0030-help-render.md), [ADR-0031](../decisions/0031-help-surfaces.md)).
 
 `-u`/`--use NAME` selects which vault a one-shot command targets. Inside a
 session, `use <vault>` sets the session's current vault instead, and
@@ -107,7 +107,7 @@ Details: [Sync and conflicts](sync.md).
 
 Details: [Git remotes and authentication](git-and-auth.md). HTTPS with a
 token is the supported path. SSH works best-effort, through ssh-agent only
-([Q-SSH](../implementation/00_gage-cli/plans/rust-port/open-questions.md#q-ssh)).
+([ADR-0015](../decisions/0015-ssh.md)).
 
 ## Common flags
 

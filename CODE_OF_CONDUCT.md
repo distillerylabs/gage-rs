@@ -61,7 +61,7 @@ representative at an online or offline event.
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported to the community leaders responsible for enforcement by opening a
 private security advisory on this repository
-(<https://github.com/distillerylabs/gage/security/advisories/new>) and stating
+(<https://github.com/distillerylabs/gage-rs/security/advisories/new>) and stating
 that it is a Code of Conduct report. Reports are visible only to the repository
 maintainers. All complaints will be reviewed and investigated promptly and
 fairly.
