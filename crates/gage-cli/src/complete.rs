@@ -25,8 +25,8 @@ use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{Context, Helper};
 
+use crate::exitcode::ExitCode;
 use gage::config;
-use gage::exitcode::Code;
 use gage::paths;
 use gage::session::Session;
 use gage::xdgpaths::Dirs;
@@ -84,7 +84,7 @@ impl std::fmt::Display for AmbiguousCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "gage: {:?} matches more than one command: {}",
+            "{:?} matches more than one command: {}",
             self.prefix,
             self.candidates.join(", ")
         )
@@ -95,7 +95,7 @@ impl std::error::Error for AmbiguousCommand {}
 
 impl From<AmbiguousCommand> for CliError {
     fn from(e: AmbiguousCommand) -> CliError {
-        CliError::new(Code::Usage, e)
+        CliError::new(ExitCode::Usage, e)
     }
 }
 
@@ -190,7 +190,7 @@ fn takes_vault_name(word: &str) -> bool {
 /// that can't be read offers nothing: completion has nowhere to report
 /// an error.
 pub fn vault_name_candidates(dirs: &Dirs) -> Vec<String> {
-    config::load(&paths::global_config_file(dirs))
+    config::load_or_default(&paths::global_config_file(dirs))
         .map(|g| g.vaults.into_keys().collect())
         .unwrap_or_default()
 }

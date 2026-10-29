@@ -13,7 +13,7 @@ use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 
 use crate::error::CliError;
 
@@ -35,7 +35,7 @@ impl History {
             });
         };
         let failed = |action: &str, e: std::io::Error| {
-            CliError::new(Code::Internal, format!("gage: {action} history file: {e}"))
+            CliError::new(ExitCode::Internal, format!("{action} history file: {e}"))
         };
         if let Some(dir) = path.parent() {
             create_private_dir(dir).map_err(|e| failed("creating the directory of the", e))?;
@@ -58,7 +58,7 @@ impl History {
             return Ok(());
         }
         file.write_all(format!("{line}\n").as_bytes())
-            .map_err(|e| CliError::new(Code::Internal, format!("gage: writing history: {e}")))
+            .map_err(|e| CliError::new(ExitCode::Internal, format!("writing history: {e}")))
     }
 
     /// The file's lines, oldest first and blanks dropped, for preloading

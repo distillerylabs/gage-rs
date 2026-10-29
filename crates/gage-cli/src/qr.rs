@@ -3,7 +3,7 @@
 //! rendering" in the design doc, which names that split and notes that a
 //! GUI would draw the same modules as an image instead.
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use qrcode::{Color, EcLevel, QrCode};
 use zeroize::Zeroizing;
 
@@ -42,16 +42,16 @@ pub const QR_NEITHER: char = ' ';
 pub fn render_qr(value: &str) -> Result<Zeroizing<String>, CliError> {
     if value.is_empty() {
         return Err(CliError::new(
-            Code::Usage,
-            "gage: nothing to encode as a QR code: the value is empty",
+            ExitCode::Usage,
+            "nothing to encode as a QR code: the value is empty",
         ));
     }
     let code = QrCode::with_error_correction_level(value.as_bytes(), QR_LEVEL).map_err(|e| {
         // Realistically a value too large for any QR version (a long note,
         // an SSH key), where the answer is another output mode.
         CliError::new(
-            Code::Usage,
-            format!("gage: this value cannot be encoded as a QR code (too long?): {e}"),
+            ExitCode::Usage,
+            format!("this value cannot be encoded as a QR code (too long?): {e}"),
         )
     })?;
     let size = code.width();

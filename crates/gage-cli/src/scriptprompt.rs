@@ -19,7 +19,9 @@
 //! nobody can ever type again.
 
 use gage::entry::CandidateList;
-use gage::prompter::{Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse};
+use gage::prompter::{
+    Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse, Warning,
+};
 use gage::syncresolve::{EntryConflict, Resolution};
 use gage::trustcache::RecipientChangeWarning;
 use uuid::Uuid;
@@ -63,8 +65,8 @@ macro_rules! delegate_the_rest {
             self.$inner.confirm_recipient_change(warning)
         }
 
-        fn warn(&self, msg: &str) {
-            self.$inner.warn(msg);
+        fn warn(&self, warning: &Warning) {
+            self.$inner.warn(warning);
         }
     };
 }
@@ -239,8 +241,8 @@ impl Prompter for NoChoosePrompter<'_> {
         self.0.confirm_recipient_change(warning)
     }
 
-    fn warn(&self, msg: &str) {
-        self.0.warn(msg);
+    fn warn(&self, warning: &Warning) {
+        self.0.warn(warning);
     }
 }
 
@@ -280,8 +282,9 @@ pub fn for_script<'p>(
 
 #[cfg(test)]
 mod tests {
+    use crate::exitcode::ExitCode;
     use gage::entry::{Candidate, Entry};
-    use gage::exitcode::{Code, HasCode};
+    use gage::error::HasKind;
     use gage::prompter::FakePrompter;
     use gage::syncresolve::ConflictSide;
 
@@ -327,7 +330,7 @@ mod tests {
         assert_eq!(passphrase_of(first), "from-env");
 
         let err = p.unlock(&request(Purpose::Unlock, 2)).unwrap_err();
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::LockedOrAuth);
         assert!(err.to_string().contains(ENV_VAR), "{err}");
         assert!(inner.unlock_requests().is_empty(), "the inner was asked");
     }
@@ -362,7 +365,7 @@ mod tests {
         let p = RefusingPrompter::new(&inner, Box::new(Passthrough(&inner)));
         for attempt in [1, 2] {
             let err = p.unlock(&request(Purpose::Unlock, attempt)).unwrap_err();
-            assert_eq!(err.code(), Code::LockedOrAuth);
+            assert_eq!(ExitCode::from(err.kind()), ExitCode::LockedOrAuth);
             assert!(err.to_string().contains(ENV_VAR), "{err}");
             assert!(err.to_string().contains("personal"), "{err}");
         }
@@ -390,7 +393,7 @@ mod tests {
 
         // And the one it does refuse, for contrast: exit 5, saying why.
         let err = p.unlock(&request(Purpose::Create, 1)).unwrap_err();
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::LockedOrAuth);
         assert!(err.to_string().contains("human"), "{err}");
         assert!(err.to_string().contains(ENV_VAR), "{err}");
         assert_eq!(
@@ -453,7 +456,7 @@ mod tests {
             !p.confirm_recipient_change(&RecipientChangeWarning::default())
                 .unwrap()
         );
-        p.warn("gage: careful");
+        p.warn(&Warning::from("careful"));
 
         assert_eq!(inner.confirm_prompts(), vec!["remove it?".to_string()]);
         assert_eq!(
@@ -464,7 +467,7 @@ mod tests {
         assert_eq!(inner.choose_lists().len(), 1);
         assert_eq!(inner.conflicts_presented().len(), 1);
         assert_eq!(inner.recipient_changes().len(), 1);
-        assert_eq!(inner.warnings(), vec!["gage: careful".to_string()]);
+        assert_eq!(inner.warnings(), vec!["careful".to_string()]);
     }
 
     // ADR-0034: nothing here unwraps a prompter, so what needs proving
@@ -542,7 +545,7 @@ mod tests {
             !p.confirm_recipient_change(&RecipientChangeWarning::default())
                 .unwrap()
         );
-        p.warn("gage: careful");
+        p.warn(&Warning::from("careful"));
         assert_eq!(inner.confirm_prompts().len(), 1);
         assert_eq!(inner.value_prompts().len(), 1);
         assert_eq!(inner.conflicts_presented().len(), 1);
@@ -657,7 +660,7 @@ mod tests {
         let inner = FakePrompter::new();
         let p = for_script(&inner, None, false);
         let err = p.unlock(&request(Purpose::Unlock, 1)).unwrap_err();
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::LockedOrAuth);
         assert!(err.to_string().contains(ENV_VAR), "{err}");
         assert!(inner.unlock_requests().is_empty());
     }
@@ -676,7 +679,7 @@ mod tests {
             let inner = FakePrompter::new();
             let p = for_script(&inner, passphrase_env, false);
             let err = p.unlock(&request(Purpose::Create, 1)).unwrap_err();
-            assert_eq!(err.code(), Code::LockedOrAuth);
+            assert_eq!(ExitCode::from(err.kind()), ExitCode::LockedOrAuth);
             assert!(err.to_string().contains("human"), "{err}");
             assert!(inner.unlock_requests().is_empty(), "the inner was asked");
         }

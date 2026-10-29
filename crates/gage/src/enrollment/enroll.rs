@@ -10,10 +10,11 @@ use zeroize::Zeroizing;
 use super::{EnrollmentError, EnrollmentRequest, MAX_ENROLLMENT_TTL, name::pending_file_name};
 use crate::entry::WRITE_LOCK_TIMEOUT;
 use crate::gitrepo::REMOTE_OP_TIMEOUT;
-use crate::prompter::Prompter;
+use crate::prompter::{Prompter, Warning};
 use crate::recovery::check_device_label_free;
 use crate::syncerr::Kind;
-use crate::vault::{METHOD_PASSPHRASE, Vault};
+use crate::vault::Vault;
+use crate::vaultconfig::UnlockMethod;
 use crate::{atomicfile, config, devicename, gitrepo, identityfile, paths, vaultconfig};
 
 /// What a published request commits under. Like every commit gage writes,
@@ -82,16 +83,17 @@ impl Vault {
         self.catch_up_for_enroll()?;
         self.warn_if_clock_is_behind_head(prompter);
 
-        let file = vaultconfig::read(&self.config_path())?;
+        let file = vaultconfig::load(&self.config_path())?;
         let recorded = self.recorded_registration();
-        if !recorded.pubkey.is_empty()
-            && file.recipients.iter().any(|r| r.pubkey == recorded.pubkey)
-        {
+        let listed = recorded
+            .pubkey
+            .filter(|key| file.recipients.iter().any(|r| r.pubkey == *key));
+        if let Some(pubkey) = listed {
             let now = Timestamp::now();
             return Ok(EnrollmentRequest {
-                id: String::new(),
+                id: None,
                 device: recorded.device,
-                pubkey: recorded.pubkey,
+                pubkey,
                 method: recorded.method,
                 created: now,
                 expires: now,
@@ -113,14 +115,15 @@ impl Vault {
         // file. A build that can produce another kind of identity is the
         // build that changes this line.
         let (mut request, sealed) =
-            self.seal_enrollment(device, &pubkey, METHOD_PASSPHRASE, ttl)?;
+            self.seal_enrollment(device, &pubkey, &UnlockMethod::Passphrase, ttl)?;
 
         let dir = self.pending_dir();
         std::fs::create_dir_all(&dir).map_err(|source| EnrollmentError::Io {
             path: dir.clone(),
             source,
         })?;
-        let name = pending_file_name(&request.id, request.expires);
+        let id = request.id.as_deref().expect("a sealed request has an id");
+        let name = pending_file_name(id, request.expires);
         atomicfile::write(&dir.join(name), &sealed, 0o600)?;
         gitrepo::commit_all(&self.path, ENROLLMENT_COMMIT_MESSAGE)?;
 
@@ -168,9 +171,9 @@ impl Vault {
         };
         let now = Timestamp::now();
         if head.duration_since(now) >= CLOCK_SKEW_THRESHOLD {
-            prompter.warn(&format!(
-                "gage: this machine's clock ({now}) is behind the vault's newest commit ({head}); a request sealed now may look expired or skewed to the approving device, so check the clock"
-            ));
+            prompter.warn(&Warning::from(format!(
+                "this machine's clock ({now}) is behind the vault's newest commit ({head}); a request sealed now may look expired or skewed to the approving device, so check the clock"
+            )));
         }
     }
 
@@ -178,7 +181,7 @@ impl Vault {
     /// when there is none: a missing or unreadable one skips the checks it
     /// feeds and is never an error here.
     fn recorded_registration(&self) -> Recorded {
-        let Ok(global) = config::read(&paths::global_config_file(self.dirs())) else {
+        let Ok(global) = config::load(&paths::global_config_file(self.dirs())) else {
             return Recorded::default();
         };
         global
@@ -196,6 +199,6 @@ impl Vault {
 #[derive(Default)]
 struct Recorded {
     device: String,
-    pubkey: String,
-    method: String,
+    pubkey: Option<String>,
+    method: UnlockMethod,
 }

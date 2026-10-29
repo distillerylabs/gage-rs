@@ -172,7 +172,7 @@ fn a_passed_deadline_aborts_fetch_and_push_as_unreachable() {
 
     let err = fetch(dir.path(), &expired).unwrap_err();
     assert_eq!(sync_kind(&err), Kind::Unreachable, "{err}");
-    assert_eq!(err.code(), Code::Unreachable);
+    assert_eq!(err.kind(), ErrorKind::Unreachable);
     assert_eq!(
         compare(dir.path()).unwrap(),
         RemoteState::InSync,
@@ -197,7 +197,7 @@ fn a_non_fast_forward_push_is_diverged() {
     commit_file(dir.path(), "ours.txt", "o");
     let err = push(dir.path(), &opts()).unwrap_err();
     assert_eq!(sync_kind(&err), Kind::Diverged, "{err}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(!err.to_string().contains("gage auth login"), "{err}");
 }
 
@@ -382,7 +382,7 @@ const TOKEN: &str = "tok_do_not_print_me";
 fn fetch_and_push_carry_the_stored_token_to_libgit2() {
     let (m, opts) = machine();
     let recorder = HttpRecorder::start(Answer::Challenge);
-    remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+    remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
     let dir = repo_with_origin(&recorder.url("me/vault.git"));
 
     let fetch_err = fetch(dir.path(), &opts).unwrap_err();
@@ -429,16 +429,20 @@ fn fetch_and_push_go_anonymous_with_no_stored_token() {
 fn push_after_logout_names_the_host_and_the_command() {
     let (m, opts) = machine();
     let recorder = HttpRecorder::start(Answer::Challenge);
-    remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+    remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
     remoteauth::remove(&m.dirs, "127.0.0.1").unwrap();
     let dir = repo_with_origin(&recorder.url("me/vault.git"));
 
     let err = push(dir.path(), &opts).unwrap_err();
     assert_eq!(sync_kind(&err), Kind::Auth, "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
-    for want in ["127.0.0.1", "gage auth login"] {
-        assert!(err.to_string().contains(want), "{err}");
-    }
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::AuthLogin {
+            host: "127.0.0.1".into()
+        }),
+        "{err}"
+    );
 }
 
 // The token is a bearer
@@ -454,7 +458,7 @@ fn no_token_value_leaks_into_a_sync_error() {
     ] {
         let (m, opts) = machine();
         let recorder = HttpRecorder::start(answer.clone());
-        remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+        remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
         let dir = repo_with_origin(&recorder.url("me/vault.git"));
         for err in [
             fetch(dir.path(), &opts).unwrap_err(),
@@ -477,18 +481,19 @@ fn auth_failures_name_the_host_and_the_fix() {
         let dir = repo_with_origin(&recorder.url("me/vault.git"));
         let err = push(dir.path(), &opts).unwrap_err();
         assert_eq!(sync_kind(&err), Kind::Auth, "{status}: {err}");
-        for want in ["127.0.0.1", "gage auth login"] {
-            assert!(err.to_string().contains(want), "{status}: {err}");
-        }
+        assert_eq!(
+            err.remedy(),
+            Some(crate::error::Remedy::AuthLogin {
+                host: "127.0.0.1".into()
+            }),
+            "{status}: {err}"
+        );
     }
     let (dir, remote) = published_repo();
     Device::clone(remote.path()).write_commit_push("t.txt", "t", "t");
     commit_file(dir.path(), "o.txt", "o");
     let diverged = push(dir.path(), &opts).unwrap_err();
-    assert!(
-        !diverged.to_string().contains("gage auth login"),
-        "{diverged}"
-    );
+    assert_eq!(diverged.remedy(), None, "{diverged}");
 }
 
 // ADR-0020: the token is offered only to the host it was
@@ -502,7 +507,7 @@ fn a_token_is_not_offered_to_a_host_it_was_not_stored_for() {
     let redirector = HttpRecorder::start(Answer::RedirectFirst(
         recorder.localhost_url("me/vault.git/info/refs?service=git-upload-pack"),
     ));
-    remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+    remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
     let dir = repo_with_origin(&redirector.url("me/vault.git"));
 
     let err = fetch(dir.path(), &opts).unwrap_err();
@@ -541,7 +546,7 @@ fn a_redirect_after_the_token_does_not_carry_it_to_another_host() {
     let origin = HttpRecorder::start(Answer::RedirectAfterAuth(
         elsewhere.localhost_url("me/vault.git/info/refs?service=git-upload-pack"),
     ));
-    remoteauth::store(&m.dirs, "127.0.0.1", TOKEN).unwrap();
+    remoteauth::save(&m.dirs, "127.0.0.1", TOKEN).unwrap();
     let dir = repo_with_origin(&origin.url("me/vault.git"));
 
     let err = fetch(dir.path(), &opts).unwrap_err();
@@ -594,7 +599,7 @@ fn an_unreachable_remote_is_unreachable() {
             push(dir.path(), &opts).unwrap_err(),
         ] {
             assert_eq!(sync_kind(&err), Kind::Unreachable, "{url}: {err}");
-            assert_eq!(err.code(), Code::Unreachable);
+            assert_eq!(err.kind(), ErrorKind::Unreachable);
         }
     }
 }

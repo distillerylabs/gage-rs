@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::gittest::{self, BareRemote};
 use gage::prompter::FakePrompter;
 
@@ -61,7 +61,7 @@ fn stray_key() -> String {
 fn identity_enroll_publishes_a_request_and_prints_the_code() {
     let t = TwoDevices::new();
     let r = t.b.enroll("phone-1", &[]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("GAGE-"), "{}", r.stdout);
     assert!(r.stdout.contains("gage recipient approve"), "{}", r.stdout);
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
@@ -74,12 +74,16 @@ fn identity_enroll_publishes_a_request_and_prints_the_code() {
 fn identity_enroll_records_this_devices_pubkey() {
     let t = TwoDevices::new();
     let r = t.b.enroll("phone-1", &[]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let entry = t.b.entry(VAULT);
     assert_eq!(entry.device, "phone-1");
     assert_eq!(entry.method, "passphrase");
-    assert!(!entry.pubkey.is_empty());
-    assert!(r.stdout.contains(&entry.pubkey), "{}", r.stdout);
+    assert!(!entry.pubkey.is_none());
+    assert!(
+        r.stdout.contains(entry.pubkey.as_deref().unwrap()),
+        "{}",
+        r.stdout
+    );
 }
 
 // The key is added
@@ -91,12 +95,12 @@ fn identity_enroll_the_second_time_is_a_no_op_once_approved() {
         t.b.identity_add(&["--device", "phone-1"]);
         t.b.entry(VAULT).pubkey
     };
-    t.a.add_recipient(&key, "phone-1");
+    t.a.add_recipient(key.as_deref().unwrap(), "phone-1");
 
     let r =
         t.b.run_with(&enroll_args("phone-1", &[]), &FakePrompter::new());
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(!r.stderr.contains("--device"), "{}", r.stderr);
     assert!(!r.stdout.contains("GAGE-"), "{}", r.stdout);
     assert!(r.stdout.contains("already"), "{}", r.stdout);
@@ -110,13 +114,13 @@ fn identity_enroll_refuses_a_name_that_labels_someone_else() {
 
     let r =
         t.b.run_with(&enroll_args("phone-1", &[]), &FakePrompter::new());
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("--device"), "{}", r.stderr);
     assert!(pending_on_remote(&t._origin).is_empty());
 
     // The recovery the message points at.
     let r = t.b.enroll("phone-2", &[]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
 }
 
@@ -128,7 +132,7 @@ fn identity_enroll_refuses_an_unusable_ttl() {
             &enroll_args("phone-1", &["--ttl", ttl]),
             &FakePrompter::new(),
         );
-        assert_eq!(r.code, Code::Usage, "--ttl {ttl}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "--ttl {ttl}: {}", r.stderr);
         assert!(pending_on_remote(&t._origin).is_empty(), "--ttl {ttl}");
         assert!(identity_files(&t.b).is_empty(), "--ttl {ttl}");
     }
@@ -151,7 +155,7 @@ fn identity_enroll_honors_ttl_and_defaults_to_24h() {
     for (extra, want) in [(&[][..], 24 * 3600), (&["--ttl", "2h"][..], 2 * 3600)] {
         let t = TwoDevices::new();
         let r = t.b.enroll("phone-1", extra);
-        assert_eq!(r.code, Code::Success, "{}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
         let got = request_lifetime(&t._origin);
         assert!((want - 60..=want).contains(&got), "{extra:?}: {got}");
     }
@@ -162,7 +166,7 @@ fn identity_enroll_refuses_an_invalid_device_name() {
     let t = TwoDevices::new();
     let r =
         t.b.run_with(&enroll_args("../etc/passwd", &[]), &FakePrompter::new());
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(pending_on_remote(&t._origin).is_empty());
     assert!(identity_files(&t.b).is_empty());
 }
@@ -173,7 +177,7 @@ fn identity_enroll_remote_errors_carry_their_exit_codes() {
     let local = Env::new();
     local.init("local-only", &["--device", A_DEVICE]);
     let r = local.run_with(&enroll_args("phone-1", &[]), &FakePrompter::new());
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("set-remote"), "{}", r.stderr);
 
     // A remote that isn't there.
@@ -182,7 +186,7 @@ fn identity_enroll_remote_errors_carry_their_exit_codes() {
     t.b.ok(&["git", "set-remote", VAULT, gone.to_str().unwrap()]);
     let r =
         t.b.run_with(&enroll_args("phone-1", &[]), &FakePrompter::new());
-    assert_ne!(r.code, Code::Success, "{}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "{}", r.stdout);
     assert!(identity_files(&t.b).is_empty());
     assert!(pending_on_remote(&t._origin).is_empty());
 }
@@ -205,12 +209,12 @@ fn identity_enroll_selects_a_vault_with_use() {
         &["clone", url, "--name", "work", "--device", B_DEVICE],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     let r =
         t.b.run(&["identity", "enroll", "--use", "work", "--device", "phone-1"]);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(pending_on_remote(&work_origin).len(), 1);
     assert!(
         pending_on_remote(&t._origin).is_empty(),
@@ -222,7 +226,7 @@ fn identity_enroll_selects_a_vault_with_use() {
 fn the_two_secrets_never_cross() {
     let t = TwoDevices::new();
     let r = t.b.enroll("phone-1", &[]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     for stream in [&r.stdout, &r.stderr] {
         assert!(
@@ -237,7 +241,7 @@ fn the_two_secrets_never_cross() {
         assert!(!text.contains(PASSPHRASE), "the passphrase was committed");
     }
     let code = code_in(&r.stdout);
-    let id = t.b.entry(VAULT).id;
+    let id = t.b.entry(VAULT).id.unwrap();
     let identity = gage::paths::identity_file_path(&t.b.dirs, &id, "phone-1").unwrap();
     let wrapped = std::fs::read(identity).unwrap();
     assert!(
@@ -259,7 +263,7 @@ fn the_two_secrets_never_cross() {
 fn both_secrets_are_labelled_at_their_point_of_use() {
     let t = TwoDevices::new();
     let r = t.b.enroll("phone-1", &[]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("safe to send"), "{}", r.stdout);
     assert!(r.stdout.contains("not your passphrase"), "{}", r.stdout);
 
@@ -335,7 +339,7 @@ fn identity_enroll_works_in_a_session_against_a_vault_that_was_never_unlocked() 
         false,
     );
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("GAGE-"), "{}", r.stdout);
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
 }
@@ -344,7 +348,7 @@ fn identity_enroll_works_in_a_session_against_a_vault_that_was_never_unlocked() 
 fn use_still_fails_on_a_vault_this_device_cannot_decrypt() {
     let t = TwoDevices::new();
     let r = stdin_script(&t.b, &["use personal"], Some(PASSPHRASE), false);
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(r.stderr.contains("identity enroll"), "{}", r.stderr);
 }
 
@@ -360,7 +364,7 @@ fn scripted_enroll_refuses_the_create_path() {
             env_var,
             false,
         );
-        assert_eq!(r.code, Code::LockedOrAuth, "{env_var:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::LockedOrAuth, "{env_var:?}: {}", r.stderr);
         assert!(identity_files(&t.b).is_empty());
         assert!(pending_on_remote(&t._origin).is_empty());
     }
@@ -378,7 +382,7 @@ fn scripted_enroll_succeeds_on_the_reuse_path() {
         Some(PASSPHRASE),
         false,
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("GAGE-"), "{}", r.stdout);
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
 }
@@ -400,13 +404,13 @@ fn a_refused_scripted_enroll_leaves_the_fast_forward_in_place() {
         None,
         false,
     );
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
 
     let readme = std::fs::read_to_string(t.b.entry(VAULT).path.join("README")).unwrap();
     assert!(readme.contains("moved on"), "{readme}");
     // And the lock was released: the next command can take it.
     let r = t.b.identity_add(&["--device", "phone-1"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 }
 
 #[test]
@@ -422,7 +426,7 @@ fn script_file_at_a_terminal_takes_the_create_path_normally() {
         },
         &FakePrompter::new().with_passphrase(PASSPHRASE),
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("GAGE-"), "{}", r.stdout);
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
 }

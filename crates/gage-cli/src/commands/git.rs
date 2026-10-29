@@ -17,8 +17,8 @@ pub fn set_remote(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
     let mut entry = global.entry(name)?.clone();
 
     gitrepo::set_remote(&entry.path, url)?;
-    entry.git.origin = url.to_string();
+    entry.git.origin = Some(url.to_string());
     global.vaults.insert(name.to_string(), entry);
-    config::save(&path, &global)?;
+    config::save_creating_dir(&path, &global)?;
     Ok(())
 }

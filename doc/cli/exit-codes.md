@@ -3,7 +3,10 @@
 Every `gage` command exits with one of a fixed set of codes, so scripts and
 CI can branch on *why* a command failed rather than just that it did. The
 codes and their numbers are a contract
-([ADR-0037](../decisions/0037-exit-code-taxonomy.md)).
+([ADR-0037](../decisions/0037-exit-code-taxonomy.md)). The numbers belong
+to the command line: the library reports what kind of failure happened
+(`gage::error::ErrorKind`), and `gage-cli`'s `exitcode` module maps each
+kind to its code.
 
 | Code | Name | Meaning |
 |---|---|---|

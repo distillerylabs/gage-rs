@@ -1,7 +1,7 @@
 //! `recipient approve`'s scope, its late unlock across both invocation
 //! modes, and its two questions.
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::gitrepo;
 use gage::gittest;
 use gage::prompter::FakePrompter;
@@ -26,10 +26,10 @@ fn partially_admitted(e: &Enrolled, device: &str) -> Env {
         &["clone", url, "--name", VAULT, "--device", device],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Success, "clone: {}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "clone: {}", r.stderr);
     env.ok(&["identity", "add", "--device", device]);
     let key = env.entry(VAULT).pubkey;
-    commit_routine_change(&e.vault_path(), device, &key);
+    commit_routine_change(&e.vault_path(), device, key.as_deref().unwrap());
     gitrepo::push(&e.vault_path(), &gittest::remote_options()).unwrap();
     env.ok(&["pull"]);
     env
@@ -67,7 +67,7 @@ fn approval_prompts_once_for_the_approvers_passphrase() {
     let e = Enrolled::new("phone-1");
     let p = approving();
     let r = e.a().approve(&["--code", &e.code], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(p.unlock_requests().len(), 1);
 }
 
@@ -84,7 +84,7 @@ fn the_full_access_refusal_costs_one_unlock_not_zero() {
     // Its first unlock writes its trust baseline (the listing itself fails:
     // it can't read A's entry); then the list changes again, so the trust-the-list
     // question is live and "not asked" means something.
-    assert_ne!(partial.cmd(&["ls"]).code, Code::Success);
+    assert_ne!(partial.cmd(&["ls"]).code, ExitCode::Success);
     let stray = age::x25519::Identity::generate().to_public().to_string();
     e.a().ok(&["pull"]);
     commit_routine_change(&e.vault_path(), "tablet-1", &stray);
@@ -94,7 +94,7 @@ fn the_full_access_refusal_costs_one_unlock_not_zero() {
 
     let r = partial.approve(&["--code", &e.code], &p);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("cannot read every entry"), "{}", r.stderr);
     assert_eq!(p.unlock_requests().len(), 1);
     assert!(
@@ -118,7 +118,7 @@ fn approve_in_a_session_reuses_the_cached_identity() {
         "exit",
     ]));
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(passphrase_prompts(&r), 1, "{}\n{}", r.stdout, r.stderr);
     assert!(r.stdout.contains("approved \"phone-1\""), "{}", r.stdout);
     assert!(!still_pending(e.a()));
@@ -156,7 +156,7 @@ fn the_approver_answers_two_distinct_questions() {
     let r = e.a().approve(&["--code", &e.code], &declines);
     assert_ne!(
         r.code,
-        Code::Success,
+        ExitCode::Success,
         "declined the trust question, and still approved"
     );
     assert_eq!(declines.confirm_prompts().len(), 1);
@@ -166,7 +166,7 @@ fn the_approver_answers_two_distinct_questions() {
 
     let accepts = approving().with_recipient_answers(&[true]);
     let r = e.a().approve(&["--code", &e.code], &accepts);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let asked = accepts.confirm_prompts();
     assert_eq!(asked.len(), 1);
     assert_eq!(accepts.recipient_changes().len(), 1);
@@ -185,7 +185,7 @@ fn approve_refuses_a_taken_name_before_the_confirmation_and_before_any_unlock() 
 
     let r = e.a().approve(&["--code", &e.code], &p);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("--device"), "{}", r.stderr);
     assert!(p.confirm_prompts().is_empty());
     assert!(p.unlock_requests().is_empty());
@@ -193,7 +193,7 @@ fn approve_refuses_a_taken_name_before_the_confirmation_and_before_any_unlock() 
     let r = e
         .a()
         .approve(&["--code", &e.code, "--device", "phone-2"], &approving());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 }
 
 // A real request with a
@@ -209,7 +209,7 @@ fn approve_surfaces_a_request_expired_by_its_seal() {
         &FakePrompter::new(),
     );
     let r = tablet.run(&["identity", "enroll", "--device", "tablet-1", "--ttl", "1s"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let code = code_in(&r.stdout);
     e.a().ok(&["pull"]);
     std::thread::sleep(std::time::Duration::from_millis(2100));
@@ -230,7 +230,7 @@ fn approve_surfaces_a_request_expired_by_its_seal() {
 
     let r = e.a().approve(&["--code", &code], &p);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("expired"), "{}", r.stderr);
     assert!(p.unlock_requests().is_empty());
     assert!(p.confirm_prompts().is_empty());
@@ -249,7 +249,7 @@ fn approve_on_an_ambiguous_id_renders_the_candidates() {
         &FakePrompter::new(),
     );
 
-    assert_eq!(r.code, Code::Ambiguous, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Ambiguous, "{}", r.stderr);
     for id in &ids {
         assert!(r.stderr.contains(&id[..8]), "{}", r.stderr);
     }
@@ -267,7 +267,7 @@ fn approve_with_no_id_against_a_stuffed_pending_refuses() {
 
     let r = e.a().approve(&["--code", &e.code], &p);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("recipient approve <ID>"), "{}", r.stderr);
     assert!(r.stderr.contains("recipient pending"), "{}", r.stderr);
     assert!(p.confirm_prompts().is_empty());
@@ -293,10 +293,10 @@ fn naming_an_id_is_the_way_out_of_a_stuffed_pending() {
     let r = e
         .a()
         .run_with(&["recipient", "deny", &other], &FakePrompter::new());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     let r = e.a().approve(&[&id, "--code", &e.code], &approving());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 }
 
 // Naming every id gives the
@@ -312,7 +312,7 @@ fn the_bound_follows_the_scope_not_the_flag() {
 
     let r = e.a().approve(&args, &FakePrompter::new());
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("too many pending"), "{}", r.stderr);
 }
 
@@ -326,7 +326,7 @@ fn approve_under_a_real_script_run_fails_cleanly() {
 
     let r = real_script(e.a(), &["use personal", &approve]);
 
-    assert_ne!(r.code, Code::Success, "{}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "{}", r.stdout);
     assert!(r.stderr.contains("nothing was approved"), "{}", r.stderr);
     assert_eq!(e.commits(), before);
     assert!(!e.a().ok(&["recipient", "list"]).stdout.contains("phone-1"));
@@ -340,7 +340,7 @@ fn pending_and_deny_under_a_real_script_run() {
 
     let r = real_script(e.a(), &["use personal", "recipient pending", &deny]);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("removed pending request"), "{}", r.stdout);
     assert!(pending_ids(&e.vault_path()).is_empty());
 }

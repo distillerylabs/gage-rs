@@ -7,8 +7,8 @@ use uuid::Uuid;
 use super::fixtures_tests::*;
 use super::name::{parse_pending_file_name, pending_file_name};
 use super::{DEFAULT_ENROLLMENT_TTL, EnrollmentError, MAX_ENROLLMENT_TTL};
-use crate::exitcode::Code;
-use crate::vault::METHOD_PASSPHRASE;
+use crate::error::ErrorKind;
+use crate::vaultconfig::UnlockMethod;
 
 // <request-id>-<expires-epoch>.age,
 // to the second, which is the resolution the name carries.
@@ -81,14 +81,19 @@ fn seal_rejects_ttls_outside_the_ceiling() {
     ] {
         assert_enrollment_error!(
             f.vault
-                .seal_enrollment("phone", &joining, METHOD_PASSPHRASE, ttl),
+                .seal_enrollment("phone", &joining, &UnlockMethod::Passphrase, ttl),
             EnrollmentError::InvalidTtl { .. },
-            Code::Usage
+            ErrorKind::Usage
         );
     }
     // The boundary itself is accepted: a ceiling, not one below it.
     f.vault
-        .seal_enrollment("phone", &joining, METHOD_PASSPHRASE, MAX_ENROLLMENT_TTL)
+        .seal_enrollment(
+            "phone",
+            &joining,
+            &UnlockMethod::Passphrase,
+            MAX_ENROLLMENT_TTL,
+        )
         .unwrap();
     assert!(!f.vault.pending_dir().exists(), "sealing wrote something");
 }

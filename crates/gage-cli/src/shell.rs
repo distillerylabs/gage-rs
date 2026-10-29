@@ -6,10 +6,11 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::exitcode::ExitCode;
 use gage::config::{self, Shell};
-use gage::exitcode::Code;
+use gage::vaultconfig::VaultType;
 use gage::xdgpaths::Dirs;
-use gage::{gitrepo, paths, vault};
+use gage::{gitrepo, paths};
 
 use crate::duration;
 use crate::error::CliError;
@@ -56,69 +57,61 @@ pub fn resolve(
     dirs: &Dirs,
     home: &dyn Fn() -> Option<PathBuf>,
 ) -> Result<ShellSettings, CliError> {
-    let prompt = if shell.prompt.is_empty() {
-        DEFAULT_PROMPT.to_string()
-    } else {
-        shell.prompt.clone()
-    };
-    let idle_timeout = if shell.idle_timeout.is_empty() {
-        Some(DEFAULT_IDLE_TIMEOUT)
-    } else {
-        let raw = &shell.idle_timeout;
-        match duration::parse(raw) {
+    let prompt = shell
+        .prompt
+        .clone()
+        .unwrap_or_else(|| DEFAULT_PROMPT.to_string());
+    let idle_timeout = match &shell.idle_timeout {
+        None => Some(DEFAULT_IDLE_TIMEOUT),
+        Some(raw) => match duration::parse(raw) {
             Ok(d) if d.is_zero() => None,
             Ok(d) => Some(d),
             Err(duration::DurationError::Negative) => {
                 return Err(CliError::new(
-                    Code::Usage,
+                    ExitCode::Usage,
                     format!(
-                        "gage: [shell].idle_timeout {raw:?} is negative; use \"0\" to disable the idle re-lock"
+                        "[shell].idle_timeout {raw:?} is negative; use \"0\" to disable the idle re-lock"
                     ),
                 ));
             }
             Err(duration::DurationError::Malformed) => {
                 return Err(CliError::new(
-                    Code::Usage,
-                    format!("gage: [shell].idle_timeout {raw:?} is not a duration (e.g. \"10m\")"),
+                    ExitCode::Usage,
+                    format!("[shell].idle_timeout {raw:?} is not a duration (e.g. \"10m\")"),
                 ));
             }
-        }
+        },
     };
     // Refused rather than clamped, and with no "0 disables it": a clear
     // that silently never fired, or one rounded up from what the human
     // chose, would weaken the one guarantee -c makes. Turning the clear
     // off is left un-takeable; adding it later is additive.
-    let clipboard_timeout = if shell.clipboard_timeout.is_empty() {
-        DEFAULT_CLIPBOARD_TIMEOUT
-    } else {
-        let raw = &shell.clipboard_timeout;
-        match duration::parse(raw) {
+    let clipboard_timeout = match &shell.clipboard_timeout {
+        None => DEFAULT_CLIPBOARD_TIMEOUT,
+        Some(raw) => match duration::parse(raw) {
             Ok(d) if d >= MIN_CLIPBOARD_TIMEOUT => d,
             Ok(_) | Err(duration::DurationError::Negative) => {
                 return Err(CliError::new(
-                    Code::Usage,
+                    ExitCode::Usage,
                     format!(
-                        "gage: [shell].clipboard_timeout {raw:?} is below the {} minimum",
+                        "[shell].clipboard_timeout {raw:?} is below the {} minimum",
                         duration::format(MIN_CLIPBOARD_TIMEOUT)
                     ),
                 ));
             }
             Err(duration::DurationError::Malformed) => {
                 return Err(CliError::new(
-                    Code::Usage,
-                    format!(
-                        "gage: [shell].clipboard_timeout {raw:?} is not a duration (e.g. \"45s\")"
-                    ),
+                    ExitCode::Usage,
+                    format!("[shell].clipboard_timeout {raw:?} is not a duration (e.g. \"45s\")"),
                 ));
             }
-        }
+        },
     };
     // The design doc writes the path with `$GAGE_STATE` in it, so the
     // default and a configured value go through the same expansion.
-    let history_file = if shell.history_file.is_empty() {
-        dirs.state.join("history")
-    } else {
-        expand_gage_path(&shell.history_file, dirs, home)?
+    let history_file = match &shell.history_file {
+        None => dirs.state.join("history"),
+        Some(path) => expand_gage_path(path, dirs, home)?,
     };
     Ok(ShellSettings {
         prompt,
@@ -147,8 +140,8 @@ pub fn expand_gage_path(
         }
         let dir = dir.to_str().ok_or_else(|| {
             CliError::new(
-                Code::Internal,
-                format!("gage: {token} ({}) is not valid UTF-8", dir.display()),
+                ExitCode::Internal,
+                format!("{token} ({}) is not valid UTF-8", dir.display()),
             )
         })?;
         path = path.replace(token, dir);
@@ -164,7 +157,7 @@ pub fn expand_gage_path(
         None => Ok(PathBuf::from(path)),
         Some(rest) => {
             let home = home().ok_or_else(|| {
-                CliError::new(Code::Internal, "gage: resolving ~: no home directory")
+                CliError::new(ExitCode::Internal, "resolving ~: no home directory")
             })?;
             Ok(if rest.is_empty() {
                 home
@@ -213,16 +206,15 @@ pub fn wants_dirty(template: &str) -> bool {
 /// registered, isn't git, or can't be read renders clean, since a prompt
 /// has nowhere to report an error and the next real command will.
 pub fn vault_is_dirty(name: &str, dirs: &Dirs) -> bool {
-    let Ok(global) = config::load(&paths::global_config_file(dirs)) else {
+    let Ok(global) = config::load_or_default(&paths::global_config_file(dirs)) else {
         return false;
     };
     let Ok(entry) = global.entry(name) else {
         return false;
     };
-    if entry.vault_type != vault::TYPE_GIT {
-        return false;
+    match entry.vault_type {
+        VaultType::Git => gitrepo::is_clean(&entry.path).is_ok_and(|clean| !clean),
     }
-    gitrepo::is_clean(&entry.path).is_ok_and(|clean| !clean)
 }
 
 #[cfg(test)]
@@ -264,7 +256,7 @@ mod tests {
     #[test]
     fn resolve_shell_settings_parses_idle_timeout() {
         let got = resolve_with(Shell {
-            idle_timeout: "45s".into(),
+            idle_timeout: Some("45s".into()),
             ..Shell::default()
         })
         .unwrap();
@@ -277,11 +269,11 @@ mod tests {
     fn resolve_shell_settings_rejects_a_malformed_idle_timeout() {
         for bad in ["10min", "later", "-5m"] {
             let err = resolve_with(Shell {
-                idle_timeout: bad.into(),
+                idle_timeout: Some(bad.into()),
                 ..Shell::default()
             })
             .unwrap_err();
-            assert_eq!(err.code(), Code::Usage, "{bad}: {err}");
+            assert_eq!(err.code(), ExitCode::Usage, "{bad}: {err}");
             assert!(err.to_string().contains("idle_timeout"), "{err}");
         }
     }
@@ -296,14 +288,14 @@ mod tests {
         assert_eq!(got.clipboard_timeout, Duration::from_secs(45));
 
         let got = resolve_with(Shell {
-            clipboard_timeout: "90s".into(),
+            clipboard_timeout: Some("90s".into()),
             ..Shell::default()
         })
         .unwrap();
         assert_eq!(got.clipboard_timeout, Duration::from_secs(90));
 
         let got = resolve_with(Shell {
-            clipboard_timeout: "1s".into(),
+            clipboard_timeout: Some("1s".into()),
             ..Shell::default()
         })
         .unwrap();
@@ -311,11 +303,11 @@ mod tests {
 
         for bad in ["45sec", "200ms", "0", "-5s"] {
             let err = resolve_with(Shell {
-                clipboard_timeout: bad.into(),
+                clipboard_timeout: Some(bad.into()),
                 ..Shell::default()
             })
             .unwrap_err();
-            assert_eq!(err.code(), Code::Usage, "{bad}: {err}");
+            assert_eq!(err.code(), ExitCode::Usage, "{bad}: {err}");
             assert!(err.to_string().contains("clipboard_timeout"), "{err}");
         }
     }
@@ -325,7 +317,7 @@ mod tests {
     #[test]
     fn zero_idle_timeout_disables_the_relock() {
         let got = resolve_with(Shell {
-            idle_timeout: "0".into(),
+            idle_timeout: Some("0".into()),
             ..Shell::default()
         })
         .unwrap();
@@ -341,7 +333,7 @@ mod tests {
         let dirs = dirs_in(root.path());
         let got = resolve(
             &Shell {
-                history_file: "$GAGE_STATE/gage-history".into(),
+                history_file: Some("$GAGE_STATE/gage-history".into()),
                 ..Shell::default()
             },
             &dirs,
@@ -362,7 +354,7 @@ mod tests {
         let elsewhere = tempfile::tempdir().unwrap();
         let want = elsewhere.path().join("elsewhere").join("history");
         let got = resolve_with(Shell {
-            history_file: want.to_str().unwrap().into(),
+            history_file: Some(want.to_str().unwrap().into()),
             ..Shell::default()
         })
         .unwrap();
@@ -409,7 +401,7 @@ mod tests {
             PathBuf::from("~user/x")
         );
         let err = expand_gage_path("~/x", &dirs, &|| None).unwrap_err();
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.code(), ExitCode::Internal);
     }
 
     // Anything the {dirty} token can't

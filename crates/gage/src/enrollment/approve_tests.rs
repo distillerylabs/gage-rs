@@ -13,7 +13,7 @@ use super::fixtures_tests::{
     vault,
 };
 use super::*;
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::identity::Identity;
 use crate::prompter::FakePrompter;
 use crate::recipient::RecipientError;
@@ -168,9 +168,13 @@ fn check_enrollment_labels_refuses_a_name_another_recipient_took() {
     let err = assert_enrollment_error!(
         a.vault.check_enrollment_labels(&[Approval::new(opened)]),
         EnrollmentError::NameTaken { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
-    assert!(err.to_string().contains("--device"), "{err}");
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::ApproveWithDevice),
+        "{err}"
+    );
 }
 
 // --device is the whole fix
@@ -339,7 +343,7 @@ fn approval_refuses_an_approver_who_cannot_read_every_entry() {
             &trust
         ),
         EnrollmentError::Recipient(RecipientError::CannotGrantFullAccess { unreadable: 1, .. }),
-        Code::Conflict
+        ErrorKind::Conflict
     );
     assert!(err.to_string().contains("1 of 1"), "{err}");
     assert!(
@@ -428,7 +432,7 @@ fn a_malformed_request_produces_nothing_to_render() {
     let err = assert_enrollment_error!(
         open_all(&f.vault, &code),
         EnrollmentError::MalformedRequest { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
     assert!(!err.to_string().contains('\x1b'), "{err}");
 }
@@ -446,7 +450,7 @@ fn clock_skew_names_the_requesting_devices_clock() {
     let err = assert_enrollment_error!(
         open_all(&f.vault, &code),
         EnrollmentError::ClockSkew { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
     assert!(err.to_string().contains("clock"), "{err}");
 }

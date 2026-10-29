@@ -14,7 +14,7 @@ fn machine() -> (tempfile::TempDir, Dirs) {
 #[test]
 fn store_writes_the_token_under_state_at_0600() {
     let (_root, dirs) = machine();
-    store(&dirs, "github.com", "ghp_example").unwrap();
+    save(&dirs, "github.com", "ghp_example").unwrap();
 
     let path = paths::token_file_path(&dirs, "github.com").unwrap();
     // Under the state root, not config: dotfile managers sync config by
@@ -41,7 +41,7 @@ fn store_writes_the_token_under_state_at_0600() {
 fn load_refuses_a_token_others_can_read() {
     use std::os::unix::fs::PermissionsExt;
     let (_root, dirs) = machine();
-    store(&dirs, "github.com", "ghp_example").unwrap();
+    save(&dirs, "github.com", "ghp_example").unwrap();
     let path = paths::token_file_path(&dirs, "github.com").unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
 
@@ -50,11 +50,13 @@ fn load_refuses_a_token_others_can_read() {
         matches!(err, Error::InsecureToken { mode: 0o644, .. }),
         "{err}"
     );
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert!(!err.to_string().contains("ghp_example"), "{err}");
-    assert!(
-        err.to_string()
-            .contains("gage auth login --host github.com"),
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::AuthLoginAgain {
+            host: "github.com".into()
+        }),
         "{err}"
     );
 }
@@ -62,7 +64,7 @@ fn load_refuses_a_token_others_can_read() {
 #[test]
 fn logout_forgets_the_token_and_is_safe_twice() {
     let (_root, dirs) = machine();
-    store(&dirs, "github.com", "ghp_example").unwrap();
+    save(&dirs, "github.com", "ghp_example").unwrap();
     remove(&dirs, "github.com").unwrap();
     assert!(matches!(
         load(&dirs, "github.com"),
@@ -74,7 +76,7 @@ fn logout_forgets_the_token_and_is_safe_twice() {
 #[test]
 fn two_vaults_on_one_host_share_one_token() {
     let (_root, dirs) = machine();
-    store(&dirs, "github.com", "ghp_shared").unwrap();
+    save(&dirs, "github.com", "ghp_shared").unwrap();
 
     for url in [
         "https://github.com/me/work-vault.git",
@@ -120,7 +122,7 @@ fn host_reads_both_remote_spellings() {
         assert_eq!(host(url).unwrap(), want, "{url}");
     }
     let err = host("https://").unwrap_err();
-    assert_eq!(err.code(), Code::Usage, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Usage, "{err}");
 }
 
 #[test]
@@ -144,10 +146,10 @@ fn ssh_remote_needing_ssh_config_fails_with_the_real_reason() {
     let (_root, dirs) = machine();
     let err = method(&dirs, "git@internal:secrets/work-vault.git").unwrap_err();
     assert!(matches!(err, Error::SshConfigAlias { .. }), "{err}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     let msg = err.to_string();
     assert!(msg.contains("~/.ssh/config"), "{msg}");
-    assert!(msg.contains("HTTPS"), "{msg}");
+    assert_eq!(err.remedy(), Some(crate::error::Remedy::UseHttps), "{msg}");
 }
 
 // Whether an agent is running
@@ -175,9 +177,9 @@ fn ssh_remote_with_a_real_host_is_attempted() {
 fn store_refuses_an_empty_token() {
     let (_root, dirs) = machine();
     for token in ["", "   ", "\n"] {
-        let err = store(&dirs, "github.com", token).unwrap_err();
+        let err = save(&dirs, "github.com", token).unwrap_err();
         assert!(matches!(err, Error::EmptyToken), "{token:?}");
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
     }
     assert!(!paths::tokens_dir(&dirs).join("github.com").exists());
 }
@@ -186,7 +188,7 @@ fn store_refuses_an_empty_token() {
 fn host_cannot_escape_the_tokens_directory() {
     let (root, dirs) = machine();
     for host in ["../../etc/cron.d/x", "..", "", "a/b", "."] {
-        assert!(store(&dirs, host, "tok").is_err(), "{host:?}");
+        assert!(save(&dirs, host, "tok").is_err(), "{host:?}");
         assert!(load(&dirs, host).is_err(), "{host:?}");
         assert!(remove(&dirs, host).is_err(), "{host:?}");
     }
@@ -194,22 +196,28 @@ fn host_cannot_escape_the_tokens_directory() {
 }
 
 #[test]
-fn auth_hint_names_the_host_and_the_command() {
-    let hint = auth_hint("github.com");
-    assert!(hint.contains("github.com"), "{hint}");
-    assert!(hint.contains("gage auth login"), "{hint}");
+fn an_auth_failure_offers_a_login_for_its_host() {
+    use crate::error::{HasKind, Remedy};
+    use crate::syncerr;
+    let refused = || syncerr::Error::new(syncerr::Kind::Auth, "401");
+    assert_eq!(
+        refused().annotate_auth("github.com").remedy(),
+        Some(Remedy::AuthLogin {
+            host: "github.com".into()
+        })
+    );
     // A local path has no token to be wrong.
-    let local = auth_hint("");
-    assert!(!local.contains("gage auth login"), "{local}");
-    assert!(local.contains("path"), "{local}");
+    let local = refused().annotate_auth("");
+    assert_eq!(local.remedy(), None);
+    assert!(local.to_string().contains("path"), "{local}");
 }
 
 #[test]
 fn hosts_lists_every_stored_host_sorted() {
     let (_root, dirs) = machine();
     assert!(hosts(&dirs).unwrap().is_empty());
-    store(&dirs, "gitlab.com", "a").unwrap();
-    store(&dirs, "github.com", "b").unwrap();
+    save(&dirs, "gitlab.com", "a").unwrap();
+    save(&dirs, "github.com", "b").unwrap();
     assert_eq!(hosts(&dirs).unwrap(), ["github.com", "gitlab.com"]);
 }
 

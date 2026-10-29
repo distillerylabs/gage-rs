@@ -18,7 +18,7 @@ use zeroize::Zeroizing;
 use crate::config;
 use crate::crypt;
 use crate::enrollment::{Payload, normalize_code};
-use crate::entry::{self, Entry};
+use crate::entry::Entry;
 use crate::prompter::FakePrompter;
 use crate::recovery::RECOVERY_DEVICE_LABEL;
 use crate::testsupport::format_v2::{self as fx, Installed};
@@ -29,7 +29,7 @@ use crate::{gitrepo, identityfile, paths, recipients};
 
 /// The installed vault, resolved the way a command resolves it.
 fn vault(i: &Installed) -> Vault {
-    let global = config::read(&paths::global_config_file(&i.dirs)).unwrap();
+    let global = config::load(&paths::global_config_file(&i.dirs)).unwrap();
     Vault::from_registration(&i.dirs, fx::VAULT_NAME, &global.vaults[fx::VAULT_NAME]).unwrap()
 }
 
@@ -90,7 +90,7 @@ where
 #[test]
 fn format_v2_vault_config_parses() {
     let i = fx::install();
-    let file = vaultconfig::read(&i.vault.join(".gage/config.toml")).unwrap();
+    let file = vaultconfig::load(&i.vault.join(".gage/config.toml")).unwrap();
 
     assert_eq!(file.vault.format_version, 2);
     assert_eq!(file.vault.id, fx::VAULT_ID);
@@ -105,7 +105,7 @@ fn format_v2_vault_config_parses() {
         file.method,
         Method {
             default: "passphrase".into(),
-            plugin: String::new(),
+            plugin: None,
         }
     );
     assert_eq!(file.recipients, expected_recipients());
@@ -116,7 +116,7 @@ fn format_v2_vault_config_parses() {
         format!("{}\n{}\n", fx::DEVICE_PUBKEY, fx::RECOVERY_PUBKEY)
     );
     assert_eq!(
-        recipients::read(&i.vault.join(".age-recipients")).unwrap(),
+        recipients::load(&i.vault.join(".age-recipients")).unwrap(),
         [fx::DEVICE_PUBKEY, fx::RECOVERY_PUBKEY]
     );
     assert_eq!(
@@ -150,7 +150,7 @@ fn format_v2_reader_rejects_what_the_spec_rejects() {
     let with = |from: &str, to: &str| {
         assert!(original.contains(from), "{from:?} not in the fixture");
         std::fs::write(&path, original.replace(from, to)).unwrap();
-        vaultconfig::read(&path).unwrap_err()
+        vaultconfig::load(&path).unwrap_err()
     };
 
     for (version, skew) in [(3, VersionSkew::Newer), (1, VersionSkew::Older)] {
@@ -185,7 +185,7 @@ fn format_v2_reader_rejects_what_the_spec_rejects() {
     // An identity file claiming more scrypt work than the cap is refused
     // before any KDF runs.
     std::fs::write(&path, &original).unwrap();
-    let identity = paths::identity_file_path(&i.dirs, fx::VAULT_ID, fx::DEVICE).unwrap();
+    let identity = paths::identity_file_path(&i.dirs, &fx::vault_id(), fx::DEVICE).unwrap();
     let wrapped = read(&identity);
     let header_end = wrapped.windows(4).position(|w| w == b"\n---").unwrap();
     let header = String::from_utf8(wrapped[..header_end].to_vec()).unwrap();
@@ -213,7 +213,7 @@ fn format_v2_reader_rejects_what_the_spec_rejects() {
 #[test]
 fn format_v2_identity_file_unwraps() {
     let i = fx::install();
-    let path = paths::identity_file_path(&i.dirs, fx::VAULT_ID, fx::DEVICE).unwrap();
+    let path = paths::identity_file_path(&i.dirs, &fx::vault_id(), fx::DEVICE).unwrap();
 
     // An age file with one scrypt stanza, at the factor it was written at.
     let wrapped = read(&path);
@@ -257,7 +257,7 @@ fn format_v2_schemas_round_trip() {
     let committed = text(&i.vault.join(".gage/config.toml"));
     let file: vaultconfig::File = round_trip(&committed);
     assert_eq!(file.vault.id, fx::VAULT_ID);
-    let trust_dir = paths::trust_cache_dir(&i.dirs, fx::VAULT_ID).unwrap();
+    let trust_dir = paths::trust_cache_dir(&i.dirs, &fx::vault_id());
     let known = text(&trust_dir.join(KNOWN_CONFIG_FILE));
     assert_eq!(known, committed, "the trust cache confirmed this config");
     round_trip::<vaultconfig::File>(&known);
@@ -271,11 +271,11 @@ fn format_v2_schemas_round_trip() {
         .collect();
     assert_eq!(record.recipients_hash, hex);
     assert!(record.confirmed_at.is_some());
-    assert_eq!(record.mismatch_seen, "");
+    assert_eq!(record.mismatch_seen, None);
 
     // The global config.
     let global: config::Global = round_trip(&text(&paths::global_config_file(&i.dirs)));
-    assert_eq!(global.current, fx::VAULT_NAME);
+    assert_eq!(global.current, Some(fx::VAULT_NAME.into()));
 
     // The enrollment payload inside the pending request.
     let (name, expires) = pending_file(&i);
@@ -300,8 +300,8 @@ fn format_v2_schemas_round_trip() {
     for id in vault.entry_ids().unwrap() {
         let path = i.vault.join("entries").join(format!("{id}.age"));
         let yaml = crypt::decrypt(&read(&path), &identity).unwrap();
-        let e = entry::unmarshal(&yaml).unwrap();
-        let again = entry::unmarshal(&entry::marshal(&e).unwrap()).unwrap();
+        let e = Entry::from_yaml(&yaml).unwrap();
+        let again = Entry::from_yaml(&e.to_yaml().unwrap()).unwrap();
         assert_eq!(again, e, "{:?} changed on the round trip", e.title);
         by_title.insert(e.title.clone(), e);
     }
@@ -498,9 +498,9 @@ fn format_v2_new_vault_writes_the_same_layout() {
         &i.dirs,
         &crate::vault::CreateSpec {
             name: "fresh".into(),
-            id: vaultconfig::new_id(),
+            id: vaultconfig::VaultId::new(),
             path: fresh.clone(),
-            vault_type: "git".into(),
+            vault_type: vaultconfig::VaultType::Git,
             method: "passphrase".into(),
             device: fx::DEVICE.into(),
             recipients: vec![fx::DEVICE_PUBKEY.into()],
@@ -524,7 +524,7 @@ fn format_v2_new_vault_writes_the_same_layout() {
         "{config}"
     );
     assert_eq!(
-        vaultconfig::read(&fresh.join(config))
+        vaultconfig::load(&fresh.join(config))
             .unwrap()
             .vault
             .format_version,
@@ -532,7 +532,7 @@ fn format_v2_new_vault_writes_the_same_layout() {
     );
 
     // The trust cache and global config this build would write.
-    let trust_dir = paths::trust_cache_dir(&i.dirs, fx::VAULT_ID).unwrap();
+    let trust_dir = paths::trust_cache_dir(&i.dirs, &fx::vault_id());
     let record: TrustRecord = toml::from_str(&text(&trust_dir.join(TRUST_FILE))).unwrap();
     let written: toml::Value = toml::from_str(&toml::to_string(&record).unwrap()).unwrap();
     assert_eq!(
@@ -540,7 +540,7 @@ fn format_v2_new_vault_writes_the_same_layout() {
         shape(&toml_of(&trust_dir.join(TRUST_FILE)))
     );
     let global_path = paths::global_config_file(&i.dirs);
-    let global = config::read(&global_path).unwrap();
+    let global = config::load(&global_path).unwrap();
     let written: toml::Value = toml::from_str(&toml::to_string(&global).unwrap()).unwrap();
     assert_eq!(shape(&written), shape(&toml_of(&global_path)));
 
@@ -560,7 +560,7 @@ fn format_v2_new_vault_writes_the_same_layout() {
     for id in vault.entry_ids().unwrap() {
         let path = i.vault.join("entries").join(format!("{id}.age"));
         let committed = crypt::decrypt(&read(&path), &identity).unwrap();
-        let rewritten = entry::marshal(&entry::unmarshal(&committed).unwrap()).unwrap();
+        let rewritten = Entry::from_yaml(&committed).unwrap().to_yaml().unwrap();
         assert_eq!(keys(&rewritten), keys(&committed), "entry {id}");
     }
 }

@@ -12,8 +12,8 @@ use zeroize::Zeroizing;
 
 use super::{RECOVERY_DEVICE_LABEL, RecoveryError, check_device_label_free};
 use crate::entry::WRITE_LOCK_TIMEOUT;
-use crate::identity::{Identity, KeyLine};
-use crate::prompter::Prompter;
+use crate::identity::{Identity, KeyLine, PageLock, Unlocked};
+use crate::prompter::{Prompter, Warning};
 use crate::recipient::{RecipientError, RecipientWrite};
 use crate::vault::{Vault, warn_page_lock_failed};
 use crate::vaultconfig::Recipient;
@@ -270,9 +270,9 @@ impl Vault {
             // labels the list actually held.
             for label in swap.remove.iter().chain(&swap.remove_if_present) {
                 if current.iter().any(|r| r.device == *label) {
-                    prompter.warn(&format!(
-                        "gage: removing {label:?} revokes future access only — it still opens every version of every entry already in this vault's git history."
-                    ));
+                    prompter.warn(&Warning::from(format!(
+                        "removing {label:?} revokes future access only — it still opens every version of every entry already in this vault's git history."
+                    )));
                 }
             }
 
@@ -326,8 +326,11 @@ impl Vault {
                 });
             }
         }
-        let (identity, lock_err) = Identity::new(RECOVERY_DEVICE_LABEL, key, self.locker());
-        if let Some(e) = lock_err {
+        let Unlocked {
+            identity,
+            page_lock,
+        } = Identity::from_key(RECOVERY_DEVICE_LABEL, key, self.locker());
+        if let PageLock::Failed(e) = page_lock {
             warn_page_lock_failed(prompter, RECOVERY_DEVICE_LABEL, &e);
         }
         Ok(identity)

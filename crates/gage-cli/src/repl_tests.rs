@@ -12,8 +12,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+use crate::exitcode::ExitCode;
 use gage::config::Shell;
-use gage::exitcode::Code;
 use gage::locker::{Locker, MemLocker};
 use gage::prompter::FakePrompter;
 use gage::session::{Session, SessionConfig};
@@ -131,7 +131,7 @@ impl Env {
     /// A session that must end cleanly.
     pub(crate) fn session_ok(&self, lines: &[&str]) -> CliResult {
         let r = self.session(&script(lines));
-        assert_eq!(r.code, Code::Success, "session failed:\n{}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "session failed:\n{}", r.stderr);
         r
     }
 
@@ -164,7 +164,7 @@ const NOTHING_UNLOCKED_YET: &str = "no vaults have been unlocked in this session
 fn bare_gage_on_tty_enters_session_mode() {
     let env = Env::new();
     let r = env.session("");
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(!r.stdout.contains("Usage:"), "printed help:\n{}", r.stdout);
     assert!(r.stdout.contains("gage> "), "no prompt:\n{}", r.stdout);
 }
@@ -174,7 +174,7 @@ fn session_only_commands_fail_cleanly_one_shot() {
     let env = Env::new();
     for name in ["use", "lock", "status", "exit", "whoami", "quit"] {
         let r = env.run_with(&[name], &FakePrompter::new());
-        assert_eq!(r.code, Code::Usage, "{name}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{name}: {}", r.stderr);
         assert!(r.stderr.contains("session"), "{name}: {}", r.stderr);
     }
 }
@@ -184,14 +184,11 @@ fn session_only_commands_fail_cleanly_one_shot() {
 #[test]
 fn no_bare_unenumerated_exit_code() {
     let env = Env::new();
-    let defined: Vec<i32> = gage::exitcode::all()
-        .into_iter()
-        .map(Code::as_i32)
-        .collect();
+    let defined: Vec<i32> = ExitCode::ALL.into_iter().map(ExitCode::as_i32).collect();
     for args in [&["bogus"][..], &["help", "bogus"], &["use"]] {
         let r = env.run_with(args, &FakePrompter::new());
         assert!(defined.contains(&r.code.as_i32()), "{args:?}");
-        assert_ne!(r.code, Code::Conflict, "{args:?}");
+        assert_ne!(r.code, ExitCode::Conflict, "{args:?}");
     }
 }
 
@@ -461,7 +458,7 @@ fn split_line_handles_quotes_and_backslashes() {
 fn split_line_rejects_an_unbalanced_quote() {
     for input in [r#"show "unterminated"#, "show 'x"] {
         let err = split_line(input).unwrap_err();
-        assert_eq!(err.code(), Code::Usage, "{input}");
+        assert_eq!(err.code(), ExitCode::Usage, "{input}");
     }
 }
 
@@ -689,7 +686,7 @@ fn declining_the_picker_lists_the_candidates() {
     env.add("personal", "AWS IAM backup admin", "iam-secret");
 
     let r = env.session(&script(&["use personal", PASSPHRASE, "show AWS"]));
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stderr.contains("matches 2 entries"), "{}", r.stderr);
     assert!(!r.stdout.contains("secret"), "{}", r.stdout);
 }
@@ -824,7 +821,7 @@ fn configured_idle_timeout_reaches_the_session() {
     env.init("personal", &[]);
     env.add("personal", "ProtonMail", "correcthorsebatterystaple");
     env.set_shell(Shell {
-        idle_timeout: "10m".into(),
+        idle_timeout: Some("10m".into()),
         ..Shell::default()
     });
 
@@ -840,7 +837,7 @@ fn configured_idle_timeout_reaches_the_session() {
         ]),
         &clock,
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let status = r
         .stdout
         .lines()
@@ -864,7 +861,7 @@ fn configured_idle_timeout_is_not_applied_too_eagerly() {
     env.init("personal", &[]);
     env.add("personal", "ProtonMail", "correcthorsebatterystaple");
     env.set_shell(Shell {
-        idle_timeout: "10m".into(),
+        idle_timeout: Some("10m".into()),
         ..Shell::default()
     });
 
@@ -879,7 +876,7 @@ fn configured_idle_timeout_is_not_applied_too_eagerly() {
         ]),
         &clock,
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("unlocked"), "{}", r.stdout);
     assert_eq!(passphrase_prompts(&r), 1, "{}", r.stderr);
 }
@@ -891,11 +888,11 @@ fn a_malformed_idle_timeout_refuses_the_session() {
     let env = Env::new();
     env.init("personal", &[]);
     env.set_shell(Shell {
-        idle_timeout: "10min".into(),
+        idle_timeout: Some("10min".into()),
         ..Shell::default()
     });
     let r = env.session("exit\n");
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("idle_timeout"), "{}", r.stderr);
 }
 
@@ -908,7 +905,7 @@ fn session_prompt_renders_tokens_and_tracks_lock_state() {
     let env = Env::new();
     env.init("personal", &[]);
     env.set_shell(Shell {
-        prompt: "[{vault}{lock}{dirty}] gage> ".into(),
+        prompt: Some("[{vault}{lock}{dirty}] gage> ".into()),
         ..Shell::default()
     });
 
@@ -985,7 +982,7 @@ fn an_unopenable_history_file_does_not_stop_the_session() {
     let path = env.root.path().join("history-is-a-dir");
     std::fs::create_dir_all(&path).unwrap();
     env.set_shell(Shell {
-        history_file: path.to_str().unwrap().into(),
+        history_file: Some(path.to_str().unwrap().into()),
         ..Shell::default()
     });
     let r = env.session_ok(&["status", "exit"]);
@@ -1019,7 +1016,7 @@ fn listed_names(help: &str) -> Vec<String> {
 fn session_help(args: &str) -> CliResult {
     let env = Env::new();
     let r = env.session(&script(&[format!("help {args}").trim(), "exit"]));
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     r
 }
 

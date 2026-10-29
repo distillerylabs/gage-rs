@@ -6,31 +6,31 @@
 use std::path::{Path, PathBuf};
 
 use crate::atomicfile;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("recipients: reading {path}: {source}")]
+    #[error("reading {path}: {source}")]
     Read {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("recipients: writing {path}: {source}")]
+    #[error("writing {path}: {source}")]
     Write {
         path: PathBuf,
         source: atomicfile::Error,
     },
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
-        Code::Internal
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Internal
     }
 }
 
 /// Reads one public key per line, skipping blank lines; nothing else
 /// about the format is gage's own.
-pub fn read(path: &Path) -> Result<Vec<String>, Error> {
+pub fn load(path: &Path) -> Result<Vec<String>, Error> {
     let text = std::fs::read_to_string(path).map_err(|source| Error::Read {
         path: path.to_path_buf(),
         source,
@@ -45,7 +45,7 @@ pub fn read(path: &Path) -> Result<Vec<String>, Error> {
 
 /// Atomically writes `keys` to `path` in order, one per line, each
 /// newline-terminated, mode 0644: no header, no comments.
-pub fn write(path: &Path, keys: &[String]) -> Result<(), Error> {
+pub fn save(path: &Path, keys: &[String]) -> Result<(), Error> {
     let text: String = keys.iter().map(|k| format!("{k}\n")).collect();
     atomicfile::write(path, text.as_bytes(), 0o644).map_err(|source| Error::Write {
         path: path.to_path_buf(),
@@ -72,7 +72,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".age-recipients");
 
-        write(&path, &keys()).unwrap();
+        save(&path, &keys()).unwrap();
 
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
@@ -91,7 +91,7 @@ mod tests {
         let keys: Vec<String> = (0..3)
             .map(|_| age::x25519::Identity::generate().to_public().to_string())
             .collect();
-        write(&path, &keys).unwrap();
+        save(&path, &keys).unwrap();
 
         let text = std::fs::read_to_string(&path).unwrap();
         let parsed: Vec<String> = text
@@ -111,8 +111,8 @@ mod tests {
     fn round_trip_keeps_order_and_repeats() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".age-recipients");
-        write(&path, &keys()).unwrap();
-        assert_eq!(read(&path).unwrap(), keys());
+        save(&path, &keys()).unwrap();
+        assert_eq!(load(&path).unwrap(), keys());
     }
 
     #[test]
@@ -120,7 +120,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".age-recipients");
         std::fs::write(&path, format!("\n  {KEY_1}  \r\n\n{KEY_2}")).unwrap();
-        assert_eq!(read(&path).unwrap(), [KEY_1, KEY_2]);
+        assert_eq!(load(&path).unwrap(), [KEY_1, KEY_2]);
     }
 
     // A vault without the file is broken, not
@@ -128,12 +128,12 @@ mod tests {
     #[test]
     fn read_of_a_missing_file_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        let err = read(&dir.path().join(".age-recipients")).unwrap_err();
+        let err = load(&dir.path().join(".age-recipients")).unwrap_err();
         assert!(
             matches!(&err, Error::Read { source, .. } if source.kind() == std::io::ErrorKind::NotFound),
             "{err:?}"
         );
-        assert!(err.to_string().starts_with("recipients: reading"), "{err}");
+        assert!(err.to_string().starts_with("reading"), "{err}");
     }
 
     // An overlong line is not silently truncated or dropped. Rust's
@@ -146,15 +146,15 @@ mod tests {
         let path = dir.path().join(".age-recipients");
         let long = "a".repeat(128 * 1024);
         std::fs::write(&path, format!("{KEY_1}\n{long}\n")).unwrap();
-        assert_eq!(read(&path).unwrap(), [KEY_1.to_string(), long]);
+        assert_eq!(load(&path).unwrap(), [KEY_1.to_string(), long]);
     }
 
     #[test]
     fn write_wraps_an_atomicfile_failure() {
         let dir = tempfile::tempdir().unwrap();
-        let err = write(&dir.path().join("missing/.age-recipients"), &keys()).unwrap_err();
+        let err = save(&dir.path().join("missing/.age-recipients"), &keys()).unwrap_err();
         assert!(matches!(err, Error::Write { .. }), "{err:?}");
-        assert!(err.to_string().starts_with("recipients: writing"), "{err}");
+        assert!(err.to_string().starts_with("writing"), "{err}");
     }
 
     #[cfg(unix)]
@@ -163,7 +163,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(".age-recipients");
-        write(&path, &keys()).unwrap();
+        save(&path, &keys()).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o644);
     }

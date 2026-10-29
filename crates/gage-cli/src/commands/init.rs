@@ -11,21 +11,23 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
 use gage::config::{GitMeta, RegistryError, VaultEntry};
-use gage::exitcode::{Code, HasCode};
+use gage::error::HasKind;
 use gage::prompter::Prompter;
 use gage::recovery::{RECOVERY_DEVICE_LABEL, check_device_label_free, new_recovery_key};
 use gage::syncerr::Kind;
-use gage::vault::{self, CreateSpec, LabelledRecipient, Vault};
-use gage::{devicename, identityfile, paths, remoteauth, vaultconfig};
+use gage::vault::{CreateSpec, LabelledRecipient, Vault};
+use gage::vaultconfig::{UnlockMethod, VaultId, VaultType};
+use gage::{devicename, identityfile, paths, remoteauth};
 
 use super::recoverykey::{
     KeyPlan, check_recovery_key_out_path, deliver_recovery_key, plan_recovery_key,
 };
 use super::{arg, cwd, dirs, fail, load_global, out};
 use crate::Io;
-use crate::error::{CliError, prefix_once};
+use crate::error::{CliError, prefixed};
 
 pub const LONG_ABOUT: &str = "Create a new vault.
 
@@ -47,8 +49,10 @@ none is stored yet, init asks for one on the spot (leave blank to skip and
 try anonymously) — the same prompt as `gage auth login`, so a private repo
 doesn't need a separate auth login round trip before the first push succeeds.";
 
+/// `init`'s default method, as a static so clap can hold its name.
+static DEFAULT_METHOD: UnlockMethod = UnlockMethod::Passphrase;
+
 pub fn flags() -> Vec<Arg> {
-    let accepted = |list: &[&str]| format!("[{}]", list.join(" "));
     vec![
         Arg::new("device")
             .long("device")
@@ -61,10 +65,10 @@ pub fn flags() -> Vec<Arg> {
         Arg::new("method")
             .long("method")
             .value_name("METHOD")
-            .default_value(vault::METHOD_PASSPHRASE)
+            .default_value(DEFAULT_METHOD.as_str())
             .help(format!(
-                "default identity method for devices joining this vault (accepted: {})",
-                accepted(vault::ALLOWED_METHODS)
+                "default identity method for devices joining this vault (accepted: [{}])",
+                UnlockMethod::names(" ")
             )),
         Arg::new("no-recovery-key")
             .long("no-recovery-key")
@@ -86,11 +90,8 @@ pub fn flags() -> Vec<Arg> {
         Arg::new("type")
             .long("type")
             .value_name("TYPE")
-            .default_value(vault::TYPE_GIT)
-            .help(format!(
-                "vault type (accepted: {})",
-                accepted(vault::ALLOWED_TYPES)
-            )),
+            .default_value(VaultType::default().as_str())
+            .help(format!("vault type (accepted: [{}])", VaultType::names(" "))),
     ]
 }
 
@@ -154,10 +155,10 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     // another, with nothing visibly wrong (ADR-0006).
     let mut spec = CreateSpec {
         name: name.to_string(),
-        id: vaultconfig::new_id(),
+        id: VaultId::new(),
         path,
-        vault_type: flag("type").expect("defaulted"),
-        method: flag("method").expect("defaulted"),
+        vault_type: flag("type").expect("defaulted").parse::<VaultType>()?,
+        method: UnlockMethod::from(flag("method").expect("defaulted")),
         device,
         recipients: extra_recipients,
         extra_recipients: Vec::new(),
@@ -197,7 +198,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
             // leave one orphaned private key behind.
             if let Err(rollback) = identityfile::remove(&dirs, &spec.id, &spec.device) {
                 return Err(fail(
-                    Code::Internal,
+                    ExitCode::Internal,
                     format!("{err} (and rolling back the generated identity failed: {rollback})"),
                 ));
             }
@@ -209,20 +210,20 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         name,
         VaultEntry {
             path: created.path.clone(),
-            id: created.id.clone(),
-            vault_type: spec.vault_type.clone(),
+            id: Some(created.id.clone()),
+            vault_type: spec.vault_type,
             device: spec.device.clone(),
             // Recorded now, the one moment gage holds this device's key
             // without an unlock, so "is my key still a recipient?" can be
             // answered by comparing keys (ADR-0013).
-            pubkey: pubkey.clone(),
+            pubkey: Some(pubkey.clone()),
             method: spec.method.clone(),
             git: GitMeta {
-                origin: spec.remote.clone().unwrap_or_default(),
+                origin: spec.remote.clone(),
             },
         },
     )?;
-    gage::config::save(&config_path, &global)?;
+    gage::config::save_creating_dir(&config_path, &global)?;
 
     // After registration, so a key is never shown for a vault that isn't
     // usable yet, and before the summary, so the one thing needing action
@@ -263,7 +264,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         // So it sets the exit code, and the push failure is reported
         // beside it.
         (Err(delivery), Err(push)) => {
-            let _ = writeln!(io.stderr, "{}", prefix_once(&push.to_string()));
+            let _ = writeln!(io.stderr, "{}", prefixed(&push));
             Err(delivery)
         }
         (Err(e), Ok(())) | (Ok(()), Err(e)) => Err(e),
@@ -301,17 +302,21 @@ fn publish(io: &mut Io, prompter: &dyn Prompter, v: &Vault, remote: &str) -> Res
         return Ok(());
     }
     let code = if missing_path {
-        Code::LockedOrAuth
+        ExitCode::LockedOrAuth
     } else {
-        err.code()
+        ExitCode::from(err.kind())
     };
-    let msg = err.to_string();
+    // The failure's own remedy (a login, for a refused token) stays with
+    // the failure, ahead of the line about creating the repository.
+    let remedy = err
+        .remedy()
+        .map(|r| crate::remedy::render(&r))
+        .unwrap_or_default();
     Err(fail(
         code,
         format!(
-            "{name:?} was created locally, but publishing it to {remote} failed: {}\n\
-             gage: gage never creates a repository for you — create an empty one there, then run `gage push`",
-            msg.strip_prefix("gage: ").unwrap_or(&msg)
+            "{name:?} was created locally, but publishing it to {remote} failed: {err}{remedy}\n\
+             gage: gage never creates a repository for you — create an empty one there, then run `gage push`"
         ),
     ))
 }
@@ -336,11 +341,11 @@ fn ensure_remote_token(io: &mut Io, prompter: &dyn Prompter, remote: &str) -> Re
     }
     let token = prompter
         .value(&format!("token for {host} (leave blank to skip)"))
-        .map_err(|e| fail(Code::LockedOrAuth, e))?;
+        .map_err(|e| fail(ExitCode::LockedOrAuth, e))?;
     if token.trim().is_empty() {
         return Ok(());
     }
-    remoteauth::store(&dirs, &host, &token)?;
+    remoteauth::save(&dirs, &host, &token)?;
     out(io, &[format!("gage: stored a token for {host}")]);
     Ok(())
 }
@@ -369,14 +374,14 @@ pub fn resolve_device_name(explicit: Option<&str>, hostname: &str) -> Result<Str
             Ok(explicit.to_string())
         } else {
             Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!("--device {explicit:?} is invalid"),
             ))
         };
     }
     devicename::normalize(hostname).ok_or_else(|| {
         fail(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
                 "this machine's hostname ({hostname:?}) doesn't normalize to a usable device name; pass --device NAME"
             ),

@@ -6,8 +6,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use crate::exitcode::ExitCode;
 use gage::entry::{self, Entry};
-use gage::exitcode::Code;
 use gage::locker::Locker;
 use gage::prompter::{FakePrompter, PromptError};
 use gage::vault::Vault;
@@ -46,7 +46,7 @@ impl Env {
         let mut full = vec!["insert"];
         full.extend_from_slice(args);
         let r = self.run_with(&full, &with_value(value));
-        assert_eq!(r.code, Code::Success, "{full:?} failed:\n{}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{full:?} failed:\n{}", r.stderr);
         inserted_id(&r)
     }
 
@@ -56,7 +56,7 @@ impl Env {
 
     pub(crate) fn cmd_ok(&self, args: &[&str]) -> CliResult {
         let r = self.cmd(args);
-        assert_eq!(r.code, Code::Success, "{args:?} failed:\n{}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{args:?} failed:\n{}", r.stderr);
         r
     }
 
@@ -105,7 +105,7 @@ fn no_use_flag_operates_against_current_vault() {
     let env = Env::new();
     env.init("first", &[]);
     env.init("second", &[]);
-    assert_eq!(env.global().current, "first");
+    assert_eq!(env.global().current, Some("first".into()));
 
     env.insert_ok("v", &["in-current"]);
 
@@ -151,7 +151,7 @@ fn use_unregistered_vault_fails_before_prompting_for_a_passphrase() {
     ] {
         let prompter = FakePrompter::new();
         let r = env.run_with(args, &prompter);
-        assert_eq!(r.code, Code::NotFound, "{args:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::NotFound, "{args:?}: {}", r.stderr);
         assert!(r.stderr.contains("ghost"), "{}", r.stderr);
         assert!(prompter.unlock_requests().is_empty(), "{args:?}");
         assert!(prompter.value_prompts().is_empty(), "{args:?}");
@@ -163,7 +163,7 @@ fn no_current_vault_is_a_usage_error_before_any_prompt() {
     let env = Env::new();
     let prompter = FakePrompter::new();
     let r = env.run_with(&["ls"], &prompter);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(prompter.unlock_requests().is_empty());
 }
 
@@ -205,7 +205,7 @@ fn one_shot_handler_closes_identity_on_every_exit_path_including_error() {
     };
 
     assert_eq!(run(Ok(())), (true, 1, 1), "success path");
-    let failure = crate::error::CliError::new(Code::Internal, "the command failed");
+    let failure = crate::error::CliError::new(ExitCode::Internal, "the command failed");
     assert_eq!(run(Err(failure)), (false, 1, 1), "error path");
 }
 
@@ -217,11 +217,11 @@ fn insert_then_cat_round_trips_value_through_the_cli() {
 
     let r = env.run_with(&["insert", "ProtonMail"], &with_value("hunter2"));
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let id = inserted_id(&r);
     assert_eq!(r.stdout, format!("gage: inserted \"ProtonMail\" ({id})\n"));
     let cat = env.cmd_ok(&["cat", "ProtonMail"]);
-    let e = entry::unmarshal(cat.stdout.as_bytes()).unwrap();
+    let e = Entry::from_yaml(cat.stdout.as_bytes()).unwrap();
     assert_eq!(e.title, "ProtonMail");
     assert_eq!(e.value, "hunter2");
     // By id, too, in any spelling.
@@ -236,7 +236,7 @@ fn insert_default_prompts_for_value_via_prompter() {
 
     let r = env.run_with(&["insert", "Bank"], &prompter);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(prompter.value_prompts(), vec!["Bank"]);
     assert_eq!(env.only_entry("personal").1.value, "from the prompter");
 }
@@ -248,7 +248,7 @@ fn a_failed_unlock_never_asks_for_the_value() {
 
     let r = env.run_with(&["insert", "Bank"], &prompter);
 
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(prompter.value_prompts().is_empty());
     assert!(env.entries("personal").is_empty());
 }
@@ -270,7 +270,7 @@ fn insert_value_stdin_trims_exactly_one_newline() {
             &unlocks(),
             stdin.as_bytes(),
         );
-        assert_eq!(r.code, Code::Success, "{stdin:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{stdin:?}: {}", r.stderr);
         let entries = env.entries("personal");
         let e = entries.iter().find(|(_, e)| e.title == title).unwrap();
         assert_eq!(e.1.value, want, "{stdin:?}");
@@ -286,14 +286,14 @@ fn insert_value_stdin_trims_one_trailing_newline_and_round_trips() {
         &prompter,
         b"p@ss w0rd=\n",
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         prompter.value_prompts().is_empty(),
         "stdin replaces the prompt"
     );
     let cat = env.cmd_ok(&["cat", "Wifi"]);
     assert_eq!(
-        entry::unmarshal(cat.stdout.as_bytes()).unwrap().value,
+        Entry::from_yaml(cat.stdout.as_bytes()).unwrap().value,
         "p@ss w0rd="
     );
 }
@@ -306,7 +306,7 @@ fn value_stdin_and_prompt_paths_store_identical_entries() {
     let mut full = vec!["insert", "via-stdin", "--value-stdin"];
     full.extend_from_slice(&args);
     let r = env.run_stdin(&full, &unlocks(), b"the value\n");
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     let entries = env.entries("personal");
     let get = |t: &str| &entries.iter().find(|(_, e)| e.title == t).unwrap().1;
@@ -345,7 +345,7 @@ fn insert_mutually_exclusive_value_flags_rejected_before_any_io() {
         &mut ExplodingReader,
     );
 
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(prompter.unlock_requests().is_empty());
     assert!(prompter.value_prompts().is_empty());
     assert_eq!(env.commits("personal"), before);
@@ -355,7 +355,7 @@ fn insert_mutually_exclusive_value_flags_rejected_before_any_io() {
     for mode in ["-m", "--value-stdin"] {
         let title = format!("alone{mode}");
         let r = env.run_stdin(&["insert", &title, mode], &unlocks(), b"v\n");
-        assert_eq!(r.code, Code::Success, "{mode}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{mode}: {}", r.stderr);
     }
 }
 
@@ -376,7 +376,7 @@ fn a_cancelled_value_prompt_after_unlocking_writes_nothing() {
 
     let r = env.run_with(&["insert", "Bank"], &prompter);
 
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert_eq!(r.stdout, "");
     assert_eq!(prompter.value_prompts(), vec!["Bank"]);
     assert!(env.entries("personal").is_empty());
@@ -389,7 +389,7 @@ fn a_value_on_stdin_that_is_not_utf8_is_a_usage_error() {
     let before = env.commits("personal");
     for mode in ["--value-stdin", "-m"] {
         let r = env.run_stdin(&["insert", "x", mode], &unlocks(), b"\xff\xfe\n");
-        assert_eq!(r.code, Code::Usage, "{mode}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{mode}: {}", r.stderr);
         assert!(r.stderr.contains("UTF-8"), "{mode}: {}", r.stderr);
     }
     assert!(env.entries("personal").is_empty());
@@ -415,7 +415,7 @@ fn insert_duplicate_title_rejected_unless_forced() {
     let before = env.commits("personal");
 
     let refused = env.run_with(&["insert", "dup"], &with_value("second"));
-    assert_eq!(refused.code, Code::Conflict, "{}", refused.stderr);
+    assert_eq!(refused.code, ExitCode::Conflict, "{}", refused.stderr);
     assert!(refused.stderr.contains("--force"), "{}", refused.stderr);
     assert_eq!(env.entries("personal").len(), 1);
     assert_eq!(env.commits("personal"), before);
@@ -575,11 +575,11 @@ fn cat_unknown_fails_with_not_found() {
     let env = env_with_vault();
     env.insert_ok("v", &["exists"]);
     let r = env.cmd(&["cat", "nope"]);
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     assert_eq!(r.stdout, "");
     assert!(r.stderr.contains("nope"), "{}", r.stderr);
     // A title substring resolves; this one is in no title.
-    assert_eq!(env.cmd(&["cat", "exis"]).code, Code::Success);
+    assert_eq!(env.cmd(&["cat", "exis"]).code, ExitCode::Success);
 }
 
 #[test]
@@ -601,10 +601,10 @@ fn rm_deletes_file_and_commits_then_cat_and_ls_no_longer_show_it() {
             .exists()
     );
     assert!(gitrepo::is_clean(&env.entry("personal").path).unwrap());
-    assert_eq!(env.cmd(&["cat", "Doomed"]).code, Code::NotFound);
+    assert_eq!(env.cmd(&["cat", "Doomed"]).code, ExitCode::NotFound);
     let ls = env.cmd_ok(&["ls"]);
     assert!(!ls.stdout.contains("Doomed") && ls.stdout.contains("Survivor"));
-    assert_eq!(env.cmd(&["rm", "Doomed"]).code, Code::NotFound);
+    assert_eq!(env.cmd(&["rm", "Doomed"]).code, ExitCode::NotFound);
 }
 
 #[test]
@@ -616,7 +616,7 @@ fn an_ambiguous_cat_or_rm_lists_the_candidates_and_exits_ambiguous() {
 
     for cmd in ["cat", "rm"] {
         let r = env.cmd(&[cmd, "twin"]);
-        assert_eq!(r.code, Code::Ambiguous, "{cmd}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Ambiguous, "{cmd}: {}", r.stderr);
         assert_eq!(r.stdout, "", "{cmd} wrote to stdout");
         assert!(r.stderr.contains(&a.to_string()), "{cmd}: {}", r.stderr);
         assert!(r.stderr.contains(&b.to_string()), "{cmd}: {}", r.stderr);
@@ -835,7 +835,7 @@ fn bad_field_flags_are_usage_errors_before_unlock() {
     ] {
         let prompter = FakePrompter::new();
         let r = env.run_with(&["insert", "x", "--field", flag], &prompter);
-        assert_eq!(r.code, Code::Usage, "{flag:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{flag:?}: {}", r.stderr);
         assert!(prompter.unlock_requests().is_empty(), "{flag:?}");
         assert!(r.stderr.contains(why), "{flag:?}: {}", r.stderr);
     }
@@ -849,7 +849,7 @@ fn bad_field_flags_are_usage_errors_before_unlock() {
             &["insert", "x", "--field", pair[0], "--field", pair[1]],
             &prompter,
         );
-        assert_eq!(r.code, Code::Usage, "{pair:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{pair:?}: {}", r.stderr);
         assert!(prompter.unlock_requests().is_empty(), "{pair:?}");
         let said = format!("{name:?} was given more than once");
         assert!(r.stderr.contains(&said), "{pair:?}: {}", r.stderr);
@@ -862,7 +862,7 @@ fn bad_field_flags_are_usage_errors_before_unlock() {
 fn parse_field_flags_rejects_what_it_must() {
     for bad in [&["noequals"][..], &["=v"], &[" \t=v"], &["a=1", "a=2"]] {
         let err = parse_field_flags(&strings(bad)).unwrap_err();
-        assert_eq!(err.code(), Code::Usage, "{bad:?}");
+        assert_eq!(err.code(), ExitCode::Usage, "{bad:?}");
     }
     assert!(parse_field_flags(&[]).unwrap().is_empty());
 }
@@ -905,7 +905,7 @@ fn insert_field_with_multiline_sets_both_value_and_fields() {
         &unlocks(),
         b"line one\nline two\n",
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(r.stderr, "", "the Ctrl-D hint is for a terminal only");
     let e = env.only_entry("personal").1;
     assert_eq!(e.value, "line one\nline two\n", "-m keeps every byte");
@@ -920,7 +920,7 @@ fn insert_field_with_value_stdin_sets_both_value_and_fields() {
         &unlocks(),
         b"s3cret\n",
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let e = env.only_entry("personal").1;
     assert_eq!(e.value, "s3cret");
     assert_eq!(e.field("user").unwrap(), "me");
@@ -931,7 +931,7 @@ fn insert_field_without_value_mode_still_prompts_once_and_stores_fields() {
     let env = env_with_vault();
     let prompter = with_value("prompted");
     let r = env.run_with(&["insert", "x", "--field", "user=me"], &prompter);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(prompter.value_prompts().len(), 1, "asked once");
     let e = env.only_entry("personal").1;
     assert_eq!(e.value, "prompted");
@@ -962,7 +962,7 @@ fn insert_fields_round_trip_and_are_each_independently_readable() {
     assert_eq!(e.field("recoverycode").unwrap(), "1234 5678");
     assert_eq!(e.fields.len(), 3);
     let cat = env.cmd_ok(&["cat", "Account"]);
-    let shown = entry::unmarshal(cat.stdout.as_bytes()).unwrap();
+    let shown = Entry::from_yaml(cat.stdout.as_bytes()).unwrap();
     assert_eq!(shown.fields, e.fields);
 }
 
@@ -1023,7 +1023,7 @@ fn no_entry_command_doubles_gages_own_prefix() {
     for (name, r) in &results {
         assert_ne!(
             r.code,
-            Code::Success,
+            ExitCode::Success,
             "{name}: this table only covers failures"
         );
         for line in r.stdout.lines().chain(r.stderr.lines()) {
@@ -1047,7 +1047,7 @@ fn no_entry_command_doubles_gages_own_prefix() {
 fn a_registration_without_an_id_fails_insert_before_any_path_is_built() {
     let env = env_with_vault();
     let mut global = env.global();
-    global.vaults.get_mut("personal").unwrap().id.clear();
+    global.vaults.get_mut("personal").unwrap().id = None;
     env.save_global(&global);
     let before = env.tree();
     let prompter = FakePrompter::new();
@@ -1056,7 +1056,7 @@ fn a_registration_without_an_id_fails_insert_before_any_path_is_built() {
 
     // The vault's own config still carries its id, so the empty one is
     // caught as a registration that doesn't match the vault.
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(
         r.stderr.contains("points at a different vault"),
         "{}",
@@ -1120,7 +1120,8 @@ fn two_registrations_of_one_repository_share_one_lock() {
     assert_eq!(env.entry("alias").id, env.entry("personal").id);
 
     // Held through the "personal" registration's id.
-    let lock_path = gage::paths::lock_file_path(&env.dirs, &env.entry("personal").id).unwrap();
+    let lock_path =
+        gage::paths::lock_file_path(&env.dirs, &env.entry("personal").id.clone().unwrap());
     std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
     let mut holder = Command::new(std::env::current_exe().unwrap())
         .args([
@@ -1155,7 +1156,7 @@ fn two_registrations_of_one_repository_share_one_lock() {
         drop(holder.stdin.take());
         assert_eq!(
             rx.recv_timeout(Duration::from_secs(10)),
-            Ok(Code::Success),
+            Ok(ExitCode::Success),
             "insert never proceeded after the lock was released"
         );
     });
@@ -1168,7 +1169,7 @@ fn two_registrations_of_one_repository_share_one_lock() {
 const CAT_ID: &str = "0123abcd";
 
 fn aligned(e: &Entry) -> String {
-    let data = entry::marshal(e).unwrap();
+    let data = e.to_yaml().unwrap();
     String::from_utf8(align_cat_output(CAT_ID, &data)).unwrap()
 }
 
@@ -1278,7 +1279,7 @@ fn align_cat_output_round_trips() {
         .split_inclusive('\n')
         .filter(|l| !key_is(l, "id"))
         .collect();
-    assert_eq!(entry::unmarshal(stripped.as_bytes()).unwrap(), want);
+    assert_eq!(Entry::from_yaml(stripped.as_bytes()).unwrap(), want);
 }
 
 #[test]
@@ -1332,7 +1333,7 @@ fn align_cat_output_skips_alignment_for_quoted_keys() {
         .split_inclusive('\n')
         .filter(|l| !key_is(l, "id"))
         .collect();
-    assert_eq!(entry::unmarshal(stripped.as_bytes()).unwrap(), e);
+    assert_eq!(Entry::from_yaml(stripped.as_bytes()).unwrap(), e);
 }
 
 // Content that
@@ -1401,7 +1402,7 @@ fn cat_command_prints_id_line_through_the_cli() {
         .split_inclusive('\n')
         .filter(|l| !key_is(l, "id"))
         .collect();
-    let e = entry::unmarshal(stripped.as_bytes()).unwrap();
+    let e = Entry::from_yaml(stripped.as_bytes()).unwrap();
     assert_eq!(
         (e.title.as_str(), e.value.as_str()),
         ("ProtonMail", "secret")

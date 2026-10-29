@@ -4,8 +4,8 @@
 //! defeat the point of asking for them (principle 6, "plaintext should be
 //! surprising to produce").
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::exitcode::Code;
 
 use super::{Keys, fail, load_global};
 use crate::Io;
@@ -51,8 +51,8 @@ impl Destination {
     pub(super) fn from_matches(matches: &ArgMatches) -> Result<Destination, CliError> {
         match (matches.get_flag("clip"), matches.get_flag("qr")) {
             (true, true) => Err(fail(
-                Code::Usage,
-                "gage: -c/--clip and -q/--qr are mutually exclusive",
+                ExitCode::Usage,
+                "-c/--clip and -q/--qr are mutually exclusive",
             )),
             (true, false) => Ok(Destination::Clipboard),
             (false, true) => Ok(Destination::Qr),

@@ -8,8 +8,8 @@ use super::fixtures_tests::*;
 use super::name::pending_file_name;
 use super::{EnrollmentError, MAX_ENROLLMENT_ATTEMPTS, PendingRequest};
 use crate::crypt;
-use crate::exitcode::Code;
-use crate::vault::METHOD_PASSPHRASE;
+use crate::error::ErrorKind;
+use crate::vaultconfig::UnlockMethod;
 
 /// The `-> scrypt <salt> <logN>` stanza's logN, off a real header.
 fn stanza_factor(file: &[u8]) -> u8 {
@@ -85,7 +85,7 @@ fn shipped_enrollment_factor_child() {
     crypt::set_enrollment_work_factor_for_tests(crypt::SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR);
     let (req, sealed) = f
         .vault
-        .seal_enrollment("phone", &new_pubkey(), METHOD_PASSPHRASE, DAY)
+        .seal_enrollment("phone", &new_pubkey(), &UnlockMethod::Passphrase, DAY)
         .unwrap();
     assert_eq!(
         stanza_factor(&sealed),
@@ -93,7 +93,11 @@ fn shipped_enrollment_factor_child() {
         "age sealed at a factor other than the shipped one"
     );
     // And gage opens what it seals at that factor, on a real file.
-    write_pending(&f.vault, &pending_file_name(&req.id, req.expires), &sealed);
+    write_pending(
+        &f.vault,
+        &pending_file_name(req.id.as_deref().unwrap(), req.expires),
+        &sealed,
+    );
     let opened = open_all(&f.vault, &req.code).unwrap();
     assert_eq!(opened.len(), 1);
 }
@@ -116,7 +120,7 @@ fn independent_factors_child() {
     let seal_factor = || {
         let (_, sealed) = f
             .vault
-            .seal_enrollment("phone", &new_pubkey(), METHOD_PASSPHRASE, DAY)
+            .seal_enrollment("phone", &new_pubkey(), &UnlockMethod::Passphrase, DAY)
             .unwrap();
         stanza_factor(&sealed)
     };
@@ -169,7 +173,7 @@ fn hostile_work_factor_costs_a_bounded_wait() {
     let path = f
         .vault
         .pending_dir()
-        .join(pending_file_name(&req.id, req.expires));
+        .join(pending_file_name(req.id.as_deref().unwrap(), req.expires));
     let sealed = std::fs::read(&path).unwrap();
     std::fs::write(&path, claim_work_factor(&sealed, 30)).unwrap();
 
@@ -181,7 +185,7 @@ fn hostile_work_factor_costs_a_bounded_wait() {
         .recv_timeout(Duration::from_secs(30))
         .expect("opening a request claiming 2^30 did not return within 30s: the open path is not capping the work factor");
     // Refused, not honoured: the file did not open.
-    assert_enrollment_error!(result, EnrollmentError::CodeWrong, Code::LockedOrAuth);
+    assert_enrollment_error!(result, EnrollmentError::CodeWrong, ErrorKind::LockedOrAuth);
 }
 
 // ADR-0026: a claim above the enrollment cap that the identity
@@ -203,14 +207,14 @@ fn claimed_factor_is_capped_at_the_enrollment_cap() {
     let path = f
         .vault
         .pending_dir()
-        .join(pending_file_name(&req.id, req.expires));
+        .join(pending_file_name(req.id.as_deref().unwrap(), req.expires));
     let sealed = std::fs::read(&path).unwrap();
     std::fs::write(&path, claim_work_factor(&sealed, CLAIM)).unwrap();
     let start = Instant::now();
     assert_enrollment_error!(
         open_all(&f.vault, &req.code),
         EnrollmentError::CodeWrong,
-        Code::LockedOrAuth
+        ErrorKind::LockedOrAuth
     );
     let elapsed = start.elapsed();
     assert!(
@@ -232,10 +236,10 @@ fn seal_round_trips_through_its_own_code() {
     let opened = open_all(&f.vault, &req.code).unwrap();
     assert_eq!(opened.len(), 1);
     let got = &opened[0];
-    assert_eq!(got.id, req.id);
+    assert_eq!(Some(&got.id), req.id.as_ref());
     assert_eq!(got.device, "phone");
     assert_eq!(got.pubkey, joining);
-    assert_eq!(got.method, METHOD_PASSPHRASE);
+    assert_eq!(got.method, "passphrase");
     assert_eq!((got.created, got.expires), (req.created, req.expires));
 }
 
@@ -251,7 +255,7 @@ fn wrong_code_opens_nothing() {
     assert_enrollment_error!(
         open_all(&f.vault, &wrong),
         EnrollmentError::CodeWrong,
-        Code::LockedOrAuth
+        ErrorKind::LockedOrAuth
     );
 }
 
@@ -300,7 +304,7 @@ fn malformed_code_is_rejected_before_any_decryption() {
         assert_enrollment_error!(
             open_all(&f.vault, typed),
             EnrollmentError::CodeWrong,
-            Code::LockedOrAuth
+            ErrorKind::LockedOrAuth
         );
     }
     assert_eq!(
@@ -323,7 +327,7 @@ fn tampered_seal_does_not_open() {
     let path = f
         .vault
         .pending_dir()
-        .join(pending_file_name(&req.id, req.expires));
+        .join(pending_file_name(req.id.as_deref().unwrap(), req.expires));
     let mut sealed = std::fs::read(&path).unwrap();
     *sealed.last_mut().unwrap() ^= 0x01;
     std::fs::write(&path, sealed).unwrap();
@@ -349,7 +353,7 @@ fn sealed_id_must_match_the_filename() {
     assert_enrollment_error!(
         open_all(&f.vault, &code),
         EnrollmentError::IdMismatch { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
 
     // The same request under an epoch two hours from the sealed one: still
@@ -384,7 +388,7 @@ fn too_many_pending_is_refused_before_any_decryption() {
     let err = assert_enrollment_error!(
         open_all(&f.vault, &new_code()),
         EnrollmentError::TooManyPending { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
     assert_eq!(f.vault.enrollment_decrypt_count(), 0);
     assert!(err.to_string().contains("by id"), "{err}");
@@ -418,7 +422,7 @@ fn the_bound_counts_live_requests_only() {
         .open_enrollment(&pending, &codes(&req.code))
         .unwrap();
     assert_eq!(opened.len(), 1);
-    assert_eq!(opened[0].id, req.id);
+    assert_eq!(Some(&opened[0].id), req.id.as_ref());
     let left = std::fs::read_dir(f.vault.pending_dir()).unwrap().count();
     assert_eq!(left, 44, "a read-only run deleted files");
 }
@@ -436,13 +440,16 @@ fn id_scoped_run_passes_the_bound_by_construction() {
         Err(EnrollmentError::TooManyPending { .. })
     ));
 
-    let scoped = f.vault.resolve_enrollment(&req.id).unwrap();
+    let scoped = f
+        .vault
+        .resolve_enrollment(req.id.as_deref().unwrap())
+        .unwrap();
     let opened = f
         .vault
         .open_enrollment(&[scoped], &codes(&req.code))
         .unwrap();
     assert_eq!(opened.len(), 1);
-    assert_eq!(opened[0].id, req.id);
+    assert_eq!(Some(&opened[0].id), req.id.as_ref());
     assert_eq!(
         f.vault.enrollment_decrypt_count(),
         1,
@@ -459,10 +466,13 @@ fn scope_is_honoured_not_treated_as_a_hint() {
     let joining = new_pubkey();
     let wanted = seal_into(&f.vault, "phone", &joining, DAY);
     let other = seal_into(&f.vault, "tablet", &joining, DAY);
-    let scoped: PendingRequest = f.vault.resolve_enrollment(&other.id).unwrap();
+    let scoped: PendingRequest = f
+        .vault
+        .resolve_enrollment(other.id.as_deref().unwrap())
+        .unwrap();
     assert_enrollment_error!(
         f.vault.open_enrollment(&[scoped], &codes(&wanted.code)),
         EnrollmentError::CodeWrong,
-        Code::LockedOrAuth
+        ErrorKind::LockedOrAuth
     );
 }

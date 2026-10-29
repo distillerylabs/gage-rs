@@ -5,8 +5,8 @@
 //! commit or not at all; what they do lives in the library
 //! (`gage::recipient`).
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::exitcode::Code;
 use gage::prompter::Prompter;
 use gage::recipient::RecipientChange;
 use gage::vault::Vault;
@@ -96,7 +96,7 @@ pub fn remove(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
     // line was wrong, is the wrong order to fail in.
     if !matches.get_flag("reencrypt") {
         return Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             "removing a recipient requires --reencrypt, which rewrites every entry so the removed key stops opening them",
         ));
     }
@@ -189,7 +189,7 @@ pub fn verify(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
             );
         }
         Err(fail(
-            Code::Conflict,
+            ExitCode::Conflict,
             "recipient files disagree: .age-recipients and .gage/config.toml list different keys",
         ))
     })

@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::entry::{Entry, NewEntry, Timestamp};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::movecopy::MoveError;
 use crate::prompter::FakePrompter;
 use crate::recipient_tests::Fixture;
@@ -184,7 +184,7 @@ fn move_rejects_the_source_vault_as_its_own_destination() {
         .unwrap_err();
 
     assert!(matches!(err, MoveError::SameVault { .. }), "{err}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     assert_eq!(f.vault.entry_ids().unwrap(), vec![id]);
     assert_eq!(f.commits(), before);
 }
@@ -284,7 +284,7 @@ fn move_declining_the_trust_check_aborts_the_whole_operation() {
         matches!(err, MoveError::Trust(TrustError::ChangeDeclined { .. })),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(s.vault.entry_ids().unwrap(), vec![entry]);
     assert_eq!(s.head(), s_head);
     assert_eq!(d.head(), d_head);
@@ -376,10 +376,7 @@ fn opposite_direction_callers_never_deadlock() {
 fn two_vault_locks_are_both_held_for_the_whole_operation() {
     let (src, dst) = (Fixture::new(), Fixture::new());
     put(&src, "GitHub");
-    let (src_lock, dst_lock) = (
-        src.vault.lock_file_path().unwrap(),
-        dst.vault.lock_file_path().unwrap(),
-    );
+    let (src_lock, dst_lock) = (src.vault.lock_file_path(), dst.vault.lock_file_path());
     let seen = Arc::new(Mutex::new(None));
     let record = Arc::clone(&seen);
     let (a, b) = (src_lock.clone(), dst_lock.clone());
@@ -428,12 +425,8 @@ fn move_crash_between_the_two_writes_leaves_a_recoverable_duplicate() {
     );
     assert!(dst.is_clean() && src.is_clean());
     // The locks died with the unwind: a retry is not blocked.
-    assert!(!lock_is_held_elsewhere(
-        &src.vault.lock_file_path().unwrap()
-    ));
-    assert!(!lock_is_held_elsewhere(
-        &dst.vault.lock_file_path().unwrap()
-    ));
+    assert!(!lock_is_held_elsewhere(&src.vault.lock_file_path()));
+    assert!(!lock_is_held_elsewhere(&dst.vault.lock_file_path()));
 }
 
 // A write error on the destination leaves the source alone, too.

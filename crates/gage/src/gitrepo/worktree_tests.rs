@@ -40,7 +40,7 @@ fn require_clean_work_tree_truncates_the_named_paths() {
     );
     assert!(msg.contains("and 1 more"), "{msg}");
     assert!(msg.contains("so gage is not testing"), "{msg}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn fast_forward_and_merge_share_one_dirty_tree_sentinel() {
     assert!(matches!(ff, Error::DirtyWorkTree { .. }), "{ff}");
     let merge = merge_remote(dir.path(), "m").unwrap_err();
     assert!(matches!(merge, Error::DirtyWorkTree { .. }), "{merge}");
-    assert_eq!(ff.code(), merge.code());
+    assert_eq!(ff.kind(), merge.kind());
 }
 
 pub(super) fn head_id(dir: &Path) -> String {

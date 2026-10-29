@@ -13,35 +13,21 @@ use crate::agekey;
 use crate::atomicfile;
 use crate::config::{self, VaultEntry};
 use crate::devicename;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::gitrepo;
-use crate::identity::Identity;
+use crate::identity::{Identity, PageLock, Unlocked};
 use crate::identityfile;
 use crate::locker::{Locker, MemLocker};
 use crate::paths;
-use crate::prompter::Prompter;
+use crate::prompter::{Prompter, Warning};
 use crate::recipient::exists;
 use crate::recipients;
 use crate::recovery::{ReservedLabel, check_device_label_free};
 use crate::remotesync::{PullObserver, SyncerSeam};
-use crate::vaultconfig;
+use crate::vaultconfig::{self, UnlockMethod, VaultId, VaultType};
 use crate::xdgpaths::Dirs;
 
 pub use crate::identityfile::UnlockError;
-
-/// The git vault type: today's only one.
-pub const TYPE_GIT: &str = "git";
-
-/// The passphrase identity method: today's only one.
-pub const METHOD_PASSPHRASE: &str = "passphrase";
-
-/// Every vault type this build accepts. Validated against a list rather
-/// than hardcoded, so a second type is additive to the CLI surface rather
-/// than a breaking change ("Vault types", ADR-0012).
-pub const ALLOWED_TYPES: &[&str] = &[TYPE_GIT];
-
-/// Every identity method this build accepts, for the same reason.
-pub const ALLOWED_METHODS: &[&str] = &[METHOD_PASSPHRASE];
 
 /// The message of the one commit [`Vault::create`] makes.
 pub const INIT_COMMIT_MESSAGE: &str = "gage: initialize vault";
@@ -64,7 +50,7 @@ pub struct Vault {
     pub path: PathBuf,
     /// The vault's committed `[vault].id`, which keys every piece of
     /// per-vault local state (see `paths`).
-    pub id: String,
+    pub id: VaultId,
     /// This device's config, data and state roots: where its registration
     /// of the vault (device name, unlock method) and its identity file for
     /// it live. Local state, so it travels with the `Vault` value rather
@@ -296,15 +282,15 @@ pub struct CreateSpec {
     /// under it first), and a `create` that minted its own would leave the
     /// vault carrying one id and the identity filed under another, with
     /// nothing visibly wrong (ADR-0006).
-    pub id: String,
+    pub id: VaultId,
     /// The target directory: absent, or an empty directory. `create` never
     /// writes into anything else.
     pub path: PathBuf,
-    /// One of [`ALLOWED_TYPES`].
-    pub vault_type: String,
-    /// One of [`ALLOWED_METHODS`]: a default for devices joining, not a
-    /// constraint on any of them ("Decryption methods are per-device").
-    pub method: String,
+    pub vault_type: VaultType,
+    /// One of [`UnlockMethod::SUPPORTED`]: a default for devices joining,
+    /// not a constraint on any of them ("Decryption methods are
+    /// per-device").
+    pub method: UnlockMethod,
     /// Labels the first recipient as this device's own.
     pub device: String,
     /// Public keys in file order; at least one. The first is labelled
@@ -327,11 +313,7 @@ pub struct CreateSpec {
 pub enum CreateError {
     #[error("vault name is required")]
     EmptyName,
-    #[error("vault id {0:?} is invalid; it must be a UUID")]
-    InvalidId(String),
-    #[error("unknown vault type {0:?}; accepted: {accepted}", accepted = ALLOWED_TYPES.join(", "))]
-    UnknownType(String),
-    #[error("unknown method {0:?}; accepted: {accepted}", accepted = ALLOWED_METHODS.join(", "))]
+    #[error("unknown method {0:?}; accepted: {accepted}", accepted = UnlockMethod::names(", "))]
     UnknownMethod(String),
     #[error("device name {0:?} is invalid")]
     InvalidDeviceName(String),
@@ -378,26 +360,26 @@ pub enum CreateError {
     Git(#[from] gitrepo::Error),
 }
 
-impl HasCode for CreateError {
-    fn code(&self) -> Code {
+impl HasKind for CreateError {
+    fn kind(&self) -> ErrorKind {
         use CreateError::*;
         match self {
             EmptyName
-            | InvalidId(_)
-            | UnknownType(_)
             | UnknownMethod(_)
             | InvalidDeviceName(_)
             | NoRecipients
             | InvalidRecipient(_)
             | EmptyPath
-            | ReservedDeviceLabel(_) => Code::Usage,
-            TargetNotADirectory(_) | TargetNotEmpty(_) | RecipientExists { .. } => Code::Conflict,
+            | ReservedDeviceLabel(_) => ErrorKind::Usage,
+            TargetNotADirectory(_) | TargetNotEmpty(_) | RecipientExists { .. } => {
+                ErrorKind::Conflict
+            }
             Inspect { .. }
             | CreateDir { .. }
             | Config(_)
             | Recipients(_)
             | WriteFile { .. }
-            | Git(_) => Code::Internal,
+            | Git(_) => ErrorKind::Internal,
         }
     }
 }
@@ -408,27 +390,47 @@ impl HasCode for CreateError {
 pub enum ResolveError {
     /// The registration and the vault at its path carry different ids.
     #[error(
-        "the registration for {name:?} points at a different vault than the one at {} (registered id {}, vault id {vault_id}); re-register it with `gage vault remove {name}` and `gage clone`",
+        "the registration for {name:?} points at a different vault than the one at {} (registered id {}, vault id {vault_id})",
         path.display(),
-        if registered_id.is_empty() { "none recorded" } else { registered_id.as_str() }
+        registered_id.as_ref().map_or("none recorded", VaultId::as_str)
     )]
     Mismatch {
         name: String,
         path: PathBuf,
-        registered_id: String,
-        vault_id: String,
+        registered_id: Option<VaultId>,
+        vault_id: VaultId,
     },
+    /// The registration records no id and the vault's own config can't be
+    /// read, so nothing names the vault's local state. Refused here rather
+    /// than carried as an empty id to whichever path builder it reaches.
+    #[error(
+        "the registration for {name:?} records no vault id, and the vault at {} can't be read for one",
+        path.display()
+    )]
+    NoVaultId { name: String, path: PathBuf },
     /// The vault's config is readable but unusable: a version this build
     /// doesn't speak, or an id it won't build a path from.
     #[error(transparent)]
     Config(vaultconfig::Error),
 }
 
-impl HasCode for ResolveError {
-    fn code(&self) -> Code {
+impl HasKind for ResolveError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            ResolveError::Mismatch { .. } => Code::Conflict,
-            ResolveError::Config(e) => e.code(),
+            ResolveError::Mismatch { .. } => ErrorKind::Conflict,
+            // Exit code 5, as when an empty id used to fail at the path
+            // builder: the vault can't be used on this device as registered.
+            ResolveError::NoVaultId { .. } => ErrorKind::LockedOrAuth,
+            ResolveError::Config(e) => e.kind(),
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            ResolveError::Mismatch { name, .. } | ResolveError::NoVaultId { name, .. } => {
+                Some(Remedy::ReRegister { name: name.clone() })
+            }
+            ResolveError::Config(e) => e.remedy(),
         }
     }
 }
@@ -437,9 +439,9 @@ impl HasCode for ResolveError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Info {
     /// The committed id, not the registration's copy.
-    pub id: String,
-    pub vault_type: String,
-    pub method: String,
+    pub id: VaultId,
+    pub vault_type: VaultType,
+    pub method: UnlockMethod,
     pub recipients: usize,
     /// Present for a git vault only: remote and clean/dirty state mean
     /// nothing to another vault type ("Git-specific commands").
@@ -461,11 +463,18 @@ pub enum InfoError {
     Git(#[from] gitrepo::Error),
 }
 
-impl HasCode for InfoError {
-    fn code(&self) -> Code {
+impl HasKind for InfoError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            InfoError::Config(e) => e.code(),
-            InfoError::Git(e) => e.code(),
+            InfoError::Config(e) => e.kind(),
+            InfoError::Git(e) => e.kind(),
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            InfoError::Config(e) => e.remedy(),
+            InfoError::Git(e) => e.remedy(),
         }
     }
 }
@@ -518,15 +527,16 @@ impl Vault {
     /// A vault whose config can't be read at all is not a mismatch (it is
     /// the case the registration's copy covers), but a config that reads
     /// and is unusable (wrong `format_version`, invalid id) is reported as
-    /// itself: "re-create this vault" is better advice than a failure on
-    /// an empty id several steps later.
+    /// itself: "re-create this vault" is better advice than a failure
+    /// several steps later. With neither a readable config nor an id in
+    /// the registration there is no id at all, and that is refused too.
     pub fn from_registration(
         dirs: &Dirs,
         name: &str,
         entry: &VaultEntry,
     ) -> Result<Vault, ResolveError> {
-        match vaultconfig::read(&config_path(&entry.path)) {
-            Ok(file) if file.vault.id != entry.id => {
+        match vaultconfig::load(&config_path(&entry.path)) {
+            Ok(file) if entry.id.as_ref() != Some(&file.vault.id) => {
                 return Err(ResolveError::Mismatch {
                     name: name.to_string(),
                     path: entry.path.clone(),
@@ -542,10 +552,14 @@ impl Vault {
             // read of the file reports): the registration's id stands.
             _ => {}
         }
+        let id = entry.id.clone().ok_or_else(|| ResolveError::NoVaultId {
+            name: name.to_string(),
+            path: entry.path.clone(),
+        })?;
         Ok(Vault {
             name: name.to_string(),
             path: entry.path.clone(),
-            id: entry.id.clone(),
+            id,
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
@@ -561,14 +575,12 @@ impl Vault {
     /// Reads the vault's committed config (validated) and, for a git
     /// vault, its remote and working-tree state.
     pub fn info(&self) -> Result<Info, InfoError> {
-        let file = vaultconfig::read(&self.config_path())?;
-        let git = if file.vault.vault_type == TYPE_GIT {
-            Some(GitInfo {
+        let file = vaultconfig::load(&self.config_path())?;
+        let git = match file.vault.vault_type {
+            VaultType::Git => Some(GitInfo {
                 remote: gitrepo::remote_url(&self.path)?,
                 clean: gitrepo::is_clean(&self.path)?,
-            })
-        } else {
-            None
+            }),
         };
         Ok(Info {
             id: file.vault.id,
@@ -600,25 +612,24 @@ impl Vault {
         self.sync_on_unlock(prompter);
 
         let (device, method) = self.local_identity_record()?;
-        if method != METHOD_PASSPHRASE {
+        if let UnlockMethod::Other(method) = method {
             return Err(UnlockError::UnsupportedMethod {
                 vault: self.name.clone(),
                 method,
             });
         }
         let path = paths::identity_file_path(&self.dirs, &self.id, &device)?;
-        let wrapped = identityfile::read(&path)?.ok_or_else(|| {
-            UnlockError::NoLocalIdentity(format!(
-                "expected a wrapped identity at {}; if this device has none yet, run `gage identity enroll` to ask to join this vault, or `gage recovery enroll` if you hold its recovery key",
-                path.display()
-            ))
-        })?;
+        let wrapped =
+            identityfile::load(&path)?.ok_or_else(|| UnlockError::NoIdentityFile(path.clone()))?;
         let key = identityfile::open(&self.name, &device, &wrapped, prompter)?;
 
         // One lock attempt per unlock, so "warn once" is structural rather
         // than a counter that could drift.
-        let (identity, lock_err) = Identity::new(&device, key, self.locker.get());
-        if let Some(e) = lock_err {
+        let Unlocked {
+            identity,
+            page_lock,
+        } = Identity::from_key(&device, key, self.locker.get());
+        if let PageLock::Failed(e) = page_lock {
             warn_page_lock_failed(prompter, &device, &e);
         }
         // The opportunistic trust check, and the first-use bootstrap with it.
@@ -640,8 +651,8 @@ impl Vault {
     /// constraint on any of them (ADR-0011), and keeping it local is
     /// what makes a second method additive. It also keeps the committed
     /// config from advertising which recipient is the softest target.
-    fn local_identity_record(&self) -> Result<(String, String), UnlockError> {
-        let global = match config::read(&paths::global_config_file(&self.dirs)) {
+    fn local_identity_record(&self) -> Result<(String, UnlockMethod), UnlockError> {
+        let global = match config::load(&paths::global_config_file(&self.dirs)) {
             Ok(global) => global,
             Err(config::Error::NotFound { .. }) => {
                 return Err(UnlockError::NoLocalIdentity(
@@ -656,7 +667,7 @@ impl Vault {
                 self.name
             ))
         })?;
-        if entry.device.is_empty() || entry.method.is_empty() {
+        if entry.device.is_empty() || entry.method.as_str().is_empty() {
             return Err(UnlockError::NoLocalIdentity(format!(
                 "{:?}'s registration records no device/method for this machine",
                 self.name
@@ -667,11 +678,11 @@ impl Vault {
 
     /// A vault value for unlock tests that need no vault on disk.
     #[cfg(test)]
-    pub(crate) fn for_tests(dirs: &Dirs, name: &str, id: &str) -> Vault {
+    pub(crate) fn for_tests(dirs: &Dirs, name: &str, id: &VaultId) -> Vault {
         Vault {
             name: name.to_string(),
             path: dirs.data.join("vaults").join(name),
-            id: id.to_string(),
+            id: id.clone(),
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
             decrypts: DecryptCounter::default(),
@@ -752,9 +763,8 @@ impl Vault {
     }
 
     /// This vault's write lock file, keyed by its id (so two registrations
-    /// of one repository contend on one lock). Fails on an id that can't
-    /// safely become a path component, before any path is built.
-    pub(crate) fn lock_file_path(&self) -> Result<PathBuf, paths::Error> {
+    /// of one repository contend on one lock).
+    pub(crate) fn lock_file_path(&self) -> PathBuf {
         paths::lock_file_path(&self.dirs, &self.id)
     }
 
@@ -774,15 +784,23 @@ impl Vault {
 pub enum NameError {
     #[error("a remote URL is required")]
     UrlRequired,
-    #[error("cannot infer a vault name from {0:?}; pass --name")]
+    #[error("cannot infer a vault name from {0:?}")]
     CannotInfer(String),
-    #[error("{0:?} cannot be used as a vault name; pass --name with a plain name")]
+    #[error("{0:?} cannot be used as a vault name")]
     NotOnePathComponent(String),
 }
 
-impl HasCode for NameError {
-    fn code(&self) -> Code {
-        Code::Usage
+impl HasKind for NameError {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Usage
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            NameError::UrlRequired => None,
+            NameError::CannotInfer(_) => Some(Remedy::PassName { plain: false }),
+            NameError::NotOnePathComponent(_) => Some(Remedy::PassName { plain: true }),
+        }
     }
 }
 
@@ -818,10 +836,10 @@ pub fn name_from_url(url: &str) -> Result<String, NameError> {
 /// container that won't allow `mlock` must not make gage unusable
 /// ("Session model").
 pub(crate) fn warn_page_lock_failed(prompter: &dyn Prompter, device: &str, e: &std::io::Error) {
-    prompter.warn(&format!(
-        "gage: could not lock {device}'s key material into memory ({e}); continuing without it, \
+    prompter.warn(&Warning::from(format!(
+        "could not lock {device}'s key material into memory ({e}); continuing without it, \
          so this key may be written to swap. Raise the locked-memory limit (ulimit -l) to remove this warning."
-    ));
+    )));
 }
 
 /// The last slash-separated element, "." for an empty path and "/" for one
@@ -870,8 +888,8 @@ impl CreateSpec {
     }
 }
 
-/// Checked in order: name, id, type, method, device, recipients, path. Nothing
-/// on disk is consulted.
+/// Checked in order: name, method, device, recipients, path. Nothing on
+/// disk is consulted. The id and type are typed, so already valid.
 fn validate(spec: &CreateSpec) -> Result<(), CreateError> {
     validate_fields(spec, true)
 }
@@ -880,14 +898,8 @@ fn validate_fields(spec: &CreateSpec, require_recipients: bool) -> Result<(), Cr
     if spec.name.is_empty() {
         return Err(CreateError::EmptyName);
     }
-    if !vaultconfig::valid_id(&spec.id) {
-        return Err(CreateError::InvalidId(spec.id.clone()));
-    }
-    if !ALLOWED_TYPES.contains(&spec.vault_type.as_str()) {
-        return Err(CreateError::UnknownType(spec.vault_type.clone()));
-    }
-    if !ALLOWED_METHODS.contains(&spec.method.as_str()) {
-        return Err(CreateError::UnknownMethod(spec.method.clone()));
+    if !spec.method.is_supported() {
+        return Err(CreateError::UnknownMethod(spec.method.to_string()));
     }
     if !devicename::valid(&spec.device) {
         return Err(CreateError::InvalidDeviceName(spec.device.clone()));
@@ -1031,7 +1043,7 @@ fn write_skeleton(spec: &CreateSpec) -> Result<(), CreateError> {
         vault: vaultconfig::VaultMeta {
             name: spec.name.clone(),
             id: spec.id.clone(),
-            vault_type: spec.vault_type.clone(),
+            vault_type: spec.vault_type,
             format_version: vaultconfig::CURRENT_FORMAT_VERSION,
             created: utc_date_today(),
         },
@@ -1041,8 +1053,8 @@ fn write_skeleton(spec: &CreateSpec) -> Result<(), CreateError> {
         },
         recipients,
     };
-    vaultconfig::write(&config_path(&spec.path), &file)?;
-    recipients::write(&spec.path.join(".age-recipients"), &pubkeys)?;
+    vaultconfig::save(&config_path(&spec.path), &file)?;
+    recipients::save(&spec.path.join(".age-recipients"), &pubkeys)?;
     for (name, content) in [(".gitignore", GITIGNORE), (".gitattributes", GITATTRIBUTES)] {
         let path = spec.path.join(name);
         atomicfile::write(&path, content.as_bytes(), 0o644)
@@ -1102,10 +1114,10 @@ mod tests {
     fn valid_spec(root: &tempfile::TempDir, name: &str) -> CreateSpec {
         CreateSpec {
             name: name.into(),
-            id: vaultconfig::new_id(),
+            id: vaultconfig::VaultId::new(),
             path: root.path().join(name),
-            vault_type: TYPE_GIT.into(),
-            method: METHOD_PASSPHRASE.into(),
+            vault_type: crate::vaultconfig::VaultType::Git,
+            method: crate::vaultconfig::UnlockMethod::Passphrase,
             device: "laptop-1".into(),
             recipients: vec![RECIPIENT_1.into()],
             extra_recipients: Vec::new(),
@@ -1115,7 +1127,7 @@ mod tests {
 
     fn created(spec: &CreateSpec) -> vaultconfig::File {
         Vault::create(&test_dirs(), spec).unwrap();
-        vaultconfig::read(&config_path(&spec.path)).unwrap()
+        vaultconfig::load(&config_path(&spec.path)).unwrap()
     }
 
     /// Every rejection fails "before creating any files": an exit code
@@ -1129,9 +1141,9 @@ mod tests {
         );
     }
 
-    fn assert_rejected(spec: &CreateSpec, code: Code) -> CreateError {
+    fn assert_rejected(spec: &CreateSpec, code: ErrorKind) -> CreateError {
         let err = Vault::create(&test_dirs(), spec).unwrap_err();
-        assert_eq!(err.code(), code, "{err}");
+        assert_eq!(err.kind(), code, "{err}");
         assert_nothing_created(spec);
         err
     }
@@ -1271,13 +1283,13 @@ mod tests {
         let file = created(&spec);
 
         assert_eq!(file.vault.name, "myvault");
-        assert_eq!(file.vault.vault_type, TYPE_GIT);
+        assert_eq!(file.vault.vault_type, "git");
         assert_eq!(
             file.vault.format_version,
             vaultconfig::CURRENT_FORMAT_VERSION
         );
-        assert_eq!(file.method.default, METHOD_PASSPHRASE);
-        assert_eq!(file.method.plugin, "");
+        assert_eq!(file.method.default, "passphrase");
+        assert_eq!(file.method.plugin, None);
         assert_eq!(
             file.recipients,
             [
@@ -1316,7 +1328,7 @@ mod tests {
 
         let file = created(&spec);
 
-        let keys = recipients::read(&spec.path.join(".age-recipients")).unwrap();
+        let keys = recipients::load(&spec.path.join(".age-recipients")).unwrap();
         let config_keys: Vec<String> = file.recipients.into_iter().map(|r| r.pubkey).collect();
         assert_eq!(keys, config_keys);
     }
@@ -1331,7 +1343,7 @@ mod tests {
 
         let file = created(&spec);
 
-        let keys = recipients::read(&spec.path.join(".age-recipients")).unwrap();
+        let keys = recipients::load(&spec.path.join(".age-recipients")).unwrap();
         assert_eq!(keys, [RECIPIENT_1, RECIPIENT_2, RECIPIENT_1]);
         let labels: Vec<&str> = file.recipients.iter().map(|r| r.device.as_str()).collect();
         assert_eq!(labels, ["laptop-1", "recipient-2", "recipient-3"]);
@@ -1344,21 +1356,10 @@ mod tests {
 
         let vault = Vault::create(&test_dirs(), &spec).unwrap();
 
-        let file = vaultconfig::read(&vault.config_path()).unwrap();
+        let file = vaultconfig::load(&vault.config_path()).unwrap();
         assert_eq!(file.vault.id, spec.id);
         assert_eq!(vault.id, spec.id);
         assert_eq!(file.vault.format_version, 2);
-    }
-
-    #[test]
-    fn create_refuses_an_id_that_is_not_a_uuid() {
-        let root = tempfile::tempdir().unwrap();
-        for bad in ["", "personal", "../../etc/x", "not-a-uuid"] {
-            let mut spec = valid_spec(&root, "myvault");
-            spec.id = bad.into();
-            let err = assert_rejected(&spec, Code::Usage);
-            assert!(matches!(err, CreateError::InvalidId(_)), "{bad:?}: {err:?}");
-        }
     }
 
     // The first check, ahead of every
@@ -1368,8 +1369,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let mut spec = valid_spec(&root, "myvault");
         spec.name = String::new();
-        spec.id = "bad".into();
-        let err = assert_rejected(&spec, Code::Usage);
+        let err = assert_rejected(&spec, ErrorKind::Usage);
         assert!(matches!(err, CreateError::EmptyName), "{err:?}");
     }
 
@@ -1380,23 +1380,16 @@ mod tests {
         spec.path = PathBuf::new();
         let err = Vault::create(&test_dirs(), &spec).unwrap_err();
         assert!(matches!(err, CreateError::EmptyPath), "{err:?}");
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
     }
 
-    #[test]
-    fn create_rejects_unknown_type() {
-        let root = tempfile::tempdir().unwrap();
-        let mut spec = valid_spec(&root, "myvault");
-        spec.vault_type = "s3".into();
-        let err = assert_rejected(&spec, Code::Usage);
-        assert!(err.to_string().contains("git"), "{err}");
-    }
-
+    // An unknown type can't reach create: `VaultType` has no variant for
+    // one, and its parse is what refuses it (vaultconfig::kind's tests).
     #[test]
     fn create_accepts_explicit_git_type() {
         let root = tempfile::tempdir().unwrap();
         let mut spec = valid_spec(&root, "myvault");
-        spec.vault_type = "git".into();
+        spec.vault_type = VaultType::Git;
         Vault::create(&test_dirs(), &spec).unwrap();
     }
 
@@ -1415,7 +1408,7 @@ mod tests {
         ] {
             let mut spec = valid_spec(&root, "myvault");
             spec.method = method.into();
-            let err = assert_rejected(&spec, Code::Usage);
+            let err = assert_rejected(&spec, ErrorKind::Usage);
             assert!(err.to_string().contains("passphrase"), "{method}: {err}");
         }
     }
@@ -1433,7 +1426,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let mut spec = valid_spec(&root, "myvault");
         spec.recipients.clear();
-        let err = assert_rejected(&spec, Code::Usage);
+        let err = assert_rejected(&spec, ErrorKind::Usage);
         assert!(err.to_string().contains("recipient"), "{err}");
     }
 
@@ -1448,7 +1441,7 @@ mod tests {
         ] {
             let mut spec = valid_spec(&root, "myvault");
             spec.recipients = keys.into_iter().map(String::from).collect();
-            let err = assert_rejected(&spec, Code::Usage);
+            let err = assert_rejected(&spec, ErrorKind::Usage);
             assert!(matches!(err, CreateError::InvalidRecipient(_)), "{err:?}");
         }
     }
@@ -1465,7 +1458,7 @@ mod tests {
         ] {
             let mut spec = valid_spec(&root, "myvault");
             spec.device = bad.into();
-            let err = assert_rejected(&spec, Code::Usage);
+            let err = assert_rejected(&spec, ErrorKind::Usage);
             assert!(matches!(err, CreateError::InvalidDeviceName(_)), "{bad:?}");
         }
     }
@@ -1490,7 +1483,7 @@ mod tests {
         let err = Vault::create(&test_dirs(), &spec).unwrap_err();
 
         assert!(matches!(err, CreateError::TargetNotEmpty(_)), "{err:?}");
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         let names: Vec<_> = std::fs::read_dir(&spec.path)
             .unwrap()
             .map(|e| e.unwrap().file_name())
@@ -1525,7 +1518,7 @@ mod tests {
             matches!(err, CreateError::TargetNotADirectory(_)),
             "{err:?}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         assert_eq!(std::fs::read_to_string(&spec.path).unwrap(), "i am a file");
     }
 
@@ -1588,10 +1581,10 @@ mod tests {
         Vault::create(&test_dirs(), &spec).unwrap();
         let entry = VaultEntry {
             path: spec.path.clone(),
-            id: spec.id.clone(),
-            vault_type: TYPE_GIT.into(),
+            id: Some(spec.id.clone()),
+            vault_type: crate::vaultconfig::VaultType::Git,
             device: spec.device.clone(),
-            method: METHOD_PASSPHRASE.into(),
+            method: crate::vaultconfig::UnlockMethod::Passphrase,
             ..Default::default()
         };
         (spec, entry)
@@ -1647,16 +1640,20 @@ mod tests {
     fn from_registration_refuses_a_mismatched_id() {
         let root = tempfile::tempdir().unwrap();
         let (spec, mut entry) = registered(&root);
-        let stranger = vaultconfig::new_id();
-        entry.id = stranger.clone();
+        let stranger = vaultconfig::VaultId::new();
+        entry.id = Some(stranger.clone());
 
         let err = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap_err();
 
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         let msg = err.to_string();
-        for want in ["different vault", "re-register", &stranger, &spec.id] {
+        for want in ["different vault", stranger.as_str(), spec.id.as_str()] {
             assert!(msg.contains(want), "{want:?} missing from {msg}");
         }
+        assert!(
+            matches!(err.remedy(), Some(Remedy::ReRegister { .. })),
+            "{msg}"
+        );
     }
 
     // A registration with no id at all is a mismatch too, and says so.
@@ -1664,10 +1661,30 @@ mod tests {
     fn from_registration_refuses_a_registration_without_an_id() {
         let root = tempfile::tempdir().unwrap();
         let (_, mut entry) = registered(&root);
-        entry.id.clear();
+        entry.id = None;
         let err = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap_err();
         assert!(matches!(err, ResolveError::Mismatch { .. }), "{err:?}");
         assert!(err.to_string().contains("none recorded"), "{err}");
+    }
+
+    // Decision 4 of D3a: with no id in the registration and no config to
+    // read one from, nothing names the vault's local state, so there is no
+    // Vault to return. Exit code 5, as the empty id it replaces had.
+    #[test]
+    fn from_registration_refuses_when_no_id_is_known_at_all() {
+        let root = tempfile::tempdir().unwrap();
+        let (spec, mut entry) = registered(&root);
+        entry.id = None;
+        std::fs::remove_dir_all(&spec.path).unwrap();
+
+        let err = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap_err();
+
+        assert!(
+            matches!(&err, ResolveError::NoVaultId { name, .. } if name == "personal"),
+            "{err:?}"
+        );
+        assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
+        assert!(err.to_string().contains("records no vault id"), "{err}");
     }
 
     // With the vault's files gone, the registration's id stands.
@@ -1677,7 +1694,7 @@ mod tests {
         let (spec, entry) = registered(&root);
         std::fs::remove_dir_all(&spec.path).unwrap();
         let vault = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap();
-        assert_eq!(vault.id, entry.id);
+        assert_eq!(Some(vault.id), entry.id);
     }
 
     #[test]
@@ -1693,7 +1710,7 @@ mod tests {
             ),
             "{err:?}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         assert!(err.to_string().contains("re-create"), "{err}");
     }
 
@@ -1710,7 +1727,7 @@ mod tests {
             ),
             "{err:?}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
     }
 
     #[test]
@@ -1722,8 +1739,8 @@ mod tests {
             vault.info().unwrap(),
             Info {
                 id: spec.id,
-                vault_type: TYPE_GIT.into(),
-                method: METHOD_PASSPHRASE.into(),
+                vault_type: crate::vaultconfig::VaultType::Git,
+                method: crate::vaultconfig::UnlockMethod::Passphrase,
                 recipients: 1,
                 git: Some(GitInfo {
                     remote: None,
@@ -1768,7 +1785,7 @@ mod tests {
             ),
             "{err:?}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
     }
 
     // What init checks before generating a key: every field, each key it
@@ -1787,26 +1804,22 @@ mod tests {
 
         for (mutate, code) in [
             (
-                Box::new(|s: &mut CreateSpec| s.vault_type = "s3".into())
+                Box::new(|s: &mut CreateSpec| s.method = "ssh".into())
                     as Box<dyn Fn(&mut CreateSpec)>,
-                Code::Usage,
-            ),
-            (
-                Box::new(|s: &mut CreateSpec| s.method = "ssh".into()),
-                Code::Usage,
+                ErrorKind::Usage,
             ),
             (
                 Box::new(|s: &mut CreateSpec| s.device = "../x".into()),
-                Code::Usage,
+                ErrorKind::Usage,
             ),
             (
                 Box::new(|s: &mut CreateSpec| s.recipients = vec!["nope".into()]),
-                Code::Usage,
+                ErrorKind::Usage,
             ),
         ] {
             let mut bad = valid_spec(&root, "myvault");
             mutate(&mut bad);
-            assert_eq!(bad.validate_without_device_key().unwrap_err().code(), code);
+            assert_eq!(bad.validate_without_device_key().unwrap_err().kind(), code);
         }
         // A non-empty target is a disk check, left to create.
         std::fs::create_dir_all(&spec.path).unwrap();
@@ -1838,7 +1851,7 @@ mod tests {
         for empty in ["", "   ", "/", "///"] {
             let err = name_from_url(empty).unwrap_err();
             assert_eq!(err, NameError::UrlRequired, "{empty:?}");
-            assert_eq!(err.code(), Code::Usage);
+            assert_eq!(err.kind(), ErrorKind::Usage);
             assert!(err.to_string().contains("required"), "{err}");
         }
         for nameless in ["git@host:", "git@host:/", ".", "./"] {
@@ -1847,8 +1860,12 @@ mod tests {
                 matches!(err, NameError::CannotInfer(_)),
                 "{nameless:?}: {err}"
             );
-            assert_eq!(err.code(), Code::Usage);
-            assert!(err.to_string().contains("--name"), "{err}");
+            assert_eq!(err.kind(), ErrorKind::Usage);
+            assert_eq!(
+                err.remedy(),
+                Some(Remedy::PassName { plain: false }),
+                "{err}"
+            );
         }
     }
 
@@ -1875,8 +1892,12 @@ mod tests {
         ] {
             let err = check_name(bad).unwrap_err();
             assert_eq!(err, NameError::NotOnePathComponent(bad.into()), "{bad:?}");
-            assert_eq!(err.code(), Code::Usage);
-            assert!(err.to_string().contains("--name"), "{err}");
+            assert_eq!(err.kind(), ErrorKind::Usage);
+            assert_eq!(
+                err.remedy(),
+                Some(Remedy::PassName { plain: true }),
+                "{err}"
+            );
         }
         #[cfg(windows)]
         for bad in ["C:", r"\\server\share"] {

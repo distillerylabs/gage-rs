@@ -23,7 +23,7 @@ pub use key::{RecoveryKey, new_recovery_key};
 pub use swap::{RecoverResult, RecoverSpec, RotateResult};
 
 use crate::entry::LockError;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::gitrepo;
 use crate::recipient::RecipientError;
 
@@ -50,7 +50,7 @@ pub enum RecoveryError {
     /// reaches gage through `unlock`. Accepting one here would make this a
     /// general "unlock from a pasted key" path, so a device key is refused
     /// even though it would decrypt everything.
-    #[error("gage: that key is not this vault's recovery key: {}", not_recovery(.device, .pubkey, .vault))]
+    #[error("that key is not this vault's recovery key: {}", not_recovery(.device, .pubkey, .vault))]
     NotRecoveryKey {
         /// The label the key is listed under, when it is a device's.
         device: Option<String>,
@@ -61,7 +61,7 @@ pub enum RecoveryError {
     /// whether or not it is named, and naming it would read as if not
     /// naming it were a way to keep it.
     #[error(
-        "gage: the recovery key is retired by this operation whether or not it is named; --replaces is for the device that was lost"
+        "the recovery key is retired by this operation whether or not it is named; --replaces is for the device that was lost"
     )]
     ReplacesRecoveryKey,
     /// The key being retired, offered back by the swap that retires it:
@@ -70,13 +70,13 @@ pub enum RecoveryError {
     /// changes nothing). The swap removes the label before it checks the
     /// additions, so this is the one collision it cannot see by itself
     /// (a collision the swap itself cannot see).
-    #[error("gage: {pubkey} is the recovery key this operation is retiring, so it cannot also be {} — generate a new key", retired_as(.as_device))]
+    #[error("{pubkey} is the recovery key this operation is retiring, so it cannot also be {} — generate a new key", retired_as(.as_device))]
     RetiredKeyReused { pubkey: String, as_device: String },
     /// Rotate's backstop under the label reservation: the key this vault
     /// was unlocked with is the one registered under the recovery label,
     /// so rotating would lock out the device running it.
     #[error(
-        "gage: the key {vault:?} was unlocked with is the one registered as \"recovery-paper-key\", so rotating would remove this device's own access; re-register this device under its own name first"
+        "the key {vault:?} was unlocked with is the one registered as \"recovery-paper-key\", so rotating would remove this device's own access; re-register this device under its own name first"
     )]
     WouldEvictActingDevice { vault: String },
     /// Every refusal and failure the recipient machinery shares, so a
@@ -119,34 +119,44 @@ impl From<gitrepo::Error> for RecoveryError {
     }
 }
 
-impl HasCode for RecoveryError {
-    fn code(&self) -> Code {
+impl HasKind for RecoveryError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            RecoveryError::MalformedRecoveryKey => Code::Usage,
+            RecoveryError::MalformedRecoveryKey => ErrorKind::Usage,
             RecoveryError::NotARecipient { .. } | RecoveryError::NotRecoveryKey { .. } => {
-                Code::LockedOrAuth
+                ErrorKind::LockedOrAuth
             }
-            RecoveryError::ReplacesRecoveryKey => Code::Usage,
+            RecoveryError::ReplacesRecoveryKey => ErrorKind::Usage,
             RecoveryError::RetiredKeyReused { .. }
-            | RecoveryError::WouldEvictActingDevice { .. } => Code::Conflict,
-            RecoveryError::Recipient(e) => e.code(),
-            RecoveryError::Config(e) => e.code(),
+            | RecoveryError::WouldEvictActingDevice { .. } => ErrorKind::Conflict,
+            RecoveryError::Recipient(e) => e.kind(),
+            RecoveryError::Config(e) => e.kind(),
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            RecoveryError::Recipient(e) => e.remedy(),
+            RecoveryError::Config(e) => e.remedy(),
+            _ => None,
         }
     }
 }
 
 /// A device tried to name itself [`RECOVERY_DEVICE_LABEL`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error(
-    "device name {device:?} is reserved for the vault's recovery key; choose another with --device"
-)]
+#[error("device name {device:?} is reserved for the vault's recovery key")]
 pub struct ReservedLabel {
     pub device: String,
 }
 
-impl HasCode for ReservedLabel {
-    fn code(&self) -> Code {
-        Code::Usage
+impl HasKind for ReservedLabel {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Usage
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        Some(Remedy::ChooseDevice)
     }
 }
 

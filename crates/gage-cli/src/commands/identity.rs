@@ -5,9 +5,9 @@
 //! library (`identity_add`); this records the device, method and key in
 //! global config (never in the vault) and renders.
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::exitcode::Code;
-use gage::vault;
+use gage::vaultconfig::UnlockMethod;
 
 use super::entry::use_flag;
 use super::init::resolve_device_name;
@@ -38,7 +38,7 @@ pub fn flags(name: &str) -> Vec<Arg> {
                 .help("this device's name for the vault (default: normalized hostname)"),
             Arg::new("method").long("method").value_name("string").help(format!(
                 "how this device unlocks the vault (accepted: [{}]; default: the vault's own)",
-                vault::ALLOWED_METHODS.join(" ")
+                UnlockMethod::names(" ")
             )),
             use_flag(),
         ]
@@ -62,15 +62,15 @@ pub fn add(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cli
         // The vault's own method is a suggestion for a joining device; this
         // device's is its own choice, recorded locally (ADR-0011).
         let method = match matches.get_one::<String>("method") {
-            Some(method) => method.clone(),
+            Some(method) => UnlockMethod::from(method.as_str()),
             None => vault.info()?.method,
         };
-        if !vault::ALLOWED_METHODS.contains(&method.as_str()) {
+        if let UnlockMethod::Other(method) = &method {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!(
                     "unknown method {method:?}; accepted: {}",
-                    vault::ALLOWED_METHODS.join(", ")
+                    UnlockMethod::names(", ")
                 ),
             ));
         }
@@ -100,20 +100,20 @@ pub(super) fn record_local_identity(
     io: &Io,
     vault: &str,
     device: &str,
-    method: &str,
+    method: &UnlockMethod,
     pubkey: &str,
 ) -> Result<(), CliError> {
     let (path, mut global) = load_global(io)?;
     let entry = global.vaults.get_mut(vault).ok_or_else(|| {
         fail(
-            Code::NotFound,
+            ExitCode::NotFound,
             format!("{vault:?} is not a registered vault"),
         )
     })?;
     entry.device = device.to_string();
-    entry.method = method.to_string();
-    entry.pubkey = pubkey.to_string();
-    gage::config::save(&path, &global)?;
+    entry.method = method.clone();
+    entry.pubkey = Some(pubkey.to_string());
+    gage::config::save_creating_dir(&path, &global)?;
     Ok(())
 }
 

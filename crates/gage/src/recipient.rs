@@ -14,11 +14,11 @@ use uuid::Uuid;
 
 use crate::enrollment::EnrollmentError;
 use crate::entry::{self, LockError, WRITE_LOCK_TIMEOUT};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::identity::Identity;
-use crate::prompter::{PromptError, Prompter};
+use crate::prompter::{PromptError, Prompter, Warning};
 use crate::recovery::{ReservedLabel, check_device_label_free};
-use crate::remotesync::UNPUSHED_WRITE_CLAUSE;
+use crate::remotesync::{PushClause, UNPUSHED_WRITE_CLAUSE};
 use crate::trustcache::TrustError;
 use crate::vault::Vault;
 use crate::vaultconfig::{self, Recipient};
@@ -45,11 +45,18 @@ pub enum VerifyError {
     Recipients(#[from] recipients::Error),
 }
 
-impl HasCode for VerifyError {
-    fn code(&self) -> Code {
+impl HasKind for VerifyError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            VerifyError::Config(e) => e.code(),
-            VerifyError::Recipients(e) => e.code(),
+            VerifyError::Config(e) => e.kind(),
+            VerifyError::Recipients(e) => e.kind(),
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            VerifyError::Config(e) => e.remedy(),
+            VerifyError::Recipients(e) => e.remedy(),
         }
     }
 }
@@ -58,7 +65,7 @@ impl Vault {
     /// Every recipient, with its device label, exactly as `.gage/config.toml`
     /// lists them.
     pub fn recipients(&self) -> Result<Vec<vaultconfig::Recipient>, vaultconfig::Error> {
-        Ok(vaultconfig::read(&self.config_path())?.recipients)
+        Ok(vaultconfig::load(&self.config_path())?.recipients)
     }
 
     /// Compares the keys in `.age-recipients` (what entries are encrypted
@@ -69,7 +76,7 @@ impl Vault {
     /// Takes no identity and no prompter: it reads two plaintext files.
     pub fn verify_recipients(&self) -> Result<RecipientVerification, VerifyError> {
         let config = self.recipients()?;
-        let file = recipients::read(&self.path.join(".age-recipients"))?;
+        let file = recipients::load(&self.path.join(".age-recipients"))?;
         let only_in_recipients_file = missing_from(&file, config.iter().map(|r| &r.pubkey));
         let only_in_config = missing_from(config.iter().map(|r| &r.pubkey), &file);
         Ok(RecipientVerification {
@@ -113,7 +120,7 @@ pub(crate) struct RecipientWrite<'a> {
     pub(crate) delete_paths: &'a [String],
     /// What a failed push's warning says went unpublished; `None` is
     /// [`UNPUSHED_WRITE_CLAUSE`].
-    pub(crate) push_clause: Option<&'a str>,
+    pub(crate) push_clause: Option<PushClause<'a>>,
 }
 
 impl<'a> RecipientWrite<'a> {
@@ -133,16 +140,16 @@ impl<'a> RecipientWrite<'a> {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum RecipientError {
-    #[error("gage: device name {0:?} is invalid")]
+    #[error("device name {0:?} is invalid")]
     InvalidDeviceName(String),
-    #[error("gage: {0}")]
+    #[error("{0}")]
     ReservedDeviceLabel(#[from] ReservedLabel),
     #[error(transparent)]
     InvalidRecipient(#[from] agekey::Error),
     /// The key, or the device name, is already listed. A list carrying
     /// either twice makes `verify` and the trust cache's diff harder to
     /// reason about, and buys nothing.
-    #[error("gage: this vault already lists that recipient: {}", exists(.device, .pubkey))]
+    #[error("this vault already lists that recipient: {}", exists(.device, .pubkey))]
     RecipientExists {
         device: String,
         /// The listed key, when the key is what collided; `None` when it
@@ -151,26 +158,26 @@ pub enum RecipientError {
     },
     /// Reported rather than a no-op, so a typo can't read as a completed
     /// revocation.
-    #[error("gage: no recipient of this vault matches that name or key: {query:?}")]
+    #[error("no recipient of this vault matches that name or key: {query:?}")]
     RecipientNotFound { query: String },
     /// Removing a key while every existing entry stays encrypted to it
     /// revokes nothing at all.
     #[error(
-        "gage: removing a recipient requires --reencrypt: without it the removed key still opens every entry that already exists, so the revocation would only look like one"
+        "removing a recipient requires --reencrypt: without it the removed key still opens every entry that already exists, so the revocation would only look like one"
     )]
     ReencryptRequired,
     /// There is no `--force`: an empty list can't be encrypted to, and the
     /// re-encryption would already have rewritten every entry to a list
     /// nobody holds a key for.
     #[error(
-        "gage: a vault must keep at least one recipient: removing {device:?} would leave nothing to encrypt to, and --reencrypt would rewrite every entry to a list no key opens"
+        "a vault must keep at least one recipient: removing {device:?} would leave nothing to encrypt to, and --reencrypt would rewrite every entry to a list no key opens"
     )]
     LastRecipient { device: String },
     /// The refusal when an actor who can't read the whole vault has nothing
     /// whole to grant. The count, never the ids: those are opaque to it by
     /// construction.
     #[error(
-        "gage: this device cannot read every entry in the vault, so it cannot grant full access: {unreadable} of {total} {} cannot be read by {device:?}; a device that can read all of {vault:?} has to make this change",
+        "this device cannot read every entry in the vault, so it cannot grant full access: {unreadable} of {total} {} cannot be read by {device:?}; a device that can read all of {vault:?} has to make this change",
         if *.total == 1 { "entry" } else { "entries" }
     )]
     CannotGrantFullAccess {
@@ -179,20 +186,20 @@ pub enum RecipientError {
         device: String,
         vault: String,
     },
-    #[error("gage: not removing {device:?}; nothing was written")]
+    #[error("not removing {device:?}; nothing was written")]
     SelfRemovalDeclined { device: String },
     /// `recipient verify --repair`, answered no.
-    #[error("gage: not repairing the recipient files of {vault:?}; nothing was written")]
+    #[error("not repairing the recipient files of {vault:?}; nothing was written")]
     RepairDeclined { vault: String },
     /// `recipient verify --repair` with nobody to confirm what it drops:
     /// never a silent repair.
     #[error(
-        "gage: the recipient files of {vault:?} disagree, and the repair could not be confirmed ({}); nothing was written",
-        source.to_string().trim_start_matches("gage: ")
+        "the recipient files of {vault:?} disagree, and the repair could not be confirmed ({}); nothing was written",
+        source
     )]
     RepairUnconfirmed { vault: String, source: PromptError },
     #[error(
-        "gage: removing {device:?} would lock this device out of {vault:?}, and that could not be confirmed: {source}"
+        "removing {device:?} would lock this device out of {vault:?}, and that could not be confirmed: {source}"
     )]
     Confirm {
         device: String,
@@ -201,10 +208,10 @@ pub enum RecipientError {
     },
     /// One entry couldn't be decrypted or rewritten; the whole change
     /// aborted, and this names the entry.
-    #[error("gage: re-encrypting entry {id}: {source}")]
+    #[error("re-encrypting entry {id}: {source}")]
     Reencrypt { id: Uuid, source: entry::Error },
     /// A key in the new list this build can't encrypt to.
-    #[error("gage: re-encrypting to {device:?} ({pubkey}): {source}")]
+    #[error("re-encrypting to {device:?} ({pubkey}): {source}")]
     ReencryptTo {
         device: String,
         pubkey: String,
@@ -227,7 +234,7 @@ pub enum RecipientError {
     Lock(#[from] vaultlock::Error),
     #[error(transparent)]
     Git(#[from] gitrepo::Error),
-    #[error("gage: creating {path}: {source}")]
+    #[error("creating {path}: {source}")]
     Io {
         path: std::path::PathBuf,
         source: std::io::Error,
@@ -241,32 +248,48 @@ pub(crate) fn exists(device: &str, pubkey: &Option<String>) -> String {
     }
 }
 
-impl HasCode for RecipientError {
-    fn code(&self) -> Code {
+impl HasKind for RecipientError {
+    fn kind(&self) -> ErrorKind {
         use RecipientError::*;
         match self {
             InvalidDeviceName(_)
             | ReservedDeviceLabel(_)
             | InvalidRecipient(_)
-            | ReencryptRequired => Code::Usage,
+            | ReencryptRequired => ErrorKind::Usage,
             RecipientExists { .. }
             | LastRecipient { .. }
             | CannotGrantFullAccess { .. }
             | SelfRemovalDeclined { .. }
             | RepairDeclined { .. }
-            | RepairUnconfirmed { .. } => Code::Conflict,
-            RecipientNotFound { .. } => Code::NotFound,
-            Confirm { .. } => Code::LockedOrAuth,
-            Reencrypt { source, .. } => source.code(),
-            ReencryptTo { source, .. } => source.code(),
-            Trust(e) => e.code(),
-            Entry(e) => e.code(),
-            Config(e) => e.code(),
-            Recipients(e) => e.code(),
-            Path(e) => e.code(),
-            Lock(e) => e.code(),
-            Git(e) => e.code(),
-            Io { .. } => Code::Internal,
+            | RepairUnconfirmed { .. } => ErrorKind::Conflict,
+            RecipientNotFound { .. } => ErrorKind::NotFound,
+            Confirm { .. } => ErrorKind::LockedOrAuth,
+            Reencrypt { source, .. } => source.kind(),
+            ReencryptTo { source, .. } => source.kind(),
+            Trust(e) => e.kind(),
+            Entry(e) => e.kind(),
+            Config(e) => e.kind(),
+            Recipients(e) => e.kind(),
+            Path(e) => e.kind(),
+            Lock(e) => e.kind(),
+            Git(e) => e.kind(),
+            Io { .. } => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        use RecipientError::*;
+        match self {
+            Reencrypt { source, .. } => source.remedy(),
+            ReencryptTo { source, .. } => source.remedy(),
+            Trust(e) => e.remedy(),
+            Entry(e) => e.remedy(),
+            Config(e) => e.remedy(),
+            Recipients(e) => e.remedy(),
+            Path(e) => e.remedy(),
+            Lock(e) => e.remedy(),
+            Git(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -274,7 +297,6 @@ impl HasCode for RecipientError {
 impl From<LockError> for RecipientError {
     fn from(err: LockError) -> RecipientError {
         match err {
-            LockError::Path(e) => RecipientError::Path(e),
             LockError::Lock(e) => RecipientError::Lock(e),
             LockError::Io { path, source } => RecipientError::Io { path, source },
         }
@@ -421,10 +443,10 @@ impl Vault {
             // Said before the work, not after: by the time the commit
             // lands there is nothing left to reconsider, and the point is
             // that revocation is narrower than it sounds.
-            prompter.warn(&format!(
-                "gage: removing {:?} revokes future access only — anything {} already read can't be unread.",
+            prompter.warn(&Warning::from(format!(
+                "removing {:?} revokes future access only — anything {} already read can't be unread.",
                 removed.device, removed.device
-            ));
+            )));
             let message = format!("gage: recipient remove {} (reencrypt)", removed.device);
             let (reencrypted, commit) = self.commit_recipient_list(
                 &updated,
@@ -599,7 +621,14 @@ impl Vault {
         let commit = gitrepo::commit_all(&self.path, write.message)?;
         // A failed push is a publishing problem, not a half-done migration:
         // the guarantee is about HEAD, and HEAD already has all of it.
-        self.push_after_write_saying(prompter, write.push_clause.unwrap_or(UNPUSHED_WRITE_CLAUSE));
+        let clause = match &write.push_clause {
+            Some(c) => PushClause {
+                text: c.text,
+                remedy: c.remedy.clone(),
+            },
+            None => UNPUSHED_WRITE_CLAUSE.into(),
+        };
+        self.push_after_write_saying(prompter, clause);
         Ok((reencrypted, commit))
     }
 
@@ -637,10 +666,10 @@ impl Vault {
     /// that order. Neither is ever written without the other.
     pub(crate) fn write_recipient_files(&self, list: &[Recipient]) -> Result<(), RecipientError> {
         let keys: Vec<String> = list.iter().map(|r| r.pubkey.clone()).collect();
-        recipients::write(&self.path.join(".age-recipients"), &keys)?;
-        let mut file = vaultconfig::read(&self.config_path())?;
+        recipients::save(&self.path.join(".age-recipients"), &keys)?;
+        let mut file = vaultconfig::load(&self.config_path())?;
         file.recipients = list.to_vec();
-        vaultconfig::write(&self.config_path(), &file)?;
+        vaultconfig::save(&self.config_path(), &file)?;
         Ok(())
     }
 }

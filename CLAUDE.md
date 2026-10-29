@@ -118,7 +118,7 @@ When adding behavior, put it in `crates/gage` and add a thin `gage-cli` command 
 - **`Session`** — process-scoped: one or more unlocked `Vault`s, their `Identity`s, and each vault's metadata index. Backs both the interactive REPL and non-interactive `--script`/`--stdin` mode.
 - **`Entry`** — a single decrypted record (YAML: `title`, `description`, `created`/`updated`/`updated_by`, `value`, `fields`).
 
-Supporting modules include `agekey`, `atomicfile` (temp+rename writes), `config`, `devicename` (validates/normalizes device names — these become filesystem path components, so validation is a security boundary, not cosmetic), `exitcode` (the taxonomy every command maps errors to), `gitrepo`/`gittest` (git wrapper + ephemeral bare-repo test harness — no real network in tests), `memlock` (`mlock`/`VirtualLock` behind one signature), `recipients`, `remoteauth`, `syncerr`, `vaultconfig`, `vaultlock` (the per-vault advisory lock), `xdgpaths`.
+Supporting modules include `agekey`, `atomicfile` (temp+rename writes), `config`, `devicename` (validates/normalizes device names — these become filesystem path components, so validation is a security boundary, not cosmetic), `error` (`ErrorKind`, the frontend-neutral kind every error has; `gage-cli`'s `exitcode` maps it to exit codes 0–7), `gitrepo`/`gittest` (git wrapper + ephemeral bare-repo test harness — no real network in tests), `memlock` (`mlock`/`VirtualLock` behind one signature), `recipients`, `remoteauth`, `syncerr`, `vaultconfig`, `vaultlock` (the per-vault advisory lock), `xdgpaths`.
 
 ### Key invariants worth knowing before touching related code
 

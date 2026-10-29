@@ -95,26 +95,40 @@ impl KeyLine {
     }
 }
 
+/// How the one page-lock attempt on a new identity's key went.
+pub(crate) enum PageLock {
+    Locked,
+    Failed(io::Error),
+}
+
+/// A new [`Identity`] and how its page lock went. A lock failure comes
+/// alongside a usable identity rather than instead of one: what to do about
+/// it (warn and proceed) is the caller's decision.
+pub(crate) struct Unlocked {
+    pub identity: Identity,
+    pub page_lock: PageLock,
+}
+
 impl Identity {
     /// Takes ownership of a validated key line and tries once to page-lock
-    /// it. A lock failure is returned alongside a usable `Identity` rather
-    /// than instead of one: what to do about it (warn and proceed) is the
-    /// caller's decision.
-    pub(crate) fn new(
-        device: &str,
-        key: KeyLine,
-        locker: Arc<dyn Locker>,
-    ) -> (Identity, Option<io::Error>) {
+    /// it.
+    pub(crate) fn from_key(device: &str, key: KeyLine, locker: Arc<dyn Locker>) -> Unlocked {
         let KeyLine { secret, recipient } = key;
-        let lock_err = locker.lock(secret.as_slice()).err();
+        let (page_lock, page_locked) = match locker.lock(secret.as_slice()) {
+            Ok(()) => (PageLock::Locked, true),
+            Err(e) => (PageLock::Failed(e), false),
+        };
         let identity = Identity {
             device: device.to_string(),
             recipient,
             secret,
             locker,
-            page_locked: lock_err.is_none(),
+            page_locked,
         };
-        (identity, lock_err)
+        Unlocked {
+            identity,
+            page_lock,
+        }
     }
 
     /// The device name this identity was unlocked as, within its vault.
@@ -187,5 +201,46 @@ impl std::fmt::Debug for Identity {
             .field("recipient", &self.recipient)
             .field("page_locked", &self.page_locked)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use age::secrecy::ExposeSecret;
+
+    struct Refuses;
+
+    impl Locker for Refuses {
+        fn lock(&self, _: &[u8]) -> io::Result<()> {
+            Err(io::Error::other("no mlock here"))
+        }
+        fn unlock(&self, _: &[u8]) -> io::Result<()> {
+            panic!("a lock that never took must not be released");
+        }
+    }
+
+    fn key_line() -> KeyLine {
+        let key = age::x25519::Identity::generate();
+        KeyLine::parse(key.to_string().expose_secret().as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn new_reports_a_taken_lock() {
+        let u = Identity::from_key("d", key_line(), Arc::new(crate::locker::MemLocker));
+        match u.page_lock {
+            // Hosts that refuse mlock fail here; the identity is still usable.
+            PageLock::Locked => assert!(u.identity.page_locked()),
+            PageLock::Failed(_) => assert!(!u.identity.page_locked()),
+        }
+    }
+
+    #[test]
+    fn new_reports_a_refused_lock_with_a_usable_identity() {
+        let u = Identity::from_key("d", key_line(), Arc::new(Refuses));
+        assert!(matches!(&u.page_lock, PageLock::Failed(e) if e.to_string() == "no mlock here"));
+        assert!(!u.identity.page_locked());
+        assert_eq!(u.identity.device(), "d");
+        // Dropping it must not call `unlock`.
     }
 }

@@ -13,7 +13,7 @@ use std::cell::RefCell;
 use std::io::Cursor;
 use std::rc::Rc;
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::prompter::{FakePrompter, Prompter};
 
 use crate::entry_tests::unlocks;
@@ -108,7 +108,7 @@ impl Env {
     }
 
     /// `gage --script FILE` in the CI shape: no terminal, the variable set.
-    fn run_script(&self, lines: &[&str]) -> CliResult {
+    pub(crate) fn run_script(&self, lines: &[&str]) -> CliResult {
         let file = self.script_file(lines);
         self.script_run(
             &["--script", &file],
@@ -142,7 +142,7 @@ fn with_github() -> Env {
 }
 
 fn ok(r: CliResult) -> CliResult {
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     r
 }
 
@@ -225,7 +225,7 @@ fn script_unlocks_each_vault_at_most_once() {
 fn script_aborts_on_the_first_failing_command() {
     let env = with_github();
     let r = env.run_script(&["use personal", "show NoSuchEntry", "show GitHub"]);
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     assert!(
         !r.stdout.contains("hunter2"),
         "ran past a failing line:\n{}",
@@ -247,7 +247,7 @@ fn a_failed_stdin_line_names_the_stream_and_keeps_an_ambiguous_list() {
     env.add("personal", "GitHub backup", "hunter3");
     // Exact titles win, so ambiguity takes a substring both share.
     let r = env.run_stdin_script(&["use personal", "show Git"]);
-    assert_eq!(r.code, Code::Ambiguous, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Ambiguous, "{}", r.stderr);
     assert!(r.stderr.contains("<stdin>:2: show Git"), "{}", r.stderr);
     assert!(r.stderr.contains("GitHub backup"), "{}", r.stderr);
 }
@@ -275,7 +275,7 @@ fn an_ambiguous_query_under_stdin_does_not_eat_the_command_stream() {
         stderr,
         &prompter,
     );
-    assert_eq!(r.code, Code::Ambiguous, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Ambiguous, "{}", r.stderr);
     assert!(
         !r.stderr.contains("Which one"),
         "a picker was shown: {}",
@@ -303,7 +303,7 @@ fn script_on_a_terminal_still_lets_a_human_pick() {
         },
         &inner,
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(inner.choose_lists().len(), 1);
 }
 
@@ -358,11 +358,11 @@ fn script_quit_is_exit() {
 fn script_runs_the_session_verbs_and_stops_on_a_usage_error() {
     let env = with_github();
     let r = env.run_script(&["use personal", "status", "lock", "status"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("personal locked."), "{}", r.stdout);
 
     let r = env.run_script(&["status extra", "status"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(
         r.stderr.contains("commands.gage:1: status extra"),
         "{}",
@@ -383,7 +383,7 @@ fn script_and_stdin_are_mutually_exclusive() {
         Run::default(),
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("mutually exclusive"), "{}", r.stderr);
 }
 
@@ -407,7 +407,7 @@ fn script_flags_reject_a_subcommand() {
             },
             &FakePrompter::new(),
         );
-        assert_eq!(r.code, Code::Usage, "{args:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{args:?}: {}", r.stderr);
         assert!(
             r.stderr.contains("can't be combined"),
             "{args:?}: {}",
@@ -434,7 +434,7 @@ fn script_flags_are_refused_inside_a_session() {
 
         let env = Env::new();
         let r = env.session(&script(&[&flag.join(" "), "status", "exit"]));
-        assert_eq!(r.code, Code::Success, "{}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
         assert!(
             r.stderr.contains("unknown command") || r.stderr.contains("aren't available inside"),
             "{flag:?} was accepted in a session: {}",
@@ -442,7 +442,7 @@ fn script_flags_are_refused_inside_a_session() {
         );
     }
     let err = crate::repl::refuse_script_flags_in_session();
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.code(), ExitCode::Usage);
     assert!(
         err.to_string().contains("aren't available inside one"),
         "{err}"
@@ -460,7 +460,7 @@ fn a_missing_script_file_is_a_usage_error() {
         Run::default(),
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("opening script"), "{}", r.stderr);
 }
 
@@ -483,7 +483,7 @@ fn script_accepts_assume_yes() {
             },
             &FakePrompter::new(),
         );
-        assert_eq!(r.code, Code::Success, "{args:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{args:?}: {}", r.stderr);
         assert!(r.stdout.contains("hunter2"), "{args:?}: {}", r.stdout);
     }
     let r = env.script_run(
@@ -495,7 +495,7 @@ fn script_accepts_assume_yes() {
         },
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 }
 
 // `--yes` really is what answers the recipient question in a script: a
@@ -524,7 +524,7 @@ fn script_assume_yes_answers_the_recipient_change_and_without_it_the_write_is_re
     env.bootstrap_trust();
     tamper_recipients_file(&env.vault_dir(), &new_key());
     let r = run(&env, &[]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(
         r.stderr.contains("commands.gage:2: insert Router"),
         "{}",
@@ -535,7 +535,7 @@ fn script_assume_yes_answers_the_recipient_change_and_without_it_the_write_is_re
     env.bootstrap_trust();
     tamper_recipients_file(&env.vault_dir(), &new_key());
     let r = run(&env, &["--yes"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 }
 
 // A session line's own `--yes` is still refused where a human is typing it,
@@ -561,7 +561,7 @@ fn stdin_session_command_argument_counts_are_checked() {
         let env = Env::new();
         env.init("personal", &[]);
         let r = env.run_stdin_script(&[line, "status"]);
-        assert_eq!(r.code, Code::Usage, "{line}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{line}: {}", r.stderr);
         assert!(r.stderr.contains(want), "{line}: {}", r.stderr);
         assert!(
             r.stderr.contains(&format!("<stdin>:1: {line}")),
@@ -582,7 +582,7 @@ fn stdin_session_command_argument_counts_are_checked() {
 fn stdin_wrong_arg_count_shows_command_usage() {
     let env = with_github();
     let r = env.run_stdin_script(&["edit"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("<query>"), "{}", r.stderr);
     assert!(r.stderr.contains("Usage:\n  gage edit"), "{}", r.stderr);
 }
@@ -607,7 +607,7 @@ fn a_script_ends_by_clearing_a_pending_copy() {
     // And a failing line is not an excuse to leave it there.
     let env = with_github();
     let r = env.run_script(&["use personal", "show GitHub -c", "show Nope"]);
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     assert_eq!(env.clip.cb.get(), "", "the copy outlived a failed script");
 }
 
@@ -627,7 +627,7 @@ fn a_script_does_not_leave_a_key_for_the_next_run() {
             },
             &inner,
         );
-        assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+        assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     }
 }
 
@@ -646,7 +646,7 @@ fn gage_passphrase_unlocks_without_prompting_or_reading_the_command_stream() {
             ..Run::default()
         },
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout.contains("hunter2"),
         "a prompt ate a command:\n{}\n{}",
@@ -675,7 +675,7 @@ fn wrong_gage_passphrase_fails_after_one_attempt() {
         },
         &inner,
     );
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(!r.stdout.contains("hunter2"), "{}", r.stdout);
     assert!(
         r.stderr.contains(ENV_VAR),
@@ -708,7 +708,7 @@ fn an_empty_gage_passphrase_is_set_and_is_refused_as_empty() {
         },
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
 }
 
 // End to end: the variable
@@ -767,7 +767,7 @@ fn script_with_no_passphrase_source_fails_fast() {
                 ..Run::default()
             },
         );
-        assert_eq!(r.code, Code::LockedOrAuth, "{name}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::LockedOrAuth, "{name}: {}", r.stderr);
         assert!(r.stderr.contains(ENV_VAR), "{name}: {}", r.stderr);
         assert!(
             !r.stdout.contains("hunter2"),
@@ -835,7 +835,7 @@ fn stdin_never_prompts_even_on_a_terminal() {
         },
         &inner,
     );
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(inner.unlock_requests().is_empty(), "--stdin prompted");
     assert!(r.stderr.contains(ENV_VAR), "{}", r.stderr);
 }
@@ -855,7 +855,7 @@ fn stdin_refuses_to_create_an_identity_with_no_human() {
             ..Run::default()
         },
     );
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(r.stderr.contains("human"), "{}", r.stderr);
     let all = format!("{}{}", r.stdout, r.stderr);
     assert!(
@@ -893,7 +893,7 @@ fn stdin_identity_add_does_not_eat_the_command_stream() {
         stderr,
         &prompter,
     );
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(
         !r.stdout.contains("hunter2"),
         "the script went past a failed line"
@@ -951,7 +951,7 @@ fn a_one_shot_command_ignores_gage_passphrase() {
         },
         &inner,
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(inner.unlock_requests().len(), 1);
 }
 

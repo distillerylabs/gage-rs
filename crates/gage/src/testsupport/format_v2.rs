@@ -14,6 +14,7 @@ use sha2::{Digest, Sha256};
 use crate::entry::Extra;
 use crate::gitrepo::{self, RemoteOptions};
 use crate::paths;
+use crate::vaultconfig::VaultId;
 use crate::xdgpaths::Dirs;
 
 /// The vault's local name on the device the fixture captures.
@@ -21,6 +22,11 @@ pub const VAULT_NAME: &str = "personal";
 
 /// The committed `[vault].id`.
 pub const VAULT_ID: &str = "ff336b5e-3a36-4164-a014-1b6890bb9785";
+
+/// [`VAULT_ID`] as the type the path builders take.
+pub fn vault_id() -> VaultId {
+    VaultId::try_from(VAULT_ID).expect("format_v2: VAULT_ID is a vault id")
+}
 
 /// The device whose local state (identity, trust cache, global config)
 /// the fixture captures.

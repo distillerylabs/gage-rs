@@ -15,7 +15,7 @@ use crate::error::ERROR_PREFIX;
 use crate::registry::{Availability, CommandInfo, GROUP_ENTRY, GROUP_VAULT, Registry, registry};
 
 struct CliResult {
-    code: Code,
+    code: ExitCode,
     stdout: String,
     stderr: String,
 }
@@ -180,7 +180,7 @@ fn alias_resolves_to_same_command_at_cli_level() {
 #[test]
 fn help_flag_exits_zero() {
     let r = run(&["--help"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout.contains("Usage:\n  gage [command]"),
         "{}",
@@ -197,7 +197,7 @@ fn help_command_exits_zero_and_matches_help_flag() {
             run_reg(&reg, &["--help"], false),
             run_reg(&reg, &["help"], false),
         );
-        assert_eq!(command.code, Code::Success);
+        assert_eq!(command.code, ExitCode::Success);
         assert_eq!(command.stdout, flag.stdout);
         assert_eq!(run_reg(&reg, &["-h"], false).stdout, flag.stdout);
     }
@@ -206,7 +206,7 @@ fn help_command_exits_zero_and_matches_help_flag() {
 #[test]
 fn help_subcommand_prints_usage_and_exits_zero() {
     let r = run(&["help", "use"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout.contains("Usage:\n  gage use <vault>"),
         "{}",
@@ -222,7 +222,7 @@ fn help_unknown_topic_fails_with_usage_code() {
         &["help", "use", "extra"],
     ] {
         let r = run(topic);
-        assert_eq!(r.code, Code::Usage, "{topic:?}");
+        assert_eq!(r.code, ExitCode::Usage, "{topic:?}");
         assert!(r.stderr.contains("unknown help topic"), "{}", r.stderr);
         assert_eq!(r.stdout, "");
     }
@@ -350,7 +350,7 @@ fn parent_command_help_lists_its_children() {
         ("git", "Git-specific vault operations", &["set-remote"]),
     ] {
         let r = run(&[parent]);
-        assert_eq!(r.code, Code::Success, "{}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
         assert!(r.stdout.contains(short), "{}", r.stdout);
         assert!(r.stdout.contains("Available Commands:"), "{}", r.stdout);
         for child in children {
@@ -396,7 +396,7 @@ fn leaf_command_help_unchanged_by_the_children_listing() {
     for path in [&["vault", "list"][..], &["git", "set-remote"]] {
         let help: Vec<&str> = path.iter().copied().chain(["--help"]).collect();
         let r = run(&help);
-        assert_eq!(r.code, Code::Success);
+        assert_eq!(r.code, ExitCode::Success);
         assert!(
             r.stdout
                 .contains(&format!("Usage:\n  gage {}", path.join(" "))),
@@ -416,7 +416,7 @@ fn leaf_command_help_unchanged_by_the_children_listing() {
 #[test]
 fn wrong_arg_count_shows_command_usage() {
     let r = run(&["use"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(
         r.stderr.contains("required arguments were not provided"),
         "{}",
@@ -433,7 +433,7 @@ fn wrong_arg_count_shows_command_usage() {
 #[test]
 fn unknown_flag_shows_command_usage() {
     let r = run(&["status", "--no-such-flag"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("--no-such-flag"), "{}", r.stderr);
     assert!(r.stderr.contains("Usage:\n  gage status"), "{}", r.stderr);
     assert_eq!(r.stdout, "");
@@ -442,7 +442,7 @@ fn unknown_flag_shows_command_usage() {
 #[test]
 fn unknown_command_shows_full_help_listing() {
     let r = run(&["frobnicate"]);
-    assert_eq!(r.code, Code::Usage);
+    assert_eq!(r.code, ExitCode::Usage);
     assert!(r.stderr.contains("frobnicate"), "{}", r.stderr);
     assert!(
         r.stderr.contains(r#"Use "gage help <command>""#),
@@ -451,7 +451,7 @@ fn unknown_command_shows_full_help_listing() {
     );
     // Unknown under a parent shows that parent's help.
     let r = run_reg(&registry(), &["vault", "nope"], false);
-    assert_eq!(r.code, Code::Usage);
+    assert_eq!(r.code, ExitCode::Usage);
     assert!(r.stderr.contains("Available Commands:"), "{}", r.stderr);
 }
 
@@ -464,7 +464,7 @@ fn coded_application_errors_do_not_grow_usage_text() {
     // and an unknown help topic.
     for args in [&["status"][..], &["help", "nope"]] {
         let r = run(args);
-        assert_eq!(r.code, Code::Usage, "{args:?}:\n{}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{args:?}:\n{}", r.stderr);
         assert!(!r.stderr.contains("Usage:"), "{args:?}:\n{}", r.stderr);
     }
 }
@@ -488,7 +488,7 @@ fn no_command_doubles_gages_own_prefix() {
         let r = run_reg(&registry(), args, *tty);
         assert_ne!(
             r.code,
-            Code::Success,
+            ExitCode::Success,
             "{name}: this table only covers failures"
         );
         for line in r.stdout.lines().chain(r.stderr.lines()) {
@@ -510,7 +510,7 @@ fn no_command_doubles_gages_own_prefix() {
 fn version_flag_prints_version_and_commit() {
     for flag in ["--version", "-v"] {
         let r = run(&[flag]);
-        assert_eq!(r.code, Code::Success, "{flag}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{flag}: {}", r.stderr);
         assert_eq!(r.stdout, "gage v1.2.3 (commit abcdef1)\n", "{flag}");
     }
 }
@@ -519,7 +519,7 @@ fn version_flag_prints_version_and_commit() {
 #[test]
 fn capital_v_is_not_a_version_flag() {
     let r = run(&["-V"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stdout);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stdout);
     assert_eq!(r.stdout, "");
 }
 
@@ -532,7 +532,7 @@ fn capital_v_is_not_a_version_flag() {
 #[test]
 fn bare_gage_with_redirected_stdin_prints_root_help() {
     let r = run_reg(&registry(), &[], false);
-    assert_eq!(r.code, Code::Success);
+    assert_eq!(r.code, ExitCode::Success);
     assert_eq!(r.stdout, run(&["--help"]).stdout);
 }
 
@@ -548,6 +548,6 @@ fn an_unimplemented_one_shot_command_is_internal() {
         Availability::OneShotOnly,
     ));
     let r = run_reg(&reg, &["fake-oneshot"], false);
-    assert_eq!(r.code, Code::Internal);
+    assert_eq!(r.code, ExitCode::Internal);
     assert_eq!(r.stderr, "gage: fake-oneshot is not implemented yet\n");
 }

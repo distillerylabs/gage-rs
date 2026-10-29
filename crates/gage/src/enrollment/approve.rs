@@ -16,12 +16,13 @@ use super::name::parse_pending_file_name;
 use super::seal::Attempt;
 use super::{EnrollmentError, OpenedRequest, PENDING_DIR, PendingRequest, read_pending_file};
 use crate::entry::WRITE_LOCK_TIMEOUT;
+use crate::error::Remedy;
 use crate::gitrepo::{self, REMOTE_OP_TIMEOUT};
 use crate::identity::Identity;
-use crate::prompter::Prompter;
+use crate::prompter::{Prompter, Warning};
 use crate::recipient::RecipientWrite;
 use crate::recovery::check_device_label_free;
-use crate::remotesync::offline_or_error;
+use crate::remotesync::{PushClause, offline_or_error};
 use crate::vault::Vault;
 use crate::vaultconfig::Recipient;
 
@@ -30,7 +31,7 @@ use crate::vaultconfig::Recipient;
 /// re-encrypted, the device listed and its request gone; on the remote
 /// none of it happened, and the joining device is locked out with no way
 /// to tell, since `gage sync` reports nothing wrong on its side.
-pub(crate) const APPROVAL_PUSH_CLAUSE: &str = "the approval is committed locally but not pushed, so it has not taken effect for anyone else: the request is still pending on the remote and the joining device is still locked out — run `gage push` to finish it";
+pub(crate) const APPROVAL_PUSH_CLAUSE: &str = "the approval is committed locally but not pushed, so it has not taken effect for anyone else: the request is still pending on the remote and the joining device is still locked out";
 
 /// [`APPROVAL_PUSH_CLAUSE`] for an approval that granted nothing: nobody is
 /// locked out, and the only casualty is a stale request on the remote.
@@ -216,15 +217,19 @@ impl Vault {
     fn catch_up_before_approving(&self, prompter: &dyn Prompter) -> Result<(), EnrollmentError> {
         match self.pull_locked(Instant::now() + REMOTE_OP_TIMEOUT) {
             Err(err) => {
-                prompter.warn(&format!(
-                    "gage: {}; approving against the local copy of {:?}",
-                    offline_or_error(&err),
-                    self.name
-                ));
+                let cause = offline_or_error(&err);
+                prompter.warn(&Warning {
+                    text: format!(
+                        "{}; approving against the local copy of {:?}",
+                        cause.text, self.name
+                    ),
+                    remedy: cause.remedy,
+                });
                 Ok(())
             }
             Ok(report) if report.diverged => Err(EnrollmentError::ApprovalDiverged {
                 summary: report.summary(),
+                remedy: report.remedy(),
             }),
             Ok(_) => Ok(()),
         }
@@ -363,7 +368,7 @@ impl Vault {
             let commit = self.commit_pending_removal(
                 &clear,
                 CLEARED_COMMIT_MESSAGE,
-                CLEARED_PUSH_CLAUSE,
+                CLEARED_PUSH_CLAUSE.into(),
                 prompter,
             )?;
             return Ok(ApprovalResult {
@@ -380,7 +385,10 @@ impl Vault {
             &RecipientWrite {
                 message: &message,
                 delete_paths: &clear,
-                push_clause: Some(APPROVAL_PUSH_CLAUSE),
+                push_clause: Some(PushClause {
+                    text: APPROVAL_PUSH_CLAUSE,
+                    remedy: Some(Remedy::Push),
+                }),
             },
             identity,
             prompter,
@@ -417,7 +425,12 @@ impl Vault {
                 .and_then(|n| n.to_str())
                 .expect("listed requests have UTF-8 names");
             let rel = format!("{PENDING_DIR}/{name}");
-            self.commit_pending_removal(&[rel], DENY_COMMIT_MESSAGE, DENIED_PUSH_CLAUSE, prompter)?;
+            self.commit_pending_removal(
+                &[rel],
+                DENY_COMMIT_MESSAGE,
+                DENIED_PUSH_CLAUSE.into(),
+                prompter,
+            )?;
             Ok(request)
         })
     }
@@ -430,7 +443,7 @@ impl Vault {
         &self,
         rel_paths: &[String],
         message: &str,
-        push_clause: &str,
+        push_clause: PushClause<'_>,
         prompter: &dyn Prompter,
     ) -> Result<String, EnrollmentError> {
         for rel in rel_paths {

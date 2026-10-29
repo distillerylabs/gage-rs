@@ -6,9 +6,9 @@
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
+use crate::exitcode::ExitCode;
 use gage::entry::CandidateList;
-use gage::exitcode::Code;
-use gage::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse};
+use gage::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse, Warning};
 use gage::recovery::RECOVERY_DEVICE_LABEL;
 use gage::syncresolve::{EntryConflict, Resolution};
 use gage::xdgpaths::Dirs;
@@ -128,8 +128,8 @@ impl Prompter for ScreenPrompter {
         self.inner.confirm_recipient_change(warning)
     }
 
-    fn warn(&self, msg: &str) {
-        self.inner.warn(msg);
+    fn warn(&self, warning: &Warning) {
+        self.inner.warn(warning);
     }
 }
 
@@ -190,7 +190,7 @@ fn args_with_out<'a>(name: &'a str, dir: &'a Path, out: &'a Path) -> Vec<&'a str
 fn refused_before_anything(env: &Env, args: &[&str]) -> String {
     let before = snapshot(env);
     let r = env.run_with(args, &FakePrompter::new());
-    assert_eq!(r.code, Code::Usage, "{args:?}: {}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{args:?}: {}", r.stderr);
     assert_eq!(snapshot(env), before, "{args:?} created something");
     assert!(secret_keys(&(r.stdout.clone() + &r.stderr)).is_empty());
     r.stderr
@@ -211,7 +211,7 @@ fn init_refuses_to_write_the_recovery_key_where_gage_will_delete_it() {
     env.init("other", &["--dir", existing.to_str().unwrap()]);
     let mut global = env.global();
     global.vaults.remove("other");
-    global.current = String::new();
+    global.current = None;
     env.save_global(&global);
 
     let target = env.root.path().join("personal");
@@ -268,7 +268,7 @@ fn recovery_key_out_rejects_a_relative_path_inside_a_vault() {
     for rel in ["recovery.key", "./recovery.key", "../recovery.key"] {
         let err =
             check_recovery_key_out_path(Path::new(rel), &cwd, &new_vault, &env.dirs).unwrap_err();
-        assert_eq!(err.code(), Code::Usage, "{rel}: {err}");
+        assert_eq!(err.code(), ExitCode::Usage, "{rel}: {err}");
         assert!(err.to_string().contains("vault"), "{rel}: {err}");
         assert!(!cwd.join(rel).exists(), "{rel}");
     }
@@ -467,7 +467,7 @@ fn init_with_redirected_stderr_refuses_too() {
         },
         SharedBuf::default(),
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(secret_keys(&(r.stdout + &r.stderr)).is_empty());
     assert_eq!(snapshot(&env), before);
 
@@ -483,7 +483,7 @@ fn init_with_redirected_stderr_refuses_too() {
         },
         SharedBuf::default(),
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert_eq!(snapshot(&env), before);
 }
 
@@ -517,7 +517,7 @@ fn init_rejects_a_device_named_like_the_recovery_label() {
         &["init", "personal", "--device", RECOVERY_DEVICE_LABEL],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains(RECOVERY_DEVICE_LABEL), "{}", r.stderr);
     assert_eq!(snapshot(&env), before);
 
@@ -571,7 +571,7 @@ fn init_shows_no_recovery_key_when_create_fails() {
             dir.to_str().unwrap(),
         ],
     );
-    assert_ne!(r.code, Code::Success, "{}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "{}", r.stdout);
     assert_eq!(shown, None, "{}", r.stderr);
     assert!(secret_keys(&r.stdout).is_empty());
     assert!(!r.stdout.contains(RECOVERY_DEVICE_LABEL), "{}", r.stdout);
@@ -648,7 +648,7 @@ pub(crate) fn assert_never_stored(env: &Env, vault: &Path, secret: &str, what: &
 
 fn default_init(env: &Env) -> (CliResult, String) {
     let (r, shown) = run_init_with_recovery_key(env, &["init", "personal", "--device", "laptop-1"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let shown = shown.unwrap_or_else(|| panic!("no key shown:\n{}", r.stderr));
     (r, shown)
 }
@@ -684,7 +684,7 @@ fn init_recovery_key_alone_decrypts_the_vault() {
         &FakePrompter::new().with_passphrase(PASSPHRASE),
         b"s3cr3t-value\n",
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     let identity: age::x25519::Identity = secret.parse().unwrap();
     let mut entries = Vec::new();
@@ -807,7 +807,7 @@ fn init_recovery_key_confirmation_asks_for_the_keys_own_characters() {
     let env = Env::new();
     let p = ScreenPrompter::new();
     let r = p.run(&env, &["init", "personal", "--device", "laptop-1"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let asked = p.asked.borrow();
     assert_eq!(asked.len(), 1, "{asked:?}");
     assert!(asked[0].contains("last 6 characters"), "{asked:?}");
@@ -822,7 +822,7 @@ fn init_recovery_key_confirmation_ignores_case_and_whitespace() {
     let mut p = ScreenPrompter::new();
     p.transform = Some(|tail| format!("  {}\t", tail.to_lowercase()));
     let r = p.run(&env, &["init", "personal", "--device", "laptop-1"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(p.asked.borrow().len(), 1);
 }
 
@@ -835,7 +835,7 @@ fn init_recovery_key_wrong_confirmation_retries_then_fails_without_reshowing() {
     let p = ScreenPrompter::new().answering("NOTTHEKEY");
     let r = p.run(&env, &["init", "personal", "--device", "laptop-1"]);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert_eq!(p.asked.borrow().len(), MAX_RECOVERY_CONFIRM_ATTEMPTS);
     // Warned between attempts, not after the last.
     let warnings = p.inner.warnings();
@@ -878,7 +878,7 @@ fn init_still_publishes_when_the_recovery_confirmation_fails() {
         ],
     );
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     let path = env.entry("personal").path;
     assert!(r.stdout.contains(path.to_str().unwrap()), "{}", r.stdout);
     assert!(r.stdout.contains("published"), "{}", r.stdout);
@@ -900,12 +900,12 @@ fn init_key_is_shown_only_after_the_commit_exists() {
         assert_eq!(secret_keys(&screen.text()).len(), 1, "asked before shown");
         assert_eq!(gage::gitrepo::commit_count(&vault).unwrap(), 1);
         assert!(gage::gitrepo::is_clean(&vault).unwrap());
-        let registered = gage::config::load(&global).unwrap();
+        let registered = gage::config::load_or_default(&global).unwrap();
         assert!(registered.vaults.contains_key("personal"));
         seen.set(true);
     }));
     let r = p.run(&env, &["init", "personal", "--device", "laptop-1"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(checked.get(), "the re-type was never asked");
 }
 
@@ -940,7 +940,7 @@ fn init_delivery_error_outranks_a_failed_push() {
         ],
     );
 
-    assert_eq!(r.code, Code::Internal, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Internal, "{}", r.stderr);
     assert_eq!(std::fs::read_to_string(&out).unwrap(), "appeared meanwhile");
     assert!(r.stderr.contains("gage recovery rotate"), "{}", r.stderr);
     assert!(r.stderr.contains("create an empty one"), "{}", r.stderr);
@@ -962,7 +962,7 @@ fn init_delivery_error_outranks_a_failed_push() {
             env.root.path().join("nothing-here.git").to_str().unwrap(),
         ],
     );
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("create an empty one"), "{}", r.stderr);
 }
 
@@ -981,6 +981,6 @@ fn an_empty_recovery_key_out_is_refused_as_empty() {
         &["init", "personal", "--recovery-key-out", ""],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert_eq!(snapshot(&env), before);
 }

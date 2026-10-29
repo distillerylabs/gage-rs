@@ -6,7 +6,7 @@
 use uuid::Uuid;
 
 use crate::entry::{ENTRIES_DIR_NAME, ENTRY_FILE_EXT, Entry, Timestamp};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::gitrepo;
 use crate::identity::Identity;
 use crate::vault::Vault;
@@ -50,11 +50,18 @@ pub enum HistoryError {
     },
 }
 
-impl HasCode for HistoryError {
-    fn code(&self) -> Code {
+impl HasKind for HistoryError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            HistoryError::Git(e) => e.code(),
-            HistoryError::Decrypt { source, .. } => source.code(),
+            HistoryError::Git(e) => e.kind(),
+            HistoryError::Decrypt { source, .. } => source.kind(),
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            HistoryError::Git(e) => e.remedy(),
+            HistoryError::Decrypt { source, .. } => source.remedy(),
         }
     }
 }

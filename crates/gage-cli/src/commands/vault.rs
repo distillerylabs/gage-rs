@@ -21,7 +21,11 @@ pub fn list(io: &mut Io) -> Result<(), CliError> {
         .vaults
         .keys()
         .map(|name| {
-            let marker = if *name == global.current { "* " } else { "  " };
+            let marker = if global.current.as_ref() == Some(name) {
+                "* "
+            } else {
+                "  "
+            };
             format!("{marker}{name}")
         })
         .collect();
@@ -78,10 +82,10 @@ pub fn remove(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
     let name = arg(matches, "name");
     let (path, mut global) = load_global(io)?;
     let entry = global.unregister(name)?;
-    config::save(&path, &global)?;
+    config::save_creating_dir(&path, &global)?;
     let dirs = dirs(io)?;
-    if !entry.id.is_empty() {
-        trustcache::remove(&dirs, &entry.id)?;
+    if let Some(id) = &entry.id {
+        trustcache::remove(&dirs, id)?;
     }
     offer_orphaned_identity(io, prompter, &dirs, name, &entry);
     Ok(())
@@ -137,7 +141,12 @@ fn offer_orphaned_identity(
             if !confirmed {
                 return kept(io, &path, "not confirmed".to_string());
             }
-            if let Err(e) = identityfile::remove(dirs, &entry.id, &entry.device) {
+            // assess offers only for a registration that records an id.
+            let removed = match &entry.id {
+                Some(id) => identityfile::remove(dirs, id, &entry.device),
+                None => Ok(()),
+            };
+            if let Err(e) = removed {
                 let _ = writeln!(
                     io.stderr,
                     "gage: could not remove the local identity file for {name:?}: {e}"
@@ -150,6 +159,6 @@ fn offer_orphaned_identity(
 pub fn set_default(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
     let (path, mut global) = load_global(io)?;
     global.set_default(arg(matches, "name"))?;
-    config::save(&path, &global)?;
+    config::save_creating_dir(&path, &global)?;
     Ok(())
 }

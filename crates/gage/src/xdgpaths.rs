@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 
 /// The subdirectory every gage-owned path lives under, inside whichever
 /// role root is resolved.
@@ -41,15 +41,15 @@ impl Os {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("xdgpaths: home directory is empty")]
+    #[error("the home directory is empty")]
     EmptyHome,
-    #[error("xdgpaths: could not resolve the home directory")]
+    #[error("could not resolve the home directory")]
     NoHome,
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
-        Code::Internal
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Internal
     }
 }
 

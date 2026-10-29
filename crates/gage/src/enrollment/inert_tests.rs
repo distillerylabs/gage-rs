@@ -82,14 +82,17 @@ fn pending_directory_needs_no_identity() {
     let req = seal_into(&f.vault, "phone", &new_pubkey(), DAY);
     let pending = f.vault.pending_enrollments().unwrap();
     assert_eq!(pending.len(), 1);
-    let resolved: PendingRequest = f.vault.resolve_enrollment(&req.id).unwrap();
-    assert_eq!(resolved.id, req.id);
+    let resolved: PendingRequest = f
+        .vault
+        .resolve_enrollment(req.id.as_deref().unwrap())
+        .unwrap();
+    assert_eq!(Some(&resolved.id), req.id.as_ref());
     let opened = f
         .vault
         .open_enrollment(&pending, &codes(&req.code))
         .unwrap();
     assert_eq!(opened.len(), 1);
-    assert_eq!(opened[0].id, req.id);
+    assert_eq!(Some(&opened[0].id), req.id.as_ref());
 }
 
 // Degrades to "skipped", never to an
@@ -107,7 +110,7 @@ fn garbage_in_pending_is_never_fatal() {
     f.vault.pending_enrollments().unwrap();
     let opened = open_all(&f.vault, &req.code).unwrap();
     assert_eq!(opened.len(), 1);
-    assert_eq!(opened[0].id, req.id);
+    assert_eq!(Some(&opened[0].id), req.id.as_ref());
 }
 
 // A committed symlink is not a request, at
@@ -122,7 +125,7 @@ fn symlinks_in_pending_are_never_followed() {
     let real = f
         .vault
         .pending_dir()
-        .join(pending_file_name(&req.id, req.expires));
+        .join(pending_file_name(req.id.as_deref().unwrap(), req.expires));
     let elsewhere = f.vault.path.with_file_name("sealed-elsewhere.age");
     std::fs::rename(&real, &elsewhere).unwrap();
     std::os::unix::fs::symlink(&elsewhere, &real).unwrap();
@@ -135,7 +138,7 @@ fn symlinks_in_pending_are_never_followed() {
 
     assert!(f.vault.pending_enrollments().unwrap().is_empty());
     let link = PendingRequest {
-        id: req.id.clone(),
+        id: req.id.clone().unwrap(),
         path: real,
         expires: req.expires,
     };

@@ -11,11 +11,11 @@
 
 use std::collections::BTreeMap;
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
 use gage::entry::{
     self, CandidateList, Entry, ListEntry, NewEntry, ResolveError, Timestamp, WriteError,
 };
-use gage::exitcode::Code;
 use gage::generate::{self, GenerateOptions};
 use gage::identity::Identity;
 use gage::prompter::Prompter;
@@ -296,7 +296,7 @@ fn ambiguous(list: &CandidateList) -> CliError {
     for c in &list.candidates {
         msg.push_str(&format!("\n  {}  {}", c.id, c.title));
     }
-    fail(Code::Ambiguous, msg)
+    fail(ExitCode::Ambiguous, msg)
 }
 
 // --- insert -----------------------------------------------------------------
@@ -308,7 +308,7 @@ pub fn insert(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
     // side effect of one insert.
     if keys.in_session() && (matches.get_flag("multiline") || matches.get_flag("value-stdin")) {
         return Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             "-m/--multiline and --value-stdin read stdin to EOF, which is this session's own input; use -e/--edit here, or run `gage insert` from your shell",
         ));
     }
@@ -383,7 +383,7 @@ fn insert_edit(
         let e = edited.entry;
         if edited.unchanged || (e.value.is_empty() && e.fields.is_empty()) {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 "insert -e aborted: nothing to save (the file was unchanged, or value and fields were both left empty)",
             ));
         }
@@ -439,7 +439,10 @@ fn read_stdin(io: &mut Io) -> Result<Zeroizing<String>, CliError> {
         .map_err(|e| CliError::internal(anyhow::anyhow!("reading stdin: {e}")))?;
     match std::str::from_utf8(&bytes) {
         Ok(text) => Ok(Zeroizing::new(text.to_string())),
-        Err(_) => Err(fail(Code::Usage, "the value on stdin is not valid UTF-8")),
+        Err(_) => Err(fail(
+            ExitCode::Usage,
+            "the value on stdin is not valid UTF-8",
+        )),
     }
 }
 
@@ -468,20 +471,20 @@ pub fn parse_field_flags(raw: &[String]) -> Result<BTreeMap<String, String>, Cli
     for flag in raw {
         let Some((name, value)) = flag.split_once('=') else {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!("--field {flag:?} must be NAME=VALUE"),
             ));
         };
         let name: String = name.chars().filter(|c| !c.is_whitespace()).collect();
         if name.is_empty() {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!("--field {flag:?} has an empty NAME"),
             ));
         }
         if fields.insert(name.clone(), value.to_string()).is_some() {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!("--field {name:?} was given more than once"),
             ));
         }
@@ -516,7 +519,7 @@ pub fn show(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
 pub fn cat(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     let query = arg(matches, "query");
     let shown = keys.with_resolved(matches, io, query, |_, _, _, id, e| {
-        let yaml = entry::marshal(&e)?;
+        let yaml = e.to_yaml()?;
         Ok(Zeroizing::new(catfmt::align_cat_output(
             short_id(&id.to_string()),
             &yaml,

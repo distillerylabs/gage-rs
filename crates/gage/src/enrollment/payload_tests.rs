@@ -12,8 +12,8 @@ use super::fixtures_tests::*;
 use super::name::pending_file_name;
 use super::seal::{Attempt, Payload};
 use super::{EnrollmentError, MAX_PENDING_REQUEST_BYTES, PendingRequest};
-use crate::exitcode::Code;
-use crate::vault::METHOD_PASSPHRASE;
+use crate::error::ErrorKind;
+use crate::vaultconfig::UnlockMethod;
 
 // Each is MalformedRequest
 // at Conflict, and never CodeWrong, which a retry loop would sit
@@ -47,7 +47,7 @@ fn malformed_payloads_are_refused_as_malformed() {
         ("a method outside the allowlist", |p| {
             p.method = "yubikey".into()
         }),
-        ("an empty method", |p| p.method = String::new()),
+        ("an empty method", |p| p.method = "".into()),
         ("a request id that is not a uuid", |p| {
             p.request_id = "request-1".into()
         }),
@@ -74,8 +74,8 @@ fn malformed_payloads_are_refused_as_malformed() {
             "{name}: {result:?}"
         );
         assert_eq!(
-            crate::exitcode::HasCode::code(&result.unwrap_err()),
-            Code::Conflict,
+            crate::error::HasKind::kind(&result.unwrap_err()),
+            ErrorKind::Conflict,
             "{name}"
         );
     }
@@ -123,7 +123,7 @@ fn malformed_payload_does_not_poison_the_run() {
 
     let opened = open_all(&f.vault, &good.code).unwrap();
     assert_eq!(opened.len(), 1);
-    assert_eq!(opened[0].id, good.id);
+    assert_eq!(Some(&opened[0].id), good.id.as_ref());
     // And the bad one is still refused on its own terms: skipped, not
     // quietly accepted.
     assert!(matches!(
@@ -152,7 +152,7 @@ fn a_refusal_does_not_displace_a_request_that_opened() {
     ];
     let opened = f.vault.open_enrollment(&pending, &both).unwrap();
     assert_eq!(opened.len(), 1);
-    assert_eq!(opened[0].id, good.id);
+    assert_eq!(Some(&opened[0].id), good.id.as_ref());
 }
 
 // Authenticated bytes that
@@ -169,7 +169,7 @@ fn validate_sealed_payload_rejects_non_toml() {
         let err = assert_enrollment_error!(
             f.vault.validate_payload(&request, plaintext, hours(0)),
             EnrollmentError::MalformedRequest { .. },
-            Code::Conflict
+            ErrorKind::Conflict
         );
         assert!(err.to_string().contains("not valid TOML"), "{err}");
     }
@@ -182,34 +182,26 @@ fn seal_enrollment_rejects_invalid_input() {
     let f = vault();
     let joining = new_pubkey();
     let seal = |device: &str, pubkey: &str, method: &str| {
-        f.vault.seal_enrollment(device, pubkey, method, DAY)
+        f.vault.seal_enrollment(device, pubkey, &method.into(), DAY)
     };
 
     let err = assert_enrollment_error!(
-        seal("not a valid name!", &joining, METHOD_PASSPHRASE),
+        seal("not a valid name!", &joining, "passphrase"),
         EnrollmentError::InvalidDevice { .. },
-        Code::Usage
+        ErrorKind::Usage
     );
     assert!(err.to_string().contains("device name"), "{err}");
     assert_enrollment_error!(
-        seal("phone", "not-an-age-key", METHOD_PASSPHRASE),
+        seal("phone", "not-an-age-key", "passphrase"),
         EnrollmentError::InvalidPubkey(_),
-        Code::Usage
+        ErrorKind::Usage
     );
     let err = assert_enrollment_error!(
         seal("phone", &joining, "yubikey"),
         EnrollmentError::UnknownMethod { .. },
-        Code::Usage
+        ErrorKind::Usage
     );
-    assert!(err.to_string().contains(METHOD_PASSPHRASE), "{err}");
-
-    let mut broken = f.vault.clone();
-    broken.id = "not-a-uuid".into();
-    assert_enrollment_error!(
-        broken.seal_enrollment("phone", &joining, METHOD_PASSPHRASE, DAY),
-        EnrollmentError::NoVaultId,
-        Code::Internal
-    );
+    assert!(err.to_string().contains("passphrase"), "{err}");
 }
 
 // Built the way it actually
@@ -225,27 +217,27 @@ fn request_sealed_for_another_vault_is_refused() {
     register_also(&personal.vault, "work", &work.vault.id);
 
     let req = seal_into(&work.vault, "phone", &work.pubkey(), DAY);
-    let name = pending_file_name(&req.id, req.expires);
+    let name = pending_file_name(req.id.as_deref().unwrap(), req.expires);
     let sealed = std::fs::read(work.vault.pending_dir().join(&name)).unwrap();
     write_pending(&personal.vault, &name, &sealed);
 
     let err = assert_enrollment_error!(
         open_all(&personal.vault, &req.code),
         EnrollmentError::WrongVault { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
     assert!(err.to_string().contains("\"work\""), "{err}");
 
     // And it still opens where it belongs.
     let opened = open_all(&work.vault, &req.code).unwrap();
     assert_eq!(opened.len(), 1);
-    assert_eq!(opened[0].id, req.id);
+    assert_eq!(Some(&opened[0].id), req.id.as_ref());
 
     // With nothing registered, the message falls back to the id.
     let stranger = vault();
     write_pending(&stranger.vault, &name, &sealed);
     let err = open_all(&stranger.vault, &req.code).unwrap_err();
-    assert!(err.to_string().contains(&work.vault.id), "{err}");
+    assert!(err.to_string().contains(work.vault.id.as_str()), "{err}");
 }
 
 // "Never opened", not "opened
@@ -259,7 +251,7 @@ fn oversized_pending_file_is_never_opened() {
 
     let pending = f.vault.pending_enrollments().unwrap();
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].id, req.id);
+    assert_eq!(Some(&pending[0].id), req.id.as_ref());
     let opened = f
         .vault
         .open_enrollment(&pending, &codes(&req.code))
@@ -281,19 +273,23 @@ fn oversized_file_is_skipped_even_when_handed_in_directly() {
     let f = vault();
     let (req, mut sealed) = f
         .vault
-        .seal_enrollment("phone", &new_pubkey(), METHOD_PASSPHRASE, DAY)
+        .seal_enrollment("phone", &new_pubkey(), &UnlockMethod::Passphrase, DAY)
         .unwrap();
     sealed.extend(std::iter::repeat_n(0u8, MAX_PENDING_REQUEST_BYTES));
-    let path = write_pending(&f.vault, &pending_file_name(&req.id, req.expires), &sealed);
+    let path = write_pending(
+        &f.vault,
+        &pending_file_name(req.id.as_deref().unwrap(), req.expires),
+        &sealed,
+    );
     let direct = PendingRequest {
-        id: req.id.clone(),
+        id: req.id.clone().unwrap(),
         path,
         expires: req.expires,
     };
     assert_enrollment_error!(
         f.vault.open_enrollment(&[direct], &codes(&req.code)),
         EnrollmentError::CodeWrong,
-        Code::LockedOrAuth
+        ErrorKind::LockedOrAuth
     );
     assert_eq!(f.vault.enrollment_decrypt_count(), 0);
 }

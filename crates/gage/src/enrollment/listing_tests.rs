@@ -7,7 +7,7 @@ use uuid::Uuid;
 use super::fixtures_tests::*;
 use super::name::{parse_pending_file_name, pending_file_name};
 use super::{EnrollmentError, MAX_ENROLLMENT_TTL, MAX_PENDING_REQUEST_BYTES};
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::prompter::FakePrompter;
 
 // The normal
@@ -55,7 +55,7 @@ fn pending_enrollments_skips_strays() {
 
     let pending = f.vault.pending_enrollments().unwrap();
     assert_eq!(pending.len(), 2, "{pending:?}");
-    assert!(pending.iter().any(|p| p.id == req.id));
+    assert!(pending.iter().any(|p| Some(&p.id) == req.id.as_ref()));
     open_all(&f.vault, &req.code).unwrap();
 }
 
@@ -75,7 +75,7 @@ fn pending_enrollments_filters_expired_without_deleting() {
 
     let pending = f.vault.pending_enrollments().unwrap();
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].id, live.id);
+    assert_eq!(Some(&pending[0].id), live.id.as_ref());
     for name in [expired, beyond] {
         assert!(
             f.vault.pending_dir().join(&name).exists(),
@@ -99,7 +99,7 @@ fn pending_enrollments_reads_no_git_history() {
     std::fs::rename(&aside, &git).unwrap();
     let pending = pending.unwrap();
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].id, req.id);
+    assert_eq!(Some(&pending[0].id), req.id.as_ref());
     assert_eq!(
         pending[0].expires, req.expires,
         "the filename is the only source"
@@ -117,7 +117,9 @@ fn filename_epoch_matches_the_sealed_expiry() {
         &f.pubkey(),
         Duration::from_secs(3 * 3600),
     );
-    let (_, from_name) = parse_pending_file_name(&pending_file_name(&req.id, req.expires)).unwrap();
+    let (_, from_name) =
+        parse_pending_file_name(&pending_file_name(req.id.as_deref().unwrap(), req.expires))
+            .unwrap();
     let opened = open_all(&f.vault, &req.code).unwrap();
     assert_eq!(opened.len(), 1);
     assert_eq!(opened[0].expires, from_name);
@@ -150,7 +152,7 @@ fn resolve_enrollment_follows_the_base_resolution_order() {
     let err = assert_enrollment_error!(
         f.vault.resolve_enrollment("aaaaaaaa"),
         EnrollmentError::Ambiguous(_),
-        Code::Ambiguous
+        ErrorKind::Ambiguous
     );
     let EnrollmentError::Ambiguous(candidates) = err else {
         unreachable!()
@@ -166,12 +168,12 @@ fn resolve_enrollment_follows_the_base_resolution_order() {
     assert_enrollment_error!(
         f.vault.resolve_enrollment("cccc"),
         EnrollmentError::NoSuchRequest { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
     assert_enrollment_error!(
         f.vault.resolve_enrollment(""),
         EnrollmentError::NoSuchRequest { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
 
     let dead = "cccccccc-0000-4000-8000-000000000004";
@@ -179,7 +181,7 @@ fn resolve_enrollment_follows_the_base_resolution_order() {
     assert_enrollment_error!(
         f.vault.resolve_enrollment(dead),
         EnrollmentError::NoSuchRequest { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
 }
 
@@ -245,7 +247,7 @@ fn prune_removes_expired_and_forged_expiries_only() {
         );
     }
     for name in [
-        pending_file_name(&live.id, live.expires),
+        pending_file_name(live.id.as_deref().unwrap(), live.expires),
         "README".into(),
         oversized,
     ] {
@@ -283,5 +285,5 @@ fn pruning_leaves_live_requests_alone() {
 
     let pending = f.vault.pending_enrollments().unwrap();
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].id, live.id);
+    assert_eq!(Some(&pending[0].id), live.id.as_ref());
 }

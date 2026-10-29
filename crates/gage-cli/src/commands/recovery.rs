@@ -7,8 +7,9 @@
 
 use std::path::PathBuf;
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::exitcode::{Code, HasCode};
+use gage::error::{ErrorKind, HasKind};
 use gage::identityfile::{self, IdentityBackup};
 use gage::prompter::Prompter;
 use gage::recipient::RecipientError;
@@ -16,7 +17,8 @@ use gage::recovery::{
     RECOVERY_DEVICE_LABEL, RecoverResult, RecoverSpec, RecoveryError, RotateResult,
     check_device_label_free, new_recovery_key,
 };
-use gage::vault::{self, Vault};
+use gage::vault::Vault;
+use gage::vaultconfig::UnlockMethod;
 
 use super::entry::{open_vault, use_flag};
 use super::identity::record_local_identity;
@@ -26,7 +28,7 @@ use super::recoverykey::{
 };
 use super::{Keys, cwd, dirs, fail, out};
 use crate::Io;
-use crate::error::{CliError, prefix_once};
+use crate::error::{CliError, prefixed};
 
 pub const ROTATE_LONG_ABOUT: &str = "Replace this vault's recovery key, or add one if it has none.
 
@@ -114,7 +116,7 @@ pub fn verify(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
     // Masked, and dropped (so zeroed) when this returns; never echoed.
     let pasted = prompter
         .value("Paste the recovery key to check")
-        .map_err(|e| fail(Code::LockedOrAuth, e))?;
+        .map_err(|e| fail(ExitCode::LockedOrAuth, e))?;
     let label = vault.verify_recovery_key(&pasted)?;
     drop(pasted);
 
@@ -157,7 +159,7 @@ pub fn verify(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
 /// can still open.
 #[derive(Debug, thiserror::Error)]
 #[error(
-    "gage: this machine already holds an identity for that device: {} already exists.\n\
+    "this machine already holds an identity for that device: {} already exists.\n\
      gage: if this machine is being rebuilt under that name, say so with --replaces {device};\n\
      gage: otherwise enroll under a different --device NAME",
     path.display()
@@ -167,9 +169,9 @@ pub struct LocalIdentityExists {
     pub device: String,
 }
 
-impl HasCode for LocalIdentityExists {
-    fn code(&self) -> Code {
-        Code::Usage
+impl HasKind for LocalIdentityExists {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Usage
     }
 }
 
@@ -187,9 +189,9 @@ struct DeviceNameTaken {
     source: RecipientError,
 }
 
-impl HasCode for DeviceNameTaken {
-    fn code(&self) -> Code {
-        self.source.code()
+impl HasKind for DeviceNameTaken {
+    fn kind(&self) -> ErrorKind {
+        self.source.kind()
     }
 }
 
@@ -244,7 +246,7 @@ pub fn enroll(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
     // about the order of the questions.
     let pasted = prompter
         .value(&format!("Paste the recovery key for {}", vault.name))
-        .map_err(|e| fail(Code::LockedOrAuth, e))?;
+        .map_err(|e| fail(ExitCode::LockedOrAuth, e))?;
     check_pasted_recovery_key(&vault, &pasted)?;
 
     // 3. The replacement, before anything is written: generating it can't
@@ -282,7 +284,7 @@ pub fn enroll(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
             let err = CliError::from(e);
             if let Err(rollback) = identityfile::remove(&dirs, &vault.id, &device) {
                 return Err(fail(
-                    Code::Internal,
+                    ExitCode::Internal,
                     format!("{err} (and rolling back the generated identity failed: {rollback})"),
                 ));
             }
@@ -309,7 +311,7 @@ pub fn enroll(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
         io,
         &vault.name,
         &device,
-        vault::METHOD_PASSPHRASE,
+        &UnlockMethod::Passphrase,
         &pubkey,
     )
     // The remedy after the cause, on its own line, keeping the
@@ -333,7 +335,7 @@ pub fn enroll(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
         // The lost key is the worse of the two, so it sets the exit code;
         // the other is reported beside it.
         if let Err(record) = recorded {
-            let _ = writeln!(io.stderr, "{}", prefix_once(&record.to_string()));
+            let _ = writeln!(io.stderr, "{}", prefixed(&record));
         }
         return Err(e);
     }
@@ -351,7 +353,7 @@ fn restore_after(backup: Option<&IdentityBackup>, cause: CliError) -> CliError {
     match backup.restore() {
         Ok(()) => cause,
         Err(e) => fail(
-            Code::Internal,
+            ExitCode::Internal,
             format!(
                 "{cause} (and restoring the identity file at {} failed: {e})",
                 backup.path().display()
@@ -407,7 +409,7 @@ fn check_pasted_recovery_key(vault: &Vault, pasted: &str) -> Result<(), CliError
     let label = vault.verify_recovery_key(pasted)?;
     if label != RECOVERY_DEVICE_LABEL {
         return Err(fail(
-            Code::LockedOrAuth,
+            ExitCode::LockedOrAuth,
             format!(
                 "that key is registered as {label:?}, not as {RECOVERY_DEVICE_LABEL:?}, so it cannot enroll a device.\n\
                  gage: it still decrypts this vault's entries with `age -d -i`."

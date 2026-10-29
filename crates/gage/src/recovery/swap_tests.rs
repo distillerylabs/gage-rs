@@ -9,7 +9,7 @@ use zeroize::Zeroizing;
 
 use super::*;
 use crate::config::{self, Global, VaultEntry};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::gittest::{self, BareRemote};
 use crate::locker::Locker;
 use crate::prompter::FakePrompter;
@@ -18,7 +18,7 @@ use crate::recovery::{RecoveryKey, new_recovery_key};
 use crate::remotesync::tests::{sample, unlocks};
 use crate::testsupport::fast_scrypt;
 use crate::trustcache::TrustError;
-use crate::vault::{self, CreateSpec, LabelledRecipient};
+use crate::vault::{CreateSpec, LabelledRecipient};
 use crate::vaultconfig::Recipient;
 use crate::xdgpaths::Dirs;
 use crate::{gitrepo, identityfile, paths, vaultconfig};
@@ -67,7 +67,7 @@ impl Recover {
             state: root.path().join("state"),
         };
         let remote = gittest::new_bare_remote();
-        let id = vaultconfig::new_id();
+        let id = vaultconfig::VaultId::new();
         let owner_pubkey = identityfile::create(&dirs, &id, NAME, OWNER, &unlocks()).unwrap();
         let key = new_recovery_key().unwrap();
         let path = root.path().join("vault");
@@ -78,8 +78,8 @@ impl Recover {
                 name: NAME.into(),
                 id: id.clone(),
                 path: path.clone(),
-                vault_type: vault::TYPE_GIT.into(),
-                method: vault::METHOD_PASSPHRASE.into(),
+                vault_type: crate::vaultconfig::VaultType::Git,
+                method: crate::vaultconfig::UnlockMethod::Passphrase,
                 device: OWNER.into(),
                 recipients: vec![owner_pubkey.clone()],
                 extra_recipients: extras(&owner_pubkey, &key),
@@ -93,16 +93,18 @@ impl Recover {
                 NAME,
                 VaultEntry {
                     path,
-                    id,
-                    vault_type: vault::TYPE_GIT.into(),
+                    id: Some(id),
+                    vault_type: crate::vaultconfig::VaultType::Git,
                     device: OWNER.into(),
-                    method: vault::METHOD_PASSPHRASE.into(),
-                    git: config::GitMeta { origin },
+                    method: crate::vaultconfig::UnlockMethod::Passphrase,
+                    git: config::GitMeta {
+                        origin: Some(origin),
+                    },
                     ..Default::default()
                 },
             )
             .unwrap();
-        config::save(&paths::global_config_file(&dirs), &global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&dirs), &global).unwrap();
         gitrepo::push(&vault.path, &gittest::remote_options()).unwrap();
         Recover {
             _root: root,
@@ -172,7 +174,7 @@ impl Recover {
 
     /// `.age-recipients`, read as itself.
     pub(super) fn recipients_file(&self) -> Vec<String> {
-        crate::recipients::read(&self.vault.path.join(".age-recipients")).unwrap()
+        crate::recipients::load(&self.vault.path.join(".age-recipients")).unwrap()
     }
 
     /// Whether `secret` opens every entry on disk.
@@ -268,7 +270,7 @@ fn recovery_identity_refuses_a_device_key() {
             if d == "desktop-1" && *pubkey == desktop.pubkey),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert!(err.to_string().contains("desktop-1"), "{err}");
 }
 
@@ -289,7 +291,7 @@ fn recovery_identity_refuses_strangers_and_garbage() {
             if *pubkey == stranger.pubkey && vault == NAME),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
 
     for (name, garbage) in [
         ("garbage", "not a key"),
@@ -304,7 +306,7 @@ fn recovery_identity_refuses_strangers_and_garbage() {
             matches!(err, RecoveryError::MalformedRecoveryKey),
             "{name}: {err:?}"
         );
-        assert_eq!(err.code(), Code::Usage, "{name}");
+        assert_eq!(err.kind(), ErrorKind::Usage, "{name}");
     }
 }
 
@@ -336,7 +338,7 @@ fn recovery_identity_warns_like_unlock_when_the_page_lock_fails() {
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
         warnings[0].starts_with(&format!(
-            "gage: could not lock {RECOVERY_DEVICE_LABEL}'s key material into memory"
+            "could not lock {RECOVERY_DEVICE_LABEL}'s key material into memory"
         )),
         "{warnings:?}"
     );
@@ -569,7 +571,7 @@ fn recover_device_refusals_write_nothing() {
     type Check = fn(&RecoveryError) -> bool;
     type Make = Box<dyn Fn(&Recover) -> RecoverSpec>;
     let stranger = fresh_pubkey();
-    let cases: Vec<(&str, Make, Check, Code)> = vec![
+    let cases: Vec<(&str, Make, Check, ErrorKind)> = vec![
         (
             "a device name already in use",
             Box::new({
@@ -580,7 +582,7 @@ fn recover_device_refusals_write_nothing() {
                 matches!(e, RecoveryError::Recipient(R::RecipientExists { device, pubkey: None })
                     if device == OWNER)
             },
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
         (
             "a public key already in use",
@@ -589,7 +591,7 @@ fn recover_device_refusals_write_nothing() {
                 matches!(e, RecoveryError::Recipient(R::RecipientExists { device, pubkey: Some(_) })
                     if device == OWNER)
             },
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
         (
             "a device claiming the recovery label",
@@ -598,7 +600,7 @@ fn recover_device_refusals_write_nothing() {
                 move |_| spec(RECOVERY_DEVICE_LABEL, &k)
             }),
             |e| matches!(e, RecoveryError::Recipient(R::ReservedDeviceLabel(_))),
-            Code::Usage,
+            ErrorKind::Usage,
         ),
         (
             "an invalid device name",
@@ -607,13 +609,13 @@ fn recover_device_refusals_write_nothing() {
                 move |_| spec("../escape", &k)
             }),
             |e| matches!(e, RecoveryError::Recipient(R::InvalidDeviceName(_))),
-            Code::Usage,
+            ErrorKind::Usage,
         ),
         (
             "a malformed device key",
             Box::new(|_| spec("laptop-2", "age1nope")),
             |e| matches!(e, RecoveryError::Recipient(R::InvalidRecipient(_))),
-            Code::Usage,
+            ErrorKind::Usage,
         ),
         (
             "a malformed replacement recovery key",
@@ -625,7 +627,7 @@ fn recover_device_refusals_write_nothing() {
                 }
             }),
             |e| matches!(e, RecoveryError::Recipient(R::InvalidRecipient(_))),
-            Code::Usage,
+            ErrorKind::Usage,
         ),
         (
             "a replacement recovery key already in use",
@@ -640,7 +642,7 @@ fn recover_device_refusals_write_nothing() {
                 matches!(e, RecoveryError::Recipient(R::RecipientExists { device, pubkey: Some(_) })
                     if device == OWNER)
             },
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
         (
             "--replaces naming nobody",
@@ -655,7 +657,7 @@ fn recover_device_refusals_write_nothing() {
                 matches!(e, RecoveryError::Recipient(R::RecipientNotFound { query })
                     if query == "desktop-9")
             },
-            Code::NotFound,
+            ErrorKind::NotFound,
         ),
         (
             "--replaces naming the recovery key",
@@ -667,7 +669,7 @@ fn recover_device_refusals_write_nothing() {
                 }
             }),
             |e| matches!(e, RecoveryError::ReplacesRecoveryKey),
-            Code::Usage,
+            ErrorKind::Usage,
         ),
     ];
     for (name, make, check, code) in cases {
@@ -678,7 +680,7 @@ fn recover_device_refusals_write_nothing() {
         let err = f.recover(&make(&f), &FakePrompter::new()).unwrap_err();
 
         assert!(check(&err), "{name}: {err:?}");
-        assert_eq!(err.code(), code, "{name}");
+        assert_eq!(err.kind(), code, "{name}");
         assert_wrote_nothing(&f, &head, &labels, name);
         assert_never_quotes(&err, &f.key().secret);
     }
@@ -742,7 +744,7 @@ fn recover_device_refuses_to_re_add_the_retired_key() {
                 if *pubkey == f.key().pubkey && as_device == as_role),
             "{name}: {err:?}"
         );
-        assert_eq!(err.code(), Code::Conflict, "{name}");
+        assert_eq!(err.kind(), ErrorKind::Conflict, "{name}");
         assert_wrote_nothing(&f, &head, &labels, name);
         // Not a silent partial: still the vault's recovery key, so a
         // corrected retry works.
@@ -805,7 +807,7 @@ fn apply_swap_refuses_leaving_nothing_to_encrypt_to() {
         ),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
 }
 
 // --- the secret's lifetime --------------------------------------------
@@ -1113,7 +1115,7 @@ fn rotate_recovery_key_refuses_the_key_it_is_retiring() {
             if *pubkey == f.key().pubkey && as_device == RECOVERY_DEVICE_LABEL),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_wrote_nothing(&f, &head, &labels, "retired key");
 }
 
@@ -1121,7 +1123,7 @@ fn rotate_recovery_key_refuses_the_key_it_is_retiring() {
 fn rotate_recovery_key_refusals_write_nothing() {
     type Check = fn(&RecoveryError) -> bool;
     type Key = fn(&Recover) -> String;
-    let cases: [(&str, Key, Check, Code); 2] = [
+    let cases: [(&str, Key, Check, ErrorKind); 2] = [
         (
             "a malformed key",
             |_| "age1nope".into(),
@@ -1131,7 +1133,7 @@ fn rotate_recovery_key_refusals_write_nothing() {
                     RecoveryError::Recipient(RecipientError::InvalidRecipient(_))
                 )
             },
-            Code::Usage,
+            ErrorKind::Usage,
         ),
         (
             "a key that is a device's",
@@ -1140,7 +1142,7 @@ fn rotate_recovery_key_refusals_write_nothing() {
                 matches!(e, RecoveryError::Recipient(RecipientError::RecipientExists {
                     device, pubkey: Some(_) }) if device == OWNER)
             },
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
     ];
     for (name, key, check, code) in cases {
@@ -1151,7 +1153,7 @@ fn rotate_recovery_key_refusals_write_nothing() {
         let err = f.rotate(&key(&f), &FakePrompter::new()).unwrap_err();
 
         assert!(check(&err), "{name}: {err:?}");
-        assert_eq!(err.code(), code, "{name}");
+        assert_eq!(err.kind(), code, "{name}");
         assert_wrote_nothing(&f, &head, &labels, name);
     }
 }
@@ -1252,7 +1254,7 @@ fn rotate_refuses_to_evict_the_acting_device() {
         matches!(&err, RecoveryError::WouldEvictActingDevice { vault } if vault == NAME),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_wrote_nothing(&f, &head, &labels, "acting device");
 }
 
@@ -1324,7 +1326,7 @@ fn both_swaps_refuse_an_actor_who_cannot_read_every_entry() {
             unreadable: 1, total: 2, device, .. }) if device == RECOVERY_DEVICE_LABEL),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_wrote_nothing(&f, &head, &labels, "recover");
     assert!(
         p.warnings().iter().all(|w| !w.contains("git history")),

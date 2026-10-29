@@ -5,7 +5,7 @@
 use super::approve_tests::{approve_as, codes_of, commits, enrolled, opened_for};
 use super::fixtures_tests::{file_hand_sealed, good_payload, hours, new_pubkey};
 use super::*;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::prompter::FakePrompter;
 use crate::recovery::RECOVERY_DEVICE_LABEL;
 use crate::remotesync::tests::SyncVault;
@@ -34,11 +34,11 @@ fn approval_refuses_a_request_that_claims_the_recovery_label() {
         matches!(pre, EnrollmentError::ReservedDeviceLabel(_)),
         "{pre}"
     );
-    assert_eq!(pre.code(), Code::Usage);
+    assert_eq!(pre.kind(), ErrorKind::Usage);
 
     let codes = vec![zeroize::Zeroizing::new(code)];
     let err = approve_as(&a, &approvals, &codes, &FakePrompter::new()).unwrap_err();
-    assert_eq!(err.code(), Code::Usage, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Usage, "{err}");
     assert_eq!(commits(&a.vault), before);
     assert_eq!(a.vault.recipients().unwrap().len(), 1);
 }
@@ -58,7 +58,7 @@ fn approval_refuses_a_relabel_to_the_recovery_label() {
     );
 
     let err = approve_as(&a, &approvals, &codes_of(&[&req]), &FakePrompter::new()).unwrap_err();
-    assert_eq!(err.code(), Code::Usage, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Usage, "{err}");
     assert_eq!(commits(&a.vault), before);
     assert_eq!(a.vault.recipients().unwrap().len(), 1);
     // Still pending: nothing was consumed.

@@ -10,7 +10,7 @@
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::prompter::Prompter;
 use gage::xdgpaths::{self, Dirs};
 
@@ -27,11 +27,13 @@ pub mod coredump;
 mod duration;
 mod editor;
 pub mod error;
+pub mod exitcode;
 mod history;
 mod lineread;
 pub mod prompter;
 mod qr;
 pub mod registry;
+mod remedy;
 mod repl;
 pub mod scriptprompt;
 mod shell;
@@ -40,7 +42,7 @@ pub mod version;
 use cli::Outcome;
 use clipboard::ClipboardKeeper;
 use commands::Keys;
-use error::{CliError, prefix_once};
+use error::{CliError, prefixed};
 use registry::{Availability, Registry};
 pub use version::BuildInfo;
 
@@ -99,7 +101,7 @@ pub struct Io<'a> {
 
 /// Runs one invocation (`args` without the program name) and returns its
 /// exit code.
-pub fn run(args: &[String], io: &mut Io, prompter: &dyn Prompter) -> Code {
+pub fn run(args: &[String], io: &mut Io, prompter: &dyn Prompter) -> ExitCode {
     run_with(&registry::registry(), args, io, prompter)
 }
 
@@ -110,13 +112,13 @@ pub(crate) fn run_with(
     args: &[String],
     io: &mut Io,
     prompter: &dyn Prompter,
-) -> Code {
+) -> ExitCode {
     match dispatch(reg, args, io, prompter) {
-        Ok(()) => Code::Success,
+        Ok(()) => ExitCode::Success,
         Err(err) => {
             // If reporting the error fails there is nowhere left to report
             // that, and the exit code still carries the outcome.
-            let _ = writeln!(io.stderr, "{}", prefix_once(&err.to_string()));
+            let _ = writeln!(io.stderr, "{}", prefixed(&err));
             err.code()
         }
     }
@@ -168,7 +170,7 @@ fn dispatch(
                 .expect("parse only returns registered commands");
             if info.availability == Availability::SessionOnly {
                 return Err(CliError::new(
-                    Code::Usage,
+                    ExitCode::Usage,
                     format!(
                         "{name} is only available in a session; run `gage` with no arguments to start one"
                     ),
@@ -185,7 +187,7 @@ fn dispatch(
             };
             commands::run(name, &matches, io, &mut Keys::OneShot(prompter)).unwrap_or_else(|| {
                 Err(CliError::new(
-                    Code::Internal,
+                    ExitCode::Internal,
                     format!("{name} is not implemented yet"),
                 ))
             })
@@ -252,6 +254,8 @@ mod repl_tests;
 mod script_tests;
 #[cfg(test)]
 mod search_tests;
+#[cfg(test)]
+mod stderr_golden_tests;
 #[cfg(test)]
 mod sync_tests;
 #[cfg(test)]

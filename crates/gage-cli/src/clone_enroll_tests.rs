@@ -3,7 +3,7 @@
 //! what lets a test see the prompt as rendered rather than only the answer
 //! a fake gave.
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::gittest::{self, BareRemote};
 use gage::prompter::FakePrompter;
 use zeroize::Zeroizing;
@@ -75,12 +75,12 @@ fn interactive_clone_offers_to_enroll_and_yes_publishes() {
 
     let r = clone_interactive(&b, &clone_args(&url, "phone-1"), &answers("y\n"));
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stderr.contains("enrollment request"), "{}", r.stderr);
     assert!(r.stdout.contains("GAGE-"), "{}", r.stdout);
     assert_eq!(pending_on_remote(&origin).len(), 1);
     assert_eq!(identity_files(&b).len(), 1);
-    assert!(!b.entry(VAULT).pubkey.is_empty(), "no pubkey was recorded");
+    assert!(!b.entry(VAULT).pubkey.is_none(), "no pubkey was recorded");
 }
 
 // A `confirm_default_yes` wired to
@@ -93,7 +93,7 @@ fn clone_offer_defaults_to_yes() {
 
     let r = clone_interactive(&b, &clone_args(&url, "phone-1"), &answers("\n"));
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stderr.contains("[Y/n]"), "{}", r.stderr);
     assert_eq!(pending_on_remote(&origin).len(), 1, "a bare Enter enrolls");
 }
@@ -134,7 +134,7 @@ fn clone_offer_declined_leaves_the_vault_cloned() {
 
     let r = clone_interactive(&b, &clone_args(&url, "phone-1"), "n\n");
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     b.entry(VAULT);
     assert!(identity_files(&b).is_empty());
     assert!(pending_on_remote(&origin).is_empty());
@@ -142,7 +142,7 @@ fn clone_offer_declined_leaves_the_vault_cloned() {
 
     // And the route the message points at still works.
     let r = b.run(&["identity", "enroll", "--device", "phone-1"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(pending_on_remote(&origin).len(), 1);
 }
 
@@ -169,7 +169,7 @@ fn clone_and_session_point_at_recovery_enroll() {
 
     let b = Env::new();
     let r = b.run_with(&clone_args(&url, "phone-1"), &FakePrompter::new());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout
             .contains("`gage recovery enroll` — it admits this device and retires the key it used"),
@@ -188,7 +188,7 @@ fn clone_and_session_point_at_recovery_enroll() {
         },
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(r.stderr.contains("gage identity enroll"), "{}", r.stderr);
     assert!(
         r.stderr
@@ -210,7 +210,7 @@ fn non_interactive_clone_never_offers_and_exits_zero() {
 
     let r = b.run_with(&clone_args(&url, "phone-1"), &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(p.unlock_requests().is_empty());
     assert!(p.confirm_default_yes_prompts().is_empty(), "it offered");
     assert!(identity_files(&b).is_empty());
@@ -236,7 +236,7 @@ fn the_offer_tracks_where_a_create_can_be_answered() {
         },
         &p,
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(
         p.confirm_default_yes_prompts().len(),
         1,
@@ -247,7 +247,7 @@ fn the_offer_tracks_where_a_create_can_be_answered() {
     // panic on an unscripted offer).
     let b = Env::new();
     let r = b.run_with(&clone_args(&url, "phone-1"), &FakePrompter::new());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     // `--stdin`: the command stream is stdin, and clone is not a session
     // command, so nothing is cloned, offered or published.
@@ -262,7 +262,7 @@ fn the_offer_tracks_where_a_create_can_be_answered() {
         },
         &FakePrompter::new(),
     );
-    assert_ne!(r.code, Code::Success, "{}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "{}", r.stdout);
     assert!(pending_on_remote(&origin).is_empty());
 }
 
@@ -274,7 +274,7 @@ fn clone_does_not_offer_when_this_device_already_holds_an_identity() {
     let (_owner, origin, url) = owned_vault();
     let b = Env::new();
     let r = clone_interactive(&b, &clone_args(&url, "phone-1"), "n\n");
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     b.identity_add(&["--device", "phone-1"]);
 
     // The same vault again under a second local name: the identity file
@@ -299,7 +299,7 @@ fn clone_does_not_offer_when_this_device_already_holds_an_identity() {
         &p,
     );
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(p.unlock_requests().is_empty(), "prompted during a clone");
     assert!(p.confirm_default_yes_prompts().is_empty(), "it offered");
     assert!(!r.stdout.contains("cannot decrypt"), "{}", r.stdout);
@@ -316,7 +316,7 @@ fn clone_device_flag_carries_through_to_the_offer() {
 
     let r = clone_interactive(&b, &clone_args(&url, "deliberately-named"), &answers("y\n"));
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("deliberately-named"), "{}", r.stdout);
     let entry = b.entry(VAULT);
     assert_eq!(entry.device, "deliberately-named");

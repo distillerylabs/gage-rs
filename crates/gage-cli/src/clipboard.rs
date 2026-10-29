@@ -12,12 +12,12 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::time::Duration;
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use zeroize::Zeroizing;
 
-use crate::error::{CliError, prefix_once};
+use crate::error::{CliError, prefixed};
 
 /// The system clipboard, behind one signature. Its only production
 /// implementation is [`SystemClipboard`]. Writing `""` clears it.
@@ -194,10 +194,7 @@ impl ClipboardKeeper {
     pub fn copy(&self, value: &str) -> Result<(), CliError> {
         let mut st = self.inner.state();
         st.port.write(value).map_err(|e| {
-            CliError::new(
-                Code::Internal,
-                format!("gage: copying to the clipboard: {e}"),
-            )
+            CliError::new(ExitCode::Internal, format!("copying to the clipboard: {e}"))
         })?;
         if let Some(mut handle) = st.scheduled.take() {
             handle.stop();
@@ -260,7 +257,7 @@ impl Inner {
         if let Err(err) = self.clear(Some(generation)) {
             let mut report = self.report.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(sink) = report.as_mut() {
-                let _ = writeln!(sink, "{}", prefix_once(&err.to_string()));
+                let _ = writeln!(sink, "{}", prefixed(&err));
                 let _ = sink.flush();
             }
         }
@@ -283,8 +280,8 @@ impl Inner {
         };
         let current = Zeroizing::new(st.port.read().map_err(|e| {
             CliError::new(
-                Code::Internal,
-                format!("gage: reading the clipboard back: {e}"),
+                ExitCode::Internal,
+                format!("reading the clipboard back: {e}"),
             )
         })?);
         // Constant-time not because a timing attack is plausible here, but
@@ -293,9 +290,9 @@ impl Inner {
         if digest(&current).ct_eq(&wrote).unwrap_u8() != 1 {
             return Ok(());
         }
-        st.port.write("").map_err(|e| {
-            CliError::new(Code::Internal, format!("gage: clearing the clipboard: {e}"))
-        })
+        st.port
+            .write("")
+            .map_err(|e| CliError::new(ExitCode::Internal, format!("clearing the clipboard: {e}")))
     }
 }
 

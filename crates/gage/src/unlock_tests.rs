@@ -9,15 +9,15 @@ use std::sync::{Arc, Mutex};
 
 use crate::config::{self, Global, VaultEntry};
 use crate::crypt::{self, Recipient};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::identity::SECRET_KEY_PREFIX;
 use crate::identityfile::{self, MARKER_FILE_NAME, UnlockError};
 use crate::locker::{Locker, MemLocker};
 use crate::paths;
 use crate::prompter::{FakePrompter, Kind, PromptError, Purpose};
 use crate::testsupport::fast_scrypt;
-use crate::vault::{self, CreateSpec, Vault};
-use crate::vaultconfig;
+use crate::vault::{CreateSpec, Vault};
+use crate::vaultconfig::VaultId;
 use crate::xdgpaths::Dirs;
 
 const PASSPHRASE: &str = "correct horse battery staple";
@@ -42,29 +42,29 @@ impl Machine {
 
     /// Writes the global config record `Vault::unlock` reads this device's
     /// name and method from, replacing any other.
-    fn register(&self, name: &str, id: &str, device: &str, method: &str) {
+    fn register(&self, name: &str, id: &VaultId, device: &str, method: &str) {
         let mut global = Global::default();
         global
             .register(
                 name,
                 VaultEntry {
                     path: self.root.path().join(name),
-                    id: id.to_string(),
-                    vault_type: vault::TYPE_GIT.into(),
+                    id: Some(id.clone()),
+                    vault_type: crate::vaultconfig::VaultType::Git,
                     device: device.to_string(),
-                    method: method.to_string(),
+                    method: method.into(),
                     ..Default::default()
                 },
             )
             .unwrap();
-        config::save(&paths::global_config_file(&self.dirs), &global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&self.dirs), &global).unwrap();
     }
 
-    fn vault(&self, name: &str, id: &str) -> Vault {
+    fn vault(&self, name: &str, id: &VaultId) -> Vault {
         Vault::for_tests(&self.dirs, name, id)
     }
 
-    fn create_identity(&self, id: &str, name: &str, device: &str) -> String {
+    fn create_identity(&self, id: &VaultId, name: &str, device: &str) -> String {
         identityfile::create(
             &self.dirs,
             id,
@@ -78,13 +78,13 @@ impl Machine {
     /// A registered vault with this device's identity on disk: the vault
     /// and the identity's public key.
     fn unlockable(&self, name: &str, device: &str) -> (Vault, String) {
-        let id = vaultconfig::new_id();
-        self.register(name, &id, device, vault::METHOD_PASSPHRASE);
+        let id = VaultId::new();
+        self.register(name, &id, device, "passphrase");
         let pubkey = self.create_identity(&id, name, device);
         (self.vault(name, &id), pubkey)
     }
 
-    fn identity_path(&self, id: &str, device: &str) -> PathBuf {
+    fn identity_path(&self, id: &VaultId, device: &str) -> PathBuf {
         paths::identity_file_path(&self.dirs, id, device).unwrap()
     }
 
@@ -94,8 +94,8 @@ impl Machine {
 
     /// The file names in a vault's identities directory, sorted, or `None`
     /// if the directory is gone.
-    fn identities_dir_entries(&self, id: &str) -> Option<Vec<String>> {
-        let dir = paths::identities_dir(&self.dirs, id).unwrap();
+    fn identities_dir_entries(&self, id: &VaultId) -> Option<Vec<String>> {
+        let dir = paths::identities_dir(&self.dirs, id);
         let entries = std::fs::read_dir(dir).ok()?;
         let mut names: Vec<String> = entries
             .map(|e| e.unwrap().file_name().into_string().unwrap())
@@ -348,10 +348,10 @@ fn default_locker_is_the_real_memlock_backed_one() {
     let root = tempfile::tempdir().unwrap();
     let spec = CreateSpec {
         name: "personal".into(),
-        id: vaultconfig::new_id(),
+        id: VaultId::new(),
         path: root.path().join("personal"),
-        vault_type: vault::TYPE_GIT.into(),
-        method: vault::METHOD_PASSPHRASE.into(),
+        vault_type: crate::vaultconfig::VaultType::Git,
+        method: crate::vaultconfig::UnlockMethod::Passphrase,
         device: "laptop-1".into(),
         recipients: vec![age::x25519::Identity::generate().to_public().to_string()],
         extra_recipients: Vec::new(),
@@ -360,7 +360,7 @@ fn default_locker_is_the_real_memlock_backed_one() {
     let created = Vault::create(&m.dirs, &spec).unwrap();
     let entry = VaultEntry {
         path: spec.path.clone(),
-        id: spec.id.clone(),
+        id: Some(spec.id.clone()),
         ..Default::default()
     };
     let resolved = Vault::from_registration(&m.dirs, "personal", &entry).unwrap();
@@ -378,7 +378,7 @@ fn default_locker_is_the_real_memlock_backed_one() {
 #[test]
 fn create_identity_writes_the_file_with_tight_permissions() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     let p = prompter(&[PASSPHRASE]);
 
     let pubkey = identityfile::create(&m.dirs, &id, "personal", "laptop-1", &p).unwrap();
@@ -422,8 +422,8 @@ fn create_identity_writes_the_file_with_tight_permissions() {
 fn create_identity_tightens_an_existing_looser_directory() {
     use std::os::unix::fs::PermissionsExt;
     let m = Machine::new();
-    let id = vaultconfig::new_id();
-    let dir = paths::identities_dir(&m.dirs, &id).unwrap();
+    let id = VaultId::new();
+    let dir = paths::identities_dir(&m.dirs, &id);
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
 
@@ -438,7 +438,7 @@ fn create_identity_tightens_an_existing_looser_directory() {
 #[test]
 fn create_identity_file_is_passphrase_wrapped_and_sole_recipient() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     let pubkey = m.create_identity(&id, "personal", "laptop-1");
     let data = std::fs::read(m.identity_path(&id, "laptop-1")).unwrap();
     let text = String::from_utf8_lossy(&data);
@@ -472,7 +472,7 @@ fn create_identity_file_is_passphrase_wrapped_and_sole_recipient() {
 #[test]
 fn create_identity_rejects_an_empty_passphrase() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     let err =
         identityfile::create(&m.dirs, &id, "personal", "laptop-1", &prompter(&[""])).unwrap_err();
     assert!(matches!(err, UnlockError::EmptyPassphrase), "{err}");
@@ -487,7 +487,7 @@ fn create_identity_rejects_an_empty_passphrase() {
 #[test]
 fn identity_file_is_age_keygen_compatible() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     let pubkey = m.create_identity(&id, "personal", "laptop-1");
     let wrapped = std::fs::read(m.identity_path(&id, "laptop-1")).unwrap();
 
@@ -526,7 +526,7 @@ fn identity_file_is_age_keygen_compatible() {
 #[test]
 fn create_identity_reuses_an_existing_file() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     let first = m.create_identity(&id, "personal", "laptop-1");
     let before = std::fs::read(m.identity_path(&id, "laptop-1")).unwrap();
 
@@ -551,7 +551,7 @@ fn create_identity_reuses_an_existing_file() {
         before
     );
 
-    m.register("personal", &id, "laptop-1", vault::METHOD_PASSPHRASE);
+    m.register("personal", &id, "laptop-1", "passphrase");
     let unlocked = m
         .vault("personal", &id)
         .unlock(&prompter(&[PASSPHRASE]))
@@ -564,7 +564,7 @@ fn create_identity_reuses_an_existing_file() {
 #[test]
 fn create_identity_reuse_rejects_wrong_passphrase() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     m.create_identity(&id, "personal", "laptop-1");
     let before = std::fs::read(m.identity_path(&id, "laptop-1")).unwrap();
 
@@ -589,7 +589,7 @@ fn create_identity_refuses_an_unsafe_device_name() {
     let m = Machine::new();
     let err = identityfile::create(
         &m.dirs,
-        &vaultconfig::new_id(),
+        &VaultId::new(),
         "personal",
         "../../escape",
         &FakePrompter::new(),
@@ -610,39 +610,18 @@ fn create_identity_refuses_an_unsafe_device_name() {
 #[test]
 fn identity_file_path_refuses_an_unsafe_device_name() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     for device in std::iter::once(String::new()).chain(unsafe_device_names()) {
         let err = paths::identity_file_path(&m.dirs, &id, &device).unwrap_err();
         assert_eq!(err, paths::Error::InvalidDeviceName(device.clone()));
-        assert_eq!(err.code(), Code::LockedOrAuth);
-    }
-}
-
-// The other
-// path component is the vault id, and anything but a UUID is refused.
-#[test]
-fn identity_file_path_refuses_an_unsafe_vault_name() {
-    let m = Machine::new();
-    for id in [
-        "",
-        ".",
-        "..",
-        "../evil",
-        "a/b",
-        r"a\b",
-        "C:evil",
-        "trailing/",
-        "personal",
-    ] {
-        let err = paths::identity_file_path(&m.dirs, id, "laptop-1").unwrap_err();
-        assert_eq!(err, paths::Error::InvalidVaultId(id.to_string()), "{id:?}");
+        assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     }
 }
 
 #[test]
 fn remove_identity_is_the_rollback_path_and_nothing_more() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     m.create_identity(&id, "personal", "laptop-1");
     m.create_identity(&id, "personal", "desktop-2");
 
@@ -659,7 +638,7 @@ fn remove_identity_is_the_rollback_path_and_nothing_more() {
     let err = identityfile::remove(&m.dirs, &id, "../../escape").unwrap_err();
     assert!(matches!(err, UnlockError::UnsafePath(_)), "{err}");
 
-    m.register("personal", &id, "desktop-2", vault::METHOD_PASSPHRASE);
+    m.register("personal", &id, "desktop-2", "passphrase");
     m.vault("personal", &id)
         .unlock(&prompter(&[PASSPHRASE]))
         .expect("the surviving identity no longer unlocks");
@@ -668,13 +647,13 @@ fn remove_identity_is_the_rollback_path_and_nothing_more() {
 #[test]
 fn identities_directory_carries_a_plaintext_marker_naming_the_vault() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     m.create_identity(&id, "personal", "laptop-1");
     assert_eq!(
         m.identities_dir_entries(&id).unwrap(),
         ["laptop-1.age", MARKER_FILE_NAME]
     );
-    let dir = paths::identities_dir(&m.dirs, &id).unwrap();
+    let dir = paths::identities_dir(&m.dirs, &id);
     let marker = std::fs::read_to_string(dir.join(MARKER_FILE_NAME)).unwrap();
     assert_eq!(marker.trim(), "personal");
 }
@@ -685,9 +664,7 @@ fn identities_directory_carries_a_plaintext_marker_naming_the_vault() {
 fn nothing_reads_the_marker_to_make_a_decision() {
     let m = Machine::new();
     let (v, pubkey) = m.unlockable("personal", "laptop-1");
-    let marker = paths::identities_dir(&m.dirs, &v.id)
-        .unwrap()
-        .join(MARKER_FILE_NAME);
+    let marker = paths::identities_dir(&m.dirs, &v.id).join(MARKER_FILE_NAME);
     std::fs::remove_file(&marker).unwrap();
 
     let unlocked = v
@@ -700,7 +677,7 @@ fn nothing_reads_the_marker_to_make_a_decision() {
 #[test]
 fn removing_the_last_identity_leaves_no_orphaned_directory() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     m.create_identity(&id, "personal", "laptop-1");
     identityfile::remove(&m.dirs, &id, "laptop-1").unwrap();
     assert_eq!(m.identities_dir_entries(&id), None);
@@ -709,7 +686,7 @@ fn removing_the_last_identity_leaves_no_orphaned_directory() {
 #[test]
 fn removing_a_non_last_identity_leaves_the_marker_in_place() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     for device in ["laptop-1", "desktop-2"] {
         m.create_identity(&id, "personal", device);
     }
@@ -727,7 +704,7 @@ fn removing_a_non_last_identity_leaves_the_marker_in_place() {
 #[test]
 fn backup_of_a_missing_file_is_none() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
+    let id = VaultId::new();
     assert!(
         identityfile::backup(&m.dirs, &id, "laptop-1")
             .unwrap()
@@ -814,7 +791,7 @@ fn unlock_with_the_wrong_passphrase_is_distinguishable() {
         .unlock(&prompter_then_gives_up(&["not the passphrase"]))
         .unwrap_err();
     assert!(matches!(err, UnlockError::WrongPassphrase(_)), "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
 }
 
 // The library
@@ -857,7 +834,7 @@ fn unlock_with_a_corrupt_identity_file_is_distinguishable() {
     truncate_identity_file(&m.identity_path(&v.id, "laptop-1"));
     let err = v.unlock(&prompter(&[PASSPHRASE])).unwrap_err();
     assert!(matches!(err, UnlockError::CorruptIdentityFile(_)), "{err}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
 }
 
 // A valid age file wrapped to a public key fails exactly like a bad
@@ -923,7 +900,7 @@ fn unlock_of_a_file_claiming_excessive_work_is_corrupt_not_wrong_passphrase() {
         matches!(err, UnlockError::CorruptIdentityFile(_)),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(p.unlock_requests().len(), 1, "re-prompted for a passphrase");
     assert!(
         start.elapsed() < std::time::Duration::from_secs(5),
@@ -964,21 +941,27 @@ fn unlock_rejects_an_empty_passphrase() {
     let p = prompter(&[""]);
     let err = v.unlock(&p).unwrap_err();
     assert!(matches!(err, UnlockError::EmptyPassphrase), "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert_eq!(p.unlock_requests().len(), 1);
 }
 
 fn assert_no_local_identity(err: UnlockError) {
-    assert!(matches!(err, UnlockError::NoLocalIdentity(_)), "{err:?}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert!(
+        matches!(
+            err,
+            UnlockError::NoLocalIdentity(_) | UnlockError::NoIdentityFile(_)
+        ),
+        "{err:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
 }
 
 #[test]
 fn unlock_with_no_local_identity_is_distinguishable() {
     // No identity file.
     let m = Machine::new();
-    let id = vaultconfig::new_id();
-    m.register("personal", &id, "laptop-1", vault::METHOD_PASSPHRASE);
+    let id = VaultId::new();
+    m.register("personal", &id, "laptop-1", "passphrase");
     assert_no_local_identity(
         m.vault("personal", &id)
             .unlock(&prompter(&[PASSPHRASE]))
@@ -986,7 +969,7 @@ fn unlock_with_no_local_identity_is_distinguishable() {
     );
 
     // The vault isn't registered on this machine.
-    let other = vaultconfig::new_id();
+    let other = VaultId::new();
     assert_no_local_identity(
         m.vault("some-other-vault", &other)
             .unlock(&prompter(&[PASSPHRASE]))
@@ -1010,10 +993,10 @@ fn unlock_dispatches_on_the_local_method_not_the_vault_default() {
     let root = tempfile::tempdir().unwrap();
     let spec = CreateSpec {
         name: "personal".into(),
-        id: vaultconfig::new_id(),
+        id: VaultId::new(),
         path: root.path().join("personal"),
-        vault_type: vault::TYPE_GIT.into(),
-        method: vault::METHOD_PASSPHRASE.into(),
+        vault_type: crate::vaultconfig::VaultType::Git,
+        method: crate::vaultconfig::UnlockMethod::Passphrase,
         device: "laptop-1".into(),
         recipients: vec![age::x25519::Identity::generate().to_public().to_string()],
         extra_recipients: Vec::new(),
@@ -1030,7 +1013,7 @@ fn unlock_dispatches_on_the_local_method_not_the_vault_default() {
         "{err}"
     );
     assert!(err.to_string().contains("yubikey"), "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert!(
         p.unlock_requests().is_empty(),
         "prompted despite the method not being passphrase"
@@ -1046,8 +1029,8 @@ fn unlock_dispatches_on_the_local_method_not_the_vault_default() {
 fn unlock_never_builds_a_path_from_an_unvalidated_device_name() {
     for device in unsafe_device_names() {
         let m = Machine::new();
-        let id = vaultconfig::new_id();
-        m.register("personal", &id, &device, vault::METHOD_PASSPHRASE);
+        let id = VaultId::new();
+        m.register("personal", &id, &device, "passphrase");
 
         let err = m
             .vault("personal", &id)
@@ -1058,7 +1041,7 @@ fn unlock_never_builds_a_path_from_an_unvalidated_device_name() {
             matches!(&err, UnlockError::UnsafePath(paths::Error::InvalidDeviceName(d)) if *d == device),
             "{device:?}: {err:?}"
         );
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
         assert!(
             !m.identities_root().exists(),
             "{device:?}: unlock created something under identities/"
@@ -1071,8 +1054,8 @@ fn unlock_never_builds_a_path_from_an_unvalidated_device_name() {
 #[test]
 fn unlock_with_no_recorded_device_is_a_missing_identity_not_an_unsafe_name() {
     let m = Machine::new();
-    let id = vaultconfig::new_id();
-    m.register("personal", &id, "", vault::METHOD_PASSPHRASE);
+    let id = VaultId::new();
+    m.register("personal", &id, "", "passphrase");
     assert_no_local_identity(
         m.vault("personal", &id)
             .unlock(&prompter(&[PASSPHRASE]))
@@ -1083,7 +1066,7 @@ fn unlock_with_no_recorded_device_is_a_missing_identity_not_an_unsafe_name() {
 // A frontend shows a warning as it is (the terminal prompter
 // prints it verbatim), so each one names gage itself, exactly once.
 #[test]
-fn warnings_do_not_double_gages_own_prefix() {
+fn warnings_leave_gages_name_to_the_frontend() {
     let m = Machine::new();
     let (v, _) = m.unlockable("personal", "laptop-1");
     let vault_id = v.id.clone();
@@ -1098,7 +1081,6 @@ fn warnings_do_not_double_gages_own_prefix() {
     let warnings = p.warnings();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
     for w in &warnings {
-        assert!(w.starts_with("gage: "), "does not name gage: {w}");
-        assert_eq!(w.matches("gage: ").count(), 1, "names gage twice: {w}");
+        assert!(!w.contains("gage: "), "names gage itself: {w}");
     }
 }

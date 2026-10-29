@@ -11,7 +11,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use age::secrecy::SecretString;
 use zeroize::Zeroizing;
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::identity::Identity;
 
 /// The log2 scrypt cost identity files are wrapped at: a deliberate number,
@@ -154,15 +154,15 @@ pub enum Error {
     Encrypt(String),
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
         match self {
             Error::NoRecipients
             | Error::MixedScryptRecipient { .. }
-            | Error::InvalidRecipient { .. } => Code::Usage,
-            Error::NotARecipient => Code::LockedOrAuth,
-            Error::CorruptCiphertext(_) => Code::Conflict,
-            Error::Encrypt(_) => Code::Internal,
+            | Error::InvalidRecipient { .. } => ErrorKind::Usage,
+            Error::NotARecipient => ErrorKind::LockedOrAuth,
+            Error::CorruptCiphertext(_) => ErrorKind::Conflict,
+            Error::Encrypt(_) => ErrorKind::Internal,
         }
     }
 }
@@ -473,7 +473,7 @@ mod tests {
     fn encrypt_to_zero_recipients_is_refused() {
         let err = encrypt(b"nobody could read this", &[]).unwrap_err();
         assert!(matches!(err, Error::NoRecipients), "{err}");
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
     }
 
     // A passphrase recipient cannot be combined with another. Both orderings, and
@@ -504,7 +504,7 @@ mod tests {
                 matches!(err, Error::MixedScryptRecipient { others: 1 }),
                 "{name}: {err}"
             );
-            assert_eq!(err.code(), Code::Usage, "{name}");
+            assert_eq!(err.kind(), ErrorKind::Usage, "{name}");
         }
     }
 
@@ -523,7 +523,7 @@ mod tests {
                 matches!(&err, Error::InvalidRecipient { recipient, .. } if recipient == s),
                 "{s:?}: {err}"
             );
-            assert_eq!(err.code(), Code::Usage);
+            assert_eq!(err.kind(), ErrorKind::Usage);
         }
     }
 
@@ -548,7 +548,7 @@ mod tests {
         let ct = encrypt(b"not for you", &[recipient]).unwrap();
         let err = decrypt(&ct, &wrap(&stranger)).unwrap_err();
         assert!(matches!(err, Error::NotARecipient), "{err}");
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     }
 
     fn flip(ct: &[u8], i: usize) -> Vec<u8> {
@@ -593,7 +593,7 @@ mod tests {
         for (name, damaged) in &corrupt {
             let err = decrypt(damaged, &wrap(&key)).unwrap_err();
             assert!(matches!(err, Error::CorruptCiphertext(_)), "{name}: {err}");
-            assert_eq!(err.code(), Code::Conflict, "{name}");
+            assert_eq!(err.kind(), ErrorKind::Conflict, "{name}");
         }
     }
 

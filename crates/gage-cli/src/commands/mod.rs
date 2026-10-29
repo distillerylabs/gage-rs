@@ -4,9 +4,9 @@
 
 use std::path::PathBuf;
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
 use gage::config::{self, Global};
-use gage::exitcode::Code;
 use gage::paths;
 use gage::prompter::Prompter;
 use gage::session::{OpenError, Session};
@@ -201,15 +201,15 @@ fn cwd() -> Result<PathBuf, CliError> {
 /// A registered vault by name: the lookup a session's opener runs, the
 /// same one one-shot `--use` resolves through.
 pub(crate) fn open_registered(dirs: &Dirs, name: &str) -> Result<Vault, OpenError> {
-    let global = config::load(&paths::global_config_file(dirs)).map_err(OpenError::new)?;
-    let entry = global.entry(name).map_err(OpenError::new)?;
-    Vault::from_registration(dirs, name, entry).map_err(OpenError::new)
+    let global = config::load_or_default(&paths::global_config_file(dirs))?;
+    let entry = global.entry(name)?;
+    Ok(Vault::from_registration(dirs, name, entry)?)
 }
 
 /// The global config and where it lives.
 fn load_global(io: &Io) -> Result<(PathBuf, Global), CliError> {
     let path = paths::global_config_file(&dirs(io)?);
-    let global = config::load(&path)?;
+    let global = config::load_or_default(&path)?;
     Ok((path, global))
 }
 
@@ -231,6 +231,6 @@ fn out(io: &mut Io, lines: &[String]) {
 
 /// An error a command constructs itself, rather than one a library call
 /// returned.
-fn fail(code: Code, msg: impl std::fmt::Display) -> CliError {
+fn fail(code: ExitCode, msg: impl std::fmt::Display) -> CliError {
     CliError::new(code, msg)
 }

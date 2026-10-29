@@ -2,8 +2,8 @@
 //! (see "Entry format" in the design doc). This module is the type and its
 //! YAML form; [`store`] is where entries meet the vault's files.
 //!
-//! The YAML is written by gage's own emitter ([`marshal`]) and read with
-//! `saphyr`'s parser ([`unmarshal`]), because a password manager cannot
+//! The YAML is written by gage's own emitter ([`Entry::to_yaml`]) and read with
+//! `saphyr`'s parser ([`Entry::from_yaml`]), because a password manager cannot
 //! delegate "this string comes back byte for byte" to a library's style
 //! heuristics: see `yaml` for the rules and the check behind them.
 
@@ -19,7 +19,7 @@ use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::crypt;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::identity::Identity;
 
 pub(crate) use crud::sort_list;
@@ -28,7 +28,6 @@ pub use crud::{
     WriteError, resolve_query,
 };
 pub use layout::{KeyLine, key_layout};
-pub use yaml::{marshal, unmarshal};
 
 /// The vault-relative directory every entry file lives under ("On-disk
 /// layout").
@@ -156,7 +155,7 @@ impl fmt::Debug for Extra {
 
 /// One vault secret, decrypted. See "Entry format" in the design doc.
 ///
-/// [`marshal`] writes these field by field in the design doc's order;
+/// [`Entry::to_yaml`] writes these field by field in the design doc's order;
 /// `every_entry_field_is_marshaled` destructures the struct, so a field
 /// added here that the emitter and parser don't know fails to compile.
 #[derive(Clone, Default, PartialEq, Eq)]
@@ -247,10 +246,10 @@ impl Entry {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum FieldError {
-    #[error("gage: entry {title:?} has no fields; --field {name} cannot be read from it")]
+    #[error("entry {title:?} has no fields; --field {name} cannot be read from it")]
     NoFields { title: String, name: String },
     /// `available` is sorted, so the message doesn't reshuffle between runs.
-    #[error("gage: entry {title:?} has no field {name:?}; it has: {}", .available.join(", "))]
+    #[error("entry {title:?} has no field {name:?}; it has: {}", .available.join(", "))]
     Unknown {
         title: String,
         name: String,
@@ -258,9 +257,9 @@ pub enum FieldError {
     },
 }
 
-impl HasCode for FieldError {
-    fn code(&self) -> Code {
-        Code::NotFound
+impl HasKind for FieldError {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::NotFound
     }
 }
 
@@ -268,7 +267,7 @@ impl HasCode for FieldError {
 #[non_exhaustive]
 pub enum Error {
     /// No file at `entries/<id>.age`.
-    #[error("gage: no entry with that id in this vault: {id}")]
+    #[error("no entry with that id in this vault: {id}")]
     EntryNotFound { id: Uuid },
     /// The decrypt errors, typed, passed through unwrapped rather than swallowed:
     /// a caller tells "wrong key" ([`crypt::Error::NotARecipient`]) from
@@ -277,38 +276,45 @@ pub enum Error {
     #[error(transparent)]
     Crypt(#[from] crypt::Error),
     /// The decrypted bytes are not an entry.
-    #[error("gage: parsing entry: {0}")]
+    #[error("parsing entry: {0}")]
     Parse(String),
     /// The entry would not survive its own YAML round trip, even fully
     /// quoted, so nothing was written: a corrupted secret written without
     /// complaint is the one outcome this layer must never produce.
-    #[error("gage: refusing to write an entry that does not survive its own YAML round trip: {0}")]
+    #[error("refusing to write an entry that does not survive its own YAML round trip: {0}")]
     Unfaithful(String),
-    #[error("gage: reading .age-recipients: {0}")]
+    #[error("reading .age-recipients: {0}")]
     Recipients(#[from] crate::recipients::Error),
-    #[error("gage: {action} {path}: {source}")]
+    #[error("{action} {path}: {source}")]
     Io {
         action: &'static str,
         path: std::path::PathBuf,
         source: std::io::Error,
     },
-    #[error("gage: writing entry {id}: {source}")]
+    #[error("writing entry {id}: {source}")]
     Write {
         id: Uuid,
         source: crate::atomicfile::Error,
     },
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
         match self {
-            Error::EntryNotFound { .. } => Code::NotFound,
-            Error::Crypt(e) => e.code(),
-            Error::Parse(_) => Code::Conflict,
+            Error::EntryNotFound { .. } => ErrorKind::NotFound,
+            Error::Crypt(e) => e.kind(),
+            Error::Parse(_) => ErrorKind::Conflict,
             Error::Unfaithful(_)
             | Error::Recipients(_)
             | Error::Io { .. }
-            | Error::Write { .. } => Code::Internal,
+            | Error::Write { .. } => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            Error::Crypt(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -367,7 +373,7 @@ mod tests {
             created: Timestamp::from_unix(1_768_386_720),
             ..Entry::default()
         };
-        let text = String::from_utf8(marshal(&e).unwrap().to_vec()).unwrap();
+        let text = String::from_utf8(e.to_yaml().unwrap().to_vec()).unwrap();
         assert!(text.contains("\ncreated: 2026-01-14T10:32:00Z\n"), "{text}");
     }
 
@@ -396,7 +402,7 @@ mod tests {
             fields,
             extra,
         } = &e;
-        let text = String::from_utf8(marshal(&e).unwrap().to_vec()).unwrap();
+        let text = String::from_utf8(e.to_yaml().unwrap().to_vec()).unwrap();
         for needle in [
             title.as_str(),
             description,
@@ -412,7 +418,7 @@ mod tests {
             assert!(text.contains(needle), "{needle:?} missing from:\n{text}");
         }
         assert_eq!(extra.len(), 1);
-        assert_eq!(unmarshal(text.as_bytes()).unwrap(), e);
+        assert_eq!(Entry::from_yaml(text.as_bytes()).unwrap(), e);
     }
 
     #[test]
@@ -471,10 +477,10 @@ mod tests {
     fn field_on_an_entry_with_no_fields_says_so() {
         let err = entry_with_fields(&[]).field("username").unwrap_err();
         assert!(matches!(err, FieldError::NoFields { .. }), "{err}");
-        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.kind(), ErrorKind::NotFound);
         assert_eq!(
             err.to_string(),
-            "gage: entry \"ProtonMail\" has no fields; --field username cannot be read from it"
+            "entry \"ProtonMail\" has no fields; --field username cannot be read from it"
         );
     }
 
@@ -484,11 +490,11 @@ mod tests {
     fn field_with_an_unknown_name_lists_the_names_that_exist() {
         let e = entry_with_fields(&[("zeta", "SECRET-Z"), ("alpha", "SECRET-A")]);
         let err = e.field("username").unwrap_err();
-        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.kind(), ErrorKind::NotFound);
         let msg = err.to_string();
         assert_eq!(
             msg,
-            "gage: entry \"ProtonMail\" has no field \"username\"; it has: alpha, zeta"
+            "entry \"ProtonMail\" has no field \"username\"; it has: alpha, zeta"
         );
         assert!(!msg.contains("SECRET"), "{msg}");
     }

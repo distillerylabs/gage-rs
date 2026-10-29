@@ -8,7 +8,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::prompter::FakePrompter;
 use gage::{paths, recipients, vaultconfig};
 
@@ -22,14 +22,15 @@ fn new_key() -> String {
 
 impl Env {
     fn identity_file(&self, name: &str, device: &str) -> PathBuf {
-        paths::identity_file_path(&self.dirs, &self.entry(name).id, device).unwrap()
+        paths::identity_file_path(&self.dirs, self.entry(name).id.as_ref().unwrap(), device)
+            .unwrap()
     }
 
     /// `vault remove <name>` answering the one confirmation with `answer`.
     fn remove_answering(&self, name: &str, answer: bool) -> (CliResult, FakePrompter) {
         let p = FakePrompter::new().with_confirm(answer);
         let r = self.run_with(&["vault", "remove", name], &p);
-        assert_eq!(r.code, Code::Success, "vault remove: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "vault remove: {}", r.stderr);
         (r, p)
     }
 
@@ -40,14 +41,14 @@ impl Env {
         let entry = self.entry(name);
         let replacement = new_key();
         let path = config_file(&entry.path);
-        let mut file = vaultconfig::read(&path).unwrap();
+        let mut file = vaultconfig::load(&path).unwrap();
         for r in &mut file.recipients {
-            if r.pubkey == entry.pubkey {
+            if Some(&r.pubkey) == entry.pubkey.as_ref() {
                 r.pubkey = replacement.clone();
             }
         }
-        vaultconfig::write(&path, &file).unwrap();
-        recipients::write(
+        vaultconfig::save(&path, &file).unwrap();
+        recipients::save(
             &entry.path.join(".age-recipients"),
             std::slice::from_ref(&replacement),
         )
@@ -93,7 +94,7 @@ fn vault_remove_deletes_an_orphaned_identity_file() {
         .with_passphrase(PASSPHRASE)
         .with_confirm(true);
     let r = env.run_with(&["recipient", "remove", "laptop-1", "--reencrypt"], &own);
-    assert_eq!(r.code, Code::Success, "recipient remove: {}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "recipient remove: {}", r.stderr);
     let id_path = env.identity_file("personal", "laptop-1");
     assert!(id_path.is_file(), "the file exists before vault remove");
 
@@ -121,7 +122,7 @@ fn vault_remove_keeps_identity_file_still_listed_as_recipient() {
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["vault", "remove", "personal"], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(id_path.is_file());
     assert!(
         r.stderr.contains("still listed as a recipient"),
@@ -143,7 +144,7 @@ fn vault_remove_keeps_identity_file_when_recipients_unreadable() {
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["vault", "remove", "personal"], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(id_path.is_file());
     assert!(r.stderr.contains("could not confirm"), "{}", r.stderr);
     assert!(p.confirm_prompts().is_empty());
@@ -192,12 +193,12 @@ fn vault_remove_never_deletes_a_key_belonging_to_a_different_vault() {
         ],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Success, "clone: {}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "clone: {}", r.stderr);
 
     // Whatever it is asked, B's removal must not touch A's key.
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["vault", "remove", "personal"], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(a_identity.is_file(), "removing B destroyed A's only key");
 }
 
@@ -215,13 +216,13 @@ fn vault_remove_keeps_the_file_when_the_registration_points_at_another_vault() {
     let id_path = env.identity_file("other", "laptop-1");
     env.set_registration("personal", |e| {
         e.id = other.id.clone();
-        e.pubkey = new_key();
+        e.pubkey = Some(new_key());
     });
 
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["vault", "remove", "personal"], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         p.confirm_prompts().is_empty(),
         "offered a key of another vault"
@@ -238,14 +239,14 @@ fn vault_remove_keeps_a_relabelled_recipients_key() {
     let env = Env::new();
     let path = env.init("personal", &["--device", "laptop-1"]);
     let id_path = env.identity_file("personal", "laptop-1");
-    let mut file = vaultconfig::read(&config_file(&path)).unwrap();
+    let mut file = vaultconfig::load(&config_file(&path)).unwrap();
     file.recipients[0].device = "laptop-1-work".into();
-    vaultconfig::write(&config_file(&path), &file).unwrap();
+    vaultconfig::save(&config_file(&path), &file).unwrap();
 
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["vault", "remove", "personal"], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(id_path.is_file(), "deleted an active recipient's key");
     assert!(
         r.stderr.contains("still listed as a recipient"),
@@ -265,10 +266,10 @@ fn vault_remove_identifies_a_stale_key_whose_name_now_labels_another() {
     let path = env.init("personal", &["--device", "laptop-1"]);
     let id_path = env.identity_file("personal", "laptop-1");
     // Someone else's key takes over the label "laptop-1".
-    let mut file = vaultconfig::read(&config_file(&path)).unwrap();
+    let mut file = vaultconfig::load(&config_file(&path)).unwrap();
     assert_eq!(file.recipients[0].device, "laptop-1");
     file.recipients[0].pubkey = new_key();
-    vaultconfig::write(&config_file(&path), &file).unwrap();
+    vaultconfig::save(&config_file(&path), &file).unwrap();
 
     let (_, p) = env.remove_answering("personal", true);
 
@@ -314,7 +315,7 @@ fn non_interactive_vault_remove_never_deletes_an_identity() {
     let p = TerminalPrompter::new("".as_bytes(), std::io::sink(), SecretInput::Lines);
     let r = env.run_with(&["vault", "remove", "personal"], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(id_path.is_file(), "a scripted vault remove deleted a key");
     assert!(!env.global().vaults.contains_key("personal"));
 }
@@ -330,7 +331,7 @@ fn vault_remove_treats_a_failed_confirmation_as_no() {
     let p = FakePrompter::new().with_confirm_error(gage::prompter::PromptError::NotInteractive);
     let r = env.run_with(&["vault", "remove", "personal"], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(id_path.is_file());
     assert!(r.stderr.contains("not confirmed"), "{}", r.stderr);
 }
@@ -343,12 +344,12 @@ fn vault_remove_keeps_the_file_when_no_pubkey_is_recorded() {
     env.init("personal", &["--device", "laptop-1"]);
     let id_path = env.identity_file("personal", "laptop-1");
     env.orphan_this_devices_key("personal");
-    env.set_registration("personal", |e| e.pubkey.clear());
+    env.set_registration("personal", |e| e.pubkey = None);
 
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["vault", "remove", "personal"], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         p.confirm_prompts().is_empty(),
         "asked about a key it cannot identify"
@@ -370,7 +371,7 @@ fn vault_remove_on_a_pending_enrollment_asks_before_deleting() {
     let t = TwoDevices::new();
     let p = FakePrompter::new().with_passphrase(PASSPHRASE);
     let r = t.b.run_with(&["identity", "add", "--device", B_DEVICE], &p);
-    assert_eq!(r.code, Code::Success, "identity add: {}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "identity add: {}", r.stderr);
     let id_path = t.b.identity_file(VAULT, B_DEVICE);
 
     let (_, p) = t.b.remove_answering(VAULT, false);
@@ -393,7 +394,7 @@ fn vault_remove_on_a_pending_enrollment_asks_before_deleting() {
 fn vault_remove_with_a_real_pending_request_asks_before_deleting() {
     let t = TwoDevices::new();
     let r = t.b.run(&["identity", "enroll", "--device", B_DEVICE]);
-    assert_eq!(r.code, Code::Success, "identity enroll: {}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "identity enroll: {}", r.stderr);
     let id_path = t.b.identity_file(VAULT, B_DEVICE);
 
     let (_, p) = t.b.remove_answering(VAULT, false);
@@ -443,7 +444,7 @@ fn one_repository_registered_twice_shares_one_identities_directory() {
     // Still a recipient: removing the alias asks nothing and keeps the key.
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["vault", "remove", "personal-alias"], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         p.confirm_prompts().is_empty(),
         "offered a live recipient's key"
@@ -464,7 +465,7 @@ fn vault_remove_with_no_identity_file_says_nothing() {
     // B cloned and holds no identity.
     let p = FakePrompter::new().with_confirm(true);
     let r = t.b.run_with(&["vault", "remove", VAULT], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(r.stderr, "");
     assert!(p.confirm_prompts().is_empty());
 }

@@ -5,10 +5,10 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::exitcode::ExitCode;
 use gage::config::{self, Global, VaultEntry};
 use gage::entry::CandidateList;
-use gage::exitcode::Code;
-use gage::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse};
+use gage::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse, Warning};
 use gage::syncresolve::{EntryConflict, Resolution};
 use gage::vaultconfig;
 use gage::xdgpaths::Dirs;
@@ -27,7 +27,7 @@ const RECIPIENT_2: &str = "age1yubikey1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccr
 const HOSTNAME: &str = "Test-Host.local";
 
 pub(crate) struct CliResult {
-    pub(crate) code: Code,
+    pub(crate) code: ExitCode,
     pub(crate) stdout: String,
     pub(crate) stderr: String,
 }
@@ -121,10 +121,14 @@ impl Prompter for EchoingPrompter<'_> {
         self.inner.confirm_recipient_change(warning)
     }
 
-    fn warn(&self, msg: &str) {
+    fn warn(&self, warning: &Warning) {
         use std::io::Write;
-        let _ = writeln!(self.stderr.clone(), "{msg}");
-        self.inner.warn(msg);
+        let _ = writeln!(
+            self.stderr.clone(),
+            "{}",
+            crate::remedy::render_warning(warning)
+        );
+        self.inner.warn(warning);
     }
 }
 
@@ -288,7 +292,7 @@ impl Env {
     /// Runs `args` and requires success.
     pub(crate) fn ok(&self, args: &[&str]) -> CliResult {
         let r = self.run(args);
-        assert_eq!(r.code, Code::Success, "{args:?} failed:\n{}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{args:?} failed:\n{}", r.stderr);
         r
     }
 
@@ -303,11 +307,11 @@ impl Env {
     }
 
     pub(crate) fn global(&self) -> Global {
-        config::load(&paths::global_config_file(&self.dirs)).unwrap()
+        config::load_or_default(&paths::global_config_file(&self.dirs)).unwrap()
     }
 
     pub(crate) fn save_global(&self, global: &Global) {
-        config::save(&paths::global_config_file(&self.dirs), global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&self.dirs), global).unwrap();
     }
 
     pub(crate) fn entry(&self, name: &str) -> VaultEntry {
@@ -321,7 +325,7 @@ impl Env {
     /// The registered vault's committed config: the file init wrote, not
     /// the global registry.
     pub(crate) fn vault_config(&self, name: &str) -> vaultconfig::File {
-        vaultconfig::read(&config_file(&self.entry(name).path)).unwrap()
+        vaultconfig::load(&config_file(&self.entry(name).path)).unwrap()
     }
 
     pub(crate) fn default_vault_path(&self, name: &str) -> PathBuf {
@@ -431,7 +435,7 @@ fn resolve_device_name_falls_back_to_normalized_hostname() {
 fn resolve_device_name_explicit_failing_allowlist_is_usage_error() {
     for bad in ["../../etc/x", "Laptop-1", ""] {
         let err = resolve_device_name(Some(bad), "irrelevant").unwrap_err();
-        assert_eq!(err.code(), Code::Usage, "{bad:?}");
+        assert_eq!(err.code(), ExitCode::Usage, "{bad:?}");
     }
 }
 
@@ -441,7 +445,7 @@ fn resolve_device_name_explicit_failing_allowlist_is_usage_error() {
 fn resolve_device_name_hostname_normalizes_to_nothing_prompts_rather_than_inventing() {
     for hostname in ["", "...", "!!!", "---"] {
         let err = resolve_device_name(None, hostname).unwrap_err();
-        assert_eq!(err.code(), Code::Usage, "{hostname:?}");
+        assert_eq!(err.code(), ExitCode::Usage, "{hostname:?}");
         assert!(err.to_string().contains("--device"), "{err}");
     }
 }
@@ -457,7 +461,7 @@ fn init_with_an_unusable_hostname_fails_before_creating_files() {
         &FakePrompter::new(),
     );
 
-    assert_eq!(r.code, Code::Usage);
+    assert_eq!(r.code, ExitCode::Usage);
     assert!(r.stderr.contains("--device"), "{}", r.stderr);
     assert!(!env.default_vault_path("personal").exists());
     assert!(env.global().vaults.is_empty());
@@ -540,7 +544,7 @@ fn init_into_non_empty_non_gage_directory_fails_without_touching_files() {
         "--no-recovery-key",
     ]);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     let names: Vec<_> = std::fs::read_dir(&dir)
         .unwrap()
         .map(|e| e.unwrap().file_name())
@@ -558,7 +562,7 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
     let env = Env::new();
     let path = env.init("personal", &[]);
     let before = env.global();
-    let keys_before = recipients::read(&path.join(".age-recipients")).unwrap();
+    let keys_before = recipients::load(&path.join(".age-recipients")).unwrap();
 
     let r = env.run_with(
         &[
@@ -571,14 +575,14 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
         &FakePrompter::new(),
     );
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(
         r.stderr.contains("already a registered vault"),
         "{}",
         r.stderr
     );
     assert_eq!(env.global(), before);
-    let keys = recipients::read(&path.join(".age-recipients")).unwrap();
+    let keys = recipients::load(&path.join(".age-recipients")).unwrap();
     assert_eq!(keys, keys_before);
 }
 
@@ -615,10 +619,10 @@ fn init_explicit_type_and_method_equivalent_to_default() {
         implicit.vault.id, explicit.vault.id,
         "every vault gets its own id"
     );
+    let same_id = vaultconfig::VaultId::new();
     for file in [&mut implicit, &mut explicit] {
-        assert!(vaultconfig::valid_id(&file.vault.id));
         file.vault.name.clear();
-        file.vault.id.clear();
+        file.vault.id = same_id.clone();
         file.vault.created.clear();
         for r in &mut file.recipients {
             r.pubkey.clear();
@@ -637,7 +641,7 @@ fn init_unknown_type_fails_with_usage_and_lists_git() {
         &["init", "personal", "--type", "s3", "--no-recovery-key"],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Usage);
+    assert_eq!(r.code, ExitCode::Usage);
     assert!(r.stderr.contains("git"), "{}", r.stderr);
     assert!(!env.default_vault_path("personal").exists());
 }
@@ -660,10 +664,32 @@ fn init_unknown_method_fails_with_usage() {
             &FakePrompter::new(),
         );
 
-        assert_eq!(r.code, Code::Usage, "{method}");
+        assert_eq!(r.code, ExitCode::Usage, "{method}");
         assert!(r.stderr.contains("passphrase"), "{}", r.stderr);
         assert!(!env.default_vault_path(&name).exists(), "{method}");
         assert!(!env.global().vaults.contains_key(&name), "{method}");
+    }
+}
+
+// The exact refusals, pinned before D3a turned type and method into enums:
+// a string the enum doesn't know must still fail the same way, with the
+// same words. `identity add --method` is pinned in identity_cli_tests.
+#[test]
+fn init_unknown_type_and_method_messages_are_pinned() {
+    let env = Env::new();
+    for (args, want) in [
+        (
+            &["init", "a", "--type", "s3", "--no-recovery-key"][..],
+            "gage: unknown vault type \"s3\"; accepted: git\n",
+        ),
+        (
+            &["init", "a", "--method", "yubikey", "--no-recovery-key"],
+            "gage: unknown method \"yubikey\"; accepted: passphrase\n",
+        ),
+    ] {
+        let r = env.run_with(args, &FakePrompter::new());
+        assert_eq!(r.code, ExitCode::Usage, "{args:?}");
+        assert_eq!(r.stderr, want, "{args:?}");
     }
 }
 
@@ -682,7 +708,7 @@ fn init_malformed_recipient_fails_before_creating_files() {
         let mut args = vec!["init", "personal", "--no-recovery-key"];
         args.extend_from_slice(keys);
         let r = env.run_with(&args, &FakePrompter::new());
-        assert_eq!(r.code, Code::Usage, "{keys:?}");
+        assert_eq!(r.code, ExitCode::Usage, "{keys:?}");
         assert!(!env.default_vault_path("personal").exists());
         assert!(env.global().vaults.is_empty());
     }
@@ -706,8 +732,8 @@ fn init_repeated_recipient_writes_all() {
         ],
     );
 
-    let keys = recipients::read(&path.join(".age-recipients")).unwrap();
-    assert_eq!(keys[0], env.entry("personal").pubkey);
+    let keys = recipients::load(&path.join(".age-recipients")).unwrap();
+    assert_eq!(Some(&keys[0]), env.entry("personal").pubkey.as_ref());
     assert_eq!(keys[1..], [RECIPIENT_1, RECIPIENT_2, RECIPIENT_1]);
     let labels: Vec<String> = env
         .vault_config("personal")
@@ -741,7 +767,7 @@ fn init_device_flag_failing_allowlist_rejected_before_creating_files() {
         ],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Usage);
+    assert_eq!(r.code, ExitCode::Usage);
     assert!(env.tree().is_empty(), "{:?}", env.tree());
     assert!(env.global().vaults.is_empty());
 }
@@ -774,7 +800,7 @@ fn init_device_flag_agrees_everywhere() {
         .dirs
         .data
         .join("identities")
-        .join(&entry.id)
+        .join(entry.id.as_ref().unwrap())
         .join("workstation-7.age");
     assert!(
         identity.is_file(),
@@ -790,7 +816,7 @@ fn init_device_flag_agrees_everywhere() {
 fn reinit_after_vault_remove_is_an_ordinary_retry() {
     let env = Env::new();
     let path = env.init("vault-test-newinit", &["--device", "laptop-1"]);
-    let old_id = env.entry("vault-test-newinit").id;
+    let old_id = env.entry("vault-test-newinit").id.unwrap();
     let old_identity = paths::identity_file_path(&env.dirs, &old_id, "laptop-1").unwrap();
     let old_bytes = std::fs::read(&old_identity).unwrap();
     std::fs::remove_dir_all(&path).unwrap();
@@ -802,10 +828,10 @@ fn reinit_after_vault_remove_is_an_ordinary_retry() {
 
     env.init("vault-test-newinit", &["--device", "laptop-1"]);
 
-    let entry = env.entry("vault-test-newinit");
-    assert_ne!(entry.id, old_id, "a new vault gets a new id");
-    assert_eq!(env.vault_config("vault-test-newinit").vault.id, entry.id);
-    let new_identity = paths::identity_file_path(&env.dirs, &entry.id, "laptop-1").unwrap();
+    let new_id = env.entry("vault-test-newinit").id.unwrap();
+    assert_ne!(new_id, old_id, "a new vault gets a new id");
+    assert_eq!(env.vault_config("vault-test-newinit").vault.id, new_id);
+    let new_identity = paths::identity_file_path(&env.dirs, &new_id, "laptop-1").unwrap();
     assert_ne!(new_identity, old_identity);
     assert!(new_identity.is_file(), "the re-init wrote no identity file");
     assert_eq!(
@@ -831,7 +857,7 @@ fn init_with_no_recipient_generates_this_devices_identity() {
     gage::agekey::validate_recipient(pubkey).unwrap();
     assert_eq!(file.recipients[0].device, entry.device);
     // The same key, in both recipient-defining files.
-    let keys = recipients::read(&entry.path.join(".age-recipients")).unwrap();
+    let keys = recipients::load(&entry.path.join(".age-recipients")).unwrap();
     assert_eq!(keys, std::slice::from_ref(pubkey));
 }
 
@@ -848,12 +874,11 @@ fn init_mints_a_distinct_uuid_v4_per_vault() {
 
     assert_ne!(first, second);
     for id in [&first, &second] {
-        assert!(vaultconfig::valid_id(id), "{id}");
-        assert_eq!(&id[14..15], "4", "not a v4 UUID: {id}");
+        assert_eq!(&id.as_str()[14..15], "4", "not a v4 UUID: {id}");
     }
     // Global config records the same id the vault commits.
-    assert_eq!(env.entry("personal").id, first);
-    assert_eq!(env.entry("work").id, second);
+    assert_eq!(env.entry("personal").id, Some(first));
+    assert_eq!(env.entry("work").id, Some(second));
 }
 
 #[test]
@@ -926,7 +951,7 @@ fn vault_info_by_name_reports_expected_fields() {
 
     let r = env.ok(&["vault", "info", "personal"]);
 
-    let id = env.entry("personal").id;
+    let id = env.entry("personal").id.unwrap();
     assert_eq!(
         r.stdout,
         format!(
@@ -958,7 +983,7 @@ fn vault_info_no_argument_reports_on_current() {
 fn vault_info_with_no_argument_and_no_current_vault_is_usage() {
     let env = Env::new();
     let r = env.run(&["vault", "info"]);
-    assert_eq!(r.code, Code::Usage);
+    assert_eq!(r.code, ExitCode::Usage);
     assert_eq!(
         r.stderr,
         "gage: no vault name given and no current vault is set\n"
@@ -970,7 +995,7 @@ fn vault_info_of_an_unregistered_name_is_not_found() {
     let env = Env::new();
     env.init("personal", &[]);
     let r = env.run(&["vault", "info", "nope"]);
-    assert_eq!(r.code, Code::NotFound);
+    assert_eq!(r.code, ExitCode::NotFound);
     assert_eq!(r.stderr, "gage: no such vault \"nope\"\n");
 }
 
@@ -995,7 +1020,7 @@ fn tampered_format_version_refused_by_real_command() {
 
     let r = env.run(&["vault", "info", "personal"]);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("upgrade gage"), "{}", r.stderr);
     assert_eq!(r.stdout, "", "rendered fields from a config it refused");
 }
@@ -1020,7 +1045,7 @@ fn tampered_device_name_refused_by_real_command() {
 
         let r = env.run(&["vault", "info", "personal"]);
 
-        assert_eq!(r.code, Code::Conflict, "{evil}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Conflict, "{evil}: {}", r.stderr);
         assert!(r.stderr.contains("device name"), "{}", r.stderr);
         assert_eq!(r.stdout, "");
         assert_eq!(env.tree(), before, "{evil}");
@@ -1045,7 +1070,7 @@ fn a_vault_from_before_this_change_is_refused_with_a_recreate_message() {
 
     let r = env.run(&["vault", "info", "personal"]);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("re-create"), "{}", r.stderr);
     assert!(r.stderr.contains("make reset-local-state"), "{}", r.stderr);
     assert!(!r.stderr.contains("upgrade gage"), "{}", r.stderr);
@@ -1072,7 +1097,7 @@ fn an_unsafe_committed_id_is_rejected_before_any_path_is_built() {
 
         let r = env.run(&["vault", "info", "personal"]);
 
-        assert_eq!(r.code, Code::Conflict, "{case}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Conflict, "{case}: {}", r.stderr);
         assert!(r.stderr.contains("vault id"), "{case}: {}", r.stderr);
         assert_eq!(env.tree(), before, "{case}");
     }
@@ -1085,12 +1110,12 @@ fn a_mismatched_registration_is_refused_rather_than_silently_preferred() {
     let env = Env::new();
     env.init("personal", &[]);
     let mut global = env.global();
-    global.vaults.get_mut("personal").unwrap().id = vaultconfig::new_id();
+    global.vaults.get_mut("personal").unwrap().id = Some(vaultconfig::VaultId::new());
     env.save_global(&global);
 
     let r = env.run(&["vault", "info", "personal"]);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     for want in ["different vault", "re-register"] {
         assert!(r.stderr.contains(want), "{want:?}: {}", r.stderr);
     }
@@ -1114,25 +1139,27 @@ fn an_unreadable_vault_falls_back_to_global_configs_id_alone() {
 
 // A
 // registration with no id fails `vault info` (the vault still carries an
-// id, so it is a mismatch), and with the vault gone every path builder
-// refuses "". The show/insert/identity-list halves are in their own test files.
+// id, so it is a mismatch), and with the vault gone too there is no id
+// anywhere, which is refused before any path could be built (exit 5, as
+// the empty id it replaces had). The show/insert/identity-list halves are
+// in their own test files.
 #[test]
 fn a_vault_without_an_id_fails_loudly_on_every_derived_path() {
     let env = Env::new();
     let path = env.init("personal", &["--device", "laptop-1"]);
     let mut global = env.global();
-    global.vaults.get_mut("personal").unwrap().id.clear();
+    global.vaults.get_mut("personal").unwrap().id = None;
     env.save_global(&global);
 
     let r = env.run(&["vault", "info", "personal"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("none recorded"), "{}", r.stderr);
 
     std::fs::remove_dir_all(&path).unwrap();
-    assert!(paths::identities_dir(&env.dirs, "").is_err());
-    assert!(paths::identity_file_path(&env.dirs, "", "laptop-1").is_err());
-    assert!(paths::trust_cache_dir(&env.dirs, "").is_err());
-    assert!(paths::lock_file_path(&env.dirs, "").is_err());
+    let r = env.run(&["identity", "list", "--use", "personal"]);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
+    assert!(r.stderr.contains("records no vault id"), "{}", r.stderr);
+    assert!(!env.dirs.state.join("locks").exists());
 }
 
 // --- vault remove / set-default ---------------------------------------------
@@ -1147,7 +1174,7 @@ fn vault_remove_drops_registration_but_leaves_files() {
 
     let global = env.global();
     assert!(!global.vaults.contains_key("personal"));
-    assert_eq!(global.current, "", "current named the removed vault");
+    assert_eq!(global.current, None, "current named the removed vault");
     assert!(path.join(".git").exists());
     assert_eq!(env.tree(), before, "remove touched the vault's files");
 }
@@ -1158,7 +1185,7 @@ fn vault_remove_of_an_unregistered_name_is_not_found_and_changes_nothing() {
     env.init("personal", &[]);
     let before = env.global();
     let r = env.run(&["vault", "remove", "nope"]);
-    assert_eq!(r.code, Code::NotFound);
+    assert_eq!(r.code, ExitCode::NotFound);
     assert_eq!(env.global(), before);
 }
 
@@ -1169,11 +1196,11 @@ fn vault_set_default_changes_current_and_refuses_an_unknown_name() {
     env.init("work", &[]);
 
     env.ok(&["vault", "set-default", "work"]);
-    assert_eq!(env.global().current, "work");
+    assert_eq!(env.global().current, Some("work".into()));
 
     let before = env.global();
     let r = env.run(&["vault", "set-default", "nope"]);
-    assert_eq!(r.code, Code::NotFound);
+    assert_eq!(r.code, ExitCode::NotFound);
     assert_eq!(env.global(), before);
 }
 
@@ -1196,7 +1223,7 @@ fn git_set_remote_sets_and_changes_origin_in_both_places() {
         env.ok(&["git", "set-remote", "personal", url]);
 
         assert_eq!(gitrepo::remote_url(&path).unwrap().as_deref(), Some(url));
-        assert_eq!(env.entry("personal").git.origin, url);
+        assert_eq!(env.entry("personal").git.origin, Some(url.into()));
         let info = env.ok(&["vault", "info", "personal"]).stdout;
         assert!(info.contains(&format!("remote: {url}\n")), "{info}");
     }
@@ -1212,7 +1239,7 @@ fn git_set_remote_with_a_missing_argument_is_usage_and_changes_nothing() {
         &["git", "set-remote"],
     ] {
         let r = env.run(args);
-        assert_eq!(r.code, Code::Usage, "{args:?}");
+        assert_eq!(r.code, ExitCode::Usage, "{args:?}");
         assert!(r.stderr.contains("Usage:"), "{}", r.stderr);
         assert_eq!(env.global(), before);
         assert_eq!(gitrepo::remote_url(&path).unwrap(), None);
@@ -1223,7 +1250,7 @@ fn git_set_remote_with_a_missing_argument_is_usage_and_changes_nothing() {
 fn git_set_remote_on_an_unregistered_name_is_not_found() {
     let env = Env::new();
     let r = env.run(&["git", "set-remote", "nope", "/x.git"]);
-    assert_eq!(r.code, Code::NotFound);
+    assert_eq!(r.code, ExitCode::NotFound);
     assert_eq!(r.stderr, "gage: no such vault \"nope\"\n");
 }
 
@@ -1277,7 +1304,7 @@ fn no_vault_command_doubles_gages_own_prefix() {
     env.init("personal", &[]);
     env.init("mismatched", &[]);
     let mut global = env.global();
-    global.vaults.get_mut("mismatched").unwrap().id = vaultconfig::new_id();
+    global.vaults.get_mut("mismatched").unwrap().id = Some(vaultconfig::VaultId::new());
     env.save_global(&global);
     let tampered = env.init("tampered", &[]);
     rewrite_config_line(&tampered, "format_version", "format_version = 99");
@@ -1321,7 +1348,7 @@ fn no_vault_command_doubles_gages_own_prefix() {
     for (name, r) in &results {
         assert_ne!(
             r.code,
-            Code::Success,
+            ExitCode::Success,
             "{name}: this table only covers failures"
         );
         for line in r.stdout.lines().chain(r.stderr.lines()) {

@@ -12,7 +12,9 @@ use std::cell::RefCell;
 use std::io::{Read, Write};
 
 use gage::entry::CandidateList;
-use gage::prompter::{Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse};
+use gage::prompter::{
+    Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse, Warning,
+};
 use gage::syncresolve::{ConflictSide, EntryConflict, Resolution};
 use gage::trustcache::{RecipientChangeWarning, difference_lines};
 use uuid::Uuid;
@@ -272,8 +274,8 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
         Err(PromptError::NoChoice(MAX_CHOOSE_ATTEMPTS))
     }
 
-    fn warn(&self, msg: &str) {
-        self.say(&format!("{msg}\n"));
+    fn warn(&self, warning: &Warning) {
+        self.say(&format!("{}\n", crate::remedy::render_warning(warning)));
     }
 
     /// Refused without a human at the other end, before drawing or reading
@@ -400,8 +402,9 @@ fn provenance(side: &ConflictSide) -> String {
 mod tests {
     use std::rc::Rc;
 
+    use crate::exitcode::ExitCode;
     use gage::entry::{Candidate, Entry};
-    use gage::exitcode::{Code, HasCode};
+    use gage::error::HasKind;
     use gage::recipient::RecipientVerification;
     use gage::syncresolve::{ConflictSide, EntryConflict, Resolution};
 
@@ -531,7 +534,7 @@ mod tests {
         let (p, _) = prompter("");
         let err = p.unlock(&unlock_req(1)).unwrap_err();
         assert!(matches!(err, PromptError::Cancelled), "{err}");
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::LockedOrAuth);
     }
 
     // The library re-asks while it
@@ -546,7 +549,7 @@ mod tests {
             .unlock(&unlock_req(MAX_PASSPHRASE_ATTEMPTS + 1))
             .unwrap_err();
         assert!(matches!(err, PromptError::TooManyAttempts), "{err}");
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::LockedOrAuth);
         assert_eq!(MAX_PASSPHRASE_ATTEMPTS, 3);
     }
 
@@ -597,7 +600,7 @@ mod tests {
         let (p, _) = prompter("a\nb\nc\nd\ne\nf\n");
         let err = p.unlock(&create).unwrap_err();
         assert!(matches!(err, PromptError::NoMatchingPassphrase(3)), "{err}");
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::LockedOrAuth);
     }
 
     #[test]
@@ -676,7 +679,7 @@ mod tests {
     #[test]
     fn warn_is_surfaced_and_returns_nothing() {
         let (p, out) = prompter("");
-        let () = p.warn("gage: could not lock key material into memory");
+        let () = p.warn(&Warning::from("could not lock key material into memory"));
         assert_eq!(
             out.text(),
             "gage: could not lock key material into memory\n"
@@ -710,7 +713,7 @@ mod tests {
             })
             .unwrap_err();
         assert!(matches!(err, PromptError::EmptyCandidates), "{err}");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::Internal);
     }
 
     // A number outside the list and a
@@ -740,7 +743,7 @@ mod tests {
             matches!(err, PromptError::NoChoice(MAX_CHOOSE_ATTEMPTS)),
             "{err}"
         );
-        assert_eq!(err.code(), Code::Ambiguous);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::Ambiguous);
     }
 
     // End of input at the picker is the human declining to pick, which
@@ -858,7 +861,7 @@ mod tests {
         let (p, out) = interactive(&"x\n".repeat(MAX_CONFLICT_ATTEMPTS as usize));
         let err = p.resolve_conflict(&sample_conflict()).unwrap_err();
         assert!(matches!(err, PromptError::NoResolution(_)), "{err}");
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::Conflict);
         assert_eq!(
             out.text().matches("answer l, r, b, s or q").count(),
             MAX_CONFLICT_ATTEMPTS as usize,
@@ -892,7 +895,7 @@ mod tests {
         let (p, out) = prompter("l\n");
         let err = p.resolve_conflict(&sample_conflict()).unwrap_err();
         assert!(matches!(err, PromptError::NotInteractive), "{err}");
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(ExitCode::from(err.kind()), ExitCode::Conflict);
         assert_eq!(out.text(), "", "a refusing prompter rendered a menu");
         // The line it was given is still there for whoever reads next.
         assert_eq!(&*p.value("x").unwrap(), "l");

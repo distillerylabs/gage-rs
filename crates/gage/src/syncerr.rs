@@ -15,7 +15,7 @@
 //! Observed on libgit2 1.9.7 (git2 0.21), by the tests in this module and
 //! in `gitrepo`, each triggering the case for real:
 //!
-//! | Case | Class | Code | Bucket |
+//! | Case | Class | ErrorKind | Bucket |
 //! |---|---|---|---|
 //! | loopback port refusing connections | `Net` (`Os` under WinHTTP) | `GenericError` | unreachable |
 //! | `.invalid` host (RFC 6761, fails without a network) | `Net` (`Os` under WinHTTP) | `GenericError` | unreachable |
@@ -41,7 +41,7 @@
 //! git repository, which the message names. Nothing here reads message
 //! text.
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 
 /// Which of the three buckets a remote failure is in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,20 +63,22 @@ pub enum Kind {
 impl Kind {
     fn sentence(self) -> &'static str {
         match self {
-            Kind::Unreachable => "gage: could not reach the remote",
-            Kind::Auth => "gage: the remote refused access",
-            Kind::Diverged => "gage: the remote has diverged from this vault",
+            Kind::Unreachable => "could not reach the remote",
+            Kind::Auth => "the remote refused access",
+            Kind::Diverged => "the remote has diverged from this vault",
         }
     }
 }
 
 /// A classified remote failure.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("{}: {detail}{}", kind.sentence(), hint.as_deref().map(|h| format!("; {h}")).unwrap_or_default())]
+#[error("{}: {detail}{}", kind.sentence(), note.as_deref().map(|h| format!("; {h}")).unwrap_or_default())]
 pub struct Error {
     kind: Kind,
     detail: String,
-    hint: Option<String>,
+    /// Advice that names no command: what to check about a local path.
+    note: Option<String>,
+    remedy: Option<Remedy>,
 }
 
 impl Error {
@@ -86,7 +88,8 @@ impl Error {
         Error {
             kind,
             detail: redact_userinfo(detail.as_ref()),
-            hint: None,
+            note: None,
+            remedy: None,
         }
     }
 
@@ -94,27 +97,40 @@ impl Error {
         self.kind
     }
 
-    /// Appends the "which host, and what to run" hint to an auth failure.
-    /// Every other bucket is returned untouched: a divergence must never
-    /// acquire a "check your token" suggestion.
-    pub fn annotate_auth(mut self, hint: impl Into<String>) -> Error {
-        if self.kind == Kind::Auth {
-            self.hint = Some(hint.into());
+    /// Gives an auth failure what fixes it: a token for `host`, named so
+    /// an expired or absent one doesn't surface as a bare 403, or for a
+    /// remote with no host (a local path, where no token exists to be
+    /// wrong) a look at the path. Every other bucket is returned
+    /// untouched: a divergence must never acquire a "check your token"
+    /// suggestion.
+    pub fn annotate_auth(mut self, host: &str) -> Error {
+        if self.kind != Kind::Auth {
+            return self;
+        }
+        if host.is_empty() {
+            self.note =
+                Some("check that the repository exists at that path and is readable".into());
+        } else {
+            self.remedy = Some(Remedy::AuthLogin { host: host.into() });
         }
         self
     }
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
         match self.kind {
             // Deliberately not Conflict: "retry when the network is back"
             // and "a human must reconcile two histories" stay
             // distinguishable to a script, not only to a reader.
-            Kind::Unreachable => Code::Unreachable,
-            Kind::Auth => Code::LockedOrAuth,
-            Kind::Diverged => Code::Conflict,
+            Kind::Unreachable => ErrorKind::Unreachable,
+            Kind::Auth => ErrorKind::LockedOrAuth,
+            Kind::Diverged => ErrorKind::Conflict,
         }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        self.remedy.clone()
     }
 }
 
@@ -122,39 +138,18 @@ impl HasCode for Error {
 /// divergence positively (`NotFastForward`); anything left is divergence by
 /// elimination. A vault's remote is a dedicated, hook-free
 /// repository, so there is no other reason for it to refuse a push.
-pub fn classify_push(err: &(dyn std::error::Error + 'static)) -> Error {
-    if let Some(classified) = classify_transport(err) {
-        return classified;
-    }
+pub fn classify_push(err: &git2::Error) -> Error {
     // Positively, then by elimination: both land in the same bucket, but
     // the typed rejection is what a push to a vault actually produces.
-    let detail = git_cause(err).map_or_else(|| err.to_string(), |g| g.message().to_string());
-    Error::new(Kind::Diverged, detail)
+    classify_fetch(err).unwrap_or_else(|| Error::new(Kind::Diverged, err.message()))
 }
 
 /// Classifies a failed fetch into unreachable or auth, or `None` to pass it
 /// through. A fetch only adds objects and moves remote-tracking refs, so it
 /// is never rejected for divergence, and an unrecognized fetch failure is a
 /// broken repository or transport, not a divergence.
-pub fn classify_fetch(err: &(dyn std::error::Error + 'static)) -> Option<Error> {
-    classify_transport(err)
-}
-
-/// The half of classification fetch and push share. An already-classified
-/// error anywhere in the chain keeps its bucket, so classifying twice never
-/// moves an unreachable to divergence by elimination.
-fn classify_transport(err: &(dyn std::error::Error + 'static)) -> Option<Error> {
-    let mut cause = Some(err);
-    while let Some(e) = cause {
-        if let Some(classified) = e.downcast_ref::<Error>() {
-            return Some(classified.clone());
-        }
-        if let Some(git) = e.downcast_ref::<git2::Error>() {
-            return git_kind(git).map(|kind| Error::new(kind, git.message()));
-        }
-        cause = e.source();
-    }
-    None
+pub fn classify_fetch(err: &git2::Error) -> Option<Error> {
+    git_kind(err).map(|kind| Error::new(kind, err.message()))
 }
 
 /// The bucket a libgit2 error is in, by class and code, never by its
@@ -179,18 +174,6 @@ fn git_kind(err: &git2::Error) -> Option<Kind> {
         Class::Repository => Some(Kind::Auth),
         _ => None,
     }
-}
-
-/// The first `git2::Error` in `err`'s chain.
-fn git_cause<'a>(err: &'a (dyn std::error::Error + 'static)) -> Option<&'a git2::Error> {
-    let mut cause = Some(err);
-    while let Some(e) = cause {
-        if let Some(git) = e.downcast_ref::<git2::Error>() {
-            return Some(git);
-        }
-        cause = e.source();
-    }
-    None
 }
 
 /// Removes the `user:password@` part of every URL in `s`. gage never puts a

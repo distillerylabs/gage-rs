@@ -11,7 +11,9 @@ use zeroize::Zeroizing;
 use super::seal::{Payload, seal_payload};
 use super::{EnrollmentError, EnrollmentRequest, OpenedRequest, code};
 use crate::recipient_tests::Fixture;
-use crate::vault::{METHOD_PASSPHRASE, Vault};
+use crate::vault::Vault;
+use crate::vaultconfig::UnlockMethod;
+use crate::vaultconfig::VaultId;
 use crate::{config, paths};
 
 /// One vault, its owner's key, and nothing pending.
@@ -60,11 +62,11 @@ pub(crate) fn seal_into(
     ttl: Duration,
 ) -> EnrollmentRequest {
     let (req, sealed) = vault
-        .seal_enrollment(device, pubkey, METHOD_PASSPHRASE, ttl)
+        .seal_enrollment(device, pubkey, &UnlockMethod::Passphrase, ttl)
         .unwrap();
     write_pending(
         vault,
-        &super::name::pending_file_name(&req.id, req.expires),
+        &super::name::pending_file_name(req.id.as_deref().unwrap(), req.expires),
         &sealed,
     );
     req
@@ -90,10 +92,10 @@ pub(crate) fn good_payload(
 ) -> Payload {
     Payload {
         request_id: id.to_string(),
-        vault_id: vault.id.clone(),
+        vault_id: vault.id.to_string(),
         device: device.to_string(),
         pubkey: pubkey.to_string(),
-        method: METHOD_PASSPHRASE.to_string(),
+        method: UnlockMethod::Passphrase,
         created: created.to_string(),
         expires: expires.to_string(),
     }
@@ -119,20 +121,20 @@ pub(crate) fn open_all(vault: &Vault, code: &str) -> Result<Vec<OpenedRequest>, 
 
 /// Adds `name` → `id` to the registry `vault`'s device reads, leaving the
 /// rest alone.
-pub(crate) fn register_also(vault: &Vault, name: &str, id: &str) {
+pub(crate) fn register_also(vault: &Vault, name: &str, id: &VaultId) {
     let path = paths::global_config_file(vault.dirs());
-    let mut global = config::read(&path).unwrap_or_default();
+    let mut global = config::load(&path).unwrap_or_default();
     global.vaults.insert(
         name.to_string(),
         config::VaultEntry {
             path: vault.path.with_file_name(name),
-            id: id.to_string(),
-            vault_type: "git".into(),
+            id: Some(id.clone()),
+            vault_type: crate::vaultconfig::VaultType::Git,
             ..Default::default()
         },
     );
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    config::write(&path, &global).unwrap();
+    config::save(&path, &global).unwrap();
 }
 
 /// Both halves of the contract at once: the variant a caller matches on
@@ -150,7 +152,7 @@ macro_rules! assert_enrollment_error {
             stringify!($pat)
         );
         assert_eq!(
-            $crate::exitcode::HasCode::code(&err),
+            $crate::error::HasKind::kind(&err),
             $code,
             "exit code for {err}"
         );

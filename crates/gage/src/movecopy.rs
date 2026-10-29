@@ -15,7 +15,7 @@ use uuid::Uuid;
 use crate::entry::{
     Entry, Error, LockError, ResolveError, Timestamp, WRITE_LOCK_TIMEOUT, new_id, resolve_query,
 };
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::gitrepo;
 use crate::identity::Identity;
 use crate::prompter::Prompter;
@@ -39,7 +39,7 @@ pub enum MoveError {
     /// Source and destination are one vault (the same id, whatever names
     /// they were registered under). Refused before any lock is taken:
     /// locking one vault twice would wait out the whole timeout.
-    #[error("gage: {name:?} is the source vault; --to-vault must name a different vault")]
+    #[error("{name:?} is the source vault; --to-vault must name a different vault")]
     SameVault { name: String },
     #[error(transparent)]
     Resolve(#[from] ResolveError),
@@ -53,23 +53,34 @@ pub enum MoveError {
     /// and the change wasn't confirmed.
     #[error(transparent)]
     Trust(#[from] TrustError),
-    #[error("gage: removing {path}: {source}")]
+    #[error("removing {path}: {source}")]
     Io {
         path: std::path::PathBuf,
         source: std::io::Error,
     },
 }
 
-impl HasCode for MoveError {
-    fn code(&self) -> Code {
+impl HasKind for MoveError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            MoveError::SameVault { .. } => Code::Usage,
-            MoveError::Resolve(e) => e.code(),
-            MoveError::Entry(e) => e.code(),
-            MoveError::Lock(e) => e.code(),
-            MoveError::Git(e) => e.code(),
-            MoveError::Trust(e) => e.code(),
-            MoveError::Io { .. } => Code::Internal,
+            MoveError::SameVault { .. } => ErrorKind::Usage,
+            MoveError::Resolve(e) => e.kind(),
+            MoveError::Entry(e) => e.kind(),
+            MoveError::Lock(e) => e.kind(),
+            MoveError::Git(e) => e.kind(),
+            MoveError::Trust(e) => e.kind(),
+            MoveError::Io { .. } => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            MoveError::Resolve(e) => e.remedy(),
+            MoveError::Entry(e) => e.remedy(),
+            MoveError::Lock(e) => e.remedy(),
+            MoveError::Git(e) => e.remedy(),
+            MoveError::Trust(e) => e.remedy(),
+            _ => None,
         }
     }
 }

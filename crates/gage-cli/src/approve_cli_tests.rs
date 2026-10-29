@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::gitrepo;
 use gage::prompter::FakePrompter;
 use jiff::{Timestamp, ToSpan};
@@ -25,7 +25,7 @@ impl Enrolled {
     pub(crate) fn new(device: &str) -> Enrolled {
         let t = TwoDevices::new();
         let r = t.b.run(&["identity", "enroll", "--device", device]);
-        assert_eq!(r.code, Code::Success, "enroll: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "enroll: {}", r.stderr);
         let code = code_in(&r.stdout);
         t.a.ok(&["pull"]);
         Enrolled { t, code }
@@ -44,9 +44,9 @@ impl Enrolled {
             &["clone", url, "--name", VAULT, "--device", device],
             &FakePrompter::new(),
         );
-        assert_eq!(r.code, Code::Success, "clone: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "clone: {}", r.stderr);
         let r = env.run(&["identity", "enroll", "--device", device]);
-        assert_eq!(r.code, Code::Success, "enroll: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "enroll: {}", r.stderr);
         let code = code_in(&r.stdout);
         self.a().ok(&["pull"]);
         (env, code)
@@ -136,7 +136,7 @@ fn recipient_pending_needs_no_unlock_and_shows_no_device_names() {
     let r = e
         .a()
         .run_with(&["recipient", "pending"], &FakePrompter::new());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(!r.stdout.contains("phone-1"), "{}", r.stdout);
     assert!(r.stdout.contains("expires"), "{}", r.stdout);
     let id = &pending_ids(&e.vault_path())[0];
@@ -148,7 +148,7 @@ fn recipient_pending_with_nothing_pending_exits_zero() {
     let env = Env::new();
     env.init(VAULT, &[]);
     let r = env.run_with(&["recipient", "pending"], &FakePrompter::new());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("no pending"), "{}", r.stdout);
 }
 
@@ -160,7 +160,7 @@ fn approve_end_to_end_lets_the_device_read() {
     e.a().insert_ok("s3cret", &["Bank"]);
 
     let r = e.a().approve(&["--code", &e.code], &approving());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("phone-1"), "{}", r.stdout);
 
     e.t.b.cmd_ok(&["sync"]);
@@ -175,7 +175,7 @@ fn approve_costs_no_unlock_on_a_wrong_code() {
     let e = Enrolled::new("phone-1");
     let p = FakePrompter::new();
     let r = e.a().approve(&["--code", "GAGE-0000-0000-0000-0000"], &p);
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(p.unlock_requests().is_empty());
 
     let expired = file_unchecked(
@@ -187,7 +187,7 @@ fn approve_costs_no_unlock_on_a_wrong_code() {
     );
     let p = FakePrompter::new();
     let r = e.a().approve(&["--code", &expired], &p);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("expired"), "{}", r.stderr);
     assert!(p.unlock_requests().is_empty());
 }
@@ -200,7 +200,7 @@ fn declining_the_approval_costs_no_unlock() {
 
     let r = e.a().approve(&["--code", &e.code], &p);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("nothing was approved"), "{}", r.stderr);
     assert!(p.unlock_requests().is_empty());
     assert_eq!(e.commits(), before);
@@ -220,7 +220,7 @@ fn approve_refuses_a_wrong_code_without_retrying_when_it_came_from_a_flag() {
         &p,
     );
 
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(p.confirm_prompts().is_empty());
     assert!(p.value_prompts().is_empty(), "a flagged code was retried");
     assert_eq!(e.commits(), before);
@@ -238,7 +238,7 @@ fn approve_reads_the_code_through_the_prompter_when_no_flag_is_given() {
 
     let r = e.a().approve(&[], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let asked = p.value_prompts();
     assert_eq!(asked.len(), 2, "a wrong code must be retried");
     assert!(asked[0].to_lowercase().contains("code"), "{asked:?}");
@@ -253,7 +253,7 @@ fn approve_with_an_empty_prompted_code_approves_nothing() {
 
     let r = e.a().approve(&[], &p);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("nothing was approved"), "{}", r.stderr);
     assert_eq!(p.value_prompts().len(), 1);
     assert!(still_pending(e.a()));
@@ -266,7 +266,7 @@ fn approve_deduplicates_a_request_opened_by_two_codes() {
 
     let r = e.a().approve(&["--code", &e.code, "--code", &e.code], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout.contains("opened 1 pending request."),
         "{}",
@@ -287,7 +287,7 @@ fn approve_narrows_to_a_positional_id() {
 
     let r = e.a().approve(&[&id, "--code", &e.code], &approving());
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(pending_ids(&e.vault_path()).len(), 1);
     assert!(!pending_ids(&e.vault_path()).contains(&id));
 }
@@ -303,7 +303,7 @@ fn approve_naming_one_request_twice_is_one_device() {
 
     let r = e.a().approve(&[&id, &id[..8]], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout.contains("opened 1 pending request."),
         "{}",
@@ -331,7 +331,7 @@ fn approve_with_a_prompted_code_opens_one_request_filed_twice_once() {
 
     let r = e.a().approve(&[], &p);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout.contains("opened 1 pending request."),
         "{}",
@@ -348,7 +348,7 @@ fn approve_with_a_device_flag_relabels() {
         .a()
         .approve(&["--code", &e.code, "--device", "phone-2"], &approving());
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("recorded as: phone-2"), "{}", r.stdout);
     let list = e.a().ok(&["recipient", "list"]).stdout;
     assert!(list.contains("phone-2"), "{list}");
@@ -368,7 +368,7 @@ fn approve_rejects_a_device_flag_against_several_requests() {
         &p,
     );
 
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("ID"), "{}", r.stderr);
     assert!(p.confirm_prompts().is_empty());
 }
@@ -384,7 +384,7 @@ fn approve_rejects_an_invalid_device_name_before_anything_else() {
         .a()
         .approve(&["--code", &e.code, "--device", "../escape"], &p);
 
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(p.confirm_prompts().is_empty());
     assert!(p.unlock_requests().is_empty());
 }
@@ -411,7 +411,7 @@ fn approve_surfaces_a_wrong_vault_request_without_retrying() {
     ] {
         let p = FakePrompter::new().with_value(&e.code);
         let r = e.a().approve(&args, &p);
-        assert_eq!(r.code, Code::Conflict, "{args:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Conflict, "{args:?}: {}", r.stderr);
         assert!(r.stderr.contains("personal"), "{}", r.stderr);
         let prompted = if args.len() == 2 { 1 } else { 0 };
         assert_eq!(p.value_prompts().len(), prompted, "{args:?}");
@@ -435,7 +435,7 @@ fn approve_under_script_stays_a_real_question() {
 
     assert_ne!(
         r.code,
-        Code::Success,
+        ExitCode::Success,
         "--yes answered approve's own question"
     );
     assert_eq!(p.confirm_prompts().len(), 1);
@@ -454,7 +454,7 @@ fn deny_removes_a_request_and_needs_nothing() {
         .a()
         .run_with(&["recipient", "deny", &id[..8]], &FakePrompter::new());
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains(&id[..8]), "{}", r.stdout);
     assert!(!still_pending(e.a()));
     assert!(!e.a().ok(&["recipient", "list"]).stdout.contains("phone-1"));
@@ -472,7 +472,7 @@ fn deny_on_an_ambiguous_id_renders_the_candidates() {
         &FakePrompter::new(),
     );
 
-    assert_eq!(r.code, Code::Ambiguous, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Ambiguous, "{}", r.stderr);
     for id in &ids {
         assert!(r.stderr.contains(&id[..8]), "{}", r.stderr);
     }
@@ -485,7 +485,7 @@ fn deny_on_an_unmatched_id_is_not_found() {
     let r = e
         .a()
         .run_with(&["recipient", "deny", "ffffffff"], &FakePrompter::new());
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     assert!(still_pending(e.a()));
 }
 
@@ -497,9 +497,9 @@ fn pending_and_deny_work_under_script() {
     let id = pending_ids(&e.vault_path())[0].clone();
     let p = FakePrompter::new();
     let r = e.a().run_with(&["--yes", "recipient", "pending"], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let r = e.a().run_with(&["--yes", "recipient", "deny", &id], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 }
 
 // A sealed device name carrying escape sequences is
@@ -521,7 +521,7 @@ fn approve_never_renders_an_unvalidated_device_name() {
 
     let r = e.a().approve(&["--code", &code], &p);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("malformed"), "{}", r.stderr);
     for out in [&r.stdout, &r.stderr] {
         assert!(!out.contains('\x1b'), "{out:?}");

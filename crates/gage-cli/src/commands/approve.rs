@@ -15,13 +15,14 @@
 
 use std::time::Duration;
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
 use gage::devicename;
 use gage::enrollment::{
     Approval, ApprovalResult, EnrollmentError, OpenedRequest, PendingRequest, RequestCandidates,
 };
-use gage::exitcode::{Code, HasCode};
-use gage::prompter::Prompter;
+use gage::error::HasKind;
+use gage::prompter::{Prompter, Warning};
 use gage::vault::Vault;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
@@ -143,8 +144,8 @@ pub fn approve(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(),
         && !devicename::valid(device)
     {
         return Err(fail(
-            Code::Usage,
-            format!("gage: device name {device:?} is invalid"),
+            ExitCode::Usage,
+            format!("device name {device:?} is invalid"),
         ));
     }
     let typed_codes: Vec<Zeroizing<String>> = matches
@@ -165,9 +166,9 @@ pub fn approve(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(),
         // One flag can't say which of several requests it relabels.
         if device.is_some() && opened.len() != 1 {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!(
-                    "gage: --device relabels one request, but this run opened {}; pass the ID of the one to relabel (see `gage recipient pending`)",
+                    "--device relabels one request, but this run opened {}; pass the ID of the one to relabel (see `gage recipient pending`)",
                     opened.len()
                 ),
             ));
@@ -278,11 +279,11 @@ fn prompt_for_code(
     for _ in 0..MAX_CODE_PROMPTS {
         let code = prompter
             .value("enrollment code")
-            .map_err(|e| fail(Code::LockedOrAuth, e))?;
+            .map_err(|e| fail(ExitCode::LockedOrAuth, e))?;
         if code.trim().is_empty() {
             return Err(fail(
-                Code::Conflict,
-                "gage: no enrollment code given; nothing was approved",
+                ExitCode::Conflict,
+                "no enrollment code given; nothing was approved",
             ));
         }
         let codes = vec![code];
@@ -294,8 +295,9 @@ fn prompt_for_code(
                 keep_first_by_id(&mut opened, got);
                 return Ok((opened, codes));
             }
-            Err(EnrollmentError::CodeWrong) => prompter
-                .warn("gage: that code did not open any pending request; check it and try again."),
+            Err(EnrollmentError::CodeWrong) => prompter.warn(&Warning::from(
+                "that code did not open any pending request; check it and try again.",
+            )),
             Err(e) => return Err(too_many_pending_advice(e)),
         }
     }
@@ -358,16 +360,16 @@ fn confirm_approval(
     match prompter.confirm(&question) {
         Ok(true) => Ok(()),
         Ok(false) => Err(fail(
-            Code::Conflict,
-            "gage: nothing was approved, and the request is still pending",
+            ExitCode::Conflict,
+            "nothing was approved, and the request is still pending",
         )),
         // A frontend with nobody to ask is not one that agrees: letting a
         // device in is exactly what a run that was never asked must not
         // decide by omission.
         Err(e) => Err(fail(
-            Code::LockedOrAuth,
+            ExitCode::LockedOrAuth,
             format!(
-                "gage: there is nobody here to answer whether to admit this device, so nothing was approved and the request is still pending: {e}"
+                "there is nobody here to answer whether to admit this device, so nothing was approved and the request is still pending: {e}"
             ),
         )),
     }
@@ -458,9 +460,9 @@ fn too_many_pending_advice(err: EnrollmentError) -> CliError {
         return err.into();
     }
     fail(
-        err.code(),
+        ExitCode::from(err.kind()),
         format!(
-            "gage: {err}; run `gage recipient pending` to find the id, then `gage recipient approve <ID> --code <code>`"
+            "{err}; run `gage recipient pending` to find the id, then `gage recipient approve <ID> --code <code>`"
         ),
     )
 }

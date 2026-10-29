@@ -84,13 +84,14 @@ impl Machine {
         self.root.path().join("data/gage/vaults/personal")
     }
 
-    fn vault_id(&self) -> String {
+    fn vault_id(&self) -> gage::vaultconfig::VaultId {
         let out = self.gage(&["vault", "info"]).output().unwrap();
         text(&out.stdout)
             .lines()
             .find_map(|l| l.strip_prefix("id: "))
             .expect("vault info prints the id")
-            .to_string()
+            .try_into()
+            .expect("vault info prints a valid id")
     }
 }
 
@@ -133,7 +134,7 @@ fn concurrent_inserts_through_the_cli_both_succeed() {
     assert!(ls.contains("first") && ls.contains("second"), "{ls}");
     for (title, value) in [("first", "one"), ("second", "two")] {
         let yaml = m.ok(&["cat", title], "");
-        let e = gage::entry::unmarshal(yaml.as_bytes()).unwrap();
+        let e = gage::entry::Entry::from_yaml(yaml.as_bytes()).unwrap();
         assert_eq!(e.value, value);
     }
     assert!(gage::gitrepo::is_clean(&m.vault_dir()).unwrap());
@@ -146,7 +147,7 @@ fn concurrent_inserts_through_the_cli_both_succeed() {
 fn concurrent_reads_do_not_block_each_other() {
     let m = Machine::with_vault();
     m.ok(&["insert", "readable"], "v\n");
-    let lock_path = gage::paths::lock_file_path(&m.dirs(), &m.vault_id()).unwrap();
+    let lock_path = gage::paths::lock_file_path(&m.dirs(), &m.vault_id());
     assert!(
         lock_path.parent().unwrap().is_dir(),
         "the insert above made the lock directory, so this is the path writers lock"
@@ -176,7 +177,7 @@ fn value_stdin_after_a_piped_passphrase_stores_the_value() {
     m.ok(&["insert", "piped", "--value-stdin"], "the-value\n");
 
     let yaml = m.ok(&["cat", "piped"], "");
-    let e = gage::entry::unmarshal(yaml.as_bytes()).unwrap();
+    let e = gage::entry::Entry::from_yaml(yaml.as_bytes()).unwrap();
     assert_eq!(e.value, "the-value");
 }
 
@@ -272,7 +273,7 @@ fn insert_multiline_captures_from_a_real_terminal_until_eof() {
     );
 
     let yaml = m.ok(&["cat", "Notes"], "");
-    let e = gage::entry::unmarshal(yaml.as_bytes()).unwrap();
+    let e = gage::entry::Entry::from_yaml(yaml.as_bytes()).unwrap();
     assert_eq!(e.value, typed, "byte for byte what was typed");
 }
 

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use super::{ENTRIES_DIR_NAME, ENTRY_FILE_EXT, Entry, Error, marshal, unmarshal};
+use super::{ENTRIES_DIR_NAME, ENTRY_FILE_EXT, Entry, Error};
 use crate::vault::Vault;
 use crate::{atomicfile, crypt, identity::Identity, recipients};
 
@@ -27,7 +27,7 @@ impl Vault {
     /// (`age1yubikey1…`) is legal there but not encryptable by this build,
     /// and fails here, before anything is written.
     fn encrypt_recipients(&self) -> Result<Vec<crypt::Recipient>, Error> {
-        let keys = recipients::read(&self.path.join(".age-recipients"))?;
+        let keys = recipients::load(&self.path.join(".age-recipients"))?;
         Ok(keys
             .iter()
             .map(|k| crypt::Recipient::parse(k))
@@ -55,7 +55,7 @@ impl Vault {
         e: &Entry,
         to: &[crypt::Recipient],
     ) -> Result<(), Error> {
-        let ciphertext = crypt::encrypt(&marshal(e)?, to)?;
+        let ciphertext = crypt::encrypt(&e.to_yaml()?, to)?;
 
         let dir = self.entries_dir();
         std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
@@ -81,7 +81,7 @@ impl Vault {
     /// nothing: the entry is encrypted exactly as given.
     pub fn encrypt_entry(&self, e: &Entry) -> Result<Vec<u8>, Error> {
         let to = self.encrypt_recipients()?;
-        let plaintext = marshal(e)?;
+        let plaintext = e.to_yaml()?;
         Ok(crypt::encrypt(&plaintext, &to)?)
     }
 
@@ -94,7 +94,7 @@ impl Vault {
     ) -> Result<Entry, Error> {
         self.decrypts.bump();
         let plaintext = Zeroizing::new(crypt::decrypt(ciphertext, identity)?);
-        unmarshal(&plaintext)
+        Entry::from_yaml(&plaintext)
     }
 
     /// Reads and decrypts `entries/<id>.age` with `identity` and parses
@@ -181,7 +181,7 @@ fn restrict_dir(_dir: &std::path::Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use crate::entry::{Extra, Timestamp, new_id};
-    use crate::exitcode::{Code, HasCode};
+    use crate::error::{ErrorKind, HasKind};
     use crate::testsupport::fast_scrypt;
     use crate::xdgpaths::Dirs;
 
@@ -202,14 +202,14 @@ mod tests {
                 data: root.path().join("data"),
                 state: root.path().join("state"),
             };
-            let mut vault = Vault::for_tests(&dirs, "work", "vault-id");
+            let mut vault = Vault::for_tests(&dirs, "work", &crate::vaultconfig::VaultId::new());
             vault.path = root.path().join("vault");
             std::fs::create_dir_all(&vault.path).unwrap();
             let keys: Vec<_> = (0..recipient_count)
                 .map(|_| age::x25519::Identity::generate())
                 .collect();
             let public: Vec<String> = keys.iter().map(|k| k.to_public().to_string()).collect();
-            recipients::write(&vault.path.join(".age-recipients"), &public).unwrap();
+            recipients::save(&vault.path.join(".age-recipients"), &public).unwrap();
             Fixture {
                 _root: root,
                 vault,
@@ -376,15 +376,15 @@ mod tests {
     #[test]
     fn write_entry_rejects_a_recipient_it_cannot_encrypt_to() {
         let f = Fixture::new(1);
-        let mut keys = recipients::read(&f.vault.path.join(".age-recipients")).unwrap();
+        let mut keys = recipients::load(&f.vault.path.join(".age-recipients")).unwrap();
         keys.push("age1yubikey1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9hkmc0".into());
-        recipients::write(&f.vault.path.join(".age-recipients"), &keys).unwrap();
+        recipients::save(&f.vault.path.join(".age-recipients"), &keys).unwrap();
         let err = f.vault.write_entry(new_id(), &sample()).unwrap_err();
         assert!(
             matches!(&err, Error::Crypt(crypt::Error::InvalidRecipient { .. })),
             "{err}"
         );
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
         assert!(!f.vault.entries_dir().exists(), "nothing is written");
     }
 
@@ -413,7 +413,7 @@ mod tests {
             matches!(&err, Error::EntryNotFound { id: got } if *got == id),
             "{err}"
         );
-        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.kind(), ErrorKind::NotFound);
         assert!(err.to_string().contains(&id.to_string()));
     }
 
@@ -428,7 +428,7 @@ mod tests {
             matches!(err, Error::Crypt(crypt::Error::NotARecipient)),
             "{err}"
         );
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     }
 
     #[test]
@@ -446,7 +446,7 @@ mod tests {
             matches!(err, Error::Crypt(crypt::Error::CorruptCiphertext(_))),
             "{err}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         std::fs::write(&path, b"not an age file").unwrap();
         let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
         assert!(
@@ -468,7 +468,7 @@ mod tests {
         .unwrap();
         let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
         assert!(matches!(err, Error::Parse(_)), "{err}");
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
     }
 
     #[test]

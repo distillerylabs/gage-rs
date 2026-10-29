@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::config::{self, Global, VaultEntry};
 use crate::entry::{NewEntry, WriteError};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::gitrepo;
 use crate::identity::Identity;
 use crate::prompter::FakePrompter;
@@ -24,7 +24,7 @@ use crate::trustcache::{
     DiffOp, RecipientChangeWarning, TrustCache, TrustError, longest_common_subsequence,
     split_diff_lines,
 };
-use crate::vault::{self, CreateSpec, Vault};
+use crate::vault::{CreateSpec, Vault};
 use crate::xdgpaths::Dirs;
 use crate::{identityfile, paths, recipients, vaultconfig};
 
@@ -49,7 +49,7 @@ impl TrustVault {
             data: root.path().join("data"),
             state: root.path().join("state"),
         };
-        let id = vaultconfig::new_id();
+        let id = vaultconfig::VaultId::new();
         let pubkey = identityfile::create(&dirs, &id, NAME, DEVICE, &unlocking()).unwrap();
         let path = root.path().join("vault");
         let vault = Vault::create(
@@ -58,8 +58,8 @@ impl TrustVault {
                 name: NAME.into(),
                 id: id.clone(),
                 path: path.clone(),
-                vault_type: vault::TYPE_GIT.into(),
-                method: vault::METHOD_PASSPHRASE.into(),
+                vault_type: crate::vaultconfig::VaultType::Git,
+                method: crate::vaultconfig::UnlockMethod::Passphrase,
                 device: DEVICE.into(),
                 recipients: vec![pubkey.clone()],
                 extra_recipients: Vec::new(),
@@ -73,16 +73,16 @@ impl TrustVault {
                 NAME,
                 VaultEntry {
                     path,
-                    id,
-                    vault_type: vault::TYPE_GIT.into(),
+                    id: Some(id),
+                    vault_type: crate::vaultconfig::VaultType::Git,
                     device: DEVICE.into(),
-                    pubkey,
-                    method: vault::METHOD_PASSPHRASE.into(),
+                    pubkey: Some(pubkey),
+                    method: crate::vaultconfig::UnlockMethod::Passphrase,
                     ..Default::default()
                 },
             )
             .unwrap();
-        config::save(&paths::global_config_file(&dirs), &global).unwrap();
+        config::save_creating_dir(&paths::global_config_file(&dirs), &global).unwrap();
         TrustVault {
             _root: root,
             dirs,
@@ -150,7 +150,7 @@ impl TrustVault {
 
     /// `.age-recipients`, read as itself.
     pub(crate) fn recipients_file(&self) -> Vec<String> {
-        recipients::read(&self.vault.path.join(".age-recipients")).unwrap()
+        recipients::load(&self.vault.path.join(".age-recipients")).unwrap()
     }
 }
 
@@ -185,15 +185,15 @@ pub(crate) fn new_key() -> String {
 /// device finds it after a pull. The routine case: `verify` still passes.
 pub(crate) fn commit_routine_change(vault: &Vault, device: &str, pubkey: &str) {
     let path = vault.path.join(".age-recipients");
-    let mut keys = recipients::read(&path).unwrap();
+    let mut keys = recipients::load(&path).unwrap();
     keys.push(pubkey.into());
-    recipients::write(&path, &keys).unwrap();
-    let mut file = vaultconfig::read(&vault.config_path()).unwrap();
+    recipients::save(&path, &keys).unwrap();
+    let mut file = vaultconfig::load(&vault.config_path()).unwrap();
     file.recipients.push(vaultconfig::Recipient {
         device: device.into(),
         pubkey: pubkey.into(),
     });
-    vaultconfig::write(&vault.config_path(), &file).unwrap();
+    vaultconfig::save(&vault.config_path(), &file).unwrap();
     gitrepo::commit_all(&vault.path, &format!("gage: recipient add {device}")).unwrap();
 }
 
@@ -203,9 +203,9 @@ pub(crate) fn commit_routine_change(vault: &Vault, device: &str, pubkey: &str) {
 /// fails afterwards.
 pub(crate) fn tamper_recipients_file(vault: &Vault, pubkey: &str) {
     let path = vault.path.join(".age-recipients");
-    let mut keys = recipients::read(&path).unwrap();
+    let mut keys = recipients::load(&path).unwrap();
     keys.push(pubkey.into());
-    recipients::write(&path, &keys).unwrap();
+    recipients::save(&path, &keys).unwrap();
     gitrepo::commit_all(&vault.path, "add a key").unwrap();
 }
 
@@ -387,9 +387,9 @@ fn the_recipient_warning_is_a_typed_value_not_printed_text() {
 /// Changes a `config.toml` field that isn't a recipient and commits it: a
 /// real config diff with nothing to count from it.
 fn tamper_config_method_only(vault: &Vault) {
-    let mut file = vaultconfig::read(&vault.config_path()).unwrap();
-    file.method.plugin = "yubikey".into();
-    vaultconfig::write(&vault.config_path(), &file).unwrap();
+    let mut file = vaultconfig::load(&vault.config_path()).unwrap();
+    file.method.plugin = Some("yubikey".into());
+    vaultconfig::save(&vault.config_path(), &file).unwrap();
     gitrepo::commit_all(&vault.path, "gage: touch a non-recipient config field").unwrap();
 }
 
@@ -473,8 +473,9 @@ fn summary_says_what_to_do_next() {
     assert_eq!(w.delta(), "1 removed");
     w.verification.in_sync = false;
     assert!(w.mismatched());
-    assert!(
-        w.summary().contains("gage recipient verify"),
+    assert_eq!(
+        w.summary_remedy(),
+        Some(crate::error::Remedy::RecipientVerify),
         "{}",
         w.summary()
     );
@@ -504,7 +505,7 @@ fn an_unparseable_trust_record_is_an_error() {
     .unwrap();
     let err = t.vault.load_trust_cache().unwrap_err();
     assert!(matches!(err, TrustError::Parse { .. }), "{err}");
-    assert_eq!(err.code(), Code::Internal);
+    assert_eq!(err.kind(), ErrorKind::Internal);
 }
 
 // --- the blocking check -----------------------------------------------------
@@ -613,7 +614,7 @@ fn declining_the_recipient_change_aborts_the_write() {
         matches!(err, WriteError::Trust(TrustError::ChangeDeclined { .. })),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
 
     assert_eq!(t.commits(), commits, "a declined write committed");
     assert_eq!(t.head(), head);
@@ -684,7 +685,7 @@ fn confirming_a_mismatched_change_does_not_clear_the_cache() {
     assert_eq!(after.known_config, before.known_config);
     assert_eq!(
         after.mismatch_seen,
-        sha256_hex(&t.vault.path.join(".age-recipients")),
+        Some(sha256_hex(&t.vault.path.join(".age-recipients"))),
         "the acknowledged mismatch was not recorded"
     );
 
@@ -732,7 +733,7 @@ fn confirm_recipient_trust_with_no_prompter_refuses() {
         ) -> Result<Uuid, crate::prompter::PromptError> {
             unreachable!()
         }
-        fn warn(&self, _: &str) {}
+        fn warn(&self, _: &crate::prompter::Warning) {}
     }
 
     let t = TrustVault::new();
@@ -749,7 +750,7 @@ fn confirm_recipient_trust_with_no_prompter_refuses() {
         ),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
 }
 
 // --- the opportunistic checks -----------------------------------------------
@@ -898,9 +899,13 @@ fn recipient_add_and_remove_refuse_over_a_failing_verify() {
             matches!(err, RecipientError::Trust(TrustError::OutOfSync { .. })),
             "{verb}: {err}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         assert!(err.to_string().contains(&stray), "{verb}: {err}");
-        assert!(err.to_string().contains("--repair"), "{verb}: {err}");
+        assert_eq!(
+            err.remedy(),
+            Some(crate::error::Remedy::RecipientRepair),
+            "{verb}: {err}"
+        );
         // Refused before anyone was asked to approve it.
         assert!(p.recipient_changes().is_empty(), "{verb} asked first");
         assert!(p.confirm_prompts().is_empty(), "{verb} asked first");
@@ -992,7 +997,7 @@ fn recipient_add_does_not_launder_someone_elses_change() {
     assert!(asked[0].diff.contains("stranger"), "{}", asked[0].diff);
     assert_eq!(reencrypted.load(std::sync::atomic::Ordering::SeqCst), 0);
     assert_eq!(gitrepo::commit_count(&s.vault.path).unwrap(), commits);
-    let keys = recipients::read(&s.vault.path.join(".age-recipients")).unwrap();
+    let keys = recipients::load(&s.vault.path.join(".age-recipients")).unwrap();
     assert!(!keys.contains(&phone), "added despite the refusal");
 
     let cache_after = s.vault.load_trust_cache().unwrap().unwrap();
@@ -1009,12 +1014,12 @@ fn commit_routine_change_at(d: &crate::gittest::Device, device: &str, pubkey: &s
     let keys = d.read(".age-recipients");
     d.write(".age-recipients", &format!("{keys}{pubkey}\n"));
     let config = d.path().join(".gage").join("config.toml");
-    let mut file = vaultconfig::read(&config).unwrap();
+    let mut file = vaultconfig::load(&config).unwrap();
     file.recipients.push(vaultconfig::Recipient {
         device: device.into(),
         pubkey: pubkey.into(),
     });
-    vaultconfig::write(&config, &file).unwrap();
+    vaultconfig::save(&config, &file).unwrap();
     d.commit(&format!("gage: recipient add {device}"));
 }
 
@@ -1150,7 +1155,7 @@ fn repair_declined_writes_nothing() {
         matches!(err, crate::recipient::RecipientError::RepairDeclined { .. }),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(p.confirm_prompts().len(), 1);
     assert_eq!(t.file(".age-recipients"), before);
     assert_eq!(t.commits(), commits);
@@ -1175,7 +1180,7 @@ fn repair_with_no_prompter_refuses() {
         "{err}"
     );
     assert!(err.to_string().contains("disagree"), "{err}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(t.commits(), commits);
 }
 
@@ -1227,12 +1232,12 @@ fn repair_does_not_regenerate_the_trust_cache() {
 /// Appends a recipient to `config.toml` alone and commits: a key declared
 /// with nothing yet encrypted to it.
 fn tamper_config_file(vault: &Vault, device: &str, pubkey: &str) {
-    let mut file = vaultconfig::read(&vault.config_path()).unwrap();
+    let mut file = vaultconfig::load(&vault.config_path()).unwrap();
     file.recipients.push(vaultconfig::Recipient {
         device: device.into(),
         pubkey: pubkey.into(),
     });
-    vaultconfig::write(&vault.config_path(), &file).unwrap();
+    vaultconfig::save(&vault.config_path(), &file).unwrap();
     gitrepo::commit_all(&vault.path, "gage: config-only recipient edit").unwrap();
 }
 

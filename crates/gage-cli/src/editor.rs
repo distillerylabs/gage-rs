@@ -18,8 +18,8 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use gage::entry::{self, Entry};
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
+use gage::entry::Entry;
 use zeroize::Zeroizing;
 
 use crate::error::CliError;
@@ -41,7 +41,7 @@ pub(crate) fn edit_yaml(editor: Option<&str>, seed: &Entry) -> Result<Edited, Cl
 /// [`edit_yaml`] with the scratch file in `dir`.
 fn edit_yaml_in(dir: &Path, editor: Option<&str>, seed: &Entry) -> Result<Edited, CliError> {
     let (program, args) = resolve_editor(editor)?;
-    let template = entry::marshal(seed)?;
+    let template = seed.to_yaml()?;
     // From here on the plaintext is on disk; `scratch`'s Drop overwrites
     // and unlinks it on every path out, an error or a panic included.
     let scratch = Scratch::create(dir, &template)?;
@@ -49,20 +49,20 @@ fn edit_yaml_in(dir: &Path, editor: Option<&str>, seed: &Entry) -> Result<Edited
         .args(&args)
         .arg(&scratch.path)
         .status()
-        .map_err(|e| CliError::new(Code::Internal, format!("gage: running $EDITOR: {e}")))?;
+        .map_err(|e| CliError::new(ExitCode::Internal, format!("running $EDITOR: {e}")))?;
     if !status.success() {
         return Err(CliError::new(
-            Code::Internal,
-            format!("gage: $EDITOR exited with an error: {status}"),
+            ExitCode::Internal,
+            format!("$EDITOR exited with an error: {status}"),
         ));
     }
     let edited = Zeroizing::new(fs::read(&scratch.path).map_err(|e| {
         CliError::new(
-            Code::Internal,
-            format!("gage: reading the edited scratch file: {e}"),
+            ExitCode::Internal,
+            format!("reading the edited scratch file: {e}"),
         )
     })?);
-    let entry = entry::unmarshal(&edited)?;
+    let entry = Entry::from_yaml(&edited)?;
     Ok(Edited {
         entry,
         unchanged: *edited == *template,
@@ -79,14 +79,14 @@ fn resolve_editor(editor: Option<&str>) -> Result<(PathBuf, Vec<String>), CliErr
     let mut words = editor.split_whitespace();
     let Some(first) = words.next() else {
         return Err(CliError::new(
-            Code::Internal,
-            "gage: $EDITOR is not set; gage edit and gage insert -e need it to open a scratch file",
+            ExitCode::Internal,
+            "$EDITOR is not set; gage edit and gage insert -e need it to open a scratch file",
         ));
     };
     let program = which::which(first).map_err(|e| {
         CliError::new(
-            Code::Internal,
-            format!("gage: $EDITOR {editor:?} is not usable: {e}"),
+            ExitCode::Internal,
+            format!("$EDITOR {editor:?} is not usable: {e}"),
         )
     })?;
     Ok((program, words.map(str::to_string).collect()))
@@ -108,7 +108,7 @@ impl Scratch {
     /// `gage-edit-*.yaml` name, 0600 on Unix) holding `data`.
     fn create(dir: &Path, data: &[u8]) -> Result<Scratch, CliError> {
         let creating = |e: std::io::Error| {
-            CliError::new(Code::Internal, format!("gage: creating scratch file: {e}"))
+            CliError::new(ExitCode::Internal, format!("creating scratch file: {e}"))
         };
         let mut builder = tempfile::Builder::new();
         builder.prefix("gage-edit-").suffix(".yaml");
@@ -125,7 +125,7 @@ impl Scratch {
         };
         if let Some(file) = &mut scratch.original {
             file.write_all(data).map_err(|e| {
-                CliError::new(Code::Internal, format!("gage: writing scratch file: {e}"))
+                CliError::new(ExitCode::Internal, format!("writing scratch file: {e}"))
             })?;
         }
         // Closed before the editor opens it: Windows won't share it
@@ -251,7 +251,7 @@ pub(crate) mod fake {
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
 
-    use gage::entry::{self, Entry, Timestamp};
+    use gage::entry::{Entry, Timestamp};
 
     /// The config file's suffix: how the trampoline knows it was run as an
     /// editor rather than as part of the suite.
@@ -441,10 +441,10 @@ pub(crate) mod fake {
             }
             "replace" => {
                 let _ = std::fs::hard_link(path, cfg["witness"]);
-                let mut e: Entry = entry::unmarshal(&original).unwrap();
+                let mut e: Entry = Entry::from_yaml(&original).unwrap();
                 e.value = "replaced".into();
                 let new = path.with_extension("yaml.replace");
-                std::fs::write(&new, entry::marshal(&e).unwrap()).unwrap();
+                std::fs::write(&new, e.to_yaml().unwrap()).unwrap();
                 std::fs::rename(&new, path).unwrap();
                 0
             }
@@ -453,7 +453,7 @@ pub(crate) mod fake {
                 0
             }
             "set" => {
-                let mut e: Entry = entry::unmarshal(&original).unwrap();
+                let mut e: Entry = Entry::from_yaml(&original).unwrap();
                 if let Some(t) = cfg.get("title") {
                     e.title = t.to_string();
                 }
@@ -476,7 +476,7 @@ pub(crate) mod fake {
                     e.updated = y1999;
                     e.updated_by = "some-other-device".into();
                 }
-                std::fs::write(path, entry::marshal(&e).unwrap()).unwrap();
+                std::fs::write(path, e.to_yaml().unwrap()).unwrap();
                 0
             }
             other => panic!("unknown fake editor mode {other}"),
@@ -490,7 +490,7 @@ mod tests {
     use super::*;
 
     fn seed() -> Entry {
-        let now = entry::Timestamp::from_unix(1_768_386_720);
+        let now = gage::entry::Timestamp::from_unix(1_768_386_720);
         Entry {
             title: "ProtonMail".into(),
             description: "personal email".into(),
@@ -521,7 +521,7 @@ mod tests {
         for editor in [None, Some(""), Some("   \t ")] {
             let (dir, r) = in_private_dir(editor, &seed());
             let err = r.err().expect("an unset $EDITOR must fail");
-            assert_eq!(err.code(), Code::Internal);
+            assert_eq!(err.code(), ExitCode::Internal);
             assert!(err.to_string().contains("$EDITOR is not set"), "{err}");
             assert!(
                 is_empty(dir.path()),
@@ -538,7 +538,7 @@ mod tests {
         );
         let (dir, r) = in_private_dir(Some(&missing), &seed());
         let err = r.err().expect("an unusable $EDITOR must fail");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.code(), ExitCode::Internal);
         assert!(err.to_string().contains("is not usable"), "{err}");
         assert!(is_empty(dir.path()), "a scratch file was created");
     }
@@ -592,7 +592,7 @@ mod tests {
         let edited = r.unwrap();
         assert!(edited.unchanged);
         assert_eq!(edited.entry, seed);
-        assert_eq!(fake.template(), entry::marshal(&seed).unwrap().to_vec());
+        assert_eq!(fake.template(), seed.to_yaml().unwrap().to_vec());
     }
 
     #[test]
@@ -600,7 +600,7 @@ mod tests {
         let fake = FakeEditor::new(Action::Fail);
         let (_dir, r) = in_private_dir(Some(&fake.command), &seed());
         let err = r.err().expect("a failing editor must fail the edit");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.code(), ExitCode::Internal);
         assert!(
             err.to_string().contains("$EDITOR exited with an error"),
             "{err}"
@@ -612,7 +612,7 @@ mod tests {
         let fake = FakeEditor::new(Action::InvalidYaml);
         let (_dir, r) = in_private_dir(Some(&fake.command), &seed());
         let err = r.err().expect("unparseable content must fail the edit");
-        assert_ne!(err.code(), Code::Success);
+        assert_ne!(err.code(), ExitCode::Success);
         assert!(err.to_string().contains("parsing entry"), "{err}");
     }
 
@@ -652,7 +652,7 @@ mod tests {
         let fake = FakeEditor::new(Action::Delete);
         let (dir, r) = in_private_dir(Some(&fake.command), &seed());
         let err = r.err().expect("a vanished file must fail the edit");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.code(), ExitCode::Internal);
         assert!(
             err.to_string().contains("reading the edited scratch file"),
             "{err}"
@@ -675,7 +675,7 @@ mod tests {
         r.unwrap();
         assert!(is_empty(dir.path()));
         let witness = fake.witness().expect("the fake editor's hard link failed");
-        let template = entry::marshal(&seed).unwrap();
+        let template = seed.to_yaml().unwrap();
         assert_eq!(witness.len(), template.len(), "overwritten in place");
         assert!(witness.iter().all(|b| *b == 0), "the plaintext survived");
     }
@@ -695,7 +695,7 @@ mod tests {
         assert_eq!(r.unwrap().entry.value, "replaced");
         assert!(is_empty(dir.path()));
         let witness = fake.witness().expect("the fake editor's hard link failed");
-        let template = entry::marshal(&seed).unwrap();
+        let template = seed.to_yaml().unwrap();
         assert_eq!(witness.len(), template.len(), "overwritten in place");
         assert!(witness.iter().all(|b| *b == 0), "the original survived");
     }

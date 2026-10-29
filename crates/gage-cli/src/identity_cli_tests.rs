@@ -8,7 +8,7 @@
 //! `recipient add` takes, and a recipient change pushed by A is what B
 //! pulls.
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::gittest::{self, BareRemote};
 use gage::prompter::{FakePrompter, Purpose};
 use gage::{gitrepo, paths, recipients, vaultconfig};
@@ -45,7 +45,7 @@ impl TwoDevices {
             &["clone", url, "--name", VAULT, "--device", B_DEVICE],
             &FakePrompter::new(),
         );
-        assert_eq!(r.code, Code::Success, "clone: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "clone: {}", r.stderr);
         TwoDevices {
             a,
             b,
@@ -81,8 +81,8 @@ fn stray_key() -> String {
 }
 
 pub(crate) fn identity_files(env: &Env) -> Vec<String> {
-    let id = env.entry(VAULT).id;
-    match std::fs::read_dir(paths::identities_dir(&env.dirs, &id).unwrap()) {
+    let id = env.entry(VAULT).id.unwrap();
+    match std::fs::read_dir(paths::identities_dir(&env.dirs, &id)) {
         Ok(entries) => entries
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .filter(|n| n.ends_with(".age"))
@@ -104,10 +104,10 @@ fn identity_add_registers_a_device_and_prints_its_public_key() {
     let r =
         t.b.run_with(&["identity", "add", "--device", B_DEVICE], &prompter);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let key = printed_key(&r.stdout);
     let entry = t.b.entry(VAULT);
-    assert_eq!(entry.pubkey, key);
+    assert_eq!(entry.pubkey.as_ref(), Some(&key));
     assert_eq!(entry.device, B_DEVICE);
     assert_eq!(entry.method, "passphrase");
     assert_eq!(identity_files(&t.b), [format!("{B_DEVICE}.age")]);
@@ -175,8 +175,11 @@ fn identity_add_method_defaults_to_the_vaults_and_stays_local() {
         &["identity", "add", "--method", "carrier-pigeon"],
         &prompter,
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
-    assert!(r.stderr.contains("carrier-pigeon"), "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
+    assert_eq!(
+        r.stderr,
+        "gage: unknown method \"carrier-pigeon\"; accepted: passphrase\n"
+    );
     assert!(prompter.unlock_requests().is_empty());
     assert!(identity_files(&t2.b).is_empty());
     t2.b.ok(&["identity", "add", "--method", "passphrase"]);
@@ -193,12 +196,12 @@ fn identity_add_rejects_a_hostname_collision_without_anyone_typing_the_name() {
 
     let r = t.b.run_with(&["identity", "add"], &prompter);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("--device"), "{}", r.stderr);
     assert!(r.stderr.contains(A_DEVICE), "{}", r.stderr);
     assert!(prompter.unlock_requests().is_empty());
     assert!(identity_files(&t.b).is_empty());
-    assert!(t.b.entry(VAULT).pubkey.is_empty());
+    assert!(t.b.entry(VAULT).pubkey.is_none());
 }
 
 #[test]
@@ -209,11 +212,11 @@ fn identity_add_rejects_a_name_the_vault_already_lists() {
     let r =
         t.b.run_with(&["identity", "add", "--device", A_DEVICE], &prompter);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("already listed"), "{}", r.stderr);
     assert!(prompter.unlock_requests().is_empty());
     assert!(identity_files(&t.b).is_empty());
-    assert!(t.b.entry(VAULT).pubkey.is_empty());
+    assert!(t.b.entry(VAULT).pubkey.is_none());
 }
 
 #[test]
@@ -222,7 +225,7 @@ fn identity_add_rejects_an_invalid_device_name_as_usage() {
     for bad in ["../escape", "Laptop", "has space"] {
         let r =
             t.b.run_with(&["identity", "add", "--device", bad], &FakePrompter::new());
-        assert_eq!(r.code, Code::Usage, "{bad}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{bad}: {}", r.stderr);
     }
     assert!(identity_files(&t.b).is_empty());
 }
@@ -278,7 +281,7 @@ fn recipient_list_prints_every_device_and_key_as_the_config_lists_them() {
 
     let r = t.b.run_with(&["recipient", "list"], &prompter);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let listed = t.b.vault_config(VAULT).recipients;
     let lines: Vec<&str> = r.stdout.lines().collect();
     assert_eq!(lines.len(), listed.len(), "{}", r.stdout);
@@ -305,10 +308,10 @@ fn recipient_verify_exit_codes_and_differences() {
     let vault = t.a.vault_path();
     let own = t.a.vault_config(VAULT).recipients[0].pubkey.clone();
     let stray = stray_key();
-    recipients::write(&vault.join(".age-recipients"), &[own, stray.clone()]).unwrap();
+    recipients::save(&vault.join(".age-recipients"), &[own, stray.clone()]).unwrap();
 
     let r = t.a.run(&["recipient", "verify"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains(&stray), "{}", r.stderr);
     assert!(r.stderr.contains(".age-recipients"), "{}", r.stderr);
 }
@@ -321,16 +324,16 @@ fn recipient_verify_names_a_key_missing_from_the_recipients_file() {
     let t = TwoDevices::new();
     let vault = t.a.vault_path();
     let ghost = stray_key();
-    let mut config = vaultconfig::read(&config_file(&vault)).unwrap();
+    let mut config = vaultconfig::load(&config_file(&vault)).unwrap();
     config.recipients.push(vaultconfig::Recipient {
         device: "ghost".into(),
         pubkey: ghost.clone(),
     });
-    vaultconfig::write(&config_file(&vault), &config).unwrap();
+    vaultconfig::save(&config_file(&vault), &config).unwrap();
 
     let r = t.a.run(&["recipient", "verify"]);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains(&ghost), "{}", r.stderr);
     assert!(r.stderr.contains("ghost"), "{}", r.stderr);
     assert!(r.stderr.contains("config.toml"), "{}", r.stderr);
@@ -346,7 +349,7 @@ fn recipient_verify_runs_with_no_identity_and_no_prompter() {
 
     let r = t.b.run_with(&["recipient", "verify"], &prompter);
 
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(prompter.unlock_requests().is_empty());
     assert!(prompter.value_prompts().is_empty());
     assert!(prompter.confirm_prompts().is_empty());
@@ -359,14 +362,18 @@ fn recipient_verify_runs_with_no_identity_and_no_prompter() {
 fn init_and_identity_add_record_the_pubkey_and_clone_does_not() {
     let t = TwoDevices::new();
     let init_key = t.a.vault_config(VAULT).recipients[0].pubkey.clone();
-    assert_eq!(t.a.entry(VAULT).pubkey, init_key, "init records it");
-    assert!(t.b.entry(VAULT).pubkey.is_empty(), "clone does not");
+    assert_eq!(
+        t.a.entry(VAULT).pubkey.as_ref(),
+        Some(&init_key),
+        "init records it"
+    );
+    assert!(t.b.entry(VAULT).pubkey.is_none(), "clone does not");
 
     let r = t.b.identity_add(&["--device", B_DEVICE]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
-    assert_eq!(t.b.entry(VAULT).pubkey, printed_key(&r.stdout));
-    assert_ne!(t.b.entry(VAULT).pubkey, init_key);
+    assert_eq!(t.b.entry(VAULT).pubkey, Some(printed_key(&r.stdout)));
+    assert_ne!(t.b.entry(VAULT).pubkey, Some(init_key));
 }
 
 // The identity list half of "a vault without an id fails loudly on every derived path":
@@ -376,13 +383,13 @@ fn init_and_identity_add_record_the_pubkey_and_clone_does_not() {
 fn a_registration_without_an_id_fails_identity_list_before_any_path_is_built() {
     let t = TwoDevices::new();
     let mut global = t.a.global();
-    global.vaults.get_mut(VAULT).unwrap().id.clear();
+    global.vaults.get_mut(VAULT).unwrap().id = None;
     t.a.save_global(&global);
     let before = t.a.tree();
 
     let r = t.a.run(&["identity", "list"]);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(
         r.stderr.contains("points at a different vault"),
         "{}",

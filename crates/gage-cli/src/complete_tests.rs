@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use clap::{Arg, Command};
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::locker::MemLocker;
 use gage::prompter::FakePrompter;
 use gage::session::{Session, SessionConfig};
@@ -53,7 +53,7 @@ fn session<'a>(env: &'a Env, prompter: &'a FakePrompter) -> Session<'a> {
         }),
         prompter,
         idle_timeout: None,
-        current: Some(env.global().current),
+        current: env.global().current,
         now: None,
     })
 }
@@ -688,7 +688,7 @@ fn run_session_command_rejects_an_ambiguous_abbreviation() {
     let mut s = session(&env, &p);
     let (res, out) = run_line(&env, &mut s, "l");
     let err = res.unwrap_err();
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.code(), ExitCode::Usage);
     for want in ["lock", "ls"] {
         assert!(err.to_string().contains(want), "{err}");
     }
@@ -707,7 +707,7 @@ fn abbreviation_does_not_reach_subcommands() {
     let p = panics_if_asked();
     let mut s = session(&env, &p);
     let (res, out) = run_line(&env, &mut s, "vault inf");
-    assert_eq!(res.unwrap_err().code(), Code::Usage);
+    assert_eq!(res.unwrap_err().code(), ExitCode::Usage);
     assert_eq!(out, "", "`inf` ran something");
 }
 

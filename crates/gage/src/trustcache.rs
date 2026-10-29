@@ -17,12 +17,13 @@ use sha2::{Digest, Sha256};
 
 use crate::entry::Timestamp;
 use crate::entry::WRITE_LOCK_TIMEOUT;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::gitrepo;
-use crate::prompter::{PromptError, Prompter};
+use crate::prompter::{PromptError, Prompter, Warning};
 use crate::recipient::{RecipientError, RecipientVerification, VerifyError};
+use crate::serde_opt::empty_as_none;
 use crate::vault::Vault;
-use crate::vaultconfig::{self, Recipient};
+use crate::vaultconfig::{self, Recipient, VaultId};
 use crate::xdgpaths::Dirs;
 use crate::{atomicfile, paths};
 
@@ -71,23 +72,30 @@ impl RecipientChangeWarning {
     }
 
     /// The one line the opportunistic checks warn with, on unlock and on
-    /// sync, where nothing blocks and nobody is asked. It says what to do
-    /// next: the warning rides along with a read, so what it interrupts is
-    /// not what it is about.
+    /// sync, where nothing blocks and nobody is asked. With
+    /// [`RecipientChangeWarning::summary_remedy`] it says what to do next:
+    /// the warning rides along with a read, so what it interrupts is not
+    /// what it is about.
     pub fn summary(&self) -> String {
         if self.mismatched() {
             return format!(
-                "gage: {:?}'s recipient list changed since this device last confirmed it, and its two \
-                 recipient files now disagree — run `gage recipient verify`.",
+                "{:?}'s recipient list changed since this device last confirmed it, and its two \
+                 recipient files now disagree",
                 self.vault
             );
         }
         format!(
-            "gage: {:?}'s recipient list changed since this device last confirmed it ({}); \
+            "{:?}'s recipient list changed since this device last confirmed it ({}); \
              the next write here will ask you to review it.",
             self.vault,
             self.delta()
         )
+    }
+
+    /// What the summary's reader does next: check the files when they
+    /// disagree. Otherwise the next write asks, and nothing needs running.
+    pub fn summary_remedy(&self) -> Option<Remedy> {
+        self.mismatched().then_some(Remedy::RecipientVerify)
     }
 
     /// The summary's parenthetical: what moved, counted rather than listed,
@@ -119,7 +127,7 @@ pub(crate) struct TrustCache {
     /// The hash of an `.age-recipients` acknowledged while it disagreed
     /// with `config.toml`: "the mismatch was seen". It never clears the
     /// inconsistency, and neither half above moves for it.
-    pub(crate) mismatch_seen: String,
+    pub(crate) mismatch_seen: Option<String>,
 }
 
 /// `trust.toml`'s shape: everything but the config copy,
@@ -130,8 +138,11 @@ pub(crate) struct TrustRecord {
     pub(crate) recipients_hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) confirmed_at: Option<toml::value::Datetime>,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub(crate) mismatch_seen: String,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) mismatch_seen: Option<String>,
 }
 
 /// Why the trust cache couldn't be consulted, or refused a write.
@@ -141,16 +152,14 @@ pub enum TrustError {
     /// The recipient list changed and the answer was no. Nothing was
     /// written, and the cache stays where it was, so the same question
     /// comes back next time.
-    #[error(
-        "gage: the recipient list of {vault:?} changed and was not confirmed; nothing was written"
-    )]
+    #[error("the recipient list of {vault:?} changed and was not confirmed; nothing was written")]
     ChangeDeclined { vault: String },
     /// The recipient list changed and nobody could be asked: a frontend
     /// with no one at it. An unapproved list is exactly what the check
     /// refuses to encrypt to.
     #[error(
-        "gage: the recipient list of {vault:?} changed and could not be confirmed ({}); nothing was written. Run the command where you can answer, or with --yes",
-        source.to_string().trim_start_matches("gage: ")
+        "the recipient list of {vault:?} changed and could not be confirmed ({}); nothing was written",
+        source
     )]
     Unconfirmable { vault: String, source: PromptError },
     /// `recipient add`/`remove` refusing a vault whose two recipient files
@@ -160,39 +169,37 @@ pub enum TrustError {
     /// and the cache regenerated over a list nobody reviewed. It names
     /// every difference, since those are the whole content of the refusal.
     #[error(
-        "gage: the recipient files of {vault:?} disagree:\n{}\ngage: fix this with `gage recipient verify --repair`, which rewrites .age-recipients from .gage/config.toml and says what it drops",
+        "the recipient files of {vault:?} disagree:\n{}",
         difference_lines(.verification)
     )]
     OutOfSync {
         vault: String,
         verification: RecipientVerification,
     },
-    #[error("gage: reading {path}: {source}")]
+    #[error("reading {path}: {source}")]
     Read {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("gage: parsing {path}: {source}")]
+    #[error("parsing {path}: {source}")]
     Parse {
         path: PathBuf,
         source: Box<toml::de::Error>,
     },
-    #[error("gage: encoding {TRUST_FILE}: {0}")]
+    #[error("encoding {TRUST_FILE}: {0}")]
     Encode(#[from] toml::ser::Error),
-    #[error("gage: creating {path}: {source}")]
+    #[error("creating {path}: {source}")]
     CreateDir {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("gage: removing {path}: {source}")]
+    #[error("removing {path}: {source}")]
     Remove {
         path: PathBuf,
         source: std::io::Error,
     },
     #[error(transparent)]
     Write(#[from] atomicfile::Error),
-    #[error(transparent)]
-    Path(#[from] paths::Error),
     // The TOML and config errors are boxed: inline they make this enum
     // 120 bytes, and on Windows (whose `PathBuf` is larger) every error
     // carrying a `TrustError` crosses clippy's `result_large_err` limit.
@@ -214,22 +221,32 @@ impl From<vaultconfig::Error> for TrustError {
     }
 }
 
-impl HasCode for TrustError {
-    fn code(&self) -> Code {
+impl HasKind for TrustError {
+    fn kind(&self) -> ErrorKind {
         match self {
             // A human must decide, and didn't or couldn't.
             TrustError::ChangeDeclined { .. }
             | TrustError::Unconfirmable { .. }
-            | TrustError::OutOfSync { .. } => Code::Conflict,
-            TrustError::Write(e) => e.code(),
-            TrustError::Path(e) => e.code(),
-            TrustError::Verify(e) => e.code(),
-            TrustError::Config(e) => e.code(),
+            | TrustError::OutOfSync { .. } => ErrorKind::Conflict,
+            TrustError::Write(e) => e.kind(),
+            TrustError::Verify(e) => e.kind(),
+            TrustError::Config(e) => e.kind(),
             TrustError::Read { .. }
             | TrustError::Parse { .. }
             | TrustError::Encode(_)
             | TrustError::CreateDir { .. }
-            | TrustError::Remove { .. } => Code::Internal,
+            | TrustError::Remove { .. } => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            TrustError::Unconfirmable { .. } => Some(Remedy::Yes),
+            TrustError::OutOfSync { .. } => Some(Remedy::RecipientRepair),
+            TrustError::Write(e) => e.remedy(),
+            TrustError::Verify(e) => e.remedy(),
+            TrustError::Config(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -258,8 +275,8 @@ pub fn difference_lines(v: &RecipientVerification) -> String {
 /// delete needs no argument about what else might live there. Anything
 /// added to the cache's on-disk form belongs in this list too. A missing
 /// cache is not an error.
-pub fn remove(dirs: &Dirs, vault_id: &str) -> Result<(), TrustError> {
-    let dir = paths::trust_cache_dir(dirs, vault_id)?;
+pub fn remove(dirs: &Dirs, vault_id: &VaultId) -> Result<(), TrustError> {
+    let dir = paths::trust_cache_dir(dirs, vault_id);
     for name in [KNOWN_CONFIG_FILE, TRUST_FILE] {
         let path = dir.join(name);
         match std::fs::remove_file(&path) {
@@ -301,8 +318,8 @@ fn sha256_hex(data: &[u8]) -> String {
 }
 
 impl Vault {
-    fn trust_cache_dir(&self) -> Result<PathBuf, TrustError> {
-        Ok(paths::trust_cache_dir(self.dirs(), &self.id)?)
+    fn trust_cache_dir(&self) -> PathBuf {
+        paths::trust_cache_dir(self.dirs(), &self.id)
     }
 
     /// This device's record for the vault, or `None` when there is none
@@ -313,7 +330,7 @@ impl Vault {
     /// confirmed; treating it as a first use is the same weak-but-honest
     /// position a new device is in.
     pub(crate) fn load_trust_cache(&self) -> Result<Option<TrustCache>, TrustError> {
-        let dir = self.trust_cache_dir()?;
+        let dir = self.trust_cache_dir();
         let Some(known_config) = read_optional(&dir.join(KNOWN_CONFIG_FILE))? else {
             return Ok(None);
         };
@@ -340,8 +357,8 @@ impl Vault {
     /// order is chosen for the safer torn state: a new config copy beside
     /// an old hash reads as a changed list and warns, which is the
     /// direction a half-finished write should fail in.
-    fn store_trust_cache(&self, cache: &TrustCache) -> Result<(), TrustError> {
-        let dir = self.trust_cache_dir()?;
+    pub(crate) fn save_trust_cache(&self, cache: &TrustCache) -> Result<(), TrustError> {
+        let dir = self.trust_cache_dir();
         std::fs::create_dir_all(&dir).map_err(|source| TrustError::CreateDir {
             path: dir.clone(),
             source,
@@ -367,7 +384,7 @@ impl Vault {
             known_config,
             recipients_hash: sha256_hex(&keys),
             confirmed_at: Some(Timestamp::now()),
-            mismatch_seen: String::new(),
+            mismatch_seen: None,
         })
     }
 
@@ -386,7 +403,7 @@ impl Vault {
             // First use. The first list a device sees is trusted on faith:
             // inherent to trust-on-first-use, and why this is a backstop
             // rather than a guarantee.
-            self.store_trust_cache(&current)?;
+            self.save_trust_cache(&current)?;
             return Ok(None);
         };
         if cache.known_config == current.known_config
@@ -423,7 +440,7 @@ impl Vault {
     /// copy, each in its own file's order.
     ///
     /// The cached bytes go through the plain TOML decoder, not
-    /// `vaultconfig::read`: gage wrote them from a file that was already
+    /// `vaultconfig::load`: gage wrote them from a file that was already
     /// validated, and an old copy a newer gage would refuse on
     /// `format_version` must still be describable. Refusing to describe the
     /// change would suppress the warning the refusal is about.
@@ -431,7 +448,7 @@ impl Vault {
         &self,
         cached: &[u8],
     ) -> Result<(Vec<Recipient>, Vec<Recipient>), TrustError> {
-        let path = self.trust_cache_dir()?.join(KNOWN_CONFIG_FILE);
+        let path = self.trust_cache_dir().join(KNOWN_CONFIG_FILE);
         let was: vaultconfig::File =
             toml::from_str(&String::from_utf8_lossy(cached)).map_err(|source| {
                 TrustError::Parse {
@@ -495,7 +512,7 @@ impl Vault {
     /// acted on.
     pub(crate) fn warn_recipient_trust(&self, prompter: &dyn Prompter) {
         if let Ok(Some(warning)) = self.check_recipient_trust() {
-            prompter.warn(&warning.summary());
+            prompter.warn(&Warning::from(warning.summary()).with_remedy(warning.summary_remedy()));
         }
     }
 
@@ -506,7 +523,7 @@ impl Vault {
     /// The mismatch-seen mark is not carried over: both files agreeing is
     /// what settles it.
     pub(crate) fn note_recipients_reviewed(&self) -> Result<(), TrustError> {
-        self.store_trust_cache(&self.current_trust_state()?)
+        self.save_trust_cache(&self.current_trust_state()?)
     }
 
     /// The other outcome: a mismatched change was confirmed, so the write
@@ -519,8 +536,8 @@ impl Vault {
         let Some(mut cache) = self.load_trust_cache()? else {
             return Ok(());
         };
-        cache.mismatch_seen = self.current_trust_state()?.recipients_hash;
-        self.store_trust_cache(&cache)
+        cache.mismatch_seen = Some(self.current_trust_state()?.recipients_hash);
+        self.save_trust_cache(&cache)
     }
 
     /// `recipient add`/`remove`'s precondition: both rebuild

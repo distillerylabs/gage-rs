@@ -8,7 +8,7 @@
 use std::path::{Component, Path, PathBuf};
 use std::sync::Once;
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::{remoteauth, syncerr};
 
 mod history;
@@ -47,7 +47,7 @@ pub const MAX_NAMED_DIRTY_PATHS: usize = 5;
 #[non_exhaustive]
 pub enum Error {
     /// A libgit2 call failed for a reason in none of the variants below.
-    #[error("gitrepo: {op} {path}: {source}")]
+    #[error("{op} {path}: {source}")]
     Git {
         op: &'static str,
         path: PathBuf,
@@ -62,7 +62,7 @@ pub enum Error {
     /// would discard that work; a merge's commit would publish it under a
     /// message nobody wrote it for. Neither is gage's call to make.
     #[error(
-        "gitrepo: the working tree has uncommitted changes ({}), so gage is not {remedy}; commit or discard them first",
+        "the working tree has uncommitted changes ({}), so gage is not {remedy}; commit or discard them first",
         name_paths(paths)
     )]
     DirtyWorkTree {
@@ -78,32 +78,30 @@ pub enum Error {
     RemoteAuth(#[from] remoteauth::Error),
     /// A path from a git tree would land outside the vault. Tree paths come
     /// from whoever can push to the remote.
-    #[error("gitrepo: refusing a remote path that escapes the vault: {0:?}")]
+    #[error("refusing a remote path that escapes the vault: {0:?}")]
     UnsafePath(String),
     /// A remote to clone has no branches: an empty repository, not a vault.
-    #[error("gitrepo: {url} has no branches; it is an empty repository, not a vault")]
+    #[error("{url} has no branches; it is an empty repository, not a vault")]
     NoBranches { url: String },
     /// A remote to clone has several branches and neither `main` nor
     /// `master` among them.
     #[error(
-        "gitrepo: {url} has several branches ({}) and none is main or master; gage cannot tell which one holds the vault",
+        "{url} has several branches ({}) and none is main or master; gage cannot tell which one holds the vault",
         branches.join(", ")
     )]
     AmbiguousBranch { url: String, branches: Vec<String> },
     /// A merge was asked for with nothing fetched to merge.
-    #[error("gitrepo: {} has nothing fetched to merge", path.display())]
+    #[error("{} has nothing fetched to merge", path.display())]
     NothingFetched { path: PathBuf },
     /// A merge commit was asked for while paths still conflict.
-    #[error(
-        "gitrepo: refusing to merge with {0} unanswered: every conflicting path needs a choice"
-    )]
+    #[error("refusing to merge with {0} unanswered: every conflicting path needs a choice")]
     Unanswered(String),
     /// A merge was asked to add a file at a path that exists, or that the
     /// merge itself writes. Adds create; they never replace.
-    #[error("gitrepo: refusing to add {0}: it already exists")]
+    #[error("refusing to add {0}: it already exists")]
     AddWouldOverwrite(String),
     /// A filesystem step of a merge or reset failed.
-    #[error("gitrepo: {op} {path}: {source}")]
+    #[error("{op} {path}: {source}")]
     Io {
         op: &'static str,
         path: String,
@@ -117,13 +115,13 @@ pub enum Error {
     },
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
         match self {
-            Error::DirtyWorkTree { .. } => Code::Conflict,
-            Error::Sync(e) => e.code(),
-            Error::RemoteAuth(e) => e.code(),
-            Error::RollbackFailed { cause, .. } => cause.code(),
+            Error::DirtyWorkTree { .. } => ErrorKind::Conflict,
+            Error::Sync(e) => HasKind::kind(e),
+            Error::RemoteAuth(e) => e.kind(),
+            Error::RollbackFailed { cause, .. } => cause.kind(),
             Error::Git { .. }
             | Error::UnsafePath(_)
             | Error::NoBranches { .. }
@@ -131,7 +129,16 @@ impl HasCode for Error {
             | Error::NothingFetched { .. }
             | Error::Unanswered(_)
             | Error::AddWouldOverwrite(_)
-            | Error::Io { .. } => Code::Internal,
+            | Error::Io { .. } => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            Error::Sync(e) => e.remedy(),
+            Error::RemoteAuth(e) => e.remedy(),
+            Error::RollbackFailed { cause, .. } => cause.remedy(),
+            _ => None,
         }
     }
 }
@@ -741,8 +748,8 @@ mod tests {
     fn the_other_operations_fail_on_a_directory_that_is_not_a_repo() {
         let dir = tempfile::tempdir().unwrap();
         let err = remote_url(dir.path()).unwrap_err();
-        assert_eq!(err.code(), Code::Internal);
-        assert!(err.to_string().starts_with("gitrepo: opening"), "{err}");
+        assert_eq!(err.kind(), ErrorKind::Internal);
+        assert!(err.to_string().starts_with("opening"), "{err}");
         assert!(is_clean(dir.path()).is_err());
         assert!(commit_count(dir.path()).is_err());
         assert!(set_remote(dir.path(), "/x.git").is_err());

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use super::fixtures_tests::{DAY, open_all, seal_into, vault, write_pending};
 use super::*;
 use crate::entry::WRITE_LOCK_TIMEOUT;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::gittest;
 use crate::prompter::{FakePrompter, PromptError, Purpose};
 use crate::remotesync::RemoteSyncer;
@@ -121,7 +121,7 @@ fn enroll_creates_an_identity_on_a_device_that_holds_none() {
     assert_eq!(asked[0].purpose, Purpose::Create);
     let pending = origin_pending(&a);
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].id, req.id);
+    assert_eq!(Some(&pending[0].id), req.id.as_ref());
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn enroll_with_a_wrong_passphrase_on_the_reuse_path_publishes_nothing() {
 
     let err = b.vault.enroll(B_DEVICE, DAY, &p).unwrap_err();
 
-    assert_eq!(err.code(), Code::LockedOrAuth, "{err}");
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth, "{err}");
     assert_eq!(commits(&b.vault), before);
     assert!(origin_pending(&a).is_empty());
     assert!(!b.vault.pending_dir().exists());
@@ -179,16 +179,16 @@ fn enroll_seals_the_public_key_this_device_actually_holds() {
 fn enroll_seals_the_passphrase_method_whatever_config_records() {
     let (a, b) = pair();
     let path = paths::global_config_file(&b.dirs);
-    let mut global = config::read(&path).unwrap();
+    let mut global = config::load(&path).unwrap();
     global.vaults.get_mut(&b.vault.name).unwrap().method = "yubikey".into();
-    config::save(&path, &global).unwrap();
+    config::save_creating_dir(&path, &global).unwrap();
 
     let req = b.vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap();
 
-    assert_eq!(req.method, crate::vault::METHOD_PASSPHRASE);
+    assert_eq!(req.method, "passphrase");
     a.vault.pull().unwrap();
     let opened = open_all(&a.vault, &req.code).unwrap();
-    assert_eq!(opened[0].method, crate::vault::METHOD_PASSPHRASE);
+    assert_eq!(opened[0].method, "passphrase");
 }
 
 // The commit message names no device and no
@@ -202,7 +202,7 @@ fn enroll_commits_under_a_message_that_names_nothing() {
     let head = repo.head().unwrap().peel_to_commit().unwrap();
     let message = head.message().unwrap();
     assert_eq!(message.trim_end(), "gage: enrollment request");
-    assert!(!message.contains(&req.id), "{message}");
+    assert!(!message.contains(req.id.as_deref().unwrap()), "{message}");
     assert!(!message.contains(B_DEVICE), "{message}");
 }
 
@@ -230,7 +230,7 @@ fn enroll_refuses_an_unusable_ttl_before_anything_happens() {
         let before = commits(&b.vault);
         let err = b.vault.enroll(B_DEVICE, ttl, &p).unwrap_err();
         assert!(matches!(err, EnrollmentError::InvalidTtl { .. }), "{err}");
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
         assert!(p.unlock_requests().is_empty());
         assert!(!identity_exists(&b, B_DEVICE));
         assert_eq!(commits(&b.vault), before);
@@ -388,8 +388,12 @@ fn enroll_refuses_a_name_that_labels_a_different_recipient() {
         matches!(err, EnrollmentError::DeviceNameTaken { .. }),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
-    assert!(err.to_string().contains("--device"), "{err}");
+    assert_eq!(err.kind(), ErrorKind::Conflict);
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::ChooseDevice),
+        "{err}"
+    );
     assert!(!identity_exists(&b, DEVICE));
     assert!(p.unlock_requests().is_empty());
 }
@@ -439,7 +443,7 @@ fn enroll_with_an_unreachable_remote_fails_before_anything_is_created() {
         matches!(err, EnrollmentError::RemoteUnreachable(_)),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Unreachable);
+    assert_eq!(err.kind(), ErrorKind::Unreachable);
     assert!(p.unlock_requests().is_empty());
     assert!(!identity_exists(&b, B_DEVICE));
     assert!(!b.vault.pending_dir().exists());
@@ -452,7 +456,7 @@ fn enroll_with_no_remote_fails_with_its_own_error() {
     let p = FakePrompter::new();
     let err = f.vault.enroll("phone", DAY, &p).unwrap_err();
     assert!(matches!(err, EnrollmentError::NoRemote { .. }), "{err}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     assert!(p.unlock_requests().is_empty());
 }
 
@@ -545,8 +549,17 @@ fn enroll_push_rejected_for_write_access_keeps_what_it_made() {
     let err = vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap_err();
 
     assert!(matches!(err, EnrollmentError::Push(_)), "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
-    assert!(err.to_string().contains("gage auth login"), "{err}");
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
+    assert!(
+        matches!(
+            err.remedy(),
+            Some(crate::error::Remedy::EnrollAgain {
+                auth_refused: true,
+                ..
+            })
+        ),
+        "{err}"
+    );
     assert!(identity_exists(&b, B_DEVICE), "the identity is kept");
     assert_eq!(commits(&b.vault), before + 1, "the local commit is kept");
     assert_eq!(b.vault.pending_enrollments().unwrap().len(), 1);
@@ -567,7 +580,11 @@ fn enroll_after_a_failed_push_reuses_the_identity_and_succeeds() {
 
     assert_eq!(p.unlock_requests()[0].purpose, Purpose::Unlock);
     assert!(req.published);
-    assert_ne!(req.id, first[0].id, "a fresh request and code");
+    assert_ne!(
+        req.id,
+        Some(first[0].id.clone()),
+        "a fresh request and code"
+    );
     assert_eq!(origin_pending(&a).len(), 2, "the first request rode along");
 }
 
@@ -594,7 +611,7 @@ fn enroll_refuses_a_diverged_pull() {
 
     let err = b.vault.enroll(B_DEVICE, DAY, &p).unwrap_err();
 
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(!err.to_string().contains("gage sync"), "{err}");
     assert_eq!(commits(&b.vault), before);
     assert_eq!(b.vault.pending_enrollments().unwrap().len(), pending_before);
@@ -624,7 +641,7 @@ fn divergence_is_found_by_the_report_rather_than_an_error() {
     let err = b.vault.enroll(B_DEVICE, DAY, &p).unwrap_err();
 
     assert!(matches!(err, EnrollmentError::Diverged { .. }), "{err:?}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(p.unlock_requests().is_empty());
     assert_eq!(
         commits(&b.vault),
@@ -679,7 +696,9 @@ fn the_next_write_discards_a_stray_pending_file() {
 
     let warnings = p.warnings();
     assert!(
-        warnings.iter().any(|w| w.contains(&stray.id)),
+        warnings
+            .iter()
+            .any(|w| w.contains(stray.id.as_deref().unwrap())),
         "the warning names it: {warnings:?}"
     );
     let ids: Vec<String> = b
@@ -689,14 +708,21 @@ fn the_next_write_discards_a_stray_pending_file() {
         .into_iter()
         .map(|r| r.id)
         .collect();
-    assert_eq!(ids, vec![req.id], "only this enroll's request is committed");
+    assert_eq!(
+        ids,
+        vec![req.id.unwrap()],
+        "only this enroll's request is committed"
+    );
 }
 
 #[test]
 fn pending_enrollments_lists_a_stray_locally_and_nowhere_else() {
     let (a, b) = pair();
     let stray = seal_into(&b.vault, "phone", &super::fixtures_tests::new_pubkey(), DAY);
-    assert_eq!(b.vault.pending_enrollments().unwrap()[0].id, stray.id);
+    assert_eq!(
+        Some(&b.vault.pending_enrollments().unwrap()[0].id),
+        stray.id.as_ref()
+    );
     assert!(origin_pending(&a).is_empty());
 }
 
@@ -779,7 +805,7 @@ fn a_divergence_involving_pending_is_reported_honestly() {
     let req = b.vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap();
     let name = format!(
         "{PENDING_DIR}/{}",
-        name::pending_file_name(&req.id, req.expires)
+        name::pending_file_name(req.id.as_deref().unwrap(), req.expires)
     );
     // Clones before the approver publishes, so the sides truly diverge.
     let denier = Machine::cloned_from(&a, "phone");

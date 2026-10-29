@@ -14,7 +14,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::entry::CandidateList;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::syncresolve::{EntryConflict, Resolution};
 use crate::trustcache::RecipientChangeWarning;
 
@@ -122,22 +122,22 @@ pub enum PromptError {
     #[error("this build cannot satisfy a {0:?} unlock request")]
     UnsupportedKind(String),
     /// The frontend's retry policy ended a candidate pick without one.
-    #[error("gage: no entry chosen after {0} attempts")]
+    #[error("no entry chosen after {0} attempts")]
     NoChoice(u32),
     /// Asked to choose from nothing: a caller bug, since an ambiguous
     /// query always has at least two candidates.
-    #[error("gage: asked to choose from an empty candidate list")]
+    #[error("asked to choose from an empty candidate list")]
     EmptyCandidates,
     /// A question only a human can answer, with nobody to ask: a script, a
     /// `--stdin` session, CI. Which version of a conflicted entry to keep
     /// (gage never picks a side on its own; a silent choice is the
     /// last-write-wins outcome the sync model exists to refuse), or whether
     /// to trust a changed recipient list.
-    #[error("gage: this question needs someone to ask, and nobody is at a terminal")]
+    #[error("this question needs someone to ask, and nobody is at a terminal")]
     NotInteractive,
     /// The frontend's retry policy ended a conflict question without an
     /// answer it recognized.
-    #[error("gage: no version chosen after {0} attempts")]
+    #[error("no version chosen after {0} attempts")]
     NoResolution(u32),
     /// The frontend declined to ask, for a reason of its own that it
     /// words for the person reading the failure: a scripted run with no
@@ -150,21 +150,21 @@ pub enum PromptError {
     Io(#[from] std::io::Error),
 }
 
-impl HasCode for PromptError {
+impl HasKind for PromptError {
     // No answer to an unlock is an authentication failure, as end of input
     // is reported; a broken terminal or a request this build can't
     // render is not.
-    fn code(&self) -> Code {
+    fn kind(&self) -> ErrorKind {
         match self {
             PromptError::Cancelled
             | PromptError::TooManyAttempts
             | PromptError::NoMatchingPassphrase(_)
-            | PromptError::Refused(_) => Code::LockedOrAuth,
-            PromptError::NoChoice(_) => Code::Ambiguous,
+            | PromptError::Refused(_) => ErrorKind::LockedOrAuth,
+            PromptError::NoChoice(_) => ErrorKind::Ambiguous,
             // A human must resolve it, and nobody did.
-            PromptError::NotInteractive | PromptError::NoResolution(_) => Code::Conflict,
+            PromptError::NotInteractive | PromptError::NoResolution(_) => ErrorKind::Conflict,
             PromptError::UnsupportedKind(_) | PromptError::EmptyCandidates | PromptError::Io(_) => {
-                Code::Internal
+                ErrorKind::Internal
             }
         }
     }
@@ -242,9 +242,36 @@ pub trait Prompter {
     /// continue, and a warning that could fail would let the library turn
     /// a degraded-but-working unlock into a failed one.
     ///
-    /// Messages name gage themselves (`gage: ...`); a frontend shows them
-    /// as they are.
-    fn warn(&self, msg: &str);
+    /// A warning names no frontend: no `gage:`, no command to run. The
+    /// frontend adds its own name and renders the remedy (ADR-0054).
+    fn warn(&self, warning: &Warning);
+}
+
+/// A non-fatal advisory: what happened, and what would address it if
+/// anything does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Warning {
+    pub text: String,
+    pub remedy: Option<Remedy>,
+}
+
+impl Warning {
+    /// The same warning, offering `remedy`.
+    pub fn with_remedy(self, remedy: Option<Remedy>) -> Warning {
+        Warning { remedy, ..self }
+    }
+}
+
+impl From<String> for Warning {
+    fn from(text: String) -> Warning {
+        Warning { text, remedy: None }
+    }
+}
+
+impl From<&str> for Warning {
+    fn from(text: &str) -> Warning {
+        Warning::from(text.to_string())
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -282,7 +309,7 @@ mod fake {
         asked_value: Mutex<Vec<String>>,
         asked_choose: Mutex<Vec<CandidateList>>,
         asked_resolve: Mutex<Vec<EntryConflict>>,
-        warnings: Mutex<Vec<String>>,
+        warnings: Mutex<Vec<Warning>>,
     }
 
     /// The scripted answers to [`Prompter::resolve_conflict`]: in order, or
@@ -452,8 +479,13 @@ mod fake {
             self.asked_confirm.lock().unwrap().clone()
         }
 
-        /// Every warning delivered, in order.
+        /// Every warning's text, in order.
         pub fn warnings(&self) -> Vec<String> {
+            self.warned().into_iter().map(|w| w.text).collect()
+        }
+
+        /// Every warning delivered, remedy included, in order.
+        pub fn warned(&self) -> Vec<Warning> {
             self.warnings.lock().unwrap().clone()
         }
     }
@@ -520,8 +552,8 @@ mod fake {
             }
         }
 
-        fn warn(&self, msg: &str) {
-            self.warnings.lock().unwrap().push(msg.to_string());
+        fn warn(&self, warning: &Warning) {
+            self.warnings.lock().unwrap().push(warning.clone());
         }
 
         fn confirm_recipient_change(
@@ -587,34 +619,38 @@ mod tests {
         assert!(p.confirm("remove it?").unwrap());
         assert_eq!(p.unlock_requests(), vec![request(), request()]);
         assert_eq!(p.confirm_prompts(), vec!["remove it?".to_string()]);
-        p.warn("gage: careful");
-        assert_eq!(p.warnings(), vec!["gage: careful".to_string()]);
+        p.warn(&Warning::from("careful").with_remedy(Some(Remedy::Sync)));
+        assert_eq!(p.warnings(), vec!["careful".to_string()]);
+        assert_eq!(p.warned()[0].remedy, Some(Remedy::Sync));
     }
 
     #[test]
     fn prompt_errors_carry_their_exit_codes() {
         for (err, code) in [
-            (PromptError::Cancelled, Code::LockedOrAuth),
-            (PromptError::TooManyAttempts, Code::LockedOrAuth),
-            (PromptError::NoMatchingPassphrase(3), Code::LockedOrAuth),
+            (PromptError::Cancelled, ErrorKind::LockedOrAuth),
+            (PromptError::TooManyAttempts, ErrorKind::LockedOrAuth),
+            (
+                PromptError::NoMatchingPassphrase(3),
+                ErrorKind::LockedOrAuth,
+            ),
             (
                 PromptError::Refused("no way to ask".into()),
-                Code::LockedOrAuth,
+                ErrorKind::LockedOrAuth,
             ),
             (
                 PromptError::UnsupportedKind("yubikey".into()),
-                Code::Internal,
+                ErrorKind::Internal,
             ),
-            (PromptError::NoChoice(3), Code::Ambiguous),
-            (PromptError::EmptyCandidates, Code::Internal),
-            (PromptError::NotInteractive, Code::Conflict),
-            (PromptError::NoResolution(5), Code::Conflict),
+            (PromptError::NoChoice(3), ErrorKind::Ambiguous),
+            (PromptError::EmptyCandidates, ErrorKind::Internal),
+            (PromptError::NotInteractive, ErrorKind::Conflict),
+            (PromptError::NoResolution(5), ErrorKind::Conflict),
             (
                 PromptError::Io(std::io::Error::other("tty gone")),
-                Code::Internal,
+                ErrorKind::Internal,
             ),
         ] {
-            assert_eq!(err.code(), code, "{err}");
+            assert_eq!(err.kind(), code, "{err}");
         }
         assert_eq!(Kind::Passphrase.to_string(), "passphrase");
     }
