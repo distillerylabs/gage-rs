@@ -48,15 +48,55 @@ use crate::vault::Vault;
 /// lookup failed reading the registry, finding the name in it, or
 /// resolving the registration to the vault it names. Each variant's
 /// message is the inner error's, and `source()` is that error.
-#[derive(Debug, thiserror::Error)]
+///
+/// The config and resolve errors are boxed: inline they push every error
+/// carrying a `SessionError` past clippy's `result_large_err` limit on
+/// Windows, whose `PathBuf` is larger. `Error` is written by hand so that
+/// `source()` is the inner error itself, not its box.
+#[derive(Debug)]
 #[non_exhaustive]
 pub enum OpenError {
-    #[error("{0}")]
-    Config(#[from] crate::config::Error),
-    #[error("{0}")]
-    Registry(#[from] crate::config::RegistryError),
-    #[error("{0}")]
-    Resolve(#[from] crate::vault::ResolveError),
+    Config(Box<crate::config::Error>),
+    Registry(crate::config::RegistryError),
+    Resolve(Box<crate::vault::ResolveError>),
+}
+
+impl std::fmt::Display for OpenError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OpenError::Config(e) => e.fmt(f),
+            OpenError::Registry(e) => e.fmt(f),
+            OpenError::Resolve(e) => e.fmt(f),
+        }
+    }
+}
+
+impl std::error::Error for OpenError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(match self {
+            OpenError::Config(e) => &**e,
+            OpenError::Registry(e) => e,
+            OpenError::Resolve(e) => &**e,
+        })
+    }
+}
+
+impl From<crate::config::Error> for OpenError {
+    fn from(e: crate::config::Error) -> OpenError {
+        OpenError::Config(Box::new(e))
+    }
+}
+
+impl From<crate::config::RegistryError> for OpenError {
+    fn from(e: crate::config::RegistryError) -> OpenError {
+        OpenError::Registry(e)
+    }
+}
+
+impl From<crate::vault::ResolveError> for OpenError {
+    fn from(e: crate::vault::ResolveError) -> OpenError {
+        OpenError::Resolve(Box::new(e))
+    }
 }
 
 impl HasKind for OpenError {
