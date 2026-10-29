@@ -1,4 +1,4 @@
-//! E2 task 5, the expiry half (Go's `enrollexpiry_test.go`). Expiry is
+//! The expiry half. Expiry is
 //! enforced from the sealed copy; the filename's epoch is a housekeeping
 //! hint for display and pruning, so the two can disagree and both
 //! directions are safe.
@@ -31,7 +31,7 @@ fn file_with(
     (id, code)
 }
 
-// Go: TestExpiryComesFromTheSealNotTheFilename. A far-future filename on
+// A far-future filename on
 // an expired seal must not add a second: the listing shows it, and only
 // the seal can refuse it.
 #[test]
@@ -46,7 +46,7 @@ fn expiry_comes_from_the_seal_not_the_filename() {
     );
 }
 
-// Go: TestFilenameClaimingExpiryOnALiveSealGrantsNothing. The converse is
+// The converse is
 // safe, not merely tolerable: the request is invisible to a broad run, and
 // pruning removes it (a denial of service anyone who can rename the file
 // already has).
@@ -66,7 +66,7 @@ fn filename_claiming_expiry_on_a_live_seal_grants_nothing() {
     );
 }
 
-// Go: TestForgedFilenameEpochIsPrunedAsExpired. Its epoch never arrives,
+// Its epoch never arrives,
 // so without the clamp nothing would ever remove it. Includes an epoch
 // past what a timestamp can hold.
 #[test]
@@ -94,7 +94,7 @@ fn forged_filename_epoch_is_pruned_as_expired() {
     );
 }
 
-// Go: TestSealedExpiryBeyondTheCeilingIsExpired. The clamp on the copy
+// The clamp on the copy
 // approval enforces, under an in-range filename. Expired, not malformed:
 // nothing is ill-formed, the claim is outside what gage honours.
 #[test]
@@ -108,7 +108,7 @@ fn sealed_expiry_beyond_the_ceiling_is_expired() {
     );
 }
 
-// Go: TestExpiryIsComparedAgainstNowNotCreated. Both timestamps are the
+// Both timestamps are the
 // sealer's, so hanging the check on one of them checks nothing.
 #[test]
 fn expiry_is_compared_against_now_not_created() {
@@ -127,7 +127,7 @@ fn expiry_is_compared_against_now_not_created() {
     }
 }
 
-// Go: TestClockSkewIsItsOwnError. Fix that machine's clock, versus ask for
+// Fix that machine's clock, versus ask for
 // a fresh request.
 #[test]
 fn clock_skew_is_its_own_error() {

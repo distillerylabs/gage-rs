@@ -1,4 +1,4 @@
-//! Random secret values for `gage generate` (Go's `generate.go`). The
+//! Random secret values for `gage generate`. The
 //! length floor, the default and the two alphabets are properties of what
 //! a generated secret is, so they live here; a frontend only turns its
 //! flags into [`GenerateOptions`].
@@ -182,7 +182,7 @@ mod tests {
         value.chars().all(|c| alphabet.contains(c))
     }
 
-    // Go: TestRandomStringDrawIsStructural. Two different scripted sources
+    // Two different scripted sources
     // give two different outputs, each character the one its byte names:
     // the draw really uses the source.
     #[test]
@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(c, "0123456789abcdef");
     }
 
-    // Not a Go row (Go gets this from crypto/rand's rand.Int): a byte past
+    // A byte past
     // the largest multiple of the alphabet's length is redrawn, not folded
     // back with a modulo.
     #[test]
@@ -212,7 +212,6 @@ mod tests {
         assert_eq!(got, (full.as_bytes()[221 % 74] as char).to_string());
     }
 
-    // Go: TestRandomStringPropagatesReaderFailure
     #[test]
     fn random_string_propagates_reader_failure() {
         let err = random_string(&mut Failing, 8, b"ab").unwrap_err();
@@ -222,7 +221,7 @@ mod tests {
         assert!(source.contains("boom"), "{source}");
     }
 
-    // Go: TestRandomStringRejectsNonPositiveLengthAndEmptyAlphabet. A
+    // A
     // negative length has no `usize` spelling; the alphabet bound is also
     // checked from above, since one byte can't index past 256.
     #[test]
@@ -242,7 +241,7 @@ mod tests {
         ));
     }
 
-    // Go: TestGenerateValueLengthAndAlphabet, on the real OS source.
+    // Length and alphabet, on the real OS source.
     #[test]
     fn generate_value_length_and_alphabet() {
         let got = generate_value(GenerateOptions::default()).unwrap();
@@ -253,7 +252,6 @@ mod tests {
         );
     }
 
-    // Go: TestGenerateValueDiffersAcrossCalls
     #[test]
     fn generate_value_differs_across_calls() {
         let a = generate_value(GenerateOptions::default()).unwrap();
@@ -261,7 +259,7 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    // Go: TestGenerateDrawsFromCryptoRandNotMathRand. Every behavioral test
+    // Every behavioral test
     // here passes just as well against a seeded PRNG, so this one reads the
     // source: the production half of this file must draw from `OsRng` and
     // name no seedable or thread-local generator.
@@ -286,7 +284,6 @@ mod tests {
         }
     }
 
-    // Go: TestGenerateValueHonoursLength
     #[test]
     fn generate_value_honours_length() {
         for n in [MIN_LENGTH, 12, 24, 64, 200] {
@@ -299,7 +296,6 @@ mod tests {
         }
     }
 
-    // Go: TestGenerateValueZeroLengthUsesTheDefault
     #[test]
     fn generate_value_zero_length_uses_the_default() {
         let got = generate_value(GenerateOptions {
@@ -310,7 +306,7 @@ mod tests {
         assert_eq!(got.len(), DEFAULT_LENGTH);
     }
 
-    // Go: TestGenerateValueNoSymbolsExcludesSymbols. Fifty draws: one
+    // Fifty draws: one
     // 24-character draw from the full alphabet misses every symbol often
     // enough that a single check would pass against a flag that did
     // nothing.
@@ -326,7 +322,7 @@ mod tests {
         }
     }
 
-    // Go: TestGenerateValueStillDrawsSymbolsByDefault. 50 draws of 24 from
+    // 50 draws of 24 from
     // 74 with 12 symbols all miss with probability (62/74)^1200: never.
     #[test]
     fn generate_value_still_draws_symbols_by_default() {
@@ -339,7 +335,7 @@ mod tests {
         assert!(drew_one, "the default alphabet has lost its symbols");
     }
 
-    // Go: TestGenerateValueRejectsTooShortLength. Go's -5 has no `usize`
+    // A negative length has no `usize`
     // spelling (the CLI rejects a negative `-l` at parse time, also as
     // Usage).
     #[test]

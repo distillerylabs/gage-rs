@@ -80,7 +80,7 @@ mod tests {
         );
     }
 
-    // The round trip M1 deferred to M2: every non-blank, non-comment line of
+    // The round trip: every non-blank, non-comment line of
     // a written file parses with age's X25519 recipient parser, the one
     // stock `age -R` uses for those lines. age's own file reader needs its
     // `cli-common` feature, a frontend dependency the library doesn't take.
@@ -115,7 +115,6 @@ mod tests {
         assert_eq!(read(&path).unwrap(), keys());
     }
 
-    // Go: TestReadSkipsBlankLines
     #[test]
     fn read_skips_blank_lines_and_surrounding_space() {
         let dir = tempfile::tempdir().unwrap();
@@ -124,7 +123,7 @@ mod tests {
         assert_eq!(read(&path).unwrap(), [KEY_1, KEY_2]);
     }
 
-    // Go: TestReadMissingFile. A vault without the file is broken, not
+    // A vault without the file is broken, not
     // empty: an empty recipient list would mean "nobody", so it is an error.
     #[test]
     fn read_of_a_missing_file_is_an_error() {
@@ -137,12 +136,10 @@ mod tests {
         assert!(err.to_string().starts_with("recipients: reading"), "{err}");
     }
 
-    // Go: TestReadRejectsALineLongerThanTheScannerCanBuffer, ported as the
-    // behavior it guards: an overlong line is not silently truncated or
-    // dropped. Go fails because bufio.Scanner caps a token at 64 KiB; Rust's
+    // An overlong line is not silently truncated or dropped. Rust's
     // `lines()` has no cap, so the line comes back whole (an invalid key
     // that every later parse rejects by name). No cap is added: it would be
-    // a limit invented to match an implementation detail.
+    // a limit invented for no reason.
     #[test]
     fn read_returns_an_overlong_line_whole() {
         let dir = tempfile::tempdir().unwrap();

@@ -1,4 +1,4 @@
-//! RK1 task 3: `Vault::verify_recovery_key`. Go: `TestVerifyRecoveryKey`.
+//! `Vault::verify_recovery_key`.
 
 use super::*;
 use crate::exitcode::{Code, HasCode};

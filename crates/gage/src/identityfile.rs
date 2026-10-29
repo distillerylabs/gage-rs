@@ -1,8 +1,8 @@
 //! This device's wrapped identity files: `$GAGE_DATA/identities/<vault-id>/
 //! <device>.age`, each an age-keygen-format key file encrypted to a
 //! passphrase alone, plus the plaintext marker naming the vault. See "Local
-//! identity storage" in the design doc, A3 (the sole-recipient invariant)
-//! and A20 (keying by vault id, the marker).
+//! identity storage" in the design doc: the sole-recipient invariant (a
+//! passphrase-only recipient) and keying by vault id (ADR-0006), with the marker.
 //!
 //! Nothing here touches a terminal: every passphrase arrives through a
 //! [`Prompter`], and how many tries a human gets is the frontend's call.
@@ -21,7 +21,7 @@ use crate::prompter::{Kind, PromptError, Prompter, Purpose, UnlockRequest, Unloc
 use crate::xdgpaths::Dirs;
 
 /// The plaintext marker in each identities directory, naming the vault it
-/// belongs to (A20). The directory is named by an opaque UUID, and the
+/// belongs to (ADR-0006). The directory is named by an opaque UUID, and the
 /// design doc permits backing a wrapped identity file up by hand, so the
 /// directory says what it is. Advisory only: nothing reads it to make a
 /// decision, and deleting it changes nothing but the label.
@@ -56,7 +56,7 @@ pub enum UnlockError {
     )]
     UnsupportedMethod { vault: String, method: String },
     /// A device name or vault id that would have become a path component
-    /// failed validation (Q-DEVICE-NAME, A20).
+    /// failed validation (ADR-0010, ADR-0006).
     #[error(transparent)]
     UnsafePath(#[from] paths::Error),
     /// At least one answer was a wrong passphrase, and the prompter then
@@ -199,7 +199,7 @@ pub fn remove(dirs: &Dirs, vault_id: &str, device: &str) -> Result<(), UnlockErr
 
 /// A wrapped identity file held in memory while something replaces it, so
 /// a failure part-way through can put back exactly what was there
-/// (Q-RECOVERY-IDENTITY-BACKUP). The file is usually unopenable, since a
+/// (recovery depends on it). The file is usually unopenable, since a
 /// forgotten passphrase is why anyone replaces one, but not always:
 /// rebuilding a machine under its own name is legitimate with a good key on
 /// disk.
@@ -251,7 +251,7 @@ impl IdentityBackup {
     /// Puts the file back as it was. The directory is remade first:
     /// [`remove`] prunes it, with the marker, when the file was the
     /// vault's last identity, and a write beside a missing directory would
-    /// fail and lose the file this exists to keep (Go's R4 review bug).
+    /// fail and lose the file this exists to keep.
     /// Takes `&self`, so a caller whose restore failed can still report
     /// where the bytes belonged.
     pub fn restore(&self) -> Result<(), UnlockError> {
@@ -340,15 +340,15 @@ pub(crate) fn open(
 }
 
 /// Whether a failed decrypt means "the human typed the wrong thing" rather
-/// than "this file is not what it should be" (Q-AGE-CRATE).
+/// than "this file is not what it should be" (ADR-0022).
 ///
 /// Rust's age reports a wrong passphrase as the scrypt stanza's AEAD
 /// failing (`DecryptionFailed`). That is only a passphrase problem when the
-/// header is scrypt-only, as an identity file is by construction (A3): a
+/// header is scrypt-only, as an identity file is by construction: a
 /// file wrapped to anything else fails with `NoMatchingKeys` instead, and
 /// re-prompting for it would loop forever. Every other failure (a header
 /// that doesn't parse, a bad MAC, an excessive work factor, a damaged
-/// payload) is a corrupt file. Accepted, as in Go: a damaged scrypt stanza
+/// payload) is a corrupt file. Accepted: a damaged scrypt stanza
 /// body is indistinguishable from a wrong passphrase, because the AEAD
 /// can't tell them apart.
 fn is_wrong_passphrase(failure: &crypt::DecryptFailure) -> bool {
@@ -394,7 +394,7 @@ fn request_passphrase(
     };
     // One variant per Kind, and this asked for a passphrase: the pattern is
     // irrefutable until a second Kind exists, at which point the compiler
-    // demands the mismatch arm Go's check is.
+    // demands the mismatch arm.
     let UnlockResponse::Passphrase(passphrase) = p.unlock(&req).map_err(UnlockError::Prompter)?;
     if passphrase.is_empty() {
         return Err(UnlockError::EmptyPassphrase);

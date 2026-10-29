@@ -1,5 +1,4 @@
-//! RK1 task 4: `recovery-paper-key` is reserved for the recovery key.
-//! Go: `TestTheRecoveryLabelIsReservedForTheRecoveryKey`. The approval
+//! `recovery-paper-key` is reserved for the recovery key. The approval
 //! paths are in `enrollment/reserved_tests.rs`, which has the fixtures.
 
 use std::time::Duration;

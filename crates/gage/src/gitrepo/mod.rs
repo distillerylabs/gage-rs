@@ -1,7 +1,7 @@
 //! The small slice of git a vault needs: init plus the first commit, the
-//! `origin` remote, clean/dirty state, and (from P4) fetch, push, compare,
+//! `origin` remote, clean/dirty state, and fetch, push, compare,
 //! fast-forward, file-level merge, reset and clone. Everything goes through
-//! the git crate in-process (Q-GIT-CRATE); gage never shells out to a `git`
+//! the git crate in-process (ADR-0014); gage never shells out to a `git`
 //! binary and has no generic passthrough. See "Git-specific commands" in
 //! the design doc.
 
@@ -26,8 +26,8 @@ pub use remote::{
 pub const ORIGIN: &str = "origin";
 
 /// The branch a new vault starts on. Set explicitly so the user's
-/// `init.defaultBranch` never applies; Q-COMPAT frees it from go-git's
-/// `master`.
+/// `init.defaultBranch` never applies; ADR-0002 frees it from the old
+/// `master` default.
 pub const INITIAL_BRANCH: &str = "main";
 
 /// gage's own commit identity, never read from the user's git config,
@@ -146,7 +146,7 @@ fn name_paths(paths: &[String]) -> String {
 }
 
 /// Process-wide libgit2 setup, run before every repository open
-/// (Q-GIT-ISOLATION, Q-REMOTE-TIMEOUT). Idempotent and cheap after the
+/// (ADR-0016, ADR-0018). Idempotent and cheap after the
 /// first call.
 ///
 /// libgit2 reads the user's global config (and the system's, and XDG's,
@@ -539,7 +539,6 @@ mod tests {
         p.to_str().unwrap()
     }
 
-    // Go: TestInitAndCommitCreatesExactlyOneCommit
     #[test]
     fn init_and_commit_creates_exactly_one_commit() {
         let dir = committed_repo();
@@ -651,7 +650,6 @@ mod tests {
         assert!(stderr.contains("CHECKED"), "child ran no check:\n{stderr}");
     }
 
-    // Go: TestSetRemoteThenChangeIt
     #[test]
     fn set_remote_then_change_it() {
         let dir = committed_repo();
@@ -688,7 +686,6 @@ mod tests {
         assert_eq!(refspecs, ["+refs/heads/*:refs/remotes/origin/*"]);
     }
 
-    // Go: TestRemoteURLEmptyWhenUnset
     #[test]
     fn remote_url_empty_when_unset() {
         let dir = committed_repo();
@@ -704,7 +701,6 @@ mod tests {
         std::fs::write(&path, config).unwrap();
     }
 
-    // Go: TestRemoteURLAndHasRemoteWithNoConfiguredURLs
     #[test]
     fn remote_url_and_has_remote_with_no_configured_urls() {
         let dir = committed_repo();
@@ -728,7 +724,6 @@ mod tests {
         );
     }
 
-    // Go: TestHasRemoteOnARepoWithNoOriginConfigured
     #[test]
     fn has_remote_on_a_repo_with_no_origin_configured() {
         let dir = committed_repo();
@@ -753,7 +748,6 @@ mod tests {
         assert!(set_remote(dir.path(), "/x.git").is_err());
     }
 
-    // Go: TestIsCleanDetectsDirtyWorkingTree
     #[test]
     fn is_clean_detects_dirty_working_tree() {
         let dir = committed_repo();
@@ -761,7 +755,6 @@ mod tests {
         assert!(!is_clean(dir.path()).unwrap());
     }
 
-    // Go: TestIsCleanCountsUntrackedFilesAsDirty
     #[test]
     fn is_clean_counts_untracked_files_as_dirty() {
         let dir = committed_repo();

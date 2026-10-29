@@ -1,6 +1,6 @@
 //! The enrollment code: generation, and the normalization every typed
 //! spelling goes through before it is used as a passphrase. See
-//! D-ENROLL-CODE-FORMAT and Q-CROCKFORD.
+//! ADR-0039.
 
 use rand_core::{OsRng, RngCore};
 use zeroize::Zeroizing;

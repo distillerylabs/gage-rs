@@ -1,6 +1,6 @@
 //! A session's metadata index meeting sync: entries that arrive by pull
 //! show up in the next `ls`, and a pull that brings nothing leaves the
-//! cache alone. Go's `sync_index_test.go`; each test names its row.
+//! cache alone.
 
 use crate::entry::{Entry, Timestamp};
 use crate::prompter::FakePrompter;
@@ -8,8 +8,7 @@ use crate::remotesync::tests::{NAME, PASSPHRASE, SyncVault, sample};
 use crate::session::{Session, SessionConfig};
 use crate::syncresolve::Resolution;
 
-/// A session over the synced vault, the way the REPL wires one (Go's
-/// `newSyncSession`).
+/// A session over the synced vault, the way the REPL wires one.
 fn new_session<'a>(s: &'a SyncVault, p: &'a FakePrompter) -> Session<'a> {
     Session::new(SessionConfig {
         open: Box::new(move |_| Ok(s.vault.clone())),
@@ -22,7 +21,7 @@ fn new_session<'a>(s: &'a SyncVault, p: &'a FakePrompter) -> Session<'a> {
 
 /// An entry another device writes: real ciphertext for this vault's
 /// recipients, committed and pushed from the other clone, which can't
-/// read it but doesn't need to (Go's `encryptForTest`).
+/// read it but doesn't need to.
 fn other_device_adds_an_entry(s: &SyncVault) {
     let other = s.other();
     let mut there = s.vault.clone();
@@ -45,7 +44,7 @@ fn other_device_adds_an_entry(s: &SyncVault) {
     other.push();
 }
 
-// Go: TestUseFetchesAndFastForwards. `use` on a vault the session already
+// `use` on a vault the session already
 // holds unlocked runs no Vault::unlock, so it has to ask for the pull.
 #[test]
 fn use_fetches_and_fast_forwards() {
@@ -65,7 +64,7 @@ fn use_fetches_and_fast_forwards() {
     assert_eq!(p.unlock_requests().len(), 1, "re-selecting re-prompted");
 }
 
-// Go: TestPullDuringASessionInvalidatesTheIndex. The index is built first,
+// The index is built first,
 // so a stale cache surviving the pull would fail the second count.
 #[test]
 fn pull_during_a_session_invalidates_the_index() {
@@ -96,7 +95,7 @@ fn pull_during_a_session_invalidates_the_index() {
     );
 }
 
-// Go: TestPullThatBringsNothingLeavesTheIndexAlone. Rebuilding on every
+// Rebuilding on every
 // unlock would defeat the cache.
 #[test]
 fn pull_that_brings_nothing_leaves_the_index_alone() {
@@ -123,7 +122,7 @@ fn pull_that_brings_nothing_leaves_the_index_alone() {
     );
 }
 
-// Beyond Go's rows: a merge inside a write's own push moves the tree too,
+// A merge inside a write's own push moves the tree too,
 // and the index must not then serve the cached rows (nor have the
 // write's own entry patched into them).
 #[test]
@@ -206,7 +205,7 @@ fn diverge_on_one_entry(s: &SyncVault) -> uuid::Uuid {
     id
 }
 
-// Go: TestResolutionReusesASessionsCachedIdentity. An unlocked session
+// An unlocked session
 // resolves without a second passphrase request.
 #[test]
 fn resolution_reuses_a_sessions_cached_identity() {
@@ -254,7 +253,7 @@ fn a_locked_session_unlocks_only_for_a_conflict_and_keeps_the_key() {
     assert_eq!(p.unlock_requests().len(), 1, "the kept key was not reused");
 }
 
-// Go: TestResolutionUpdatesTheSessionIndex. The index is built first, so
+// The index is built first, so
 // a stale cache surviving the resolution would still count one entry.
 #[test]
 fn resolution_updates_the_session_index() {

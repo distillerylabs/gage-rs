@@ -1,6 +1,4 @@
-//! E2 task 7: the load-bearing invariant, `pending/` is inert (Go's
-//! `enrollinert_test.go`, and the wall-clock row from
-//! `enrollseal_test.go`). Nothing in `pending/` is consulted at encryption
+//! The load-bearing invariant: `pending/` is inert. Nothing in `pending/` is consulted at encryption
 //! time or counts as a recipient; only a human approving with a code turns
 //! a proposal into a grant. These rows must never be weakened.
 
@@ -16,7 +14,7 @@ use crate::crypt;
 use crate::entry::NewEntry;
 use crate::prompter::FakePrompter;
 
-// Go: TestPendingRequestGrantsNoDecryption. The invariant as ciphertext,
+// The invariant as ciphertext,
 // with the entry written *after* the request is pending: the ordering
 // that fails if any encrypt path consulted the directory.
 #[test]
@@ -58,7 +56,7 @@ fn pending_request_grants_no_decryption() {
     f.vault.read_entry(id, &f.identity()).unwrap();
 }
 
-// Go: TestPendingRequestsAreNotRecipients. From the control plane: the
+// From the control plane: the
 // list is unchanged, and verify is in sync with ten pending.
 #[test]
 fn pending_requests_are_not_recipients() {
@@ -75,7 +73,7 @@ fn pending_requests_are_not_recipients() {
     assert!(verification.in_sync, "{verification:?}");
 }
 
-// Go: TestPendingDirectoryNeedsNoIdentity. The signature E4's late unlock
+// The signature approval's late unlock
 // rests on, structurally: no identity is in scope here, and every call
 // still works.
 #[test]
@@ -94,7 +92,7 @@ fn pending_directory_needs_no_identity() {
     assert_eq!(opened[0].id, req.id);
 }
 
-// Go: TestGarbageInPendingIsNeverFatal. Degrades to "skipped", never to an
+// Degrades to "skipped", never to an
 // error that takes a read or an approval down.
 #[test]
 fn garbage_in_pending_is_never_fatal() {
@@ -112,7 +110,7 @@ fn garbage_in_pending_is_never_fatal() {
     assert_eq!(opened[0].id, req.id);
 }
 
-// Beyond Go (E2's review): a committed symlink is not a request, at
+// A committed symlink is not a request, at
 // listing or when handed in directly, so one pointing at a FIFO can't hang
 // the open and one pointing at a real sealed file can't stand in for it.
 #[cfg(unix)]
@@ -200,7 +198,7 @@ fn full_directory_child() {
     );
 }
 
-// Go: TestWrongCodeAgainstAFullDirectoryIsFast. The case factor 14 was
+// The case factor 14 was
 // chosen for: a typo has to try every request before it can say "wrong",
 // and a frontend retries on exactly that. At the shipped factor, in a
 // child, since the rest of the binary runs at the test factor.

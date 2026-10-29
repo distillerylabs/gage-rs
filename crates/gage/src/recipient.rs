@@ -4,8 +4,7 @@
 //! agree) needs no identity: both files are plaintext and committed, so
 //! anyone with the vault can inspect them.
 //!
-//! The write side re-encrypts, always: `add` since A19, `remove` since it
-//! has always required `--reencrypt`. Every entry and both recipient files
+//! The write side re-encrypts, always: `add` (ADR-0009) and `remove` alike. Every entry and both recipient files
 //! land in exactly one commit, or none of it does. The ordering in
 //! [`Vault::commit_recipient_list`] is what makes an interrupted run
 //! invisible in history. See "Recipient / access management" and "Why
@@ -167,7 +166,7 @@ pub enum RecipientError {
         "gage: a vault must keep at least one recipient: removing {device:?} would leave nothing to encrypt to, and --reencrypt would rewrite every entry to a list no key opens"
     )]
     LastRecipient { device: String },
-    /// A19's refusal: an actor who can't read the whole vault has nothing
+    /// The refusal when an actor who can't read the whole vault has nothing
     /// whole to grant. The count, never the ids: those are opaque to it by
     /// construction.
     #[error(
@@ -211,7 +210,7 @@ pub enum RecipientError {
         pubkey: String,
         source: crypt::Error,
     },
-    /// M10: the vault's two recipient files disagree (the verbs refuse to
+    /// The vault's two recipient files disagree (the verbs refuse to
     /// rebuild one from the other), or a change this device never
     /// reviewed wasn't confirmed.
     #[error(transparent)]
@@ -283,7 +282,7 @@ impl From<LockError> for RecipientError {
 }
 
 impl Vault {
-    /// A19's pre-flight: can `identity` read every entry in this vault?
+    /// The pre-flight: can `identity` read every entry in this vault?
     ///
     /// Public and standalone so approval can run it after its late unlock
     /// and before its own lock, as `recipient add` runs it before its. Either way the refusal never arrives mid-write on an
@@ -316,7 +315,7 @@ impl Vault {
     }
 
     /// Adds `pubkey` as `device` and re-encrypts every entry to the new
-    /// list, always (A19): there is no invocation that leaves a recipient
+    /// list, always (ADR-0009): there is no invocation that leaves a recipient
     /// able to read only part of the vault. That isn't an access tier
     /// anyone chose but an artifact of age baking recipients into each
     /// file, and it is contagious: a partially admitted device can neither
@@ -396,7 +395,7 @@ impl Vault {
             return Err(RecipientError::ReencryptRequired);
         }
         self.with_vault_write(WRITE_LOCK_TIMEOUT, prompter, || {
-            // M10, first, as in add, and for the same reasons: ahead of the
+            // The trust check, first, as in add, and for the same reasons: ahead of the
             // self-removal question, so nobody is asked to approve an
             // operation about to be refused.
             self.check_recipient_preconditions(prompter)?;
@@ -478,7 +477,7 @@ impl Vault {
     }
 
     /// The add itself, for one recipient or several, with the write lock
-    /// held. Split from [`Vault::add_recipient`] so E4's approval can call
+    /// held. Split from [`Vault::add_recipient`] so enrollment's approval can call
     /// it under a lock it took itself: a batch is one trust question, one
     /// re-encryption pass and one commit, which also carries whatever
     /// `write` says to delete. Returns how many entries were rewritten and
@@ -534,7 +533,7 @@ impl Vault {
         Ok(done)
     }
 
-    /// M10's two preconditions on add and remove, in this order, both
+    /// The two preconditions on add and remove, in this order, both
     /// under the write lock and before the first byte (and so before the
     /// re-encryption pass, not beside the recipient-file write):
     ///
@@ -579,7 +578,7 @@ impl Vault {
             .collect::<Result<Vec<_>, gitrepo::Error>>()?;
         let reencrypted = self.reencrypt_to(updated, identity)?;
         // After the entries and before the recipient files, which stay
-        // last (Go's order): a failure from here on leaves the deletions
+        // last: a failure from here on leaves the deletions
         // uncommitted, not undone, and the next write's dirty-tree reset
         // restores them.
         for (done, (rel, full)) in doomed.iter().enumerate() {

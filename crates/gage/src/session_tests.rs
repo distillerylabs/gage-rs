@@ -1,6 +1,5 @@
 //! `Session` against real vaults, real identity files and real scrypt (at
-//! the test work factor). Ports Go's `internal/gage/session_test.go`;
-//! each test names its Go row.
+//! the test work factor).
 //!
 //! Every vault's page locks go through a [`PageLedger`], a `Locker` that
 //! keeps the set of locked pages the way the OS does (no reference counts:
@@ -73,8 +72,7 @@ impl Locker for PageLedger {
     }
 }
 
-/// One simulated machine holding several real vaults (Go's
-/// `newSessionDevice`): one set of roots, one identity per vault, and a
+/// One simulated machine holding several real vaults: one set of roots, one identity per vault, and a
 /// global-config registration for each.
 pub(crate) struct Device {
     pub(crate) _root: tempfile::TempDir,
@@ -238,7 +236,7 @@ pub(crate) fn current_personal() -> Cfg {
 
 // --- use and reuse ----------------------------------------------------------
 
-// Go: TestSessionUseUnlocksOnceThenReusesTheKey. The unlock is paid once
+// The unlock is paid once
 // per vault per session, not once per command.
 #[test]
 fn session_use_unlocks_once_then_reuses_the_key() {
@@ -256,7 +254,6 @@ fn session_use_unlocks_once_then_reuses_the_key() {
     assert_eq!(s.current(), Some("personal"));
 }
 
-// Go: TestSessionUseWithEmptyNameSaysSo
 #[test]
 fn session_use_with_empty_name_says_so() {
     let d = Device::new(&["personal"]);
@@ -268,7 +265,7 @@ fn session_use_with_empty_name_says_so() {
     assert_eq!(err.code(), Code::Usage);
 }
 
-// Go: TestSessionWithNoCurrentVaultSaysSo. Reported before any prompt:
+// Reported before any prompt:
 // there is no vault whose passphrase could be asked for.
 #[test]
 fn session_with_no_current_vault_says_so() {
@@ -301,7 +298,7 @@ fn session_open_failure_keeps_the_openers_code_and_never_prompts() {
     );
 }
 
-// Go: TestSessionAdHocVaultDoesNotChangeCurrent. The `-u/--use` path:
+// The `-u/--use` path:
 // another vault, unlocked and used, without moving the session.
 #[test]
 fn session_ad_hoc_vault_does_not_change_current() {
@@ -334,7 +331,7 @@ fn a_seeded_current_vault_is_unlocked_by_its_first_use() {
 
 // --- the same Vault methods -------------------------------------------------
 
-// Go: TestSessionCallsTheSameVaultMethodsAsOneShot. A round trip across
+// A round trip across
 // the two modes: written through a session-held identity, read back
 // through a freshly unlocked one, so a session-only path can't satisfy it.
 #[test]
@@ -442,12 +439,11 @@ fn inherent_impl_bodies<'s>(source: &'s str, ty: &str) -> Vec<&'s str> {
     bodies
 }
 
-// Go: TestSessionAddsNoDuplicateVaultMethods. Go parses every non-test file
-// in the package for a Session method named like a Vault CRUD verb; this
+// This
 // scans every non-test file in the crate for an inherent impl of Session,
 // or of Command (the in-command guard, which derefs to Session), declaring
-// one. A method of the same name on Vault twice can't compile, so Go's
-// other half is the compiler's; the fn-pointer bindings prove each verb
+// one. A method of the same name on Vault twice can't compile, so the
+// compiler covers that half; the fn-pointer bindings prove each verb
 // really is a Vault method, so the scan isn't checking names that no
 // longer exist.
 #[test]
@@ -527,7 +523,6 @@ fn inherent_impl_scan_finds_what_it_should() {
 
 // --- lock and status --------------------------------------------------------
 
-// Go: TestSessionLockDropsOneVaultAndLeavesOthersAlone
 #[test]
 fn session_lock_drops_one_vault_and_leaves_others_alone() {
     let d = Device::new(&["personal", "work"]);
@@ -549,7 +544,6 @@ fn session_lock_drops_one_vault_and_leaves_others_alone() {
     assert_eq!(unlock_count(&p, "personal"), 2, "re-prompted after lock");
 }
 
-// Go: TestSessionLockWithNoVaultLocksAll
 #[test]
 fn session_lock_with_no_vault_locks_all() {
     let d = Device::new(&["personal", "work"]);
@@ -569,7 +563,7 @@ fn session_lock_with_no_vault_locks_all() {
     assert_eq!(unlock_count(&p, "work"), 2);
 }
 
-// Go: TestSessionLockUnknownVaultReports. `lock nope` is a mistake to
+// `lock nope` is a mistake to
 // report, not a silent no-op.
 #[test]
 fn session_lock_unknown_vault_reports() {
@@ -585,7 +579,6 @@ fn session_lock_unknown_vault_reports() {
     assert_eq!(err.code(), Code::NotFound);
 }
 
-// Go: TestSessionStatusReportsMultipleVaults
 #[test]
 fn session_status_reports_multiple_vaults() {
     let d = Device::new(&["personal", "work"]);
@@ -608,7 +601,7 @@ fn session_status_reports_multiple_vaults() {
     assert!(got[1].idle.is_some(), "an unlocked vault has a last use");
 }
 
-// Go: TestSessionCloseClosesEveryHeldIdentity. Nothing holds key material
+// Nothing holds key material
 // once the session ends, and closing twice is safe.
 #[test]
 fn session_close_closes_every_held_identity() {
@@ -650,7 +643,6 @@ fn timed(clock: &Clock, timeout: Duration) -> Cfg {
     }
 }
 
-// Go: TestSessionIdleTimeoutRelocksAndRePrompts
 #[test]
 fn session_idle_timeout_relocks_and_re_prompts() {
     let d = Device::new(&["personal"]);
@@ -671,7 +663,7 @@ fn session_idle_timeout_relocks_and_re_prompts() {
     assert_eq!(unlock_count(&p, "personal"), 2, "re-prompted after idling");
 }
 
-// Go: TestIdleTimeoutClosesTheIdentityLikeAnExplicitLock. The same
+// The same
 // teardown as `lock`: the key's pages are released.
 #[test]
 fn idle_timeout_closes_the_identity_like_an_explicit_lock() {
@@ -691,7 +683,7 @@ fn idle_timeout_closes_the_identity_like_an_explicit_lock() {
     );
 }
 
-// Go: TestIdleTimeoutDisabledWhenZero. Unset means "never re-lock on
+// Unset means "never re-lock on
 // time", and so does an explicit zero.
 #[test]
 fn idle_timeout_disabled_when_zero() {
@@ -714,7 +706,7 @@ fn idle_timeout_disabled_when_zero() {
     }
 }
 
-// Go: TestIdleTimeoutIsVisibleToStatusWithoutACommand. Status applies the
+// Status applies the
 // timeout itself, so the prompt's lock glyph goes stale when the clock
 // says so, not after the next command.
 #[test]
@@ -730,7 +722,7 @@ fn idle_timeout_is_visible_to_status_without_a_command() {
     assert!(!s.status()[0].unlocked);
 }
 
-// Go: TestIdleTimeoutNeverInterruptsAnInFlightCommand. A command made of
+// A command made of
 // several session calls can't have its key dropped between them, however
 // long it runs; the timeout runs again once the command ends.
 #[test]
@@ -760,7 +752,7 @@ fn idle_timeout_never_interrupts_an_in_flight_command() {
 
 // --- resolve ----------------------------------------------------------------
 
-// Go: TestSessionResolveAsksThePrompterOnAnAmbiguousQuery. The resolver
+// The resolver
 // returns the same candidate list in both modes; one-shot fails with it
 // and a session asks.
 #[test]
@@ -797,7 +789,7 @@ fn session_resolve_of_a_unique_query_asks_nobody() {
     assert!(p.choose_lists().is_empty());
 }
 
-// Go: TestSessionResolveRefusesAnIDThatWasNeverOffered. An answer outside
+// An answer outside
 // the list is a frontend bug and must not select an arbitrary entry.
 #[test]
 fn session_resolve_refuses_an_id_that_was_never_offered() {
@@ -818,8 +810,8 @@ fn session_resolve_refuses_an_id_that_was_never_offered() {
     assert_eq!(err.code(), Code::Internal);
 }
 
-// Go: TestResolveAmbiguousWithNoPrompterReturnsCandidates. Go's case is a
-// nil prompter; here it is one that declines to pick. Either way nobody
+// A
+// prompter that declines to pick. Either way nobody
 // chose, and the candidate list is the answer, as in one-shot mode.
 #[test]
 fn resolve_ambiguous_with_no_prompter_returns_candidates() {
@@ -855,11 +847,11 @@ fn a_picker_that_gives_up_is_ambiguous() {
 
 // --- page locks -------------------------------------------------------------
 
-// Go: TestConcurrentlyHeldIdentitiesDoNotSharePages. A session is where
+// A session is where
 // two keys are first held at once. Page locks aren't reference counted, so
 // two keys on one page share one lock, and dropping either silently
 // unprotects the other on Linux and macOS (Windows fails the second unlock
-// instead, which is how Go found it). The ledger behaves like the OS on
+// instead). The ledger behaves like the OS on
 // every platform, so this is checked everywhere.
 #[test]
 fn concurrently_held_identities_do_not_share_pages() {
@@ -886,9 +878,9 @@ fn concurrently_held_identities_do_not_share_pages() {
     assert!(personal.is_disjoint(&d.ledger.live()));
 }
 
-// --- completion's title source (M13) --------------------------------------------
+// --- completion's title source -----------------------------------------------
 
-// Go: TestEntryTitleCandidatesEmptyWithNoCurrentVault. Nothing selected
+// Nothing selected
 // yet is no titles, not an error.
 #[test]
 fn entry_title_candidates_empty_with_no_current_vault() {
@@ -900,7 +892,7 @@ fn entry_title_candidates_empty_with_no_current_vault() {
     assert_eq!(unlock_count(&p, "personal"), 0);
 }
 
-// Go: TestEntryTitleCandidatesEmptyWhenLockedNeverPrompts. A current
+// A current
 // vault that was never unlocked, or has since been locked, offers no
 // titles and never asks for a passphrase to get them. `unlocks(1)` pays
 // for the one `use`; a second unlock would fail the test.
@@ -920,7 +912,7 @@ fn entry_title_candidates_empty_when_locked_never_prompts() {
     assert_eq!(unlock_count(&p, "personal"), 1, "only the earlier use");
 }
 
-// Go: TestEntryTitleCandidatesListsCurrentVaultTitlesOnly. A second
+// A second
 // vault the session also holds unlocked never leaks its titles in.
 #[test]
 fn entry_title_candidates_lists_current_vault_titles_only() {
@@ -936,7 +928,7 @@ fn entry_title_candidates_lists_current_vault_titles_only() {
     assert_eq!(s.entry_title_candidates(), ["AWS", "ProtonMail"]);
 }
 
-// Go: TestEntryTitleCandidatesBuildsIndexOnce. Completing against an
+// Completing against an
 // unlocked, unindexed vault costs one decrypt pass, never one per
 // keystroke.
 #[test]
@@ -958,7 +950,7 @@ fn entry_title_candidates_builds_index_once() {
     );
 }
 
-// Not a Go row: the idle timeout applies here like any session call, so
+// The idle timeout applies here like any session call, so
 // a vault that aged out while a line was being typed offers no titles,
 // and asking for them doesn't re-prompt.
 #[test]
@@ -976,7 +968,7 @@ fn entry_title_candidates_empty_once_the_idle_timeout_relocks() {
     assert_eq!(unlock_count(&p, "personal"), 1);
 }
 
-// Go: TestSessionIndexUpdatesBothVaultsWithoutARebuild. A move through the
+// A move through the
 // session drops the entry from the source's index and adds it to the
 // destination's, and neither is decrypted again to list.
 #[test]
@@ -1042,7 +1034,7 @@ fn a_move_updates_both_indexes_without_a_rebuild() {
     );
 }
 
-// Go: TestMoveInASessionNeverUnlocksTheDestination, at the library: the
+// Moving in a session never unlocks the destination, at the library: the
 // destination is held, not unlocked, so it is never asked for a passphrase.
 #[test]
 fn the_destination_of_a_move_is_held_but_never_unlocked() {

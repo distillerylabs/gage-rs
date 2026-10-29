@@ -1,6 +1,6 @@
 //! Fetch, push, compare, fast-forward and clone against ephemeral bare
 //! repositories, and auth observed on the wire through the loopback
-//! recorder: Go's `remote_test` and `auth_wiring_test`.
+//! recorder.
 
 use std::path::Path;
 use std::time::Duration;
@@ -51,14 +51,13 @@ fn sync_kind(err: &Error) -> Kind {
     }
 }
 
-// Go: TestHasRemoteOnADirectoryThatIsNotARepo
 #[test]
 fn has_remote_on_a_directory_that_is_not_a_repo() {
     let dir = tempfile::tempdir().unwrap();
     assert!(!has_remote(dir.path()).unwrap());
 }
 
-// Go: TestRemoteStateStringCoversAllStatesAndUnknown. Its `state(99)`
+// Its `state(99)`
 // half is struck: a Rust enum can't hold an out-of-range value.
 #[test]
 fn remote_state_display_covers_all_states() {
@@ -78,7 +77,6 @@ fn remote_state_display_covers_all_states() {
     );
 }
 
-// Go: TestCompareReportsTheFourStates
 #[test]
 fn compare_reports_the_four_states() {
     let (dir, remote) = published_repo();
@@ -93,7 +91,6 @@ fn compare_reports_the_four_states() {
     assert_eq!(compare(dir.path()).unwrap(), RemoteState::Diverged);
 }
 
-// Go: TestCompareReportsRemoteBehind
 #[test]
 fn compare_reports_remote_behind() {
     let (dir, remote) = published_repo();
@@ -102,7 +99,6 @@ fn compare_reports_remote_behind() {
     assert_eq!(compare(dir.path()).unwrap(), RemoteState::Behind);
 }
 
-// Go: TestCompareWithNoRemoteTrackingRefIsRemoteNone
 #[test]
 fn compare_with_no_remote_tracking_ref_is_remote_none() {
     let dir = tempfile::tempdir().unwrap();
@@ -112,7 +108,6 @@ fn compare_with_no_remote_tracking_ref_is_remote_none() {
     assert_eq!(ahead_count(dir.path()).unwrap(), 0);
 }
 
-// Go: TestAheadCountCountsAPlainRunOfCommits
 #[test]
 fn ahead_count_counts_a_plain_run_of_commits() {
     let (dir, _remote) = published_repo();
@@ -123,7 +118,7 @@ fn ahead_count_counts_a_plain_run_of_commits() {
     }
 }
 
-// Go: TestAheadCountIsNotFooledByAMergeCommit. Go's correction: count what
+// Count what
 // the remote can't reach, not the walk back to the merge-base commit.
 #[test]
 fn ahead_count_is_not_fooled_by_a_merge_commit() {
@@ -166,7 +161,7 @@ fn a_fetch_that_brings_nothing_reports_no_change() {
     assert!(!fetch(dir.path(), &opts()).unwrap());
 }
 
-// Q-REMOTE-TIMEOUT: a deadline of zero, never real time. A fetch with
+// ADR-0018: a deadline of zero, never real time. A fetch with
 // something to transfer and a push with something to send both reach a
 // callback that checks it.
 #[test]
@@ -206,7 +201,7 @@ fn a_non_fast_forward_push_is_diverged() {
     assert!(!err.to_string().contains("gage auth login"), "{err}");
 }
 
-// Q-SYNC-CLASSIFY: a ref the remote refuses arrives through
+// ADR-0017: a ref the remote refuses arrives through
 // `push_update_reference`, and `push()` itself can succeed. A locked ref
 // on the remote makes the local transport refuse the update.
 #[test]
@@ -220,7 +215,6 @@ fn a_ref_the_remote_refuses_is_diverged_never_success() {
     assert!(err.to_string().contains("refs/heads/main"), "{err}");
 }
 
-// Go: TestFastForwardOnlyMovesWhenItIsAFastForward
 #[test]
 fn fast_forward_only_moves_when_it_is_a_fast_forward() {
     let (dir, remote) = published_repo();
@@ -242,7 +236,6 @@ fn fast_forward_only_moves_when_it_is_a_fast_forward() {
     assert!(!dir.path().join("remote2.txt").exists());
 }
 
-// Go: TestFastForwardRefusesOverUncommittedChanges
 #[test]
 fn fast_forward_refuses_over_uncommitted_changes() {
     let (dir, remote) = published_repo();
@@ -255,7 +248,6 @@ fn fast_forward_refuses_over_uncommitted_changes() {
     assert_eq!(read(dir.path(), "seed.txt"), "edited outside gage");
 }
 
-// Go: TestCloneProducesAWorkingCopy
 #[test]
 fn clone_produces_a_working_copy() {
     let (_dir, remote) = published_repo();
@@ -267,7 +259,7 @@ fn clone_produces_a_working_copy() {
     assert_eq!(compare(&dest).unwrap(), RemoteState::InSync);
 }
 
-// Go: TestCloneWorksWhenTheRemoteHeadPointsNowhere. A bare repository
+// A bare repository
 // whose HEAD names a branch that will never exist, as `git init --bare`
 // can leave one.
 #[test]
@@ -310,7 +302,6 @@ fn push_branches(remote: &BareRemote, names: &[&str]) {
         .unwrap();
 }
 
-// Go: TestRemoteBranchPicksMainOrMasterAndRefusesAmbiguity
 #[test]
 fn remote_branch_picks_main_or_master_and_refuses_ambiguity() {
     let pick = |names: &[&str]| {
@@ -353,9 +344,9 @@ fn remote_branch_picks_main_or_master_and_refuses_ambiguity() {
     assert!(matches!(err, Error::NoBranches { .. }), "{err}");
 }
 
-// --- auth on the wire (Go's auth_wiring_test) ---------------------------
+// --- auth on the wire ---------------------------------------------------
 
-/// A machine with its own token store (Go's `isolateState`).
+/// A machine with its own token store.
 struct Machine {
     _root: tempfile::TempDir,
     dirs: Dirs,
@@ -383,10 +374,9 @@ fn repo_with_origin(url: &str) -> tempfile::TempDir {
 
 const TOKEN: &str = "tok_do_not_print_me";
 
-// Go: TestFetchAndPushCarryTheStoredTokenToGoGit, as libgit2's, and
-// stronger: the token is observed on the wire, as `Basic` credentials on
+// Fetch and push carry the stored token: the token is observed on the wire, as `Basic` credentials on
 // the retry after a 401, for fetch (upload-pack) and push (receive-pack).
-// Before this existed in Go, dropping the credentials from both operations
+// Without this test, dropping the credentials from both operations
 // left the suite green.
 #[test]
 fn fetch_and_push_carry_the_stored_token_to_libgit2() {
@@ -420,7 +410,6 @@ fn fetch_and_push_carry_the_stored_token_to_libgit2() {
     }
 }
 
-// Go: TestFetchAndPushGoAnonymousWithNoStoredToken
 #[test]
 fn fetch_and_push_go_anonymous_with_no_stored_token() {
     let (_m, opts) = machine();
@@ -436,7 +425,6 @@ fn fetch_and_push_go_anonymous_with_no_stored_token() {
     assert_eq!(recorder.requests().len(), 2, "one attempt each, anonymous");
 }
 
-// Go: TestPushAfterLogoutNamesTheHostAndTheCommand
 #[test]
 fn push_after_logout_names_the_host_and_the_command() {
     let (m, opts) = machine();
@@ -453,7 +441,7 @@ fn push_after_logout_names_the_host_and_the_command() {
     }
 }
 
-// Go: TestNoTokenValueLeaksIntoASyncError. The token is a bearer
+// The token is a bearer
 // credential: nothing printed, logged or kept in session history may carry
 // it. Each refusal shape the recorder can produce is checked.
 #[test]
@@ -478,7 +466,7 @@ fn no_token_value_leaks_into_a_sync_error() {
     }
 }
 
-// Go: TestAuthFailuresNameTheHostAndTheFix (remote_test). An expired or
+// Auth failures name the host and the fix. An expired or
 // revoked token comes back naming the host and `gage auth login`, not as a
 // bare 403; a divergence never acquires that hint.
 #[test]
@@ -503,7 +491,7 @@ fn auth_failures_name_the_host_and_the_fix() {
     );
 }
 
-// Q-REMOTE-AUTH, beyond Go: the token is offered only to the host it was
+// ADR-0020: the token is offered only to the host it was
 // stored for. Here the server redirects the first, anonymous request to a
 // different host name (the same listener under `localhost`), which then
 // asks for credentials.
@@ -588,7 +576,7 @@ fn a_redirect_after_the_token_does_not_carry_it_to_another_host() {
     assert!(leaked.is_empty(), "{leaked:?}");
 }
 
-// Q-SYNC-CLASSIFY, for real through gitrepo: a refused port and an
+// ADR-0017, for real through gitrepo: a refused port and an
 // unresolvable host are unreachable, with no auth hint.
 #[test]
 fn an_unreachable_remote_is_unreachable() {
@@ -620,7 +608,7 @@ fn a_missing_local_remote_is_unreachable_and_named() {
     assert!(err.to_string().contains("gone.git"), "{err}");
 }
 
-// Q-REMOTE-AUTH: under WinHTTP no offsite redirect is followed, since it
+// ADR-0020: under WinHTTP no offsite redirect is followed, since it
 // would carry an accepted token with it; libgit2's own client follows the
 // initial request's only. The branch listing takes the same policy from
 // its scratch repository's config, spelled as git spells it.

@@ -5,7 +5,7 @@
 //! not a key, and only the parse knows that.
 //!
 //! This reports positions and nothing else. Padding, the `id` line and
-//! dedenting are the frontend's rendering (Q-YAML-CRATE).
+//! dedenting are the frontend's rendering (ADR-0048).
 
 use saphyr_parser::{Event, Parser, ScalarStyle, Span, SpannedEventReceiver};
 use zeroize::Zeroizing;

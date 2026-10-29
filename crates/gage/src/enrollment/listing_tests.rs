@@ -1,5 +1,4 @@
-//! E2 task 6: listing, resolution and pruning (Go's `enrollment_test.go`,
-//! and `enrollprune_test.go`'s `TestPruningLeavesLiveRequestsAlone`).
+//! Listing, resolution and pruning.
 
 use std::time::Duration;
 
@@ -11,7 +10,7 @@ use super::{EnrollmentError, MAX_ENROLLMENT_TTL, MAX_PENDING_REQUEST_BYTES};
 use crate::exitcode::Code;
 use crate::prompter::FakePrompter;
 
-// Go: TestPendingEnrollmentsReportsZeroWithoutTheDirectory. The normal
+// The normal
 // state: git tracks no empty directories.
 #[test]
 fn pending_enrollments_reports_zero_without_the_directory() {
@@ -23,7 +22,7 @@ fn pending_enrollments_reports_zero_without_the_directory() {
     assert!(f.vault.pending_enrollments().unwrap().is_empty());
 }
 
-// Go: TestPendingEnrollmentsSkipsStrays. A directory anyone who can write
+// A directory anyone who can write
 // the repository can fill: a file gage didn't write is skipped, never
 // fatal.
 #[test]
@@ -60,7 +59,7 @@ fn pending_enrollments_skips_strays() {
     open_all(&f.vault, &req.code).unwrap();
 }
 
-// Go: TestPendingEnrollmentsFiltersExpiredWithoutDeleting. A listing is a
+// A listing is a
 // read: it filters and takes no lock, so it deletes nothing.
 #[test]
 fn pending_enrollments_filters_expired_without_deleting() {
@@ -85,7 +84,7 @@ fn pending_enrollments_filters_expired_without_deleting() {
     }
 }
 
-// Go: TestPendingEnrollmentsReadsNoGitHistory. Proven by taking the
+// Proven by taking the
 // repository away: a listing that consulted history in any form would
 // fail without .git.
 #[test]
@@ -107,7 +106,7 @@ fn pending_enrollments_reads_no_git_history() {
     );
 }
 
-// Go: TestFilenameEpochMatchesTheSealedExpiry. The two copies come from one
+// The two copies come from one
 // value; drift would show one time and enforce another.
 #[test]
 fn filename_epoch_matches_the_sealed_expiry() {
@@ -124,7 +123,7 @@ fn filename_epoch_matches_the_sealed_expiry() {
     assert_eq!(opened[0].expires, from_name);
 }
 
-// Go: TestResolveEnrollmentFollowsTheBaseResolutionOrder. M5's rule: exact
+// The query rule: exact
 // beats substring, several matches come back as every candidate rather
 // than a guess, and no match is an error.
 #[test]
@@ -184,7 +183,7 @@ fn resolve_enrollment_follows_the_base_resolution_order() {
     );
 }
 
-// Go: TestResolveEnrollmentMatchesTheUUIDPortionOnly. Ten digits of epoch
+// Ten digits of epoch
 // are legal hex, so a short id could match one request's expiry and
 // another's id; deny deletes.
 #[test]
@@ -214,7 +213,7 @@ fn resolve_enrollment_matches_the_uuid_portion_only() {
     assert_eq!(f.vault.resolve_enrollment(needle).unwrap().id, wanted);
 }
 
-// Go: TestPruneRemovesExpiredAndForgedExpiriesOnly. And what it must not
+// And what it must not
 // touch: a live request, an unparseable name, an oversized live file.
 #[test]
 fn prune_removes_expired_and_forged_expiries_only() {
@@ -257,7 +256,7 @@ fn prune_removes_expired_and_forged_expiries_only() {
     }
 }
 
-// Go: TestPruneWithoutAPendingDirectoryIsNotAnError. Pruning rides every
+// Pruning rides every
 // recipient write, and most vaults have no pending/.
 #[test]
 fn prune_without_a_pending_directory_is_not_an_error() {
@@ -265,9 +264,7 @@ fn prune_without_a_pending_directory_is_not_an_error() {
     assert!(f.vault.prune_pending_enrollments().unwrap().is_empty());
 }
 
-// Go: TestPruningLeavesLiveRequestsAlone. Go's row goes through
-// AddRecipient, which prunes from E4 on; until then it is asserted against
-// both the write and the prune primitive directly.
+// Asserted against both the write and the prune primitive directly.
 #[test]
 fn pruning_leaves_live_requests_alone() {
     let f = vault();

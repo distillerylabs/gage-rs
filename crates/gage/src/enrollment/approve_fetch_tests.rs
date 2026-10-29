@@ -1,5 +1,4 @@
-//! E4 task 3: approval fetches before it commits (Go's
-//! `enrollapprovefetch_test.go`), against a real bare origin.
+//! Approval fetches before it commits, against a real bare origin.
 //!
 //! Every test that moves the remote takes the approver's identity first:
 //! the unlock runs the automatic pull, and an identity taken afterwards
@@ -69,7 +68,7 @@ fn push_refused_for_access() -> Arc<FakeSyncer> {
     })
 }
 
-// Go: TestApprovalFastForwardsBeforeItWrites. Against a remote that moved
+// Against a remote that moved
 // ahead, the approval lands on top of its tip and its push is a
 // fast-forward, not a divergence in every entry.
 #[test]
@@ -90,7 +89,7 @@ fn approval_fast_forwards_before_it_writes() {
     assert!(!remote_has(&a, &request_path(&req)), "the push didn't land");
 }
 
-// Go: TestApprovalRefusesADivergedRemoteBeforeWritingAnything. The advice
+// The advice
 // is `gage sync`, correct here and the one deliberate difference from
 // enroll's: an approver can decrypt.
 #[test]
@@ -115,7 +114,7 @@ fn approval_refuses_a_diverged_remote_before_writing_anything() {
     assert_eq!(pending_names(&a.vault).len(), 1);
 }
 
-// Go: TestApprovalFindsDivergenceInTheReportRatherThanAnError. The trap's
+// The trap's
 // premise first (the pull succeeds and only its report says diverged),
 // then that approval refuses rather than walking past it.
 #[test]
@@ -137,7 +136,7 @@ fn approval_finds_divergence_in_the_report_rather_than_an_error() {
     assert_eq!(head(&a.vault), before, "committed onto a diverged branch");
 }
 
-// Go: TestApprovalOverAnUnreachableRemoteWarnsAndProceeds. The asymmetry
+// The asymmetry
 // with enroll: an approval that lands locally is real work. The local
 // work is checked where it happened.
 #[test]
@@ -163,7 +162,7 @@ fn approval_over_an_unreachable_remote_warns_and_proceeds() {
     assert!(opens_every_entry_of(&a.vault, &m));
 }
 
-// Go: TestUncontendedApprovalNeverReportsContention. A pull taken from
+// A pull taken from
 // inside approval's own lock waits out the full timeout and then fails as
 // contended; the plain success path finishes well inside it.
 #[test]
@@ -183,7 +182,7 @@ fn uncontended_approval_never_reports_contention() {
     );
 }
 
-// Go: TestApprovalReportsARequestResolvedByAnotherDevice. Opened, then
+// Opened, then
 // denied elsewhere before this run's fetch: reported as no longer
 // pending, naming the likely cause, with nothing granted.
 #[test]
@@ -217,7 +216,7 @@ fn approval_reports_a_request_resolved_by_another_device() {
     );
 }
 
-// Go: TestApprovalWarnsWhenItsPushFails. Approval's clause, not the
+// Approval's clause, not the
 // generic one: locally the device is listed, every entry re-encrypted and
 // the request gone; on the remote none of it happened.
 #[test]
@@ -247,7 +246,7 @@ fn approval_warns_when_its_push_fails() {
     assert!(remote_has(&a, &request_path(&req)), "the push didn't fail");
 }
 
-// Go: TestReapprovalAfterAFailedPushIsTheNoOp. Once the push lands, the
+// Once the push lands, the
 // request another device still saw is the already-a-recipient no-op:
 // what makes the failed-push state self-healing.
 #[test]

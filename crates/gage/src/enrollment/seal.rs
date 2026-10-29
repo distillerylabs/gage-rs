@@ -157,7 +157,7 @@ impl Vault {
         code: &str,
         now: Timestamp,
     ) -> Attempt {
-        // The cap on the *claimed* factor (Q-ENROLL-SCRYPT-CAP). Without
+        // The cap on the *claimed* factor (ADR-0026). Without
         // it, one committed file claiming 2^30 is a hang, not a slowdown.
         let identity = crypt::enrollment_scrypt_identity(code);
         self.enrollment_decrypts.bump();

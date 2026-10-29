@@ -155,7 +155,7 @@ fn the_real_library_depends_on_no_frontend_crate() {
 }
 
 /// Host SDKs and OAuth/device-flow crates: how host-specific code paths
-/// would come back (Go's Q-OAUTH-APP). gage's remote auth is a token the
+/// would come back. gage's remote auth is a token the
 /// user issued, for any host.
 const HOST_SPECIFIC: &[&str] = &[
     "oauth2",
@@ -176,7 +176,7 @@ fn is_host_specific(name: &str) -> bool {
         })
 }
 
-// Go: TestNoHostSpecificDependencies: no host SDK or OAuth crate anywhere
+// No host SDK or OAuth crate anywhere
 // in the workspace's graph, and no OAuth client id in its sources.
 #[test]
 #[allow(clippy::disallowed_methods)]

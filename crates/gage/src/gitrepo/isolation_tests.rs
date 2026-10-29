@@ -1,4 +1,4 @@
-//! Q-GIT-ISOLATION: the user's and the system's git config never reach a
+//! ADR-0016: the user's and the system's git config never reach a
 //! vault. Child processes, because libgit2 reads HOME (and its XDG and
 //! Windows equivalents) once per process, and because the isolation is a
 //! process-wide `Once`: a test in this process would find it already run.
@@ -95,8 +95,7 @@ fn hostile_git_config_trampoline() {
     eprintln!("CHECKED");
 }
 
-// Go has no row for this: go-git never reads the user's git config.
-// libgit2 does, and honors `url.<base>.insteadOf` (Q-GIT-CRATE's spike),
+// libgit2 reads the user's git config, and honors `url.<base>.insteadOf` (ADR-0014's spike),
 // which would let a global config redirect a vault's pushes.
 #[test]
 #[allow(clippy::disallowed_methods)]

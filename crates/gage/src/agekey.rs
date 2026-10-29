@@ -8,7 +8,7 @@
 //! hold, including plugin recipients (`age1yubikey1...`) this build can't
 //! encrypt to itself, so a vault shared with a device that uses one still
 //! round-trips its config. That is also why this is not the `age` crate's
-//! X25519 parser (Q-AGE-CRATE).
+//! X25519 parser (ADR-0022).
 
 use crate::exitcode::{Code, HasCode};
 
@@ -146,8 +146,7 @@ fn hrp_expand(hrp: &str) -> Vec<u32> {
 mod tests {
     use super::*;
 
-    // Real, checksum-valid Bech32 strings from an independent encoder (Go's
-    // fixtures): the plain X25519 hrp and a plugin-style nested hrp, the
+    // Real, checksum-valid Bech32 strings from an independent encoder: the plain X25519 hrp and a plugin-style nested hrp, the
     // two shapes validate_recipient has to accept.
     const VALID_X25519: &str = "age1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0savhh7m";
     const VALID_PLUGIN: &str =
@@ -157,7 +156,6 @@ mod tests {
         validate_recipient(s).unwrap_err().reason
     }
 
-    // Go: TestValidateRecipientAccepts
     #[test]
     fn validate_recipient_accepts() {
         for s in [VALID_X25519, VALID_PLUGIN] {
@@ -167,7 +165,6 @@ mod tests {
         assert_eq!(validate_recipient(&VALID_X25519.to_uppercase()), Ok(()));
     }
 
-    // Go: TestValidateRecipientRejectsBadChecksum
     #[test]
     fn validate_recipient_rejects_bad_checksum() {
         let mutated = format!("{}x", &VALID_X25519[..VALID_X25519.len() - 1]);
@@ -175,7 +172,6 @@ mod tests {
         assert_eq!(reason(&mutated), Reason::Checksum);
     }
 
-    // Go: TestValidateRecipientRejectsMalformed
     #[test]
     fn validate_recipient_rejects_malformed() {
         for (s, want) in [
@@ -211,7 +207,7 @@ mod tests {
         assert_eq!(reason(&long), Reason::WrongLength);
     }
 
-    // Go: TestValidateRecipientRejectsNonPrintableHRP. A space has no
+    // A space has no
     // case, so it clears the mixed-case check and reaches this one.
     #[test]
     fn validate_recipient_rejects_non_printable_hrp() {
@@ -220,7 +216,6 @@ mod tests {
         assert!(err.to_string().contains("non-printable"), "{err}");
     }
 
-    // Go: TestIsPrintableASCIIBoundaries
     #[test]
     fn is_printable_ascii_boundaries() {
         for (c, want) in [(' ', false), ('!', true), ('~', true), ('\u{7f}', false)] {

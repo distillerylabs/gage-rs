@@ -146,7 +146,7 @@ mod tests {
         Dirs::resolve(os, &env(pairs), Path::new(home)).unwrap()
     }
 
-    // Go: TestUnixDefaults (Linux and macOS share the layout).
+    // Linux and macOS share the layout.
     #[test]
     fn unix_defaults() {
         let home = Path::new("/home/testuser");
@@ -156,7 +156,6 @@ mod tests {
         assert_eq!(d.state, home.join(".local").join("state").join("gage"));
     }
 
-    // Go: TestUnixXDGEnvOverride
     #[test]
     fn unix_xdg_env_override() {
         let d = dirs(
@@ -179,7 +178,6 @@ mod tests {
         assert_eq!(d.config, Path::new("/home/testuser/.config").join("gage"));
     }
 
-    // Go: TestWindowsDefaults
     #[test]
     fn windows_defaults() {
         let roaming = r"C:\Users\testuser\AppData\Roaming";
@@ -194,7 +192,6 @@ mod tests {
         assert_eq!(d.state, Path::new(local).join("gage").join("state"));
     }
 
-    // Go: TestWindowsMissingEnvFallsBackToHome
     #[test]
     fn windows_missing_env_falls_back_to_home() {
         let home = Path::new(r"C:\Users\testuser");
@@ -210,7 +207,6 @@ mod tests {
         );
     }
 
-    // Go: TestWindowsXDGEnvOverride
     #[test]
     fn windows_xdg_env_override() {
         let d = dirs(
@@ -221,14 +217,13 @@ mod tests {
         assert_eq!(d.config, Path::new(r"D:\dotfiles\config").join("gage"));
     }
 
-    // Go: TestEmptyHomeDirIsAnError
     #[test]
     fn empty_home_dir_is_an_error() {
         let err = resolve(Os::Unix, &env(&[]), Path::new(""), Role::Config).unwrap_err();
         assert!(matches!(err, Error::EmptyHome));
     }
 
-    // Go: TestRealAccessorsResolve. A smoke test: the real, current-process
+    // A smoke test: the real, current-process
     // roots resolve on whatever platform runs the suite.
     #[test]
     fn real_accessors_resolve() {
@@ -238,7 +233,7 @@ mod tests {
         }
     }
 
-    // Go's TestUnknownRoleValuePanicsInAllThreeSelectors is excused: Role is
+    // An unknown role value is not tested: Role is
     // a closed enum, so an unknown role can't be constructed and the
     // matches above are exhaustive at compile time.
 }

@@ -3,7 +3,7 @@
 //! never written anywhere. It belongs to `Session` (never `Vault`, which
 //! stays stateless) and is discarded with the `Identity` that built it.
 //! See "Addressing entries & the metadata index" in the design doc and
-//! Q-INDEX-ARENA.
+//! ADR-0029.
 //!
 //! Titles and descriptions live in one page-locked arena per index rather
 //! than in `String`s, which the allocator can copy and free without
@@ -314,7 +314,7 @@ pub(crate) mod tests {
         Uuid::parse_str(&format!("{i:08x}-0000-4000-8000-000000000000")).unwrap()
     }
 
-    // Go: TestIndexArenaGrowthPreservesEveryEntryAndItsPageLocks. Several
+    // Several
     // doublings, each replacing an arena that must have been released, so
     // unlocks trail locks by exactly one until discard squares them.
     #[test]
@@ -396,7 +396,7 @@ pub(crate) mod tests {
     }
 
     // Replacing or removing an entry zeroes its old bytes at once, rather
-    // than leaving stale plaintext until discard (stronger than Go).
+    // than leaving stale plaintext until discard.
     #[test]
     fn orphaned_spans_are_zeroed_at_once() {
         let mut idx = Index::new(Arc::new(Counting::default()), true);
@@ -412,7 +412,7 @@ pub(crate) mod tests {
         assert_eq!(idx.list().len(), 1);
     }
 
-    // Go: TestIndexDiscardZeroesArenaAndIsIdempotent. The arena is zeroed
+    // The arena is zeroed
     // before its lock comes off (the unlock is handed nothing but zeros),
     // and a second discard unlocks nothing.
     #[test]

@@ -5,7 +5,7 @@
 //!
 //! The destination is never unlocked: encrypting to public keys needs no
 //! private key. Both vaults' write locks are held for the whole operation,
-//! taken in vault-id order (Q-TWO-VAULT-LOCK). The write order is fixed:
+//! taken in vault-id order (ADR-0047). The write order is fixed:
 //! the destination is written, committed and pushed first, and only then
 //! does a move remove the entry from the source. A crash between the two
 //! leaves a recoverable duplicate, never an entry lost from both.

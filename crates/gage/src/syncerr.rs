@@ -1,6 +1,6 @@
 //! Sorts the ways a fetch or a push can fail into the three buckets gage
 //! behaves differently on: unreachable, auth and diverged
-//! (Q-SYNC-CLASSIFY). Neither `Vault` nor `gage-cli` inspects a raw
+//! (ADR-0017). Neither `Vault` nor `gage-cli` inspects a raw
 //! `git2::Error`: they match on [`Kind`], and the classification lives
 //! here, in one place.
 //!
@@ -29,15 +29,15 @@
 //! | ref refused by the server | (`push_update_reference` status) | | diverged |
 //!
 //! Three of these depart from the plan's table, and are recorded in
-//! Q-SYNC-CLASSIFY. libgit2 takes a remote for a local path only when the
-//! path exists, so a missing one (an unmounted drive) is unreachable where
-//! Go says auth; gitrepo names the path in the message. libgit2 types at
+//! ADR-0017. libgit2 takes a remote for a local path only when the
+//! path exists, so a missing one (an unmounted drive) is unreachable rather
+//! than auth; gitrepo names the path in the message. libgit2 types at
 //! most a 401, and only in its own HTTP client: the WinHTTP backend
 //! (Windows) reports even that one generically. Both backends report every
 //! other non-200 status as class `Http` with `GenericError` and the status
 //! only in the message text. So the whole
-//! `Http` class is auth. That covers 403 and 404 (Go folds a repository
-//! that isn't there into auth too), and also a 5xx or a page that isn't a
+//! `Http` class is auth. That covers 403 and 404 (a repository
+//! that isn't there is auth too), and also a 5xx or a page that isn't a
 //! git repository, which the message names. Nothing here reads message
 //! text.
 
@@ -120,7 +120,7 @@ impl HasCode for Error {
 
 /// Classifies a failed push. Unreachable and auth are detected first, then
 /// divergence positively (`NotFastForward`); anything left is divergence by
-/// elimination, as in Go. A vault's remote is a dedicated, hook-free
+/// elimination. A vault's remote is a dedicated, hook-free
 /// repository, so there is no other reason for it to refuse a push.
 pub fn classify_push(err: &(dyn std::error::Error + 'static)) -> Error {
     if let Some(classified) = classify_transport(err) {
@@ -173,8 +173,8 @@ fn git_kind(err: &git2::Error) -> Option<Kind> {
         // See the table above: libgit2 types only a 401.
         Class::Http => Some(Kind::Auth),
         // During a fetch or push the remote is the only repository being
-        // opened: a local path with no repository at it. Go folds a
-        // missing repository into auth, and the hint for a hostless
+        // opened: a local path with no repository at it. A
+        // missing repository is auth, and the hint for a hostless
         // remote says to check the path.
         Class::Repository => Some(Kind::Auth),
         _ => None,

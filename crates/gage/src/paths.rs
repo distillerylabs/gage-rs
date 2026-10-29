@@ -4,7 +4,7 @@
 //! documenting that callers must: "no path is constructed from an
 //! unvalidated device name or vault id" is only true if the construction
 //! site enforces it. Both arrive from a vault's committed config, which any
-//! git-writer can edit (Q-DEVICE-NAME, A20).
+//! git-writer can edit (ADR-0010, ADR-0006).
 //!
 //! Nothing here is keyed by the vault's local *name*: that is a label for
 //! humans, chosen at clone time and tied to the vault by nothing. Two
@@ -34,11 +34,11 @@ pub enum Error {
 impl HasCode for Error {
     fn code(&self) -> Code {
         match self {
-            // Go's code for a refused path component: the vault can't be
+            // A refused path component: the vault can't be
             // unlocked on this device as configured.
             Error::InvalidVaultId(_) | Error::InvalidDeviceName(_) => Code::LockedOrAuth,
             // A host arrives from a remote URL or `--host`: the command
-            // line or the config was wrong, as in Go's checkHost.
+            // line or the config was wrong.
             Error::InvalidHost { .. } => Code::Usage,
         }
     }
@@ -95,7 +95,7 @@ pub fn tokens_dir(dirs: &Dirs) -> PathBuf {
 /// `$GAGE_STATE/tokens/<host>`. The host comes from a remote URL, which is
 /// committed, git-editable config, or from `--host`, so it is validated as
 /// a single path component before the path is built: `github.com/../../etc`
-/// is refused, not resolved (the rule Q-DEVICE-NAME applies to devices).
+/// is refused, not resolved (the rule ADR-0010 applies to devices).
 pub fn token_file_path(dirs: &Dirs, host: &str) -> Result<PathBuf, Error> {
     check_host(host)?;
     Ok(tokens_dir(dirs).join(host))
@@ -169,7 +169,6 @@ mod tests {
         );
     }
 
-    // Go: TestIdentityFilePathShape
     #[test]
     fn identity_file_path_shape() {
         let got = identity_file_path(&dirs(), ID, "laptop-1").unwrap();
@@ -179,7 +178,6 @@ mod tests {
         );
     }
 
-    // Go: TestIdentityFilePathIsSiblingOfVaultsDir
     #[test]
     fn identity_file_path_is_sibling_of_vaults_dir() {
         let identity = identity_file_path(&dirs(), ID, "laptop-1").unwrap();
@@ -192,7 +190,6 @@ mod tests {
         );
     }
 
-    // Go: TestLockFilePathShape
     #[test]
     fn lock_file_path_shape() {
         assert_eq!(
@@ -201,13 +198,12 @@ mod tests {
         );
     }
 
-    // Go: TestTrustCacheDirShape
     #[test]
     fn trust_cache_dir_shape() {
         assert_eq!(trust_cache_dir(&dirs(), ID).unwrap(), dirs().state.join(ID));
     }
 
-    // Go: TestPerVaultPathsRefuseAnythingButAValidID. A20's untrusted-input
+    // The untrusted-input
     // half, asserted at the construction sites. The empty id is included:
     // a vault built without one must fail loudly, not write to "".
     #[test]
@@ -248,7 +244,7 @@ mod tests {
         );
     }
 
-    // Go: TestHostCannotEscapeTheTokensDirectory, at the construction
+    // A host cannot escape the tokens directory, at the construction
     // site; remoteauth's copy goes through store/load.
     #[test]
     fn token_file_path_refuses_a_host_that_is_not_one_component() {
@@ -269,7 +265,7 @@ mod tests {
         }
     }
 
-    // Go: TestNoPerVaultLocalStateIsKeyedByTheLocalName. A property of the
+    // A property of the
     // builders together: the failure it rules out is one being left behind.
     #[test]
     fn no_per_vault_local_state_is_keyed_by_the_local_name() {

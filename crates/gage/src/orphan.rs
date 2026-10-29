@@ -11,8 +11,8 @@
 //! wrong in both directions: a vault may label an active recipient's key
 //! differently from local config (`recipient approve --device` does so on
 //! purpose), and another device may since have taken a stale key's old
-//! label (Q-ORPHAN-BY-NAME). See Q-ORPHAN-CLEANUP for why the check lives
-//! here and the question does not.
+//! label (ADR-0013). The check lives
+//! here and the question does not: the library reports, the frontend asks.
 
 use std::path::PathBuf;
 

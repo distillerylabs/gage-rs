@@ -6,8 +6,7 @@
 //! lock. See "Entry CRUD" and "Concurrent processes and the vault lock" in
 //! the design doc.
 //!
-//! After the commit, still under the lock, the write is pushed (P4 ·
-//! M8a2). A failed push warns through the prompter the caller passes and
+//! After the commit, still under the lock, the write is pushed. A failed push warns through the prompter the caller passes and
 //! never fails the write: the commit is already durable locally.
 
 use std::collections::BTreeMap;
@@ -24,7 +23,7 @@ use crate::vault::Vault;
 use crate::{gitrepo, paths, vaultlock};
 
 /// How long a write waits for another process's write to finish before
-/// giving up (Go's `vaultLockTimeout`): long enough for any normal commit,
+/// giving up: long enough for any normal commit,
 /// short enough that a wedged holder doesn't hang a terminal.
 pub const WRITE_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -124,7 +123,7 @@ pub enum WriteError {
     #[error(transparent)]
     Git(#[from] gitrepo::Error),
     /// The trust cache's blocking check refused, or couldn't run: a
-    /// recipient list this device never reviewed (M10).
+    /// recipient list this device never reviewed.
     #[error(transparent)]
     Trust(#[from] TrustError),
     #[error("gage: {action} {path}: {source}")]
@@ -314,8 +313,8 @@ impl Vault {
             };
             let id = new_id();
             self.write_entry(id, &entry)?;
-            // A failed commit leaves the entry file in the working tree, as
-            // Go: the next write's commit picks it up.
+            // A failed commit leaves the entry file in the working tree; the next write's
+            // commit picks it up.
             gitrepo::commit_all(&self.path, &id.to_string())?;
             self.push_after_write(prompter);
             Ok(id)
@@ -361,9 +360,8 @@ impl Vault {
     /// the final entry (`edit` re-stamps `updated`/`updated_by` and keeps
     /// the original `created`), so it can rewrite an entry as-is.
     ///
-    /// Unlike Go's `Update` it takes no identity: the entry is encrypted to
-    /// the vault's recipients, not to the writer. Go's other use for the
-    /// identity, reporting the automatic push, is `prompter` here.
+    /// It takes no identity: the entry is encrypted to the vault's
+    /// recipients, not to the writer. `prompter` reports the automatic push.
     pub fn update(&self, id: Uuid, e: &Entry, prompter: &dyn Prompter) -> Result<(), WriteError> {
         self.with_encrypting_write(WRITE_LOCK_TIMEOUT, prompter, || {
             self.write_entry(id, e)?;
@@ -434,7 +432,7 @@ impl Vault {
     /// locks are taken in order of vault id, whatever order the caller
     /// names them in: the lock file is keyed by id, so any other order
     /// lets two opposite-direction moves each hold one lock and wait on
-    /// the other (Q-TWO-VAULT-LOCK). Both working trees are reset, then
+    /// the other (ADR-0047). Both working trees are reset, then
     /// `f` runs with both locks held, and both are released on every path
     /// out. A caller refuses a shared id before getting here; given one
     /// anyway this takes the one lock once, since a second `flock` on its
@@ -467,7 +465,7 @@ impl Vault {
         }
     }
 
-    /// Every mutating method's preamble (Go's `withVaultWrite`): take the
+    /// Every mutating method's preamble: take the
     /// write lock, discard an unexpectedly dirty working tree, warning
     /// through `prompter` first, then run the write. In one place, so "no
     /// write folds an earlier write's leftovers into its own commit" is
@@ -491,8 +489,8 @@ impl Vault {
     }
 
     /// [`Vault::with_vault_write`] for the writes that produce ciphertext:
-    /// the same lock and reset, plus M10's blocking trust-cache check
-    /// before `f` writes anything (Go's `withEncryptingWrite`).
+    /// the same lock and reset, plus the blocking trust-cache check
+    /// before `f` writes anything.
     ///
     /// Here rather than in each verb, so "nothing is encrypted to a list
     /// this device never reviewed" is structural, as the reset is. The
@@ -502,8 +500,7 @@ impl Vault {
     ///
     /// `remove` doesn't go through it: deleting an entry encrypts nothing,
     /// and asking anyway would make the question a tax on every write
-    /// rather than a question about the one thing it asks about. M11's
-    /// `mv`/`cp` run the check against the destination.
+    /// rather than a question about the one thing it asks about. `mv`/`cp` run the check against the destination.
     pub(crate) fn with_encrypting_write<
         T,
         E: From<LockError> + From<gitrepo::Error> + From<TrustError>,
@@ -699,7 +696,6 @@ mod tests {
         }
     }
 
-    // Go: TestInsertRoundTripsThroughReadEntry
     #[test]
     fn insert_round_trips_through_read_entry() {
         let f = Fixture::new();
@@ -729,7 +725,6 @@ mod tests {
         assert_eq!(f.vault.entry_ids().unwrap(), vec![id]);
     }
 
-    // Go: TestInsertCommitsExactlyOnceWithUUIDMessageAndFixedAuthor
     #[test]
     fn insert_commits_exactly_once_with_uuid_message_and_fixed_author() {
         let f = Fixture::new();
@@ -752,7 +747,6 @@ mod tests {
         assert!(gitrepo::is_clean(&f.vault.path).unwrap());
     }
 
-    // Go: TestInsertDuplicateTitleRejectedWithoutForce
     #[test]
     fn insert_duplicate_title_rejected_without_force() {
         let f = Fixture::new();
@@ -784,7 +778,6 @@ mod tests {
         assert_eq!(f.commits(), before, "a refused insert commits nothing");
     }
 
-    // Go: TestInsertDuplicateTitleAllowedWithForce
     #[test]
     fn insert_duplicate_title_allowed_with_force() {
         let f = Fixture::new();
@@ -807,7 +800,7 @@ mod tests {
         assert_eq!(f.vault.entry_ids().unwrap().len(), 2);
     }
 
-    // Go: TestRemoveDeletesFileAndCommits. By UUID, as Go: the title path
+    // By UUID; the title path
     // is the CLI's `rm` test.
     #[test]
     fn remove_deletes_file_and_commits() {
@@ -845,7 +838,7 @@ mod tests {
         );
     }
 
-    // Not a Go row, but Go's behavior since M9: a failed commit fails the
+    // A failed commit fails the
     // insert and leaves the entry file uncommitted in the working tree (no
     // rollback), and the next write discards it with a warning naming it,
     // rather than folding it into its own commit.
@@ -896,7 +889,6 @@ mod tests {
         );
     }
 
-    // Go: TestRemoveUnknownQueryFails
     #[test]
     fn remove_unknown_query_fails() {
         let f = Fixture::new();
@@ -926,7 +918,6 @@ mod tests {
         titles.iter().map(|t| (new_id(), t.to_string())).collect()
     }
 
-    // Go: TestResolveByExactTitle
     #[test]
     fn resolve_by_exact_title() {
         let entries = pairs(&["ProtonMail", "Proton", "other"]);
@@ -940,7 +931,6 @@ mod tests {
         ));
     }
 
-    // Go: TestResolveByUUID
     #[test]
     fn resolve_by_uuid_in_every_spelling() {
         let entries = pairs(&["a", "b"]);
@@ -971,7 +961,6 @@ mod tests {
         );
     }
 
-    // Go: TestResolveAmbiguousTitleFails
     #[test]
     fn resolve_ambiguous_title_fails_with_a_typed_candidate_list() {
         let mut entries = pairs(&["twin", "twin", "zzz"]);
@@ -990,7 +979,6 @@ mod tests {
         );
     }
 
-    // Go: TestResolveUnknownQueryFails
     #[test]
     fn resolve_unknown_query_fails() {
         let err = resolve_query("nothing", &pairs(&["a"])).unwrap_err();
@@ -1023,11 +1011,10 @@ mod tests {
         assert_eq!(got, id);
     }
 
-    // --- the full resolution order (M5) ----------------------------------
+    // --- the full resolution order -----------------------------------------
 
     impl Fixture {
-        /// Inserts an entry titled `title`, duplicates allowed (Go's
-        /// `insertNamed`).
+        /// Inserts an entry titled `title`, duplicates allowed.
         fn insert_named(&self, title: &str) -> Uuid {
             self.vault
                 .insert(
@@ -1064,7 +1051,6 @@ mod tests {
         }
     }
 
-    // Go: TestResolveByExactUUID
     #[test]
     fn resolve_by_exact_uuid() {
         let f = Fixture::new();
@@ -1074,7 +1060,7 @@ mod tests {
         assert_eq!(e.title, "ProtonMail");
     }
 
-    // Go: TestResolveByNonCanonicalUUIDSpellings. For a canonical id the
+    // For a canonical id the
     // exact-UUID stage is invisible (the substring stage after it matches
     // the same entry); braced and URN spellings are what only it accepts,
     // so they are what keeps it from being deleted unnoticed.
@@ -1089,7 +1075,6 @@ mod tests {
         }
     }
 
-    // Go: TestResolveByUUIDPrefix
     #[test]
     fn resolve_by_uuid_prefix() {
         let f = Fixture::new();
@@ -1099,7 +1084,7 @@ mod tests {
         assert_eq!(e.title, "ProtonMail");
     }
 
-    // Go: TestResolveByUUIDMidStringSubstring. A pinned id, so the
+    // A pinned id, so the
     // substring sits at a known, non-prefix offset.
     #[test]
     fn resolve_by_uuid_mid_string_substring() {
@@ -1110,7 +1095,7 @@ mod tests {
         assert_eq!(e.title, "ProtonMail");
     }
 
-    // Go: TestResolveByUUIDSubstringSpanningAHyphen. Hyphens are ignored on
+    // Hyphens are ignored on
     // both sides, so "22223333" spans the first group boundary.
     #[test]
     fn resolve_by_uuid_substring_spanning_a_hyphen() {
@@ -1121,7 +1106,6 @@ mod tests {
         assert_eq!(f.resolve("22223333-4444").unwrap().0, id);
     }
 
-    // Go: TestResolveExactTitleWinsOverSubstringOfAnotherTitle
     #[test]
     fn resolve_exact_title_wins_over_substring_of_another_title() {
         let f = Fixture::new();
@@ -1132,7 +1116,6 @@ mod tests {
         assert_eq!(e.title, "AWS");
     }
 
-    // Go: TestResolveUniqueSubstringMatch
     #[test]
     fn resolve_unique_substring_match() {
         let f = Fixture::new();
@@ -1143,7 +1126,6 @@ mod tests {
         assert_eq!(e.title, "AWS root account");
     }
 
-    // Go: TestResolveSubstringMatchIsCaseInsensitive
     #[test]
     fn resolve_substring_match_is_case_insensitive() {
         let f = Fixture::new();
@@ -1152,7 +1134,6 @@ mod tests {
         assert_eq!(f.resolve("TONMA").unwrap().0, want);
     }
 
-    // Go: TestResolveAmbiguousSubstringListsCandidatesAsAValue
     #[test]
     fn resolve_ambiguous_substring_lists_candidates_as_a_value() {
         let f = Fixture::new();
@@ -1170,7 +1151,7 @@ mod tests {
         assert_eq!(ids, [b, a]);
     }
 
-    // Go: TestResolveAmbiguousUUIDSubstringListsCandidates. No title
+    // No title
     // matches, so the UUID substring stage is what reports the ambiguity.
     #[test]
     fn resolve_ambiguous_uuid_substring_lists_candidates() {
@@ -1182,8 +1163,7 @@ mod tests {
         assert_eq!(candidate_ids(err), [a, b]);
     }
 
-    // Go: TestResolveExactTitleWinsOverUUIDMatch, the regression test for
-    // Go's original UUID-first order: "22" is one entry's exact title and
+    // Regression test for an earlier UUID-first order: "22" is one entry's exact title and
     // a substring of another's id, and must name the first.
     #[test]
     fn resolve_exact_title_wins_over_uuid_match() {
@@ -1206,7 +1186,6 @@ mod tests {
         );
     }
 
-    // Go: TestResolveNotFoundAndAmbiguousAreDistinguishable
     #[test]
     fn resolve_not_found_and_ambiguous_are_distinguishable() {
         let f = Fixture::new();
@@ -1241,7 +1220,6 @@ mod tests {
         old
     }
 
-    // Go: TestUpdateRewritesEntryAndCommits
     #[test]
     fn update_rewrites_entry_and_commits() {
         let f = Fixture::new();
@@ -1258,7 +1236,6 @@ mod tests {
         assert_eq!(f.vault.read_entry(id, &f.identity()).unwrap(), e);
     }
 
-    // Go: TestRenameChangesOnlyTitleAndBumpsUpdated
     #[test]
     fn rename_changes_only_title_and_bumps_updated() {
         let f = Fixture::new();
@@ -1314,7 +1291,6 @@ mod tests {
         );
     }
 
-    // Go: TestRenameProducesExactlyOneCommit
     #[test]
     fn rename_produces_exactly_one_commit() {
         let f = Fixture::new();
@@ -1334,7 +1310,6 @@ mod tests {
         assert!(gitrepo::is_clean(&f.vault.path).unwrap());
     }
 
-    // Go: TestRenameToExistingTitleRejectedUnlessForced
     #[test]
     fn rename_to_existing_title_rejected_unless_forced() {
         let f = Fixture::new();
@@ -1376,7 +1351,6 @@ mod tests {
         ));
     }
 
-    // Go: TestRenameToOwnTitleAlwaysAllowed
     #[test]
     fn rename_to_own_title_always_allowed() {
         let f = Fixture::new();
@@ -1389,7 +1363,6 @@ mod tests {
         );
     }
 
-    // Go: TestRenameUnknownQueryFails
     #[test]
     fn rename_unknown_query_fails() {
         let f = Fixture::new();
@@ -1413,7 +1386,7 @@ mod tests {
         assert_eq!(f.commits(), before);
     }
 
-    // Not a Go row: rename resolves through the full order, and an
+    // Rename resolves through the full order, and an
     // ambiguous query renames nothing.
     #[test]
     fn an_ambiguous_rename_changes_nothing() {
@@ -1600,7 +1573,6 @@ mod tests {
         }
     }
 
-    // Go: TestInsertBlocksOnAConcurrentlyHeldWriteLock
     #[test]
     fn insert_blocks_on_a_concurrently_held_write_lock() {
         let f = Fixture::new();
@@ -1650,7 +1622,6 @@ mod tests {
         assert_eq!(f.vault.entry_ids().unwrap().len(), 1);
     }
 
-    // Go: TestReadDoesNotBlockOnAHeldWriteLock
     #[test]
     fn read_does_not_block_on_a_held_write_lock() {
         let f = Fixture::new();
@@ -1678,7 +1649,6 @@ mod tests {
         );
     }
 
-    // Go: TestWriteLockSerializesConcurrentInsertsAndLosesNoCommit
     #[test]
     fn write_lock_serializes_concurrent_inserts_and_loses_no_commit() {
         let f = Fixture::new();

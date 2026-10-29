@@ -1,6 +1,5 @@
 //! Sync between a vault and a real bare remote standing in for origin,
-//! with a [`gittest::Device`] playing the other machine: Go's
-//! `remotesync_test.go`. Each test names its Go row. The network is never
+//! with a [`gittest::Device`] playing the other machine. The network is never
 //! touched: remotes are local paths, and "offline" is either a loopback
 //! port refusing connections or an injected [`RemoteSyncer`] returning the
 //! error that refusal classifies as.
@@ -30,8 +29,7 @@ pub(crate) const PASSPHRASE: &str = "correct horse battery staple";
 
 /// A real vault whose origin is a fresh bare repository, its first commit
 /// already published, registered on a machine of its own with this
-/// device's identity on disk: the state `gage init --remote` leaves (Go's
-/// `newSyncVault`).
+/// device's identity on disk: the state `gage init --remote` leaves.
 pub(crate) struct SyncVault {
     _root: tempfile::TempDir,
     pub(crate) remote: BareRemote,
@@ -153,8 +151,7 @@ pub(crate) fn sample(title: &str) -> NewEntry {
 /// What a refused connection classifies as, by the real classifier: a
 /// libgit2 fetch from a loopback port nobody listens on. The offline tests
 /// inject exactly this, so the warn-and-proceed path is reached through
-/// the same classification a real network failure goes through (Go's
-/// `unreachableError`).
+/// the same classification a real network failure goes through.
 pub(crate) fn unreachable_error() -> syncerr::Error {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("seed.txt"), "seed").unwrap();
@@ -167,7 +164,7 @@ pub(crate) fn unreachable_error() -> syncerr::Error {
 }
 
 /// A push rejected for divergence, by the real classifier's elimination
-/// (Go's `ClassifyPush(errors.New("non-fast-forward update: ..."))`).
+///.
 pub(crate) fn diverged_error() -> syncerr::Error {
     syncerr::classify_push(&std::io::Error::other(
         "non-fast-forward update: refs/heads/main",
@@ -207,7 +204,7 @@ impl RemoteSyncer for FakeSyncer {
 }
 
 /// Fetches for real and fails each push with the next error in turn, so a
-/// test can drive merge-then-fail (Go's `sequencedSyncer`).
+/// test can drive merge-then-fail.
 struct SequencedSyncer {
     dir: std::path::PathBuf,
     push_errs: Vec<syncerr::Error>,
@@ -229,7 +226,7 @@ impl RemoteSyncer for SequencedSyncer {
 
 // --- the injected offline error --------------------------------------------
 
-// Go: TestTheInjectedOfflineErrorIsWhatVaultTreatsAsUnreachable. Pins the
+// Pins the
 // fake's error to the real classification, so the offline tests can't
 // quietly stop exercising the path they exist for.
 #[test]
@@ -281,7 +278,6 @@ fn summary_says_what_diverged_and_what_to_run() {
 
 // --- pull on unlock ---------------------------------------------------------
 
-// Go: TestUnlockFastForwardsFromTheRemote
 #[test]
 fn unlock_fast_forwards_from_the_remote() {
     let s = SyncVault::new();
@@ -299,7 +295,7 @@ fn unlock_fast_forwards_from_the_remote() {
     assert!(s.vault.path.join("notes.txt").exists());
 }
 
-// Go: TestUnlockPullsWithoutASessionCoversTheOneShotPath. The catch-up is
+// The catch-up is
 // tied to Vault::unlock, which a one-shot command's implicit unlock is,
 // not to a session's `use`.
 #[test]
@@ -321,7 +317,6 @@ fn unlock_pulls_without_a_session_covers_the_one_shot_path() {
     assert!(p.warnings().is_empty(), "{:?}", p.warnings());
 }
 
-// Go: TestUnlockWarnsOnceAndProceedsWhenTheRemoteIsUnreachable
 #[test]
 fn unlock_warns_once_and_proceeds_when_the_remote_is_unreachable() {
     let s = SyncVault::new();
@@ -408,7 +403,6 @@ fn unlock_of_a_local_only_vault_touches_no_lock() {
     );
 }
 
-// Go: TestPullThatBringsNothingReportsNoChange
 #[test]
 fn pull_that_brings_nothing_reports_no_change() {
     let s = SyncVault::new();
@@ -526,7 +520,7 @@ impl Drop for Holder {
     }
 }
 
-// Go: TestUnlockDoesNotQueueBehindAConcurrentWrite. A manual sync waits
+// A manual sync waits
 // for the lock; the automatic one on unlock skips, silently, well inside
 // the time a write would make it wait.
 #[test]
@@ -552,7 +546,7 @@ fn unlock_does_not_queue_behind_a_concurrent_write() {
     );
 }
 
-// Go: TestSyncTakesTheWriteLock. A sync is not a read: each verb waits for
+// A sync is not a read: each verb waits for
 // the lock while another process holds it, and goes ahead once it lets go.
 #[test]
 fn sync_takes_the_write_lock() {
@@ -593,7 +587,6 @@ fn sync_takes_the_write_lock() {
 
 // --- push on write ----------------------------------------------------------
 
-// Go: TestWritePushesToTheRemote
 #[test]
 fn write_pushes_to_the_remote() {
     let s = SyncVault::new();
@@ -611,7 +604,7 @@ fn write_pushes_to_the_remote() {
     );
 }
 
-// Beyond Go's row: every write method pushes, not only insert.
+// Every write method pushes, not only insert.
 #[test]
 fn every_write_pushes() {
     let s = SyncVault::new();
@@ -635,7 +628,6 @@ fn every_write_pushes() {
     assert!(p.warnings().is_empty(), "{:?}", p.warnings());
 }
 
-// Go: TestOfflinePushKeepsTheCommitAndRetriesLater
 #[test]
 fn offline_push_keeps_the_commit_and_retries_later() {
     let s = SyncVault::new();
@@ -703,8 +695,8 @@ fn recipient_write_warnings(
     p.warnings()
 }
 
-// Go: TestFailedPushClauseIsTheCallersToSay. A supplied clause reaches the
-// warning; `add_recipient`, which supplies none, says M9b's.
+// A supplied clause reaches the
+// warning; `add_recipient`, which supplies none, says its own.
 #[test]
 fn failed_push_clause_is_the_callers_to_say() {
     let own = "the approval is committed locally but not pushed";
@@ -726,7 +718,6 @@ fn failed_push_clause_is_the_callers_to_say() {
     );
 }
 
-// Go: TestDivergedPushIgnoresTheSuppliedClause
 #[test]
 fn diverged_push_ignores_the_supplied_clause() {
     let own = "the approval is committed locally but not pushed";
@@ -745,7 +736,7 @@ fn diverged_push_ignores_the_supplied_clause() {
     assert_eq!(with, without, "the clause changed a divergence's warning");
 }
 
-// Go: TestWriteDoesNotDeadlockOnItsOwnPush. The automatic push runs
+// The automatic push runs
 // inside the write's own lock; taking it again would leave the write
 // waiting on itself until WRITE_LOCK_TIMEOUT.
 #[test]
@@ -768,7 +759,7 @@ fn write_does_not_deadlock_on_its_own_push() {
 
 // --- divergence -------------------------------------------------------------
 
-// Go: TestDisjointDivergenceMergesAndPushes. Two devices, two different
+// Two devices, two different
 // files: no prompt, no unlock, both sides' work everywhere.
 #[test]
 fn disjoint_divergence_merges_and_pushes() {
@@ -792,7 +783,7 @@ fn disjoint_divergence_merges_and_pushes() {
     assert!(fresh.exists(&s.entry_file()));
 }
 
-// Go: TestConflictingDivergenceIsDetectedAndLeftAlone. M8a's contract in
+// The sync contract in
 // one test: noticed, classified, reported, and not resolved.
 #[test]
 fn conflicting_divergence_is_detected_and_left_alone() {
@@ -866,7 +857,7 @@ fn warning_from_offline_write() -> String {
     warnings[0].clone()
 }
 
-// Go: TestDivergenceIsReportedDifferentlyFromBeingOffline. Same failed
+// Same failed
 // push, two situations, two messages.
 #[test]
 fn divergence_is_reported_differently_from_being_offline() {
@@ -886,8 +877,7 @@ fn divergence_is_reported_differently_from_being_offline() {
     }
 }
 
-// Go: TestRecipientFileDivergenceConflictsRatherThanUnioning, for
-// `.age-recipients`: the security row. Two devices each adding a different
+// Divergence in `.age-recipients` conflicts rather than unions: the security row. Two devices each adding a different
 // line would union under a line merge, leaving an access list neither
 // wrote. It must conflict.
 #[test]
@@ -895,7 +885,7 @@ fn recipient_file_divergence_conflicts_rather_than_unioning() {
     assert_recipient_file_conflicts(".age-recipients");
 }
 
-// The sibling Go's plan lists separately: `.gage/config.toml`.
+// The sibling case: `.gage/config.toml`.
 #[test]
 fn vault_config_divergence_conflicts_rather_than_unioning() {
     assert_recipient_file_conflicts(".gage/config.toml");
@@ -924,8 +914,7 @@ fn assert_recipient_file_conflicts(path: &str) {
     );
     assert!(after.contains("added by this device"), "{after}");
 
-    // P4's follow-up, settled in M10: `gage sync` refuses this too (as Go's
-    // does), so the summary must not send anyone there. It says what to do
+    // `gage sync` refuses this too, so the summary must not send anyone there. It says what to do
     // instead, and what reviews the result.
     let summary = err.report.summary();
     assert!(!summary.contains("run `gage sync`"), "{summary}");
@@ -933,7 +922,7 @@ fn assert_recipient_file_conflicts(path: &str) {
     assert!(summary.contains("gage recipient verify"), "{summary}");
 }
 
-// Go: TestInitWritesGitattributesForBothRecipientFiles, as content. gage's
+// Init writes `.gitattributes` for both recipient files, checked as content. gage's
 // merge enforces the rule on its own; this file binds a real `git` a
 // human runs inside the vault.
 #[test]
@@ -948,7 +937,6 @@ fn init_writes_gitattributes_for_both_recipient_files() {
     }
 }
 
-// Go: TestSyncOnAVaultWithNoRemoteDoesNothing
 #[test]
 fn sync_on_a_vault_with_no_remote_does_nothing() {
     let s = SyncVault::new();
@@ -961,7 +949,6 @@ fn sync_on_a_vault_with_no_remote_does_nothing() {
     }
 }
 
-// Go: TestSyncReportsADirtyWorkTreeAsAConflictNotAnInternalError
 #[test]
 fn sync_reports_a_dirty_work_tree_as_a_conflict_not_an_internal_error() {
     let s = SyncVault::new();
@@ -990,7 +977,7 @@ fn sync_reports_a_dirty_work_tree_as_a_conflict_not_an_internal_error() {
     assert!(!s.other().exists("hand-edited.txt"), "published by a merge");
 }
 
-// Go: TestAPendingMergeStillReportsWhatIsPending. A merge whose push then
+// A merge whose push then
 // fails leaves two unpublished commits (the write and the merge);
 // reporting 0 would say the work is published when it isn't.
 #[test]
@@ -1031,7 +1018,7 @@ fn observed(s: &SyncVault) -> (Vault, Arc<AtomicBool>) {
     (s.vault.clone().with_pull_observer(flag.clone()), flag)
 }
 
-// Beyond Go's rows: a merge raises the observer (the other device's writes
+// A merge raises the observer (the other device's writes
 // arrived), and so does a fast-forward inside `sync`. A pull that brings
 // nothing does not.
 #[test]
@@ -1062,7 +1049,7 @@ fn a_merge_and_a_fast_forward_inside_sync_raise_the_observer() {
 
 // --- the report through the verbs --------------------------------------------
 
-// Q-SYNC-PUSHED (Go's F2): a push with nothing to send says so.
+// ADR-0017: a push with nothing to send says so.
 #[test]
 fn a_push_with_nothing_to_send_reports_no_push() {
     let s = SyncVault::new();

@@ -3,7 +3,7 @@
 //! invocation modes; `Session`, not `Vault`, owns any "how long does this
 //! stay unlocked" bookkeeping. See "Library architecture" in the design doc.
 //!
-//! M1 creates vaults and resolves registered ones; M2 implements
+//! It creates vaults, resolves registered ones, and implements
 //! [`Vault::unlock`].
 
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ pub const METHOD_PASSPHRASE: &str = "passphrase";
 
 /// Every vault type this build accepts. Validated against a list rather
 /// than hardcoded, so a second type is additive to the CLI surface rather
-/// than a breaking change ("Vault types", Q-METHOD-FLAG).
+/// than a breaking change ("Vault types", ADR-0012).
 pub const ALLOWED_TYPES: &[&str] = &[TYPE_GIT];
 
 /// Every identity method this build accepts, for the same reason.
@@ -53,7 +53,7 @@ const GITIGNORE: &str = ".DS_Store\nThumbs.db\n";
 
 /// `.gitattributes`: any divergence in either recipient-defining file is a
 /// real conflict, rather than git silently line-merging a recipient list
-/// neither device wrote ("On-disk layout", Q-SYNC-CONFLICT).
+/// neither device wrote ("On-disk layout", ADR-0021).
 const GITATTRIBUTES: &str = ".age-recipients -merge\n.gage/config.toml -merge\n";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,14 +73,13 @@ pub struct Vault {
     locker: LockerSeam,
     pub(crate) decrypts: DecryptCounter,
     /// Enrollment open attempts, one per scrypt run against a sealed
-    /// request: what proves "rejected before any decryption" (Go's
-    /// `onEnrollmentDecrypt`). Zero-sized, and a no-op, outside tests.
+    /// request: what proves "rejected before any decryption". Zero-sized, and a no-op, outside tests.
     pub(crate) enrollment_decrypts: DecryptCounter,
-    /// The re-encryption crash seam (Q-CRASH-SEAM): called after each
+    /// The re-encryption crash seam (a crash seam): called after each
     /// entry a re-encryption writes. Zero-sized, and a no-op, outside
     /// tests.
     pub(crate) reencrypt_hook: ReencryptHook,
-    /// The `mv` crash seam (Q-CRASH-SEAM): called once the destination's
+    /// The `mv` crash seam (a crash seam): called once the destination's
     /// commit and push are done and before the source loses the entry.
     /// Zero-sized, and a no-op, outside tests.
     pub(crate) move_hook: MoveHook,
@@ -96,7 +95,7 @@ pub struct Vault {
 }
 
 /// How many entries this vault (and its clones) has decrypted: what the
-/// index tests count to prove "one pass, not two" (Go's `onDecrypt`). It
+/// index tests count to prove "one pass, not two". It
 /// observes the one real decrypt path; nothing can be faked through it.
 /// Zero-sized, and a no-op, outside tests.
 #[derive(Clone, Default)]
@@ -128,7 +127,7 @@ impl std::fmt::Debug for DecryptCounter {
 }
 
 /// Called after each entry a re-encryption writes into the working tree,
-/// with how many it has written so far (Go's `onReencryptEntry`). A test
+/// with how many it has written so far. A test
 /// panics from it to interrupt the pass with no cleanup beyond `Drop`s,
 /// which is what a killed process leaves, or probes the vault lock from it.
 /// Nothing on the re-encryption path may catch an unwind: that would turn
@@ -179,7 +178,7 @@ impl std::fmt::Debug for ReencryptHook {
 }
 
 /// Called by a move between the destination's commit and the source's
-/// removal (Go's `onMoveDestCommitted`). A test panics from it to die in
+/// removal. A test panics from it to die in
 /// that window with no cleanup beyond `Drop`s, or probes both vault locks
 /// from it. Nothing on the move path may catch an unwind, for the reason
 /// [`ReencryptHook`] gives.
@@ -209,7 +208,7 @@ impl std::fmt::Debug for MoveHook {
     }
 }
 
-/// Called by `enroll` immediately after its pull (Go's `onEnrollPulled`).
+/// Called by `enroll` immediately after its pull.
 /// A test probes the write lock from it: the pull and the commit must be
 /// one locked sequence, and a probe during the fetch alone can't tell that
 /// from a pull that took and released a lock of its own before enroll
@@ -241,7 +240,7 @@ impl std::fmt::Debug for EnrollHook {
 }
 
 /// The page-locking seam: `None` is the real [`MemLocker`], so nothing
-/// outside a test ever sets it (Go's nil `Locker`).
+/// outside a test ever sets it.
 #[derive(Clone, Default)]
 struct LockerSeam(Option<Arc<dyn Locker>>);
 
@@ -293,10 +292,10 @@ pub struct CreateSpec {
     /// The vault's id, recorded as `[vault].id` and never changed.
     ///
     /// Handed in rather than minted here on purpose: `gage init` has to
-    /// know the id before this call (M2 files this device's identity
+    /// know the id before this call (unlock files this device's identity
     /// under it first), and a `create` that minted its own would leave the
     /// vault carrying one id and the identity filed under another, with
-    /// nothing visibly wrong. See A20.
+    /// nothing visibly wrong (ADR-0006).
     pub id: String,
     /// The target directory: absent, or an empty directory. `create` never
     /// writes into anything else.
@@ -311,7 +310,7 @@ pub struct CreateSpec {
     /// Public keys in file order; at least one. The first is labelled
     /// `device`; each later one `recipient-<n>` by its position, since a
     /// bare key from the command line carries no real device name. Repeats
-    /// are written as given, as Go does.
+    /// are written as given.
     pub recipients: Vec<String>,
     /// Recipients that arrive with a label of their own (the recovery key
     /// is the one caller today): written right after the device's key and
@@ -622,7 +621,7 @@ impl Vault {
         if let Some(e) = lock_err {
             warn_page_lock_failed(prompter, &device, &e);
         }
-        // M10's opportunistic check, and the first-use bootstrap with it.
+        // The opportunistic trust check, and the first-use bootstrap with it.
         // Here because this is the hook both modes share (a one-shot
         // command's implicit unlock, a session's `use`); after
         // sync_on_unlock, so it sees the list that was just pulled; and on
@@ -638,7 +637,7 @@ impl Vault {
     ///
     /// The method comes from here, never from the vault's committed
     /// `[method].default`: that is a default for devices joining, not a
-    /// constraint on any of them (Q-METHOD-SCOPE), and keeping it local is
+    /// constraint on any of them (ADR-0011), and keeping it local is
     /// what makes a second method additive. It also keeps the committed
     /// config from advertising which recipient is the softest target.
     fn local_identity_record(&self) -> Result<(String, String), UnlockError> {
@@ -666,8 +665,7 @@ impl Vault {
         Ok((entry.device.clone(), entry.method.clone()))
     }
 
-    /// A vault value for unlock tests that need no vault on disk (Go's
-    /// `&Vault{Name: ..., ID: ...}` literals).
+    /// A vault value for unlock tests that need no vault on disk.
     #[cfg(test)]
     pub(crate) fn for_tests(dirs: &Dirs, name: &str, id: &str) -> Vault {
         Vault {
@@ -815,8 +813,6 @@ pub fn name_from_url(url: &str) -> Result<String, NameError> {
     Ok(base.to_string())
 }
 
-/// Go's `path.Base`: the last slash-separated element, "." for an empty
-/// path and "/" for one that is all slashes.
 /// The one warning a failed page lock gets, from `unlock` and from the
 /// recovery identity alike: the key works, but may reach swap. A
 /// container that won't allow `mlock` must not make gage unusable
@@ -828,6 +824,8 @@ pub(crate) fn warn_page_lock_failed(prompter: &dyn Prompter, device: &str, e: &s
     ));
 }
 
+/// The last slash-separated element, "." for an empty path and "/" for one
+/// that is all slashes.
 fn last_segment(path: &str) -> &str {
     if path.is_empty() {
         return ".";
@@ -872,7 +870,7 @@ impl CreateSpec {
     }
 }
 
-/// Go's order: name, id, type, method, device, recipients, path. Nothing
+/// Checked in order: name, id, type, method, device, recipients, path. Nothing
 /// on disk is consulted.
 fn validate(spec: &CreateSpec) -> Result<(), CreateError> {
     validate_fields(spec, true)
@@ -914,7 +912,7 @@ fn validate_fields(spec: &CreateSpec, require_recipients: bool) -> Result<(), Cr
 /// other, the device, or the generic recipients.
 ///
 /// Scoped to the extras on purpose: with none, a repeated `--recipient`
-/// stays legal, as in Go, and with some, only collisions that *involve* an
+/// stays legal, and with some, only collisions that *involve* an
 /// extra are refused. Checked against all of `recipients`.
 ///
 /// `has_device_key` is whether `recipients[0]` is the device's key, which
@@ -1001,7 +999,7 @@ fn write_skeleton(spec: &CreateSpec) -> Result<(), CreateError> {
     // secrets exist and when each changed, so 0700 like the identities
     // directory, where the rest of the committed config gets 0750. It is
     // created first, and the vault directory with it, so a vault created
-    // from nothing is 0700 too, as Go's MkdirAll leaves it.
+    // from nothing is 0700 too.
     make_dir(&spec.path.join("entries"), 0o700)?;
     make_dir(&spec.path.join(".gage"), 0o750)?;
 
@@ -1155,7 +1153,6 @@ mod tests {
         files
     }
 
-    // Go: TestCreateWritesFullSkeleton
     #[test]
     fn create_writes_full_skeleton() {
         let root = tempfile::tempdir().unwrap();
@@ -1195,7 +1192,7 @@ mod tests {
         assert!(gitrepo::is_clean(&spec.path).unwrap());
     }
 
-    // Go: TestCreateCommitsTheSkeletonFiles. entries/ is absent: git can't
+    // Entries/ is absent: git can't
     // track an empty directory, so a new vault commits four files.
     #[test]
     fn create_commits_the_skeleton_files() {
@@ -1228,7 +1225,6 @@ mod tests {
         assert_eq!(commit.author().email().unwrap(), "gage@localhost");
     }
 
-    // Go: TestCreateGitattributesMarksRecipientFilesUnmergeable
     #[test]
     fn create_gitattributes_marks_recipient_files_unmergeable() {
         let root = tempfile::tempdir().unwrap();
@@ -1256,7 +1252,6 @@ mod tests {
         }
     }
 
-    // Go: TestCreateGitignoreHasOnlyOSCruft
     #[test]
     fn create_gitignore_has_only_os_cruft() {
         let root = tempfile::tempdir().unwrap();
@@ -1267,7 +1262,6 @@ mod tests {
         assert_eq!(lines, [".DS_Store", "Thumbs.db"]);
     }
 
-    // Go: TestCreateVaultConfigRoundTrip
     #[test]
     fn create_vault_config_round_trip() {
         let root = tempfile::tempdir().unwrap();
@@ -1314,7 +1308,6 @@ mod tests {
         );
     }
 
-    // Go: TestCreateRecipientsMatchAgeRecipientsFile
     #[test]
     fn create_recipients_match_age_recipients_file() {
         let root = tempfile::tempdir().unwrap();
@@ -1328,7 +1321,7 @@ mod tests {
         assert_eq!(keys, config_keys);
     }
 
-    // Go: TestCreateRepeatedRecipientsAllWritten. Repeats are legal and
+    // Repeats are legal and
     // written as given; each later one is labelled by its position.
     #[test]
     fn create_repeated_recipients_all_written() {
@@ -1344,7 +1337,6 @@ mod tests {
         assert_eq!(labels, ["laptop-1", "recipient-2", "recipient-3"]);
     }
 
-    // Go: TestCreateRecordsTheIDItWasHandedRatherThanMintingOne
     #[test]
     fn create_records_the_id_it_was_handed_rather_than_minting_one() {
         let root = tempfile::tempdir().unwrap();
@@ -1358,7 +1350,6 @@ mod tests {
         assert_eq!(file.vault.format_version, 2);
     }
 
-    // Go: TestCreateRefusesAnIDThatIsNotAUUID
     #[test]
     fn create_refuses_an_id_that_is_not_a_uuid() {
         let root = tempfile::tempdir().unwrap();
@@ -1370,7 +1361,7 @@ mod tests {
         }
     }
 
-    // Go: TestCreateRejectsEmptyName. The first check, ahead of every
+    // The first check, ahead of every
     // other field.
     #[test]
     fn create_rejects_empty_name() {
@@ -1382,7 +1373,6 @@ mod tests {
         assert!(matches!(err, CreateError::EmptyName), "{err:?}");
     }
 
-    // Go: TestCreateRejectsEmptyPath
     #[test]
     fn create_rejects_empty_path() {
         let root = tempfile::tempdir().unwrap();
@@ -1393,7 +1383,6 @@ mod tests {
         assert_eq!(err.code(), Code::Usage);
     }
 
-    // Go: TestCreateRejectsUnknownType
     #[test]
     fn create_rejects_unknown_type() {
         let root = tempfile::tempdir().unwrap();
@@ -1403,7 +1392,6 @@ mod tests {
         assert!(err.to_string().contains("git"), "{err}");
     }
 
-    // Go: TestCreateAcceptsExplicitGitType
     #[test]
     fn create_accepts_explicit_git_type() {
         let root = tempfile::tempdir().unwrap();
@@ -1412,7 +1400,7 @@ mod tests {
         Vault::create(&test_dirs(), &spec).unwrap();
     }
 
-    // Go: TestCreateRejectsUnknownMethod. The future-work methods the
+    // The future-work methods the
     // design doc names fail like any other unknown value.
     #[test]
     fn create_rejects_unknown_method() {
@@ -1432,7 +1420,6 @@ mod tests {
         }
     }
 
-    // Go: TestCreateAcceptsExplicitPassphraseMethod
     #[test]
     fn create_accepts_explicit_passphrase_method() {
         let root = tempfile::tempdir().unwrap();
@@ -1441,7 +1428,6 @@ mod tests {
         Vault::create(&test_dirs(), &spec).unwrap();
     }
 
-    // Go: TestCreateRequiresAtLeastOneRecipient
     #[test]
     fn create_requires_at_least_one_recipient() {
         let root = tempfile::tempdir().unwrap();
@@ -1451,7 +1437,7 @@ mod tests {
         assert!(err.to_string().contains("recipient"), "{err}");
     }
 
-    // Go: TestCreateRejectsMalformedRecipient. Every key is checked, not
+    // Every key is checked, not
     // only the first.
     #[test]
     fn create_rejects_malformed_recipient() {
@@ -1467,7 +1453,6 @@ mod tests {
         }
     }
 
-    // Go: TestCreateRejectsInvalidDeviceName
     #[test]
     fn create_rejects_invalid_device_name() {
         let root = tempfile::tempdir().unwrap();
@@ -1485,8 +1470,8 @@ mod tests {
         }
     }
 
-    // Go: TestCreateDeviceNameLandsInRecipientAndIdentityPath, the
-    // recipient-label half. The identity-path half moves to P2 · M2.
+    // The recipient-label half of a device name landing in both places; the
+    // identity-path half is tested with unlock.
     #[test]
     fn create_device_name_lands_in_recipient() {
         let root = tempfile::tempdir().unwrap();
@@ -1495,7 +1480,6 @@ mod tests {
         assert_eq!(created(&spec).recipients[0].device, "custom-device");
     }
 
-    // Go: TestCreateIntoNonEmptyDirectoryFailsWithoutTouchingFiles
     #[test]
     fn create_into_non_empty_directory_fails_without_touching_files() {
         let root = tempfile::tempdir().unwrap();
@@ -1528,7 +1512,6 @@ mod tests {
         assert_eq!(gitrepo::commit_count(&spec.path).unwrap(), 1);
     }
 
-    // Go: TestCreateRejectsATargetThatIsARegularFile
     #[test]
     fn create_rejects_a_target_that_is_a_regular_file() {
         let root = tempfile::tempdir().unwrap();
@@ -1546,7 +1529,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&spec.path).unwrap(), "i am a file");
     }
 
-    // Go: TestCreateWithRemoteSetsOrigin. The remote needn't exist:
+    // The remote needn't exist:
     // setting origin contacts nothing.
     #[test]
     fn create_with_remote_sets_origin() {
@@ -1561,7 +1544,6 @@ mod tests {
         );
     }
 
-    // Go: TestCreateWithoutRemoteLeavesVaultRemoteless
     #[test]
     fn create_without_remote_leaves_vault_remoteless() {
         let root = tempfile::tempdir().unwrap();
@@ -1660,7 +1642,6 @@ mod tests {
         );
     }
 
-    // Go: TestAMismatchedRegistrationIsRefusedRatherThanSilentlyPreferred
     // (library half; the CLI half is in gage-cli).
     #[test]
     fn from_registration_refuses_a_mismatched_id() {
@@ -1689,8 +1670,7 @@ mod tests {
         assert!(err.to_string().contains("none recorded"), "{err}");
     }
 
-    // Go: TestAnUnreadableVaultFallsBackToGlobalConfigsIDAlone (library
-    // half): with the vault's files gone, the registration's id stands.
+    // With the vault's files gone, the registration's id stands.
     #[test]
     fn from_registration_falls_back_to_the_registrations_id_when_unreadable() {
         let root = tempfile::tempdir().unwrap();
@@ -1836,7 +1816,7 @@ mod tests {
 
     // --- vault names a clone infers ------------------------------------------
 
-    // Go: TestVaultNameFromURL. The three spellings a remote arrives in all
+    // The three spellings a remote arrives in all
     // end the same way; the two shapes with no name to infer are refused
     // with different messages.
     #[test]
@@ -1872,7 +1852,6 @@ mod tests {
         }
     }
 
-    // Go: TestVaultNameFromURLHandlesEverySpelling
     #[test]
     fn vault_name_from_url_handles_every_spelling() {
         for (url, want) in [
@@ -1887,9 +1866,7 @@ mod tests {
         }
     }
 
-    // Go: TestCheckVaultNameRefusesAnythingThatIsNotOnePathComponent, and
-    // TestCloneRefusesANameThatEscapesTheVaultsDirectory (its subset). A
-    // cloned vault's name can come from the URL, so it is
+    // A cloned vault's name can come from the URL, so it is
     // attacker-influenced on its way to becoming a directory.
     #[test]
     fn check_vault_name_refuses_anything_that_is_not_one_path_component() {
@@ -1910,7 +1887,7 @@ mod tests {
         }
     }
 
-    // Go: TestInferredNamesStillGoThroughCheckVaultName. Inference is not
+    // Inference is not
     // a gate: ".." has a perfectly good last segment, and only the check
     // refuses it. Clone runs the check on every name.
     #[test]

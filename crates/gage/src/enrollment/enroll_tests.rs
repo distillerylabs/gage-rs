@@ -1,4 +1,4 @@
-//! E3 tasks 3 to 6: `Vault::enroll`, against a real bare origin. Device A
+//! `Vault::enroll`, against a real bare origin. Device A
 //! is [`SyncVault`], the owner; device B is a [`Machine`] cloned from it,
 //! the way `gage clone` leaves one: registered, no identity, no recorded
 //! key. The injected [`RemoteSyncer`]s exist only for the one failure a
@@ -104,9 +104,8 @@ fn auth_refusal() -> syncerr::Error {
     syncerr::Error::new(syncerr::Kind::Auth, "403")
 }
 
-// --- task 3: the identity paths ----------------------------------------------
+// --- the identity paths ----------------------------------------------
 
-// Go: TestEnrollCreatesAnIdentityOnADeviceThatHoldsNone
 #[test]
 fn enroll_creates_an_identity_on_a_device_that_holds_none() {
     let (a, b) = pair();
@@ -125,7 +124,6 @@ fn enroll_creates_an_identity_on_a_device_that_holds_none() {
     assert_eq!(pending[0].id, req.id);
 }
 
-// Go: TestEnrollReusesAnExistingIdentityAndPromptsOnce
 #[test]
 fn enroll_reuses_an_existing_identity_and_prompts_once() {
     let (_a, b) = pair();
@@ -144,7 +142,6 @@ fn enroll_reuses_an_existing_identity_and_prompts_once() {
     assert_eq!(b.vault.list_identities().unwrap().len(), 1);
 }
 
-// Go: TestEnrollWithAWrongPassphraseOnTheReusePathPublishesNothing
 #[test]
 fn enroll_with_a_wrong_passphrase_on_the_reuse_path_publishes_nothing() {
     let (a, b) = pair();
@@ -162,7 +159,6 @@ fn enroll_with_a_wrong_passphrase_on_the_reuse_path_publishes_nothing() {
     assert!(!b.vault.pending_dir().exists());
 }
 
-// Go: TestEnrollSealsThePublicKeyThisDeviceActuallyHolds
 #[test]
 fn enroll_seals_the_public_key_this_device_actually_holds() {
     let (a, b) = pair();
@@ -176,9 +172,9 @@ fn enroll_seals_the_public_key_this_device_actually_holds() {
     assert_eq!(opened[0].device, B_DEVICE);
 }
 
-// Beyond Go's rows: the sealed method is how this device's key is stored,
+// The sealed method is how this device's key is stored,
 // which `create` just made passphrase-wrapped, whatever global config
-// records. Go hard-codes it the same way.
+// records.
 #[test]
 fn enroll_seals_the_passphrase_method_whatever_config_records() {
     let (a, b) = pair();
@@ -195,7 +191,7 @@ fn enroll_seals_the_passphrase_method_whatever_config_records() {
     assert_eq!(opened[0].method, crate::vault::METHOD_PASSPHRASE);
 }
 
-// Beyond Go's rows: Go's commit message, which names no device and no
+// The commit message names no device and no
 // request, like every commit gage writes.
 #[test]
 fn enroll_commits_under_a_message_that_names_nothing() {
@@ -210,7 +206,6 @@ fn enroll_commits_under_a_message_that_names_nothing() {
     assert!(!message.contains(B_DEVICE), "{message}");
 }
 
-// Go: TestEnrollHonorsTheTTL
 #[test]
 fn enroll_honors_the_ttl() {
     let (a, b) = pair();
@@ -227,7 +222,6 @@ fn enroll_honors_the_ttl() {
     assert_eq!(opened[0].expires, req.expires, "the sealed expiry");
 }
 
-// Go: TestEnrollRefusesAnUnusableTTLBeforeAnythingHappens
 #[test]
 fn enroll_refuses_an_unusable_ttl_before_anything_happens() {
     let (_a, b) = pair();
@@ -243,7 +237,6 @@ fn enroll_refuses_an_unusable_ttl_before_anything_happens() {
     }
 }
 
-// Go: TestEnrollRefusesADeviceNameOutsideTheAllowlist
 #[test]
 fn enroll_refuses_a_device_name_outside_the_allowlist() {
     let (_a, b) = pair();
@@ -259,7 +252,6 @@ fn enroll_refuses_a_device_name_outside_the_allowlist() {
     assert!(b.vault.list_identities().unwrap().is_empty());
 }
 
-// Go: TestEnrolledRequestCarriesThisVaultsID
 #[test]
 fn enrolled_request_carries_this_vaults_id() {
     let (a, b) = pair();
@@ -296,7 +288,6 @@ fn commit_dated(v: &Vault, minutes: i64) {
         .unwrap();
 }
 
-// Go: TestEnrollWarnsWhenThisMachinesClockIsBehindHead
 #[test]
 fn enroll_warns_when_this_machines_clock_is_behind_head() {
     let (_a, b) = pair();
@@ -311,7 +302,6 @@ fn enroll_warns_when_this_machines_clock_is_behind_head() {
     assert!(warnings[0].contains("clock"), "{warnings:?}");
 }
 
-// Go: TestEnrollIsSilentWhenTheClockLooksFine
 #[test]
 fn enroll_is_silent_when_the_clock_looks_fine() {
     let (_a, b) = pair();
@@ -320,7 +310,7 @@ fn enroll_is_silent_when_the_clock_looks_fine() {
     assert!(p.warnings().is_empty(), "{:?}", p.warnings());
 }
 
-// Beyond Go's rows: drift short of the hour threshold is ordinary, and a
+// Drift short of the hour threshold is ordinary, and a
 // warning for it would teach people to ignore the one that matters.
 #[test]
 fn enroll_is_silent_when_the_clock_is_behind_by_less_than_the_threshold() {
@@ -331,9 +321,8 @@ fn enroll_is_silent_when_the_clock_is_behind_by_less_than_the_threshold() {
     assert!(p.warnings().is_empty(), "{:?}", p.warnings());
 }
 
-// --- task 4: collisions --------------------------------------------------------
+// --- collisions --------------------------------------------------------
 
-// Go: TestEnrollOnADeviceThatIsAlreadyARecipientIsASuccessThatDoesNoWork.
 // Built the way it happens: identity add, then another device runs
 // recipient add of that key, then enroll.
 #[test]
@@ -355,7 +344,6 @@ fn enroll_on_a_device_that_is_already_a_recipient_is_a_success_that_does_no_work
     assert_eq!(commits(&b.vault), commits(&a.vault));
 }
 
-// Go: TestTheAlreadyARecipientCheckIsByKeyNotByName
 #[test]
 fn the_already_a_recipient_check_is_by_key_not_by_name() {
     let (a, b) = pair();
@@ -368,7 +356,6 @@ fn the_already_a_recipient_check_is_by_key_not_by_name() {
     assert!(!req.published);
 }
 
-// Go: TestWithNoRecordedPubkeyTheKeyCheckIsSkipped
 #[test]
 fn with_no_recorded_pubkey_the_key_check_is_skipped() {
     let (a, b) = pair();
@@ -390,7 +377,6 @@ fn with_no_recorded_pubkey_the_key_check_is_skipped() {
     );
 }
 
-// Go: TestEnrollRefusesANameThatLabelsADifferentRecipient
 #[test]
 fn enroll_refuses_a_name_that_labels_a_different_recipient() {
     let (_a, b) = pair();
@@ -408,7 +394,6 @@ fn enroll_refuses_a_name_that_labels_a_different_recipient() {
     assert!(p.unlock_requests().is_empty());
 }
 
-// Go: TestEnrollUnderADifferentDeviceNameSucceedsWhereTheDefaultCollided
 #[test]
 fn enroll_under_a_different_device_name_succeeds_where_the_default_collided() {
     let (_a, b) = pair();
@@ -420,9 +405,8 @@ fn enroll_under_a_different_device_name_succeeds_where_the_default_collided() {
     assert_eq!(req.device, B_DEVICE);
 }
 
-// --- task 5: the remote --------------------------------------------------------
+// --- the remote --------------------------------------------------------
 
-// Go: TestEnrollFetchesBeforeItCommits
 #[test]
 fn enroll_fetches_before_it_commits() {
     let (a, b) = pair();
@@ -442,7 +426,6 @@ fn enroll_fetches_before_it_commits() {
     assert_eq!(a.vault.pending_enrollments().unwrap().len(), 1);
 }
 
-// Go: TestEnrollWithAnUnreachableRemoteFailsBeforeAnythingIsCreated
 #[test]
 fn enroll_with_an_unreachable_remote_fails_before_anything_is_created() {
     let (_a, b) = pair();
@@ -463,7 +446,6 @@ fn enroll_with_an_unreachable_remote_fails_before_anything_is_created() {
     assert_eq!(commits(&b.vault), before);
 }
 
-// Go: TestEnrollWithNoRemoteFailsWithItsOwnError
 #[test]
 fn enroll_with_no_remote_fails_with_its_own_error() {
     let f = vault();
@@ -508,12 +490,11 @@ fn assert_another_process_cannot_take(lock_file: &std::path::Path) {
     );
 }
 
-// Go: TestEnrollHoldsTheWriteLockAcrossThePull. A child process, because
+// A child process, because
 // file-lock semantics are per open file description: a thread would pass
 // whether or not the lock was held.
 //
-// Probed twice. During the fetch, which kills "no lock at all". And, as
-// Go does, right after the pull returns: a pull that took and released a
+// Probed twice. During the fetch, which kills "no lock at all". And, right after the pull returns: a pull that took and released a
 // lock of its own (`pull()` ahead of `with_vault_write`) passes the first
 // probe, and only the second sees the lock free.
 #[test]
@@ -543,7 +524,6 @@ fn enroll_holds_the_write_lock_across_the_pull() {
     );
 }
 
-// Go: TestUncontendedEnrollNeverReportsContention
 #[test]
 fn uncontended_enroll_never_reports_contention() {
     let (_a, b) = pair();
@@ -553,7 +533,6 @@ fn uncontended_enroll_never_reports_contention() {
     assert!(started.elapsed() < WRITE_LOCK_TIMEOUT);
 }
 
-// Go: TestEnrollPushRejectedForWriteAccessKeepsWhatItMade
 #[test]
 fn enroll_push_rejected_for_write_access_keeps_what_it_made() {
     let (_a, b) = pair();
@@ -573,7 +552,6 @@ fn enroll_push_rejected_for_write_access_keeps_what_it_made() {
     assert_eq!(b.vault.pending_enrollments().unwrap().len(), 1);
 }
 
-// Go: TestEnrollAfterAFailedPushReusesTheIdentityAndSucceeds
 #[test]
 fn enroll_after_a_failed_push_reuses_the_identity_and_succeeds() {
     let (a, b) = pair();
@@ -607,7 +585,6 @@ fn diverged_pair() -> (SyncVault, Machine) {
     (a, b)
 }
 
-// Go: TestEnrollRefusesADivergedPull
 #[test]
 fn enroll_refuses_a_diverged_pull() {
     let (_a, b) = diverged_pair();
@@ -624,7 +601,7 @@ fn enroll_refuses_a_diverged_pull() {
     assert!(p.unlock_requests().is_empty());
 }
 
-// Go: TestDivergenceIsFoundByTheReportRatherThanAnError. Diverged
+// Diverged
 // without going near enroll: a local commit here, an unrelated one on the
 // remote. Asserts the trap's premise first (the pull succeeds and only
 // its report says diverged), then the refusal itself, not "some error".
@@ -656,7 +633,6 @@ fn divergence_is_found_by_the_report_rather_than_an_error() {
     );
 }
 
-// Go: TestEnrollTakesTheDirtyTreeResetBeforeItPulls
 #[test]
 fn enroll_takes_the_dirty_tree_reset_before_it_pulls() {
     let (a, b) = pair();
@@ -682,9 +658,8 @@ fn enroll_takes_the_dirty_tree_reset_before_it_pulls() {
     );
 }
 
-// --- task 6: crash-safety and two devices ----------------------------------
+// --- crash-safety and two devices ----------------------------------
 
-// Go: TestAStrayPendingFileIsInert
 #[test]
 fn a_stray_pending_file_is_inert() {
     let (_a, b) = pair();
@@ -694,7 +669,6 @@ fn a_stray_pending_file_is_inert() {
     assert!(b.vault.verify_recipients().unwrap().in_sync);
 }
 
-// Go: TestTheNextWriteDiscardsAStrayPendingFile
 #[test]
 fn the_next_write_discards_a_stray_pending_file() {
     let (_a, b) = pair();
@@ -718,7 +692,6 @@ fn the_next_write_discards_a_stray_pending_file() {
     assert_eq!(ids, vec![req.id], "only this enroll's request is committed");
 }
 
-// Go: TestPendingEnrollmentsListsAStrayLocallyAndNowhereElse
 #[test]
 fn pending_enrollments_lists_a_stray_locally_and_nowhere_else() {
     let (a, b) = pair();
@@ -727,7 +700,6 @@ fn pending_enrollments_lists_a_stray_locally_and_nowhere_else() {
     assert!(origin_pending(&a).is_empty());
 }
 
-// Go: TestAStrayDoesNotWedgeTheJoiningDevice
 #[test]
 fn a_stray_does_not_wedge_the_joining_device() {
     let (a, b) = pair();
@@ -748,7 +720,6 @@ fn c_prompter() -> FakePrompter {
     FakePrompter::new().with_passphrase("a third passphrase for device c")
 }
 
-// Go: TestTwoDevicesEnrollAgainstTheSameRemoteAndBothRequestsSurvive
 #[test]
 fn two_devices_enroll_against_the_same_remote_and_both_requests_survive() {
     let (a, b, c) = trio();
@@ -763,7 +734,7 @@ fn two_devices_enroll_against_the_same_remote_and_both_requests_survive() {
     assert_eq!(open_all(&a.vault, &rc.code).unwrap()[0].device, "phone");
 }
 
-// Go: TestConcurrentEnrollsMergeIntoAUnion. The rejected push is real:
+// The rejected push is real:
 // C's first fetch is skipped, as if B published between C's fetch and
 // C's push, so the origin rejects C's push and gage merges.
 #[test]
@@ -783,7 +754,6 @@ fn concurrent_enrolls_merge_into_a_union() {
     assert_eq!(origin_pending(&a).len(), 2);
 }
 
-// Go: TestMergedRequestsStillGrantNothing
 #[test]
 fn merged_requests_still_grant_nothing() {
     let (a, b, c) = trio();
@@ -795,7 +765,7 @@ fn merged_requests_still_grant_nothing() {
     assert!(a.vault.verify_recipients().unwrap().in_sync);
 }
 
-// Go: TestADivergenceInvolvingPendingIsReportedHonestly. Two devices that
+// Two devices that
 // resolve the same request (one approves, one denies) both delete the same
 // path, which git merges without a conflict: the only way `pending/` can
 // appear in a divergence at all. A conflicting `pending/` path would be

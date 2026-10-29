@@ -1,6 +1,6 @@
 //! The joining device: publish a request to join, sealed to a code the
 //! human carries to an approving device. See "The flows", the joining
-//! device, and `D-ENROLL-REMOTE`.
+//! device, and ADR-0045.
 
 use std::time::{Duration, Instant};
 
@@ -23,8 +23,7 @@ const ENROLLMENT_COMMIT_MESSAGE: &str = "gage: enrollment request";
 
 /// How far HEAD's committer time has to be ahead of this machine's clock
 /// before enroll says so: comfortably past ordinary drift and well short of
-/// any TTL, so the warning means something (Go's
-/// `enrollmentClockSkewThreshold`).
+/// any TTL, so the warning means something.
 const CLOCK_SKEW_THRESHOLD: jiff::SignedDuration = jiff::SignedDuration::from_hours(1);
 
 impl Vault {
@@ -33,7 +32,7 @@ impl Vault {
     /// returns the code for the caller to show. Nothing it publishes grants
     /// anything; only an approving device holding the code does.
     ///
-    /// The order is the contract (`D-ENROLL-REMOTE`): the arguments are
+    /// The order is the contract (ADR-0045): the arguments are
     /// checked, then the remote, then the lock and the dirty-tree reset,
     /// then a fetch and fast-forward, then the two collision checks, and
     /// only then the identity. So an unreachable remote, a divergence or a

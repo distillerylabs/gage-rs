@@ -1,9 +1,8 @@
-//! E4 task 1: `approve_enrollments` and `check_enrollment_labels` (Go's
-//! `enrollapprove_test.go`). Device A is [`SyncVault`], the owner; each
+//! `approve_enrollments` and `check_enrollment_labels`. Device A is [`SyncVault`], the owner; each
 //! joining device is a [`Machine`] cloned from the same origin that has
 //! published a real request through `Vault::enroll`, the state `gage
 //! recipient approve` starts from. The fixtures here are shared by the
-//! other E4 library suites.
+//! other approval suites.
 
 use std::path::Path;
 
@@ -140,7 +139,7 @@ pub(crate) fn key_listed_as(v: &Vault, pubkey: &str) -> Option<String> {
 
 /// Lists `pubkey` as `device` in both recipient files, commits and
 /// publishes, without re-encrypting: the hand edit that is the one way to
-/// a partially admitted device since A19.
+/// a partially admitted device since ADR-0009.
 fn hand_list(a: &SyncVault, device: &str, pubkey: &str) {
     let mut list = a.vault.recipients().unwrap();
     list.push(vaultconfig::Recipient {
@@ -154,7 +153,7 @@ fn hand_list(a: &SyncVault, device: &str, pubkey: &str) {
 
 // --- check_enrollment_labels ----------------------------------------------
 
-// Go: TestCheckEnrollmentLabelsRefusesANameAnotherRecipientTook. The
+// The
 // sealed name was free when it was written and labels a different key by
 // the time anyone approves it. It holds no identity: it reads the
 // plaintext list, which is what lets the CLI run it before the
@@ -174,7 +173,7 @@ fn check_enrollment_labels_refuses_a_name_another_recipient_took() {
     assert!(err.to_string().contains("--device"), "{err}");
 }
 
-// Go: TestCheckEnrollmentLabelsAcceptsARelabel. --device is the whole fix
+// --device is the whole fix
 // for the case above.
 #[test]
 fn check_enrollment_labels_accepts_a_relabel() {
@@ -188,7 +187,7 @@ fn check_enrollment_labels_accepts_a_relabel() {
         .unwrap();
 }
 
-// Go: TestCheckEnrollmentLabelsIgnoresTheDevicesOwnEntry. A request whose
+// A request whose
 // key is already listed is the no-op, not a clash: advising --device would
 // mint a second label for a key that already has access.
 #[test]
@@ -203,7 +202,7 @@ fn check_enrollment_labels_ignores_the_devices_own_entry() {
         .unwrap();
 }
 
-// Go: TestCheckEnrollmentLabelsNeedsNoIdentityOrNetwork. Answerable from
+// Answerable from
 // plaintext, so it can run before the confirmation: no identity exists
 // here, and an offline syncer is never touched.
 #[test]
@@ -230,7 +229,6 @@ fn check_enrollment_labels_needs_no_identity_or_network() {
 
 // --- approve_enrollments ---------------------------------------------------
 
-// Go: TestApprovalAddsOneRecipientAndKeepsTheFilesInSync
 #[test]
 fn approval_adds_one_recipient_and_keeps_the_files_in_sync() {
     let a = SyncVault::new();
@@ -250,7 +248,7 @@ fn approval_adds_one_recipient_and_keeps_the_files_in_sync() {
     assert!(pending_names(&a.vault).is_empty(), "the request survived");
 }
 
-// Go: TestApprovalMakesEveryPreExistingEntryReadable. The device reads
+// The device reads
 // entries written long before it existed: no path produces a partially
 // readable recipient.
 #[test]
@@ -266,7 +264,7 @@ fn approval_makes_every_pre_existing_entry_readable() {
     assert!(reads_every_entry(&m));
 }
 
-// Go: TestApprovalLandsInExactlyOneCommit. The recipient files, every
+// The recipient files, every
 // re-encrypted entry, and the request's removal.
 #[test]
 fn approval_lands_in_exactly_one_commit() {
@@ -285,7 +283,7 @@ fn approval_lands_in_exactly_one_commit() {
     assert!(gitrepo::is_clean(&a.vault.path).unwrap());
 }
 
-// Go: TestBatchApprovalIsOnePassAndOneCommit. N codes, one
+// N codes, one
 // decrypt-and-rewrite of every entry.
 #[test]
 fn batch_approval_is_one_pass_and_one_commit() {
@@ -310,10 +308,10 @@ fn batch_approval_is_one_pass_and_one_commit() {
     assert!(reads_every_entry(&phone));
 }
 
-// Go: TestApprovalRefusesAnApproverWhoCannotReadEveryEntry. A device that
+// A device that
 // is listed but can't read an entry (a hand-edited list, the one way to
-// that damage since A19) is refused before the lock and before M10's
-// question, with a count rather than a failure on an opaque entry id.
+// that damage since ADR-0009) is refused before the lock and before the
+// trust question, with a count rather than a failure on an opaque entry id.
 #[test]
 fn approval_refuses_an_approver_who_cannot_read_every_entry() {
     let a = SyncVault::new();
@@ -324,7 +322,7 @@ fn approval_refuses_an_approver_who_cannot_read_every_entry() {
     let partial_key = partial.identity_add("desktop-1");
     hand_list(&a, "desktop-1", &partial_key);
     // Its unlock writes its trust baseline; then the list changes again,
-    // so M10's question is live and "never shown" means something.
+    // so the trust question is live and "never shown" means something.
     partial.vault.pull().unwrap();
     let identity = partial.unlock();
     hand_list(&a, "tablet-1", &new_pubkey());
@@ -344,12 +342,15 @@ fn approval_refuses_an_approver_who_cannot_read_every_entry() {
         Code::Conflict
     );
     assert!(err.to_string().contains("1 of 1"), "{err}");
-    assert!(trust.recipient_changes().is_empty(), "M10 asked first");
+    assert!(
+        trust.recipient_changes().is_empty(),
+        "the trust check asked first"
+    );
     assert_eq!(head(&partial.vault), before, "the refusal committed");
     assert_eq!(pending_names(&partial.vault).len(), 1);
 }
 
-// Go: TestApprovalRelabelsWithoutChangingTheKey. The code authenticated
+// The code authenticated
 // the key, not the label.
 #[test]
 fn approval_relabels_without_changing_the_key() {
@@ -373,7 +374,7 @@ fn approval_relabels_without_changing_the_key() {
     );
 }
 
-// Go: TestApprovingAKeyThatIsAlreadyARecipientIsANoOp. A success that does
+// A success that does
 // no work: cleared in one commit, nothing re-encrypted, nothing added.
 #[test]
 fn approving_a_key_that_is_already_a_recipient_is_a_no_op() {
@@ -394,7 +395,7 @@ fn approving_a_key_that_is_already_a_recipient_is_a_no_op() {
     assert_eq!(commits(&a.vault), before + 1, "one commit clearing it");
 }
 
-// Go: TestApprovingTheSameDeviceTwiceLeavesOneRecipient. Two requests from
+// Two requests from
 // one device, approved in turn: the second is the no-op, not an error.
 #[test]
 fn approving_the_same_device_twice_leaves_one_recipient() {
@@ -413,7 +414,7 @@ fn approving_the_same_device_twice_leaves_one_recipient() {
     assert_eq!(a.vault.recipients().unwrap().len(), 2);
 }
 
-// Go: TestAMalformedRequestProducesNothingToRender. The property is
+// The property is
 // structural: a malformed payload yields no `OpenedRequest`, so a frontend
 // has nothing to render, and the refusal doesn't echo the escape back.
 #[test]
@@ -432,7 +433,7 @@ fn a_malformed_request_produces_nothing_to_render() {
     assert!(!err.to_string().contains('\x1b'), "{err}");
 }
 
-// Go: TestClockSkewNamesTheRequestingDevicesClock. The fix is on the other
+// The fix is on the other
 // machine, so the message names its clock rather than a stale request.
 #[test]
 fn clock_skew_names_the_requesting_devices_clock() {

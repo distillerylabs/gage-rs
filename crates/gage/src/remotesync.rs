@@ -1,6 +1,6 @@
 //! Sync between a vault and its `origin`: the automatic pull on every
 //! unlock, the automatic push after every write, and the manual `pull`,
-//! `push` and `sync` verbs (Go's `remotesync.go`). See "Sync model" in the
+//! `push` and `sync` verbs. See "Sync model" in the
 //! design doc.
 //!
 //! Local durability and network risk are kept apart. The automatic paths
@@ -37,8 +37,8 @@ pub use crate::gitrepo::REMOTE_OP_TIMEOUT;
 /// writes, it names no entry.
 pub const MERGE_COMMIT_MESSAGE: &str = "gage: merge origin";
 
-/// What an unpublished write says it cost (Go's `unpushedWriteClause`).
-/// Later writes that need a more specific clause (M9) reuse the sentence
+/// What an unpublished write says it cost.
+/// Later writes that need a more specific clause reuse the sentence
 /// rather than inventing their own.
 pub const UNPUSHED_WRITE_CLAUSE: &str = "the write is committed locally but not pushed";
 
@@ -114,7 +114,7 @@ impl std::fmt::Debug for SyncerSeam {
 /// "The working tree moved": set by a fast-forward or a merge, and read
 /// (and cleared) by whoever caches what the tree held, which today is a
 /// session's metadata index. Set where the tree moves rather than by each
-/// caller, so no caller can forget (Go's `notePulled`).
+/// caller, so no caller can forget.
 #[derive(Clone, Default)]
 pub(crate) struct PullObserver(Option<Arc<AtomicBool>>);
 
@@ -142,7 +142,7 @@ impl std::fmt::Debug for PullObserver {
 }
 
 /// What a divergence conflicted on. The two cases want different words in
-/// front of a human, and M8b resolves only the first.
+/// front of a human, and only the first is resolved by `gage sync`'s resolver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConflictKind {
     None,
@@ -162,7 +162,7 @@ pub struct SyncReport {
     /// A divergence was reconciled into a merge commit.
     pub merged: bool,
     /// Commits were sent to the remote. A push with nothing to send
-    /// leaves it false (Q-SYNC-PUSHED).
+    /// leaves it false (ADR-0017).
     pub pushed: bool,
     /// Both sides had moved on. It stays true after a merge: it says what
     /// was found, not what was left.
@@ -200,9 +200,8 @@ impl SyncReport {
     /// has diverged — 2 local commits pending"), plus what conflicted and
     /// what to run.
     ///
-    /// A recipient-file conflict names a different next step from Go's
-    /// "run `gage sync`": `sync` refuses it too, in Go and here (M10
-    /// settled P4's follow-up), so the summary says what actually resolves
+    /// A recipient-file conflict names a different next step from "run
+    /// `gage sync`": `sync` refuses it too, so the summary says what actually resolves
     /// it. Once a human has reconciled the files, the trust cache's check
     /// before the next encrypt reviews the resulting list.
     pub fn summary(&self) -> String {
@@ -289,11 +288,11 @@ impl SyncError {
     /// Which `syncerr` bucket the failure is in, if any. A real conflict
     /// is [`Kind::Diverged`] too, so one question covers both "the push
     /// was rejected" and "the rejection turned out to be a conflict"
-    /// (Go's `errors.Is(err, syncerr.ErrDiverged)`).
+    ///.
     ///
     /// A resolution that was skipped or aborted is still diverged: the
     /// divergence it declined to resolve is there, as it was before anyone
-    /// was asked (Go's `resolutionRefusal`).
+    /// was asked.
     pub fn remote_kind(&self) -> Option<Kind> {
         match &*self.cause {
             SyncCause::Remote(gitrepo::Error::Sync(e)) => Some(e.kind()),
@@ -367,7 +366,7 @@ impl std::error::Error for SyncError {
 impl HasCode for SyncError {
     fn code(&self) -> Code {
         match &*self.cause {
-            // Unreachable 7, auth 5, diverged 1 (Q-SYNC-CLASSIFY).
+            // Unreachable 7, auth 5, diverged 1 (ADR-0017).
             SyncCause::Remote(e) => e.code(),
             // "A state a human must resolve."
             SyncCause::Conflict => Code::Conflict,

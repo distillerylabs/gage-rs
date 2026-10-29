@@ -60,7 +60,7 @@ pub fn page_size() -> usize {
 /// allocator puts two small allocations on one page as a matter of course.
 /// `munlock` reports success while losing the second key's protection in
 /// silence; `VirtualUnlock` fails the second call with `ERROR_NOT_LOCKED`,
-/// a confusing error on the innocent caller (Go's `844f880`).
+/// a confusing error on the innocent caller.
 ///
 /// The length is fixed at construction and there is no way to grow it, so
 /// key material can't spill into memory that was never locked.
@@ -260,8 +260,7 @@ mod tests {
         buf.as_ptr() as usize & !(page_size() - 1)
     }
 
-    // Go: TestLockUnlockRoundTrip. Known limit, recorded as Go records
-    // it: no portable "is this page locked?" query exists, so this proves
+    // Known limit: no portable "is this page locked?" query exists, so this proves
     // the calls are reached, accept a key-sized buffer and don't disturb
     // it, not that the kernel pinned anything.
     #[test]
@@ -280,7 +279,6 @@ mod tests {
         assert_eq!(buf.as_slice(), want, "unlock altered the buffer");
     }
 
-    // Go: TestEmptySliceIsANoOp
     #[test]
     fn empty_slice_is_a_no_op() {
         lock(&[]).unwrap();
@@ -291,9 +289,8 @@ mod tests {
         unlock(empty.as_slice()).unwrap();
     }
 
-    // Go: TestAllocGivesEachBufferItsOwnPage, the 844f880 regression. Go's
-    // capacity-cap assertion has no analogue to check: LockedBuf has a
-    // fixed length and no way to grow.
+    // Regression: two buffers once shared a page lock. LockedBuf has a
+    // fixed length and no way to grow, so there is no capacity cap to check.
     #[test]
     fn alloc_gives_each_buffer_its_own_page() {
         let page = page_size();
@@ -317,7 +314,7 @@ mod tests {
         assert!(bufs.iter().all(|b| b.layout.size() == page));
     }
 
-    // Go: TestUnlockingOneBufferLeavesAnotherLocked: two identities held
+    // Two identities held
     // at once, where closing the first made closing the second fail on
     // Windows before each key got its own page.
     #[test]

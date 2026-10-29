@@ -1,4 +1,4 @@
-//! `Vault::log` and `Vault::history`: Go's `internal/gage/history_test.go`.
+//! `Vault::log` and `Vault::history`.
 
 use uuid::Uuid;
 
@@ -37,7 +37,6 @@ fn remove(f: &Fixture, id: Uuid) {
         .unwrap();
 }
 
-// Go: TestLogReportsOneRevisionPerWrite
 #[test]
 fn log_reports_one_revision_per_write() {
     let f = Fixture::new();
@@ -55,7 +54,6 @@ fn log_reports_one_revision_per_write() {
     assert!(log[0].when >= log[1].when);
 }
 
-// Go: TestLogMarksTheDeletingCommit
 #[test]
 fn log_marks_the_deleting_commit() {
     let f = Fixture::new();
@@ -70,7 +68,6 @@ fn log_marks_the_deleting_commit() {
     assert!(!log[1].deleted);
 }
 
-// Go: TestLogOnAnEntryGitHasNeverSeenIsEmptyNotAnError
 #[test]
 fn log_on_an_entry_git_has_never_seen_is_empty_not_an_error() {
     let f = Fixture::new();
@@ -78,7 +75,6 @@ fn log_on_an_entry_git_has_never_seen_is_empty_not_an_error() {
     assert!(f.vault.log(Uuid::new_v4()).unwrap().is_empty());
 }
 
-// Go: TestHistoryDecryptsEveryPastRevision
 #[test]
 fn history_decrypts_every_past_revision() {
     let f = Fixture::new();
@@ -101,7 +97,6 @@ fn history_decrypts_every_past_revision() {
     assert!(history.iter().all(|r| !r.deleted));
 }
 
-// Go: TestHistoryOnADeletedEntryStillWalksIt
 #[test]
 fn history_on_a_deleted_entry_still_walks_it() {
     let f = Fixture::new();
@@ -117,7 +112,7 @@ fn history_on_a_deleted_entry_still_walks_it() {
     assert!(last.entry.is_none());
 }
 
-// Go: TestHistoryFailsRatherThanSkippingAnUndecryptableRevision. A device
+// A device
 // admitted later can't read what was written before it was a recipient;
 // the recipient add re-encrypts, so only the pre-admission revision is out
 // of its reach.

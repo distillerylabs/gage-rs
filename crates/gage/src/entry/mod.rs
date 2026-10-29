@@ -128,8 +128,8 @@ impl FromStr for Timestamp {
 /// takes, so the emitter's match is exhaustive.
 ///
 /// Scalars keep the text they were written with: `0x1F` stays `0x1F`, where
-/// Go (decoding to an integer) writes back `31`. Tags are dropped and
-/// aliases come back expanded, as in Go.
+/// decoding to an integer would write back `31`. Tags are dropped and
+/// aliases come back expanded.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Extra {
     /// An unquoted scalar, whatever it would resolve to (null, bool, int,
@@ -169,7 +169,7 @@ pub struct Entry {
     /// when empty, never `description: null` or an explicit empty string.
     pub description: String,
     /// Set once, at insert time, and never touched again. `None` when the
-    /// document had none (Go's zero time), and then not written.
+    /// document had none, and then not written.
     pub created: Option<Timestamp>,
     /// Rewritten on every edit, along with `updated_by`.
     pub updated: Option<Timestamp>,
@@ -270,7 +270,7 @@ pub enum Error {
     /// No file at `entries/<id>.age`.
     #[error("gage: no entry with that id in this vault: {id}")]
     EntryNotFound { id: Uuid },
-    /// M2's typed errors, passed through unwrapped rather than swallowed:
+    /// The decrypt errors, typed, passed through unwrapped rather than swallowed:
     /// a caller tells "wrong key" ([`crypt::Error::NotARecipient`]) from
     /// "damaged file" ([`crypt::Error::CorruptCiphertext`]) from "no such
     /// entry" by variant.
@@ -328,7 +328,6 @@ mod tests {
         }
     }
 
-    // Go: TestTimestampRoundTripsWithoutDriftOrPrecisionLoss
     #[test]
     fn timestamp_round_trips_without_drift_or_precision_loss() {
         // Sub-second precision and a non-UTC offset in, whole UTC seconds
@@ -343,7 +342,6 @@ mod tests {
         assert_eq!(Timestamp::new(precise), t);
     }
 
-    // Go: TestTimestampUnmarshalYAMLRejectsBadRFC3339
     #[test]
     fn timestamp_rejects_bad_rfc3339() {
         for bad in [
@@ -361,10 +359,8 @@ mod tests {
         }
     }
 
-    // Go: TestTimestampMarshalYAMLEmitsUnderlyingTime, as "a timestamp is
-    // emitted as an unquoted RFC 3339 scalar". Go's version tests a
-    // MarshalYAML method, which has no Rust counterpart; the emitter is the
-    // only writer.
+    // A timestamp is emitted as an unquoted RFC 3339 scalar. The emitter is
+    // the only writer.
     #[test]
     fn a_timestamp_is_emitted_as_an_unquoted_rfc3339_scalar() {
         let e = Entry {
@@ -375,9 +371,9 @@ mod tests {
         assert!(text.contains("\ncreated: 2026-01-14T10:32:00Z\n"), "{text}");
     }
 
-    // Go: TestEveryEntryFieldIsMarshaled. The destructuring is the guard (a
+    // The destructuring is the guard (a
     // new field stops this compiling until it is listed here); the body
-    // checks each one reaches the output, in place of Go's reflection.
+    // checks each one reaches the output, with no reflection.
     #[test]
     fn every_entry_field_is_marshaled() {
         let e = Entry {
@@ -419,7 +415,6 @@ mod tests {
         assert_eq!(unmarshal(text.as_bytes()).unwrap(), e);
     }
 
-    // Go: TestNewEntryIDsAreValidUUIDv4AndUnique
     #[test]
     fn new_entry_ids_are_valid_uuid_v4_and_unique() {
         let mut seen = std::collections::HashSet::new();
@@ -431,7 +426,7 @@ mod tests {
         }
     }
 
-    // Not a Go row (Go stamps in `gage edit` itself): the three stamps come
+    // The three stamps come
     // from the original, the clock and the identity, never the edit.
     #[test]
     fn restamp_after_edit_overrules_the_edited_stamps() {
@@ -459,7 +454,6 @@ mod tests {
         assert_eq!(edited.title, "edited", "the content is the edit's");
     }
 
-    // Go: TestEntryFieldExtractsNamedField
     #[test]
     fn field_extracts_the_named_field() {
         let e = entry_with_fields(&[("username", "me@proton.me"), ("totp", "JBSW")]);
@@ -467,14 +461,12 @@ mod tests {
         assert_eq!(e.field("totp").unwrap(), "JBSW");
     }
 
-    // Go: TestEntryFieldEmptyValueIsAFieldNotAMiss
     #[test]
     fn field_with_an_empty_value_is_a_field_not_a_miss() {
         let e = entry_with_fields(&[("pin", "")]);
         assert_eq!(e.field("pin").unwrap(), "");
     }
 
-    // Go: TestEntryFieldOnEntryWithNoFieldsSaysSo
     #[test]
     fn field_on_an_entry_with_no_fields_says_so() {
         let err = entry_with_fields(&[]).field("username").unwrap_err();
@@ -486,7 +478,7 @@ mod tests {
         );
     }
 
-    // Go: TestEntryFieldUnknownNameErrorsClearly. Names listed sorted,
+    // Names listed sorted,
     // values never.
     #[test]
     fn field_with_an_unknown_name_lists_the_names_that_exist() {

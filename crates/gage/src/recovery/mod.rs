@@ -2,8 +2,8 @@
 //! under a fixed label, and the reservation that keeps any device from
 //! taking that label. See "Recovery key at `init`" in the design doc.
 //!
-//! RK1 is the library half of creation: the keypair, the reserved label,
-//! and checking a pasted secret against a vault's recipients. RK2 adds the
+//! Creation is the keypair, the reserved label, and checking a pasted
+//! secret against a vault's recipients. The swap adds the
 //! key's one power inside gage, enrolling a replacement device and
 //! retiring itself, and replacing it from an unlocked device: both one
 //! atomic swap of the recipient list (`swap`).
@@ -69,7 +69,7 @@ pub enum RecoveryError {
     /// permanent device), or as its own replacement (a retirement that
     /// changes nothing). The swap removes the label before it checks the
     /// additions, so this is the one collision it cannot see by itself
-    /// (Q-RECOVERY-ERRORS).
+    /// (a collision the swap itself cannot see).
     #[error("gage: {pubkey} is the recovery key this operation is retiring, so it cannot also be {} — generate a new key", retired_as(.as_device))]
     RetiredKeyReused { pubkey: String, as_device: String },
     /// Rotate's backstop under the label reservation: the key this vault

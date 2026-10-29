@@ -1,5 +1,4 @@
-//! E4 task 4: `deny_enrollment`, and pruning riding the ordinary recipient
-//! writes (Go's `enrolldeny_test.go` and two rows of `enrollprune_test.go`).
+//! `deny_enrollment`, and pruning riding the ordinary recipient writes.
 
 use std::sync::Arc;
 
@@ -12,7 +11,7 @@ use crate::prompter::FakePrompter;
 use crate::remotesync::tests::{FakeSyncer, SyncVault, unreachable_error};
 
 /// One hex digit every pending id carries, so it matches all of them
-/// (Go's `commonSubstring`).
+///.
 fn common_substring(v: &Vault) -> String {
     let pending = v.pending_enrollments().unwrap();
     "0123456789abcdef"
@@ -22,7 +21,6 @@ fn common_substring(v: &Vault) -> String {
         .to_string()
 }
 
-// Go: TestDenyRemovesTheRequestAndGrantsNothing
 #[test]
 fn deny_removes_the_request_and_grants_nothing() {
     let a = SyncVault::new();
@@ -46,7 +44,7 @@ fn deny_removes_the_request_and_grants_nothing() {
     assert!(gitrepo::is_clean(&a.vault.path).unwrap());
 }
 
-// Go: TestDenyOnAnAmbiguousIDDeletesNothing. Deny deletes, so an ambiguous
+// Deny deletes, so an ambiguous
 // id is the candidates, never a guess.
 #[test]
 fn deny_on_an_ambiguous_id_deletes_nothing() {
@@ -68,7 +66,6 @@ fn deny_on_an_ambiguous_id_deletes_nothing() {
     assert_eq!(pending_names(&a.vault).len(), 2);
 }
 
-// Go: TestDenyOnAnUnmatchedIDDeletesNothing
 #[test]
 fn deny_on_an_unmatched_id_deletes_nothing() {
     let a = SyncVault::new();
@@ -84,7 +81,7 @@ fn deny_on_an_unmatched_id_deletes_nothing() {
     assert_eq!(commits(&a.vault), before);
 }
 
-// Go: TestDenyResolvesAnEightCharacterPrefix: the form `recipient pending`
+// The form `recipient pending`
 // shows.
 #[test]
 fn deny_resolves_an_eight_character_prefix() {
@@ -98,7 +95,6 @@ fn deny_resolves_an_eight_character_prefix() {
     assert!(pending_names(&a.vault).is_empty());
 }
 
-// Go: TestDenyPrunesExpiredRequestsInTheSameCommit
 #[test]
 fn deny_prunes_expired_requests_in_the_same_commit() {
     let a = SyncVault::new();
@@ -120,7 +116,7 @@ fn deny_prunes_expired_requests_in_the_same_commit() {
     assert_eq!(commits(&a.vault), before + 1);
 }
 
-// Go: TestDenyWarnsWhenItsPushFails. A silent failed deny is
+// A silent failed deny is
 // indistinguishable from a successful one, and leaves the request live
 // for every other device.
 #[test]
@@ -146,7 +142,7 @@ fn deny_warns_when_its_push_fails() {
     );
 }
 
-// Go: TestRecipientAddPrunesExpiredRequests. Pruning rides "the next
+// Pruning rides "the next
 // recipient change", with no enrollment involved.
 #[test]
 fn recipient_add_prunes_expired_requests() {
@@ -173,7 +169,7 @@ fn recipient_add_prunes_expired_requests() {
     assert_eq!(commits(&f.vault), before + 1);
 }
 
-// Go: TestRecipientRemovePrunesExpiredRequests. "The next recipient
+// "The next recipient
 // change" is not "the next addition".
 #[test]
 fn recipient_remove_prunes_expired_requests() {

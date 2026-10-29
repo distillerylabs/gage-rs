@@ -1,7 +1,6 @@
-//! The fixtures every enrollment test builds on (Go's helpers at the top of
-//! `enrollment_test.go`). They write into `pending/` directly rather than
-//! through a command: E2 proves the primitives before anything is layered
-//! on them, and there is no command yet.
+//! The fixtures every enrollment test builds on. They write into `pending/`
+//! directly rather than through a command, so the primitives are proven
+//! before anything is layered on them.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -15,14 +14,12 @@ use crate::recipient_tests::Fixture;
 use crate::vault::{METHOD_PASSPHRASE, Vault};
 use crate::{config, paths};
 
-/// One vault, its owner's key, and nothing pending (Go's
-/// `newRecipientTestVault`).
+/// One vault, its owner's key, and nothing pending.
 pub(crate) fn vault() -> Fixture {
     Fixture::new()
 }
 
-/// A fresh age public key: what a joining device puts in a request (Go's
-/// `testKeypair2`).
+/// A fresh age public key: what a joining device puts in a request.
 pub(crate) fn new_pubkey() -> String {
     age::x25519::Identity::generate().to_public().to_string()
 }
@@ -121,7 +118,7 @@ pub(crate) fn open_all(vault: &Vault, code: &str) -> Result<Vec<OpenedRequest>, 
 }
 
 /// Adds `name` → `id` to the registry `vault`'s device reads, leaving the
-/// rest alone (Go's `registerAlso`).
+/// rest alone.
 pub(crate) fn register_also(vault: &Vault, name: &str, id: &str) {
     let path = paths::global_config_file(vault.dirs());
     let mut global = config::read(&path).unwrap_or_default();
@@ -139,7 +136,7 @@ pub(crate) fn register_also(vault: &Vault, name: &str, id: &str) {
 }
 
 /// Both halves of the contract at once: the variant a caller matches on
-/// and the exit code the taxonomy gives it (Go's `assertEnrollmentError`).
+/// and the exit code the taxonomy gives it.
 /// Evaluates to the error.
 macro_rules! assert_enrollment_error {
     ($result:expr, $pat:pat, $code:expr) => {{

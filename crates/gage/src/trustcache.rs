@@ -1,4 +1,4 @@
-//! M10's local trust cache: this device's record of the recipient list it
+//! The local trust cache: this device's record of the recipient list it
 //! last confirmed for each vault, and the checks that consult it. A
 //! blocking one runs before anything is encrypted, and an opportunistic one
 //! on unlock and on sync. See "Trust boundaries", "Local trust cache" and
@@ -122,7 +122,7 @@ pub(crate) struct TrustCache {
     pub(crate) mismatch_seen: String,
 }
 
-/// `trust.toml`'s shape, Go's field names: everything but the config copy,
+/// `trust.toml`'s shape: everything but the config copy,
 /// which is its own file so it can be read (and diffed) as the TOML it is.
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

@@ -1,5 +1,4 @@
-//! E2 tasks 2 and 3: the seal's work factor, and sealing and opening (Go's
-//! `enrollseal_test.go`). Each test names its Go row.
+//! The seal's work factor, and sealing and opening.
 
 use std::time::{Duration, Instant};
 
@@ -43,9 +42,8 @@ fn claim_work_factor(sealed: &[u8], log_n: u8) -> Vec<u8> {
 
 // --- the child-process rows ---------------------------------------------
 //
-// Go lowers and restores a process-wide factor around these. Tests here
-// share one process and run in parallel, so that would race every other
-// scrypt test; a child running one test alone may move factors freely.
+// Lowering and restoring a process-wide factor around these would race every
+// other scrypt test, since tests share one process and run in parallel; a child running one test alone may move factors freely.
 
 pub(crate) const CHILD_ENV: &str = "GAGE_ENROLL_TEST_CHILD";
 
@@ -100,7 +98,7 @@ fn shipped_enrollment_factor_child() {
     assert_eq!(opened.len(), 1);
 }
 
-// Go: TestShippedEnrollmentWorkFactorReachesARealAgeFile. The constant
+// The constant
 // being right isn't the constant being wired up: dropping the
 // set_work_factor call leaves every seal at age's default with every other
 // row green. Read off the blob's own stanza.
@@ -152,15 +150,15 @@ fn independent_factors_child() {
     );
 }
 
-// Go: TestEnrollmentAndIdentityWorkFactorsAreIndependent. Both directions:
+// Both directions:
 // collapsing them would let a suite lowering one silently lower the other,
-// hiding D-ENROLL-SEAL-COST's calibration behind a test hook.
+// hiding ADR-0040's calibration behind a test hook.
 #[test]
 fn enrollment_and_identity_work_factors_are_independent() {
     run_child("enrollment::seal_tests::independent_factors_child");
 }
 
-// Go: TestHostileWorkFactorCostsABoundedWait. One committed file claiming
+// One committed file claiming
 // 2^30 is enough, and without the cap the symptom is a process that seems
 // to have stopped, so the open runs on a thread and the test fails on the
 // timeout rather than measuring afterwards.
@@ -186,7 +184,7 @@ fn hostile_work_factor_costs_a_bounded_wait() {
     assert_enrollment_error!(result, EnrollmentError::CodeWrong, Code::LockedOrAuth);
 }
 
-// Q-ENROLL-SCRYPT-CAP: a claim above the enrollment cap that the identity
+// ADR-0026: a claim above the enrollment cap that the identity
 // file's cap would admit is refused before the KDF runs. The rewritten
 // stanza fails the header MAC either way, so the answer is the same and
 // only the cost tells the cap apart: at 2^20 the KDF alone is about a
@@ -222,9 +220,9 @@ fn claimed_factor_is_capped_at_the_enrollment_cap() {
     );
 }
 
-// --- task 3: seal and open -----------------------------------------------
+// --- seal and open -----------------------------------------------
 
-// Go: TestSealRoundTripsThroughItsOwnCode. The baseline: a container. The
+// The baseline: a container. The
 // rows below are what the feature rests on.
 #[test]
 fn seal_round_trips_through_its_own_code() {
@@ -241,7 +239,7 @@ fn seal_round_trips_through_its_own_code() {
     assert_eq!((got.created, got.expires), (req.created, req.expires));
 }
 
-// Go: TestWrongCodeOpensNothing. The property the seal is for: the
+// The property the seal is for: the
 // plaintext is a public key, so what a decryption proves is that the
 // sealer knew a code agreed out of band.
 #[test]
@@ -257,7 +255,7 @@ fn wrong_code_opens_nothing() {
     );
 }
 
-// Go: TestRetypedCodesOpenTheSameRequest. End to end: what matters to a
+// End to end: what matters to a
 // human retyping a code off paper is that the request opens. The code has
 // a 1 and a 0 so the substitutions have something to substitute for.
 #[test]
@@ -287,7 +285,7 @@ fn retyped_codes_open_the_same_request() {
     }
 }
 
-// Go: TestMalformedCodeIsRejectedBeforeAnyDecryption. The answer is the
+// The answer is the
 // same either way, deliberately (the retry loop keys on it), so cost is
 // the only thing to assert; the well-formed wrong code paying is what
 // makes the zero meaningful.
@@ -314,7 +312,7 @@ fn malformed_code_is_rejected_before_any_decryption() {
     assert_eq!(f.vault.enrollment_decrypt_count(), 5);
 }
 
-// Go: TestTamperedSealDoesNotOpen. The AEAD property: without it the seal
+// The AEAD property: without it the seal
 // would prove a code-holder once wrote a blob, not that these bytes are
 // theirs, and the pubkey is the field an attacker would change. The flip
 // is in the payload, so the failure is authentication, not parsing.
@@ -333,7 +331,7 @@ fn tampered_seal_does_not_open() {
     assert!(result.is_err(), "a tampered blob opened: {result:?}");
 }
 
-// Go: TestSealedIDMustMatchTheFilename. The filename is unauthenticated,
+// The filename is unauthenticated,
 // the sealed id is not, so a blob can't be renamed onto another slot. The
 // epoch is deliberately not compared, and that is asserted too.
 #[test]
@@ -376,7 +374,7 @@ fn stuff(f: &crate::recipient_tests::Fixture, n: usize) {
     }
 }
 
-// Go: TestTooManyPendingIsRefusedBeforeAnyDecryption. A directory any git
+// A directory any git
 // writer can fill multiplies every run's work; the refusal comes before
 // the work and names the way through.
 #[test]
@@ -392,7 +390,7 @@ fn too_many_pending_is_refused_before_any_decryption() {
     assert!(err.to_string().contains("by id"), "{err}");
 }
 
-// Go: TestTheBoundCountsLiveRequestsOnly. Ordinary neglect never looks
+// Ordinary neglect never looks
 // like an attack, with no write having pruned first; and opening deletes
 // nothing.
 #[test]
@@ -425,7 +423,7 @@ fn the_bound_counts_live_requests_only() {
     assert_eq!(left, 44, "a read-only run deleted files");
 }
 
-// Go: TestIDScopedRunPassesTheBoundByConstruction. No flag: the broad and
+// No flag: the broad and
 // the scoped run are one path over different inputs, so neither can opt
 // out of the bound.
 #[test]
@@ -452,7 +450,7 @@ fn id_scoped_run_passes_the_bound_by_construction() {
     );
 }
 
-// Go: TestScopeIsHonouredNotTreatedAsAHint. An open that read the
+// An open that read the
 // directory and treated its argument as advice would pass every row above
 // and reintroduce the unbounded path.
 #[test]

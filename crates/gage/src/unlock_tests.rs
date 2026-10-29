@@ -1,8 +1,6 @@
 //! Identity files, `Vault::unlock` and the unlocked `Identity`'s lifetime,
 //! against real files under temp roots and real scrypt (at the test work
-//! factor). Ports Go's `unlock_test.go`, `identityfile_marker_test.go` and
-//! the `Identity`/`Locker` rows of `vault_test.go`; each test names its Go
-//! row. Excused rows are listed in the M2 plan doc with their reasons.
+//! factor).
 
 use std::any::Any;
 use std::io;
@@ -24,8 +22,7 @@ use crate::xdgpaths::Dirs;
 
 const PASSPHRASE: &str = "correct horse battery staple";
 
-/// One isolated machine: its own config, data and state roots (Go's
-/// `isolateXDG`).
+/// One isolated machine: its own config, data and state roots.
 struct Machine {
     root: tempfile::TempDir,
     dirs: Dirs,
@@ -44,7 +41,7 @@ impl Machine {
     }
 
     /// Writes the global config record `Vault::unlock` reads this device's
-    /// name and method from, replacing any other (Go's `registerVault`).
+    /// name and method from, replacing any other.
     fn register(&self, name: &str, id: &str, device: &str, method: &str) {
         let mut global = Global::default();
         global
@@ -78,8 +75,8 @@ impl Machine {
         .unwrap()
     }
 
-    /// A registered vault with this device's identity on disk (Go's
-    /// `newUnlockableVault`): the vault and the identity's public key.
+    /// A registered vault with this device's identity on disk: the vault
+    /// and the identity's public key.
     fn unlockable(&self, name: &str, device: &str) -> (Vault, String) {
         let id = vaultconfig::new_id();
         self.register(name, &id, device, vault::METHOD_PASSPHRASE);
@@ -112,8 +109,8 @@ fn prompter(passphrases: &[&str]) -> FakePrompter {
     FakePrompter::new().with_passphrases(passphrases)
 }
 
-/// A prompter answering `passphrases` in order, then refusing (Go's
-/// `fakePrompter` running out of answers).
+/// A prompter answering `passphrases` in order, then refusing, as a prompter
+/// that runs out of answers does.
 fn prompter_then_gives_up(passphrases: &[&str]) -> FakePrompter {
     prompter(passphrases).with_unlock_error(PromptError::Cancelled)
 }
@@ -151,7 +148,7 @@ fn unsafe_device_names() -> Vec<String> {
 // --- Locker fakes -----------------------------------------------------------
 
 /// A locker that succeeds without asking the OS, so the `Drop` contract
-/// tests hold on hosts that refuse to lock pages (Go's `alwaysLocks`). The
+/// tests hold on hosts that refuse to lock pages. The
 /// real one is covered by `memlock`'s own tests and by
 /// `unlock_page_locks_or_warns_but_never_both`.
 struct AlwaysLocks;
@@ -166,7 +163,7 @@ impl Locker for AlwaysLocks {
 }
 
 /// Counts lock and unlock calls and records what each one was handed, or
-/// fails every lock with `lock_err` (Go's `countingLocker`).
+/// fails every lock with `lock_err`.
 #[derive(Default)]
 struct CountingLocker {
     lock_err: Option<&'static str>,
@@ -213,9 +210,9 @@ impl Locker for CountingLocker {
     }
 }
 
-// --- Identity (Go's vault_test.go rows) -------------------------------------
+// --- Identity ---------------------------------------------------------------
 
-// Go: TestIdentityCloseReleasesTheLockAndZeroesTheKey. Drop's contract in
+// Drop's contract in
 // one place: the key is wiped *before* the page lock comes off, so the
 // locker's unlock sees nothing but zeros.
 #[test]
@@ -249,7 +246,7 @@ fn identity_close_releases_the_lock_and_zeroes_the_key() {
     );
 }
 
-// Go: TestIdentityCloseIsIdempotent. Rust runs Drop exactly once by
+// Rust runs Drop exactly once by
 // construction; what remains to prove is that one drop releases the page
 // exactly once.
 #[test]
@@ -265,7 +262,6 @@ fn identity_close_is_idempotent() {
     assert_eq!(counter.unlocks(), 1);
 }
 
-// Go: TestCloseAfterAFailedPageLockDoesNotUnlockAnything
 #[test]
 fn close_after_a_failed_page_lock_does_not_unlock_anything() {
     let m = Machine::new();
@@ -284,7 +280,7 @@ fn close_after_a_failed_page_lock_does_not_unlock_anything() {
     );
 }
 
-// Go: TestPageLockFailureWarnsOnceAndProceeds: a weaker guarantee beats an
+// A weaker guarantee beats an
 // unusable tool.
 #[test]
 fn page_lock_failure_warns_once_and_proceeds() {
@@ -309,7 +305,7 @@ fn page_lock_failure_warns_once_and_proceeds() {
     assert!(warnings[0].contains("laptop-1"), "{}", warnings[0]);
 }
 
-// Go: TestPageLockIsAttemptedExactlyOncePerUnlock: three passphrase
+// Three passphrase
 // attempts, still one lock, so one possible warning, structurally.
 #[test]
 fn page_lock_is_attempted_exactly_once_per_unlock() {
@@ -322,7 +318,7 @@ fn page_lock_is_attempted_exactly_once_per_unlock() {
     assert!(p.warnings().is_empty(), "{:?}", p.warnings());
 }
 
-// Go: TestUnlockPageLocksOrWarnsButNeverBoth, with the real locker: holds
+// Page locking with the real locker: holds
 // whether or not this host grants the lock.
 #[test]
 fn unlock_page_locks_or_warns_but_never_both() {
@@ -344,7 +340,7 @@ fn unlock_page_locks_or_warns_but_never_both() {
     round_trip(&id, &pubkey);
 }
 
-// Go: TestDefaultLockerIsTheRealMemlockBackedOne: what stops the injected
+// What stops the injected
 // test lockers from quietly becoming "gage never page-locks at all".
 #[test]
 fn default_locker_is_the_real_memlock_backed_one() {
@@ -377,9 +373,8 @@ fn default_locker_is_the_real_memlock_backed_one() {
     }
 }
 
-// --- identity files (Go's unlock_test.go and identityfile_marker_test.go) ---
+// --- identity files ---------------------------------------------------------
 
-// Go: TestCreateIdentityWritesTheFileWithTightPermissions
 #[test]
 fn create_identity_writes_the_file_with_tight_permissions() {
     let m = Machine::new();
@@ -438,7 +433,7 @@ fn create_identity_tightens_an_existing_looser_directory() {
     assert_eq!(mode, 0o700);
 }
 
-// Go: TestCreateIdentityFileIsPassphraseWrappedAndSoleRecipient (A3), and
+// An identity file is passphrase-wrapped to a sole recipient, and
 // the work factor read off a real identity file.
 #[test]
 fn create_identity_file_is_passphrase_wrapped_and_sole_recipient() {
@@ -472,7 +467,7 @@ fn create_identity_file_is_passphrase_wrapped_and_sole_recipient() {
     assert_eq!(factor, crypt::scrypt_work_factor());
 }
 
-// Go: TestCreateIdentityRejectsAnEmptyPassphrase: accepting it would write
+// Accepting it would write
 // a real, long-lived key protected by nothing.
 #[test]
 fn create_identity_rejects_an_empty_passphrase() {
@@ -487,7 +482,7 @@ fn create_identity_rejects_an_empty_passphrase() {
     );
 }
 
-// Go: TestIdentityFileIsAgeKeygenCompatible: the decrypted contents are
+// The decrypted contents are
 // what age-keygen writes, so stock `age -d -i <device>.age` can use it.
 #[test]
 fn identity_file_is_age_keygen_compatible() {
@@ -526,7 +521,7 @@ fn identity_file_is_age_keygen_compatible() {
     assert_eq!(String::from_utf8(derived).unwrap(), format!("{pubkey}\n"));
 }
 
-// Go: TestCreateIdentityReusesAnExistingFile (#39's other half): never
+// Creating an identity file reuses an existing one: never
 // overwrite the only copy of a private key; reuse it, and say so.
 #[test]
 fn create_identity_reuses_an_existing_file() {
@@ -564,7 +559,7 @@ fn create_identity_reuses_an_existing_file() {
     assert_eq!(unlocked.recipient(), first);
 }
 
-// Go: TestCreateIdentityReuseRejectsWrongPassphrase: never mint a new key
+// Never mint a new key
 // over, or appear to succeed against, a file it never opened.
 #[test]
 fn create_identity_reuse_rejects_wrong_passphrase() {
@@ -589,7 +584,6 @@ fn create_identity_reuse_rejects_wrong_passphrase() {
     );
 }
 
-// Go: TestCreateIdentityRefusesAnUnsafeDeviceName
 #[test]
 fn create_identity_refuses_an_unsafe_device_name() {
     let m = Machine::new();
@@ -611,7 +605,7 @@ fn create_identity_refuses_an_unsafe_device_name() {
     assert!(!m.identities_root().exists());
 }
 
-// Go: TestIdentityFilePathRefusesAnUnsafeDeviceName, at the one builder
+// An unsafe device name is refused at the one builder
 // every caller goes through.
 #[test]
 fn identity_file_path_refuses_an_unsafe_device_name() {
@@ -624,7 +618,7 @@ fn identity_file_path_refuses_an_unsafe_device_name() {
     }
 }
 
-// Go: TestIdentityFilePathRefusesAnUnsafeVaultName: since A20 the other
+// The other
 // path component is the vault id, and anything but a UUID is refused.
 #[test]
 fn identity_file_path_refuses_an_unsafe_vault_name() {
@@ -645,7 +639,6 @@ fn identity_file_path_refuses_an_unsafe_vault_name() {
     }
 }
 
-// Go: TestRemoveIdentityIsTheRollbackPathAndNothingMore
 #[test]
 fn remove_identity_is_the_rollback_path_and_nothing_more() {
     let m = Machine::new();
@@ -672,7 +665,6 @@ fn remove_identity_is_the_rollback_path_and_nothing_more() {
         .expect("the surviving identity no longer unlocks");
 }
 
-// Go: TestIdentitiesDirectoryCarriesAPlaintextMarkerNamingTheVault
 #[test]
 fn identities_directory_carries_a_plaintext_marker_naming_the_vault() {
     let m = Machine::new();
@@ -687,9 +679,8 @@ fn identities_directory_carries_a_plaintext_marker_naming_the_vault() {
     assert_eq!(marker.trim(), "personal");
 }
 
-// Go: TestNothingReadsTheMarkerToMakeADecision, the unlock half. Go also
-// checks HasIdentity and ListIdentities, which arrive with clone (P4 · M8a)
-// and `identity list` and carry this check with them.
+// Nothing reads the marker to make a decision, the unlock half.
+// `has_identity` and `list_identities` carry the same check.
 #[test]
 fn nothing_reads_the_marker_to_make_a_decision() {
     let m = Machine::new();
@@ -706,7 +697,6 @@ fn nothing_reads_the_marker_to_make_a_decision() {
     assert!(!marker.exists(), "a read path recreated the marker");
 }
 
-// Go: TestRemovingTheLastIdentityLeavesNoOrphanedDirectory
 #[test]
 fn removing_the_last_identity_leaves_no_orphaned_directory() {
     let m = Machine::new();
@@ -716,7 +706,6 @@ fn removing_the_last_identity_leaves_no_orphaned_directory() {
     assert_eq!(m.identities_dir_entries(&id), None);
 }
 
-// Go: TestRemovingANonLastIdentityLeavesTheMarkerInPlace
 #[test]
 fn removing_a_non_last_identity_leaves_the_marker_in_place() {
     let m = Machine::new();
@@ -731,7 +720,7 @@ fn removing_a_non_last_identity_leaves_the_marker_in_place() {
     );
 }
 
-// --- identityfile::backup / restore (RK4, Q-RECOVERY-IDENTITY-BACKUP) -------
+// --- identityfile::backup / restore -----------------------------------------
 
 // Nothing to hold, so nothing to put back: `recovery enroll` on a machine
 // whose identity file is already gone.
@@ -749,7 +738,7 @@ fn backup_of_a_missing_file_is_none() {
     assert!(!m.identities_root().exists(), "a backup wrote something");
 }
 
-// Go's R4 review bug, tested where the fix lives: removing the vault's only
+// Regression, tested where the fix lives: removing the vault's only
 // identity prunes the marker and the directory, so a restore that only
 // wrote the file back failed, and destroyed the file it existed to keep.
 #[test]
@@ -785,10 +774,10 @@ fn restore_recreates_a_pruned_identity_directory() {
     assert_eq!(unlocked.recipient(), pubkey);
 }
 
-// --- Vault::unlock (Go's unlock_test.go) ------------------------------------
+// --- Vault::unlock ----------------------------------------------------------
 
-// Go: TestUnlockProducesAnIdentityThatDecrypts: the milestone's
-// definition of done at the library level.
+// The core property at the library level: unlock yields an identity that
+// decrypts.
 #[test]
 fn unlock_produces_an_identity_that_decrypts() {
     let m = Machine::new();
@@ -799,7 +788,6 @@ fn unlock_produces_an_identity_that_decrypts() {
     round_trip(&id, &pubkey);
 }
 
-// Go: TestUnlockRequestsThePassphraseThroughThePrompter
 #[test]
 fn unlock_requests_the_passphrase_through_the_prompter() {
     let m = Machine::new();
@@ -818,7 +806,6 @@ fn unlock_requests_the_passphrase_through_the_prompter() {
     assert_eq!(req.attempt, 1);
 }
 
-// Go: TestUnlockWithTheWrongPassphraseIsDistinguishable
 #[test]
 fn unlock_with_the_wrong_passphrase_is_distinguishable() {
     let m = Machine::new();
@@ -830,7 +817,7 @@ fn unlock_with_the_wrong_passphrase_is_distinguishable() {
     assert_eq!(err.code(), Code::LockedOrAuth);
 }
 
-// Go: TestUnlockRetriesThroughThePrompterAndStopsWhenItStops: the library
+// The library
 // keeps no count; the prompter decides when to stop.
 #[test]
 fn unlock_retries_through_the_prompter_and_stops_when_it_stops() {
@@ -853,7 +840,6 @@ fn unlock_retries_through_the_prompter_and_stops_when_it_stops() {
     assert_eq!(p.unlock_requests().len(), 3, "2 answers + 1 refusal");
 }
 
-// Go: TestUnlockDoesNotRetryOnNonPassphraseFailures
 #[test]
 fn unlock_does_not_retry_on_non_passphrase_failures() {
     let m = Machine::new();
@@ -864,7 +850,6 @@ fn unlock_does_not_retry_on_non_passphrase_failures() {
     assert_eq!(p.unlock_requests().len(), 1);
 }
 
-// Go: TestUnlockWithACorruptIdentityFileIsDistinguishable
 #[test]
 fn unlock_with_a_corrupt_identity_file_is_distinguishable() {
     let m = Machine::new();
@@ -875,8 +860,7 @@ fn unlock_with_a_corrupt_identity_file_is_distinguishable() {
     assert_eq!(err.code(), Code::Conflict);
 }
 
-// Go: TestUnlockWithAWellFormedButWrongKindOfFileIsCorruptNotWrongPassphrase:
-// a valid age file wrapped to a public key fails exactly like a bad
+// A valid age file wrapped to a public key fails exactly like a bad
 // passphrase inside age, so gage must look at the header to avoid
 // re-prompting forever for a passphrase that cannot work.
 #[test]
@@ -898,7 +882,7 @@ fn unlock_with_a_well_formed_but_wrong_kind_of_file_is_corrupt_not_wrong_passphr
 }
 
 // A file claiming more scrypt work than gage will do is corrupt, not a
-// wrong passphrase (the Q-AGE-CRATE classification): re-prompting can't
+// wrong passphrase (the ADR-0022 classification): re-prompting can't
 // lower the claimed factor, so it fails after one prompt, at once. This is
 // the behavioral half of the cap the source scans check; age refuses the
 // stanza on its logN alone, before any key derivation, so a hostile file
@@ -947,8 +931,7 @@ fn unlock_of_a_file_claiming_excessive_work_is_corrupt_not_wrong_passphrase() {
     );
 }
 
-// A file that decrypts but holds no key line is corrupt too (Go's
-// parseIdentityFile's last branch), and so is one whose key line doesn't
+// A file that decrypts but holds no key line is corrupt too, and so is one whose key line doesn't
 // parse.
 #[test]
 fn unlock_of_a_file_without_a_usable_key_line_is_corrupt() {
@@ -972,7 +955,7 @@ fn unlock_of_a_file_without_a_usable_key_line_is_corrupt() {
     }
 }
 
-// Go: TestUnlockRejectsAnEmptyPassphrase: refused outright, not retried,
+// Refused outright, not retried,
 // since an empty answer means the prompter has nothing to give.
 #[test]
 fn unlock_rejects_an_empty_passphrase() {
@@ -990,7 +973,6 @@ fn assert_no_local_identity(err: UnlockError) {
     assert_eq!(err.code(), Code::LockedOrAuth);
 }
 
-// Go: TestUnlockWithNoLocalIdentityIsDistinguishable
 #[test]
 fn unlock_with_no_local_identity_is_distinguishable() {
     // No identity file.
@@ -1020,8 +1002,7 @@ fn unlock_with_no_local_identity_is_distinguishable() {
     );
 }
 
-// Go: TestUnlockDispatchesOnTheLocalMethodNotTheVaultDefault
-// (Q-METHOD-SCOPE): the vault's [method].default is a suggestion for
+// (ADR-0011): the vault's [method].default is a suggestion for
 // devices joining it; this device's own record decides.
 #[test]
 fn unlock_dispatches_on_the_local_method_not_the_vault_default() {
@@ -1056,7 +1037,7 @@ fn unlock_dispatches_on_the_local_method_not_the_vault_default() {
     );
 }
 
-// Go: TestUnlockNeverBuildsAPathFromAnUnvalidatedDeviceName (Q-DEVICE-NAME).
+// Unlock never builds a path from an unvalidated device name (ADR-0010).
 // The assertion is the refusal variant, not merely failure: with
 // validation removed, the traversed path wouldn't exist and the unlock
 // would fail as NoLocalIdentity, so a weaker test would pass while gage
@@ -1085,7 +1066,7 @@ fn unlock_never_builds_a_path_from_an_unvalidated_device_name() {
     }
 }
 
-// Go: TestUnlockWithNoRecordedDeviceIsAMissingIdentityNotAnUnsafeName: an
+// An
 // empty device never reaches the path builder.
 #[test]
 fn unlock_with_no_recorded_device_is_a_missing_identity_not_an_unsafe_name() {
@@ -1099,8 +1080,7 @@ fn unlock_with_no_recorded_device_is_a_missing_identity_not_an_unsafe_name() {
     );
 }
 
-// Go: TestWarningsDoNotDoubleGagesOwnPrefix, M2's half (P4's push warnings
-// add theirs): a frontend shows a warning as it is (the terminal prompter
+// A frontend shows a warning as it is (the terminal prompter
 // prints it verbatim), so each one names gage itself, exactly once.
 #[test]
 fn warnings_do_not_double_gages_own_prefix() {

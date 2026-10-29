@@ -1,13 +1,13 @@
-//! The two-device fixture every P5 milestone builds on: two gage installs
+//! The two-device fixture: two gage installs
 //! over one bare origin. Each has its own config, data and state roots, its
 //! own registration of the vault and its own identity file. Device A is
 //! [`SyncVault`], the state `gage init --remote` leaves; device B is a
 //! [`Machine`] cloned from the same origin the way `gage clone` leaves one:
 //! registered, with no identity and an empty `pubkey`.
 //!
-//! The tests in this file are M9a's, plus M9b's lost-identity recovery;
-//! the fixture is shared with M9b
-//! (re-encryption) and M10 (a pulled recipient change).
+//! The tests in this file cover recipient verification and lost-identity
+//! recovery; the fixture is shared with the re-encryption and
+//! pulled-recipient-change tests.
 
 use crate::config::{self, Global, VaultEntry};
 use crate::exitcode::{Code, HasCode};
@@ -146,9 +146,9 @@ fn other_passphrase() -> FakePrompter {
     FakePrompter::new().with_passphrase("yet another passphrase")
 }
 
-// --- recipients and verify_recipients (task 3) ---------------------------
+// --- recipients and verify_recipients ---------------------------
 
-// Go: TestRecipientListMatchesConfigExactly. Order and labels are the
+// Order and labels are the
 // config's own, not re-derived from `.age-recipients`.
 #[test]
 fn recipients_match_the_config_exactly() {
@@ -173,7 +173,6 @@ fn recipients_match_the_config_exactly() {
     assert_eq!(a.vault.recipients().unwrap(), listed);
 }
 
-// Go: TestVerifyReportsInSyncAndTheSpecificDifferences, both directions.
 #[test]
 fn verify_reports_in_sync_and_the_specific_differences() {
     let a = SyncVault::new();
@@ -214,7 +213,7 @@ fn verify_reports_in_sync_and_the_specific_differences() {
     assert_eq!(verdict.only_in_config, [listed]);
 }
 
-// Go: TestVerifyNeedsNoIdentityFileOrPrompter. Device B has just cloned: a
+// Device B has just cloned: a
 // registration, no identity file, no prompter in reach.
 #[test]
 fn verify_needs_no_identity_file_or_prompter() {
@@ -230,9 +229,9 @@ fn verify_needs_no_identity_file_or_prompter() {
     assert_eq!(b.vault.recipients().unwrap(), a.vault.recipients().unwrap());
 }
 
-// Go: TestVerifyReadsNeitherIdentityNorPrompter. `verify_recipients` takes
-// no `Prompter` and no `Identity`, so the compiler proves the Go test's
-// point; what remains to port is that a divergence is still reported on a
+// `verify_recipients` takes
+// no `Prompter` and no `Identity`, so the compiler proves it needs
+// neither; what remains is that a divergence is still reported on a
 // device that holds no identity.
 #[test]
 fn verify_reports_a_divergence_on_a_device_with_no_identity() {
@@ -247,9 +246,8 @@ fn verify_reports_a_divergence_on_a_device_with_no_identity() {
     assert_eq!(verdict.only_in_recipients_file, [stray]);
 }
 
-// --- add_identity and list_identities (task 4) ----------------------------
+// --- add_identity and list_identities ----------------------------
 
-// Go: TestAddIdentityWritesItsOwnWrappedFileAndReturnsAPublicKey.
 #[test]
 fn add_identity_writes_its_own_wrapped_file_and_returns_a_public_key() {
     let a = SyncVault::new();
@@ -282,7 +280,7 @@ fn add_identity_writes_its_own_wrapped_file_and_returns_a_public_key() {
     );
 }
 
-// Go: TestEachDeviceHasItsOwnIdentityFile. Deleting one leaves the other
+// Deleting one leaves the other
 // openable, with its own key.
 #[test]
 fn each_device_has_its_own_identity_file() {
@@ -308,7 +306,7 @@ fn each_device_has_its_own_identity_file() {
     assert_eq!(opened.recipient(), second);
 }
 
-// Go: TestAddIdentityRejectsANameAlreadyRegisteredAsARecipient. Device B
+// Device B
 // asks for the label device A holds; nothing is written.
 #[test]
 fn add_identity_rejects_a_name_already_registered_as_a_recipient() {
@@ -333,7 +331,6 @@ fn add_identity_rejects_a_name_already_registered_as_a_recipient() {
     );
 }
 
-// Go: TestAddIdentityRejectsAnInvalidDeviceName.
 #[test]
 fn add_identity_rejects_an_invalid_device_name() {
     let a = SyncVault::new();
@@ -353,7 +350,7 @@ fn add_identity_rejects_an_invalid_device_name() {
     );
 }
 
-// Go: TestListIdentitiesReportsThisDevicesRegisteredIdentities. `current`
+// `current`
 // marks the registered device only.
 #[test]
 fn list_identities_reports_this_devices_registered_identities() {
@@ -381,7 +378,6 @@ fn list_identities_reports_this_devices_registered_identities() {
     assert_eq!(summary, [("desktop", false), (B_DEVICE, true)]);
 }
 
-// Go: TestListIdentitiesSkipsSubdirectoriesAndInvalidlyNamedFiles.
 #[test]
 fn list_identities_skips_subdirectories_and_invalidly_named_files() {
     let a = SyncVault::new();
@@ -401,9 +397,9 @@ fn list_identities_skips_subdirectories_and_invalidly_named_files() {
     assert_eq!(devices, [DEVICE]);
 }
 
-// --- lost-identity recovery (M9b task 6) ------------------------------------
+// --- lost-identity recovery ------------------------------------
 
-// Go: TestRecoveringALostIdentityFileNeedsNoFileRestore. Device B's file is
+// Device B's file is
 // gone; it registers a fresh identity under a new name, A adds that key,
 // and B reads the whole history again. Nothing is restored: the old key is
 // simply gone.

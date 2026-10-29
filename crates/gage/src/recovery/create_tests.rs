@@ -1,5 +1,4 @@
-//! RK1 task 2: labelled extra recipients at `create`. Go:
-//! `vault_create_test.go`'s recovery rows.
+//! Labelled extra recipients at `create`.
 
 use super::*;
 use crate::entry::NewEntry;

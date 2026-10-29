@@ -1,5 +1,5 @@
 //! gage's three-way merge of the local branch and its remote-tracking ref
-//! (Q-FILE-MERGE). File-level, never `git2::merge_trees`.
+//! (ADR-0019). File-level, never `git2::merge_trees`.
 //!
 //! Entries are age ciphertext, opaque blobs with no line structure, so two
 //! edits to one entry can never be reconciled by a text merge. A path is
@@ -38,7 +38,7 @@ pub enum MergeSide {
 }
 
 /// A three-way merge computed but not yet applied. Splitting the two is
-/// what lets a caller (M8b's resolution) read both sides of what
+/// what lets a caller (interactive resolution) read both sides of what
 /// conflicted ([`PendingMerge::content`]) and decide before anything is
 /// written; one that decides not to proceed never calls
 /// [`PendingMerge::commit`], and the vault is untouched.
@@ -77,8 +77,7 @@ pub fn merge_remote(dir: &Path, message: &str) -> Result<MergeResult, Error> {
 /// A dirty working tree is refused up front, as [`super::fast_forward`]
 /// refuses one: the merge commit stages the whole tree, so a human's
 /// half-finished editing would be swept into "gage: merge origin" and
-/// pushed to every other device (Go's correction,
-/// `TestMergeRemoteRefusesADirtyWorkTree`).
+/// pushed to every other device.
 pub fn prepare_merge(dir: &Path) -> Result<PendingMerge, Error> {
     require_clean_work_tree(dir, "merging origin's changes on top of them")?;
     let repo = open(dir)?;

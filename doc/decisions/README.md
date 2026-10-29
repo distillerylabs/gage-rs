@@ -86,3 +86,8 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0044](0044-enroll-print-only.md) No offline enrollment path
 - [0045](0045-enroll-remote.md) When enroll touches the network
 - [0046](0046-enroll-verbs.md) Enrollment command names
+
+### Locking and dependencies
+
+- [0047](0047-two-vault-lock-order.md) Two vaults are locked in vault-id order
+- [0048](0048-yaml-crate.md) The YAML crate

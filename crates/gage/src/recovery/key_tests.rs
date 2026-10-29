@@ -1,4 +1,4 @@
-//! RK1 task 1: the recovery keypair. Go: `recovery_key_test.go`.
+//! The recovery keypair.
 
 use age::secrecy::ExposeSecret;
 use zeroize::Zeroize;

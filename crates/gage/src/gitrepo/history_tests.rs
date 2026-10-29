@@ -1,4 +1,4 @@
-//! `log`: Go's `history_test` rows, and the merge cases they leave out.
+//! `log`, including the merge cases.
 //! The merge rows are what catch a walk that diffs each commit against its
 //! neighbour instead of its parents (see the module doc of `history`).
 
@@ -71,7 +71,6 @@ fn merge_with_new_blob(dir: &Path, rel: &str, content: &str) {
     .unwrap();
 }
 
-// Go: TestLogReportsEachRealChangeOnce
 #[test]
 fn log_reports_each_real_change_once() {
     let dir = tempfile::tempdir().unwrap();
@@ -92,7 +91,6 @@ fn log_reports_each_real_change_once() {
     assert!(log.iter().all(|r| r.id.len() == 40));
 }
 
-// Go: TestLogReportsADeletionOnce
 #[test]
 fn log_reports_a_deletion_once() {
     let dir = tempfile::tempdir().unwrap();
@@ -108,7 +106,6 @@ fn log_reports_a_deletion_once() {
     assert_eq!(messages(&log), ["deleted", "first"]);
 }
 
-// Go: TestLogOnAPathGitHasNeverSeenIsEmpty
 #[test]
 fn log_on_a_path_git_has_never_seen_is_empty() {
     let dir = tempfile::tempdir().unwrap();
@@ -117,7 +114,7 @@ fn log_on_a_path_git_has_never_seen_is_empty() {
     assert!(log(dir.path(), "entries/nope.age").unwrap().is_empty());
 }
 
-// Go: TestLogAndHeadCommitterTimeOnARepoWithNoCommitsYet, the Log half.
+// `log` on a repo with no commits yet.
 #[test]
 fn log_on_a_repo_with_no_commits_yet_is_empty() {
     let dir = tempfile::tempdir().unwrap();
@@ -125,8 +122,7 @@ fn log_on_a_repo_with_no_commits_yet_is_empty() {
     assert!(log(dir.path(), "a.txt").unwrap().is_empty());
 }
 
-// Go: TestLogAndHeadCommitterTimeOnARepoWithNoCommitsYet, the
-// HeadCommitterTime half.
+// `head_committer_time` on a repo with no commits yet.
 #[test]
 fn head_committer_time_on_a_repo_with_no_commits_yet() {
     let dir = tempfile::tempdir().unwrap();
@@ -170,7 +166,7 @@ fn log_tells_an_empty_file_from_an_absent_one() {
     assert_eq!(contents(&log), [None, Some(String::new())]);
 }
 
-// Go: TestLogAcrossAMergeOfUnrelatedEdits ⚑
+// ⚑ Log across a merge of unrelated edits.
 #[test]
 fn log_across_a_merge_of_unrelated_edits() {
     let (dir, remote) = published_repo();
@@ -197,7 +193,7 @@ fn log_across_a_merge_of_unrelated_edits() {
     );
 }
 
-// Go: TestLogAcrossAConflictResolvedByTakingASide ⚑
+// ⚑ Log across a conflict resolved by taking a side.
 #[test]
 fn log_across_a_conflict_resolved_by_taking_a_side() {
     for (side, winner) in [(MergeSide::Remote, "theirs"), (MergeSide::Local, "ours")] {
