@@ -86,7 +86,7 @@ ones learn.
 | Phase | Milestones | Status | Model | Depends on |
 |---|---|---|---|---|
 | D1 Independence ([plan](d1-independence/index.md), [#115](https://github.com/distillerylabs/gage-rs/issues/115)) | D1a format v2 spec + golden vault · D1b retire parity machinery · D1c docs archive, re-home, process | `[x]` | **Opus** D1a; Sonnet D1b/D1c | — |
-| D2 Source sweep | D2a `crates/gage` · D2b `crates/gage-cli` | `[ ]` | Sonnet | D1 |
+| D2 Source sweep ([plan](d2-source-sweep/index.md), [#124](https://github.com/distillerylabs/gage-rs/issues/124)) | D2a `crates/gage` · D2b `crates/gage-cli` | `[~]` | Sonnet | D1 |
 | D3 Types and errors | D3a `VaultId`, enums, `Option` config · D3b error/frontend boundary · D3c small Go-isms | `[ ]` | **Opus** D3a/D3b; Sonnet D3c | D2 |
 | D4 API surface | D4a module hierarchy + re-exports · D4b test seams off production types · D4c typed CLI dispatch | `[ ]` | **Opus** D4b; Sonnet D4a/D4c | D3 |
 
@@ -113,6 +113,9 @@ ones learn.
   - Collapse `go_duration_string` (`shell.rs`) and `go_duration`
     (`repl.rs`), which round differently, into one duration module.
     Output stays unchanged.
+  - Out of scope, for a later docs pass: the milestone and `Q-`
+    references in `doc/design/`, and `doc/format/v2.md`'s
+    "Go's `time.ParseDuration`".
 - **D3a.**
   - A `VaultId` newtype (validated `TryFrom<&str>`, `serde(try_from)`),
     taken by `paths`, `vaultlock`, `trustcache` and `identityfile`.
