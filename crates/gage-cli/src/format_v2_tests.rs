@@ -8,9 +8,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use crate::exitcode::ExitCode;
 use gage::config::Shell;
 use gage::entry::NewEntry;
-use gage::exitcode::Code;
 use gage::gittest;
 use gage::prompter::FakePrompter;
 use gage::testsupport::format_v2::{self as fx, Installed};
@@ -35,7 +35,7 @@ impl Env {
 }
 
 fn ok(r: CliResult, what: &str) -> CliResult {
-    assert_eq!(r.code, Code::Success, "{what}:\n{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{what}:\n{}", r.stderr);
     r
 }
 

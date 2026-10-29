@@ -3,7 +3,7 @@
 use uuid::Uuid;
 
 use crate::entry::{Entry, NewEntry};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::history::HistoryError;
 use crate::identity::Identity;
 use crate::prompter::FakePrompter;
@@ -146,6 +146,6 @@ fn history_fails_rather_than_skipping_an_undecryptable_revision() {
     };
     assert_eq!(hash, &before[..7]);
     assert_eq!(*named, id);
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert!(err.to_string().contains(&id.to_string()), "{err}");
 }

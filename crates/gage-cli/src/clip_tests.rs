@@ -7,8 +7,8 @@
 
 use std::time::Duration;
 
+use crate::exitcode::ExitCode;
 use gage::config::Shell;
-use gage::exitcode::Code;
 use sha2::{Digest, Sha256};
 
 use crate::clipboard::fake::{FakeClipboard, FakeTimer, SharedSink, keeper};
@@ -66,7 +66,7 @@ fn clipboard_keeper_leaves_an_unreadable_clipboard_alone() {
     cb.fail_reads("no clipboard here");
 
     let err = k.clear().unwrap_err();
-    assert_eq!(err.code(), Code::Internal);
+    assert_eq!(err.code(), ExitCode::Internal);
     assert_eq!(
         cb.writes(),
         ["secret"],
@@ -108,7 +108,7 @@ fn clipboard_copy_reports_a_write_failure() {
     let k = keeper(&cb, &FakeTimer::default());
 
     let err = k.copy("hunter2").unwrap_err();
-    assert_eq!(err.code(), Code::Internal);
+    assert_eq!(err.code(), ExitCode::Internal);
     let msg = err.to_string();
     assert!(msg.contains("copying to the clipboard"), "{msg}");
     assert!(
@@ -236,7 +236,7 @@ fn clipboard_timeout_below_the_minimum_is_rejected() {
     let env = with_github();
     set_clipboard_timeout(&env, "200ms");
     let r = env.cmd(&["show", "GitHub", "-c"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(
         env.clip.cb.writes().is_empty(),
         "{:?}",
@@ -263,7 +263,7 @@ fn clip_copies_and_clears_after_the_timeout() {
 fn clip_blocks_until_the_timeout_then_exits_zero() {
     let env = with_github();
     let r = env.cmd(&["show", "GitHub", "-c"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(env.clip.waits(), [DEFAULT_CLIPBOARD_TIMEOUT]);
     // Nothing was scheduled: the one-shot clears in the foreground.
     assert_eq!(env.clip.timer.scheduled(), 0);
@@ -284,7 +284,7 @@ fn clip_interrupt_during_the_wait_clears_and_exits_zero() {
     // The CLI half: whatever ends the wait, the clear runs and exit is 0.
     let env = with_github();
     let r = env.cmd(&["show", "GitHub", "-c"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(env.clip.cb.get(), "");
 }
 
@@ -322,7 +322,7 @@ fn clip_prints_no_plaintext_and_notices_on_stderr() {
 fn clip_and_qr_are_mutually_exclusive() {
     let env = with_github();
     let r = env.cmd(&["show", "GitHub", "-c", "-q"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("mutually exclusive"), "{}", r.stderr);
     assert!(
         env.clip.cb.writes().is_empty(),
@@ -376,7 +376,7 @@ fn generate_clip_and_qr_are_mutually_exclusive() {
         &["generate", "Both", "-c", "-q"],
         &gage::prompter::FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(env.entries("personal").is_empty());
     assert_eq!(
         gage::gitrepo::commit_count(&vault).unwrap(),
@@ -396,7 +396,7 @@ fn session_show_clip(env: &Env) -> crate::lifecycle_tests::CliResult {
         "status",
         "exit",
     ]));
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     r
 }
 
@@ -446,7 +446,7 @@ fn session_exit_clears_a_pending_copy() {
 fn session_end_of_input_clears_a_pending_copy() {
     let env = with_github();
     let r = env.session(&script(&["use personal", PASSPHRASE, "show GitHub -c"]));
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(env.clip.cb.get(), "");
 }
 
@@ -473,7 +473,7 @@ fn session_scheduled_clear_failure_reaches_stderr() {
         ]),
         &now,
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(env.clip.timer.scheduled(), 1);
     let reported = env.clip.reports.text();
     assert!(

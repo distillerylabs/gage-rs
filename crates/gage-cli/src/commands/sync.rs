@@ -7,8 +7,8 @@
 //! library (`remotesync`, `syncresolve`); this is flags, vault resolution
 //! and rendering.
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::exitcode::Code;
 use gage::gitrepo;
 use gage::remotesync::{ConflictKind, SyncError, SyncReport};
 use gage::syncresolve::entry_count;
@@ -43,7 +43,9 @@ pub fn pull(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
     with_resolved_vault(matches, io, keys, |io, vault| {
         let report = vault.pull()?;
         if report.diverged {
-            return Err(fail(Code::Conflict, format!("gage: {}", report.summary())));
+            return Err(
+                fail(ExitCode::Conflict, report.summary()).with_remedy(Some(report.remedy()))
+            );
         }
         out(io, &[sync_line(vault, &report)]);
         Ok(())

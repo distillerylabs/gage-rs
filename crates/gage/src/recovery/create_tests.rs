@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::entry::NewEntry;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::gitrepo;
 use crate::identity::Identity;
 use crate::prompter::FakePrompter;
@@ -97,7 +97,7 @@ fn create_orders_device_then_labelled_extras_then_generic_recipients() {
 fn create_rejects_duplicate_or_invalid_extra_recipients() {
     let (device_key, flag, recovery) = (key(), key(), key());
     type Mutate = Box<dyn Fn(&mut CreateSpec)>;
-    let cases: Vec<(&str, Mutate, Code)> = vec![
+    let cases: Vec<(&str, Mutate, ErrorKind)> = vec![
         (
             "extra equals the device's key",
             Box::new({
@@ -107,7 +107,7 @@ fn create_rejects_duplicate_or_invalid_extra_recipients() {
                     s.extra_recipients = vec![extra("recovery-a", &d), extra("recovery-b", &r)];
                 }
             }),
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
         (
             "extra equals a --recipient key",
@@ -118,7 +118,7 @@ fn create_rejects_duplicate_or_invalid_extra_recipients() {
                     s.extra_recipients = vec![extra("recovery-a", &f)];
                 }
             }),
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
         (
             "two extras share a key",
@@ -129,7 +129,7 @@ fn create_rejects_duplicate_or_invalid_extra_recipients() {
                     s.extra_recipients = vec![extra("recovery-a", &r), extra("recovery-b", &r)];
                 }
             }),
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
         (
             "two extras share a label",
@@ -140,7 +140,7 @@ fn create_rejects_duplicate_or_invalid_extra_recipients() {
                     s.extra_recipients = vec![extra("same", &key()), extra("same", &key())];
                 }
             }),
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
         (
             "extra label equals the device's",
@@ -151,7 +151,7 @@ fn create_rejects_duplicate_or_invalid_extra_recipients() {
                     s.extra_recipients = vec![extra(DEVICE, &key())];
                 }
             }),
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
         (
             "extra label equals a generated recipient-N label",
@@ -162,7 +162,7 @@ fn create_rejects_duplicate_or_invalid_extra_recipients() {
                     s.extra_recipients = vec![extra("recipient-2", &key())];
                 }
             }),
-            Code::Conflict,
+            ErrorKind::Conflict,
         ),
         (
             "extra key is not an age recipient",
@@ -173,7 +173,7 @@ fn create_rejects_duplicate_or_invalid_extra_recipients() {
                     s.extra_recipients = vec![extra("recovery-a", "nope")];
                 }
             }),
-            Code::Usage,
+            ErrorKind::Usage,
         ),
         (
             "extra label is not a valid device name",
@@ -184,7 +184,7 @@ fn create_rejects_duplicate_or_invalid_extra_recipients() {
                     s.extra_recipients = vec![extra("../x", &key())];
                 }
             }),
-            Code::Usage,
+            ErrorKind::Usage,
         ),
     ];
     for (name, mutate, code) in cases {
@@ -192,7 +192,7 @@ fn create_rejects_duplicate_or_invalid_extra_recipients() {
         let mut s = spec(&root, vec![]);
         mutate(&mut s);
         let err = Vault::create(&dirs_in(root.path()), &s).unwrap_err();
-        assert_eq!(err.code(), code, "{name}: {err}");
+        assert_eq!(err.kind(), code, "{name}: {err}");
         assert!(!s.path.exists(), "{name}: left a directory behind");
     }
 }
@@ -219,8 +219,8 @@ fn collisions_knowable_from_the_flags_fail_before_the_device_key_exists() {
     let mut s = spec(&root, vec![flag.clone()]);
     s.extra_recipients = vec![extra(RECOVERY_DEVICE_LABEL, &flag)];
     assert_eq!(
-        s.validate_without_device_key().unwrap_err().code(),
-        Code::Conflict
+        s.validate_without_device_key().unwrap_err().kind(),
+        ErrorKind::Conflict
     );
     s.extra_recipients = vec![extra(RECOVERY_DEVICE_LABEL, &other)];
     s.validate_without_device_key().unwrap();
@@ -287,8 +287,8 @@ fn a_recipient_n_label_collision_fails_before_the_device_key_exists() {
     let mut s = spec(&root, vec![key()]);
     s.extra_recipients = vec![extra("recipient-2", &key())];
     assert_eq!(
-        s.validate_without_device_key().unwrap_err().code(),
-        Code::Conflict
+        s.validate_without_device_key().unwrap_err().kind(),
+        ErrorKind::Conflict
     );
 }
 

@@ -4,8 +4,8 @@
 //! `$EDITOR` is a fake (the test binary re-executed, see
 //! `editor::fake`) set on the [`Env`].
 
+use crate::exitcode::ExitCode;
 use gage::entry::{self, Entry, Timestamp};
-use gage::exitcode::Code;
 use gage::prompter::FakePrompter;
 use uuid::Uuid;
 
@@ -71,7 +71,7 @@ fn two_aws_entries(env: &Env) {
 }
 
 fn assert_lists_both_aws_candidates(r: &CliResult) {
-    assert_eq!(r.code, Code::Ambiguous, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Ambiguous, "{}", r.stderr);
     for want in ["AWS root account", "AWS IAM backup admin"] {
         assert!(r.stderr.contains(want), "missing {want}:\n{}", r.stderr);
     }
@@ -106,13 +106,13 @@ fn show_cat_rm_resolve_identically_across_query_forms() {
         let query = form(&id.to_string());
 
         let show = env.cmd(&["show", &query]);
-        assert_eq!(show.code, Code::Success, "{name}: {}", show.stderr);
+        assert_eq!(show.code, ExitCode::Success, "{name}: {}", show.stderr);
         assert_eq!(show.stdout, "v1\n", "{name}");
 
         assert_eq!(env.cat_entry(&query).title, "AWS root account", "{name}");
 
         let rm = env.cmd(&["rm", &query]);
-        assert_eq!(rm.code, Code::Success, "{name}: {}", rm.stderr);
+        assert_eq!(rm.code, ExitCode::Success, "{name}: {}", rm.stderr);
         assert!(env.entries("personal").is_empty(), "{name}: not removed");
     }
 }
@@ -169,7 +169,7 @@ fn ambiguous_rm_and_rename_leave_every_candidate_untouched() {
         let before = env.entries("personal");
         let commits = env.commits("personal");
 
-        assert_eq!(env.cmd(args).code, Code::Ambiguous, "{args:?}");
+        assert_eq!(env.cmd(args).code, ExitCode::Ambiguous, "{args:?}");
 
         let mut after = env.entries("personal");
         let mut before = before.clone();
@@ -191,7 +191,7 @@ fn ambiguous_uuid_substring_fails_at_the_cli_with_candidates() {
 
     let r = env.cmd(&["cat", "abcdef00"]);
 
-    assert_eq!(r.code, Code::Ambiguous, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Ambiguous, "{}", r.stderr);
     assert!(r.stderr.contains("Zebra One") && r.stderr.contains("Zebra Two"));
     assert_eq!(r.stdout, "");
 }
@@ -204,8 +204,8 @@ fn unknown_query_is_distinguishable_from_ambiguous_at_the_cli() {
     let not_found = env.cmd(&["cat", "no such thing at all"]);
     let ambiguous = env.cmd(&["cat", "aws"]);
 
-    assert_eq!(not_found.code, Code::NotFound);
-    assert_eq!(ambiguous.code, Code::Ambiguous);
+    assert_eq!(not_found.code, ExitCode::NotFound);
+    assert_eq!(ambiguous.code, ExitCode::Ambiguous);
     assert!(
         !not_found.stderr.contains("AWS root account"),
         "a not-found query listed candidates: {}",
@@ -232,7 +232,7 @@ fn show_multiline_value_has_no_extra_trailing_blank_line() {
         &unlocks(),
         b"line1\nline2\n",
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(
         env.cmd_ok(&["show", "Recovery codes"]).stdout,
         "line1\nline2\n"
@@ -254,7 +254,7 @@ fn cat_prints_full_yaml_distinct_from_show() {
 fn show_unknown_query_fails_not_found() {
     let env = env_with_vault();
     let r = env.cmd(&["show", "no such thing"]);
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     assert_eq!(r.stdout, "");
 }
 
@@ -290,7 +290,7 @@ fn show_unknown_field_fails_clearly() {
     let env = env_with_vault();
     env.insert_with_fields("Proton", "the-password", &[("username", "me@example.com")]);
     let r = env.cmd(&["show", "Proton", "--field", "passwrod"]);
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     assert!(r.stderr.contains("passwrod") && r.stderr.contains("username"));
     assert!(!r.stderr.contains("the-password") && !r.stderr.contains("me@example.com"));
     assert_eq!(r.stdout, "");
@@ -301,7 +301,7 @@ fn show_field_on_entry_with_no_fields() {
     let env = env_with_vault();
     env.insert_ok("hunter2", &["GitHub"]);
     let r = env.cmd(&["show", "GitHub", "--field", "username"]);
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     assert!(r.stderr.contains("no fields"), "{}", r.stderr);
     assert_eq!(r.stdout, "");
 }
@@ -396,7 +396,7 @@ fn edit_unparseable_yaml_aborts_with_no_commit_and_original_unchanged() {
     let r = env.cmd(&["edit", "ProtonMail"]);
     fake.assert_scratch_gone();
 
-    assert_ne!(r.code, Code::Success);
+    assert_ne!(r.code, ExitCode::Success);
     assert!(r.stderr.starts_with("gage: "), "{}", r.stderr);
     assert_eq!(r.stdout, "");
     assert_eq!(env.commits("personal"), commits);
@@ -420,7 +420,7 @@ fn edit_without_an_editor_fails_and_changes_nothing() {
     env.insert_ok("v", &["ProtonMail"]);
     let commits = env.commits("personal");
     let r = env.cmd(&["edit", "ProtonMail"]);
-    assert_eq!(r.code, Code::Internal, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Internal, "{}", r.stderr);
     assert!(r.stderr.contains("$EDITOR is not set"), "{}", r.stderr);
     assert_eq!(env.commits("personal"), commits);
 }
@@ -445,7 +445,7 @@ fn rename_changes_only_title_through_the_cli() {
     assert_eq!(got.title, "Proton Mail");
     assert_eq!(got.value, "hunter2");
     assert_eq!(got.description, "personal email");
-    assert_eq!(env.cmd(&["cat", "ProtonMail"]).code, Code::NotFound);
+    assert_eq!(env.cmd(&["cat", "ProtonMail"]).code, ExitCode::NotFound);
 }
 
 #[test]
@@ -455,7 +455,7 @@ fn rename_to_existing_title_rejected_unless_forced_through_the_cli() {
     env.insert_ok("b", &["Entry B"]);
 
     let rejected = env.cmd(&["rename", "Entry B", "Entry A"]);
-    assert_eq!(rejected.code, Code::Conflict, "{}", rejected.stderr);
+    assert_eq!(rejected.code, ExitCode::Conflict, "{}", rejected.stderr);
 
     env.cmd_ok(&["rename", "Entry B", "Entry A", "--force"]);
     let ls = env.cmd_ok(&["ls"]);
@@ -510,7 +510,7 @@ fn generate_produces_exactly_one_commit_and_sets_timestamps() {
 fn generate_duplicate_title_rejected_unless_forced() {
     let env = env_with_vault();
     env.cmd_ok(&["generate", "Site"]);
-    assert_eq!(env.cmd(&["generate", "Site"]).code, Code::Conflict);
+    assert_eq!(env.cmd(&["generate", "Site"]).code, ExitCode::Conflict);
     env.cmd_ok(&["generate", "Site", "--force"]);
     assert_eq!(env.entries("personal").len(), 2);
 }
@@ -536,7 +536,7 @@ fn generate_rejects_an_unreasonably_small_length() {
     for length in ["4", "-5", "lots"] {
         let prompter = FakePrompter::new();
         let r = env.run_with(&["generate", "Weak", "-l", length], &prompter);
-        assert_eq!(r.code, Code::Usage, "{length}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{length}: {}", r.stderr);
         assert!(prompter.unlock_requests().is_empty(), "{length}");
     }
     let r = env.run_with(&["generate", "Weak", "-l", "4"], &FakePrompter::new());
@@ -619,7 +619,7 @@ fn insert_edit_aborts_with_no_entry_written_and_no_commit_if_unchanged() {
     let r = env.cmd(&["insert", "ProtonMail", "-e"]);
 
     fake.assert_scratch_gone();
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("nothing to save"), "{}", r.stderr);
     assert_eq!(env.commits("personal"), commits);
     assert!(env.entries("personal").is_empty());
@@ -637,7 +637,7 @@ fn insert_edit_aborts_if_value_and_fields_both_still_empty() {
     let r = env.cmd(&["insert", "ProtonMail", "-e"]);
     fake.assert_scratch_gone();
 
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert_eq!(env.commits("personal"), commits);
     assert!(env.entries("personal").is_empty());
 }
@@ -651,8 +651,8 @@ fn insert_edit_changed_title_used_for_saved_entry_and_duplicate_check() {
 
     let dup = env.cmd(&["insert", "OriginalTitle", "-e"]);
     fake.assert_scratch_gone();
-    assert_eq!(dup.code, Code::Conflict, "{}", dup.stderr);
-    assert_eq!(env.cmd(&["cat", "OriginalTitle"]).code, Code::NotFound);
+    assert_eq!(dup.code, ExitCode::Conflict, "{}", dup.stderr);
+    assert_eq!(env.cmd(&["cat", "OriginalTitle"]).code, ExitCode::NotFound);
 
     env.cmd_ok(&["insert", "OriginalTitle", "-e", "--force"]);
     let ls = env.cmd_ok(&["ls"]);
@@ -674,7 +674,7 @@ fn insert_edit_rejected_alongside_multiline_value_stdin_or_field_before_any_io()
     ] {
         let prompter = FakePrompter::new();
         let r = env.run_reader(args, &prompter, &mut ExplodingReader);
-        assert_eq!(r.code, Code::Usage, "{args:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{args:?}: {}", r.stderr);
         assert!(r.stderr.contains("cannot be used with"), "{}", r.stderr);
         assert!(prompter.unlock_requests().is_empty(), "{args:?}");
     }
@@ -720,7 +720,7 @@ fn a_registration_without_an_id_fails_show_before_any_path_is_built() {
 
     let r = env.run_with(&["show", "x"], &prompter);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(
         r.stderr.contains("points at a different vault"),
         "{}",
@@ -769,7 +769,7 @@ fn no_m5_command_doubles_gages_own_prefix() {
         let r = env.run_with(args, &with_value("v"));
         assert_ne!(
             r.code,
-            Code::Success,
+            ExitCode::Success,
             "{name}: this table only covers failures"
         );
         for line in r.stdout.lines().chain(r.stderr.lines()) {

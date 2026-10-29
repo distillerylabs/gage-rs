@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use super::*;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::identity_add::IdentityAddError;
 use crate::prompter::FakePrompter;
 use crate::recipient::{RecipientError, RecipientWrite};
@@ -38,12 +38,12 @@ fn the_recovery_label_is_reserved_for_the_recovery_key() {
     let spec = spec_for(&root, RECOVERY_DEVICE_LABEL);
     let err = Vault::create(&dirs_in(root.path()), &spec).unwrap_err();
     assert!(matches!(err, CreateError::ReservedDeviceLabel(_)), "{err}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     assert!(!spec.path.exists());
     // Also from the check `init` runs before it asks for a passphrase.
     assert_eq!(
-        spec.validate_without_device_key().unwrap_err().code(),
-        Code::Usage
+        spec.validate_without_device_key().unwrap_err().kind(),
+        ErrorKind::Usage
     );
 
     let f = Fixture::new();
@@ -58,7 +58,7 @@ fn the_recovery_label_is_reserved_for_the_recovery_key() {
         matches!(err, IdentityAddError::ReservedDeviceLabel(_)),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
 
     // add_recipient refuses it.
     let err = f
@@ -74,7 +74,7 @@ fn the_recovery_label_is_reserved_for_the_recovery_key() {
         matches!(err, RecipientError::ReservedDeviceLabel(_)),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     assert_eq!(f.commits(), commits);
     assert!(f.is_clean());
 
@@ -144,6 +144,6 @@ fn enroll_refuses_the_recovery_label() {
         ),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     assert_eq!(f.commits(), commits);
 }

@@ -9,7 +9,7 @@ use uuid::Uuid;
 use super::EnrollmentError;
 use super::fixtures_tests::*;
 use super::name::pending_file_name;
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::recipient_tests::Fixture;
 
 /// Files a good payload for `vault` with the given sealed times, under a
@@ -42,7 +42,7 @@ fn expiry_comes_from_the_seal_not_the_filename() {
     assert_enrollment_error!(
         open_all(&f.vault, &code),
         EnrollmentError::Expired { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
 }
 
@@ -58,7 +58,7 @@ fn filename_claiming_expiry_on_a_live_seal_grants_nothing() {
     assert_enrollment_error!(
         open_all(&f.vault, &code),
         EnrollmentError::CodeWrong,
-        Code::LockedOrAuth
+        ErrorKind::LockedOrAuth
     );
     assert_eq!(
         f.vault.prune_pending_enrollments().unwrap(),
@@ -104,7 +104,7 @@ fn sealed_expiry_beyond_the_ceiling_is_expired() {
     assert_enrollment_error!(
         open_all(&f.vault, &code),
         EnrollmentError::Expired { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
 }
 
@@ -136,7 +136,7 @@ fn clock_skew_is_its_own_error() {
     assert_enrollment_error!(
         open_all(&f.vault, &code),
         EnrollmentError::ClockSkew { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
 
     let f = vault();
@@ -144,6 +144,6 @@ fn clock_skew_is_its_own_error() {
     assert_enrollment_error!(
         open_all(&f.vault, &code),
         EnrollmentError::Expired { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
 }

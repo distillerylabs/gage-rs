@@ -26,7 +26,7 @@ pub use kind::{UnknownVaultType, UnlockMethod, VaultType};
 
 use crate::atomicfile;
 use crate::devicename;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::serde_opt::empty_as_none;
 
 /// The only `format_version` this build understands. Bumped when the
@@ -138,14 +138,14 @@ impl fmt::Display for VersionSkew {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("vaultconfig: {path} does not exist")]
+    #[error("{path} does not exist")]
     NotFound { path: PathBuf },
-    #[error("vaultconfig: reading {path}: {source}")]
+    #[error("reading {path}: {source}")]
     Read {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("vaultconfig: parsing {path}: {source}")]
+    #[error("parsing {path}: {source}")]
     Parse {
         path: PathBuf,
         source: toml::de::Error,
@@ -153,7 +153,7 @@ pub enum Error {
     /// An unrecognized `format_version`: refused outright, never parsed
     /// best-effort ("format_version is enforced, not decorative").
     #[error(
-        "vaultconfig: {path} has format_version {found}, this gage understands {CURRENT_FORMAT_VERSION} — {skew}"
+        "{path} has format_version {found}, this gage understands {CURRENT_FORMAT_VERSION} — {skew}"
     )]
     UnsupportedFormatVersion {
         path: PathBuf,
@@ -161,33 +161,33 @@ pub enum Error {
         skew: VersionSkew,
     },
     /// `[vault].id` is absent or not a canonical UUID (see [`VaultId`]).
-    #[error("vaultconfig: {path}: vault id {id:?} is not a valid id")]
+    #[error("{path}: vault id {id:?} is not a valid id")]
     InvalidVaultId { path: PathBuf, id: String },
     /// A recipient's device name fails the filesystem-safe allowlist.
-    #[error("vaultconfig: {path}: recipient device name {device:?} is invalid")]
+    #[error("{path}: recipient device name {device:?} is invalid")]
     InvalidDeviceName { path: PathBuf, device: String },
-    #[error("vaultconfig: encoding {path}: {source}")]
+    #[error("encoding {path}: {source}")]
     Encode {
         path: PathBuf,
         source: toml::ser::Error,
     },
-    #[error("vaultconfig: writing {path}: {source}")]
+    #[error("writing {path}: {source}")]
     Write {
         path: PathBuf,
         source: atomicfile::Error,
     },
 }
 
-impl HasCode for Error {
+impl HasKind for Error {
     // The three refusals are anticipated states a human resolves
     // (upgrade gage, re-create or repair the vault), not gage bugs, so a
     // script can tell them from Internal.
-    fn code(&self) -> Code {
+    fn kind(&self) -> ErrorKind {
         match self {
             Error::UnsupportedFormatVersion { .. }
             | Error::InvalidVaultId { .. }
-            | Error::InvalidDeviceName { .. } => Code::Conflict,
-            _ => Code::Internal,
+            | Error::InvalidDeviceName { .. } => ErrorKind::Conflict,
+            _ => ErrorKind::Internal,
         }
     }
 }
@@ -373,7 +373,7 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("upgrade gage"), "{msg}");
         assert!(msg.contains("99"), "{msg}");
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
     }
 
     // Treated as older than this
@@ -446,7 +446,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = read(&dir.path().join("nope.toml")).unwrap_err();
         assert!(matches!(err, Error::NotFound { .. }), "{err:?}");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.kind(), ErrorKind::Internal);
     }
 
     #[test]
@@ -456,7 +456,7 @@ mod tests {
         std::fs::write(&path, "[vault\nname = ").unwrap();
         let err = read(&path).unwrap_err();
         assert!(matches!(err, Error::Parse { .. }), "{err:?}");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.kind(), ErrorKind::Internal);
     }
 
     // The id becomes a path
@@ -483,7 +483,7 @@ mod tests {
                 Error::InvalidVaultId { id: got, .. } => assert_eq!(got, id, "{case}"),
                 other => panic!("{case}: {other:?}"),
             }
-            assert_eq!(err.code(), Code::Conflict, "{case}");
+            assert_eq!(err.kind(), ErrorKind::Conflict, "{case}");
         }
     }
 
@@ -569,7 +569,7 @@ mod tests {
                 Error::InvalidDeviceName { device, .. } => assert_eq!(device, bad),
                 other => panic!("{bad:?}: {other:?}"),
             }
-            assert_eq!(err.code(), Code::Conflict, "{bad:?}");
+            assert_eq!(err.kind(), ErrorKind::Conflict, "{bad:?}");
         }
     }
 
@@ -627,7 +627,7 @@ mod tests {
 
         assert!(matches!(err, Error::Write { .. }), "{err:?}");
         let msg = err.to_string();
-        assert!(msg.starts_with("vaultconfig: writing"), "{msg}");
+        assert!(msg.starts_with("writing"), "{msg}");
     }
 
     #[cfg(unix)]

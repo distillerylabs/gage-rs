@@ -5,9 +5,9 @@
 //! library (`Vault::log`, `Vault::history`); this is flags, the deleted-
 //! entry fallback and rendering.
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
 use gage::entry::{Entry, ResolveError};
-use gage::exitcode::Code;
 use gage::history::{LogEntry, Revision};
 use gage::identity::Identity;
 use gage::vault::Vault;
@@ -177,7 +177,7 @@ pub fn history(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(),
     // asks for (there is no prompt), so it is checked first.
     if !matches.get_flag("decrypt") {
         return Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             "history prints old secret values and needs --decrypt to say so: `gage history --decrypt <query>`; for timestamps only, use `gage log`",
         ));
     }

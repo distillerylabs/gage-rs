@@ -4,7 +4,7 @@
 //! pastes and answers the re-type from the screen, the hygiene walk) is
 //! `init_recoverykey_tests`'.
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::prompter::{FakePrompter, Purpose};
 use gage::recovery::RECOVERY_DEVICE_LABEL;
 
@@ -19,12 +19,17 @@ fn assert_verifies(env: &Env, key: &str, want: bool) {
     let p = FakePrompter::new().with_value(key);
     let r = env.run_with(&["recovery", "verify"], &p);
     if want {
-        assert_eq!(r.code, Code::Success, "{key:.20}... is gone: {}", r.stderr);
+        assert_eq!(
+            r.code,
+            ExitCode::Success,
+            "{key:.20}... is gone: {}",
+            r.stderr
+        );
         assert!(r.stdout.contains("will accept it"), "{}", r.stdout);
     } else {
         assert_eq!(
             r.code,
-            Code::LockedOrAuth,
+            ExitCode::LockedOrAuth,
             "{key:.20}... still verifies: {}",
             r.stdout
         );
@@ -37,7 +42,7 @@ fn insert(env: &Env, title: &str, value: &str) {
         &FakePrompter::new().with_passphrase(PASSPHRASE),
         format!("{value}\n").as_bytes(),
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 }
 
 /// `recovery rotate <args>` at a terminal, confirming from the screen
@@ -62,7 +67,7 @@ fn recovery_rotate_replaces_the_key() {
     let commits = gage::gitrepo::commit_count(&path).unwrap();
 
     let (r, shown, p) = run_rotate(&env, &[]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let shown = shown.expect("no key shown");
     assert_ne!(shown, old);
     let requests = p.inner.unlock_requests();
@@ -73,7 +78,7 @@ fn recovery_rotate_replaces_the_key() {
     assert_verifies(&env, &shown, true);
     assert_verifies(&env, &old, false);
     let show = env.run(&["show", "api-token"]);
-    assert_eq!(show.code, Code::Success, "{}", show.stderr);
+    assert_eq!(show.code, ExitCode::Success, "{}", show.stderr);
     assert_eq!(show.stdout.trim(), "s3cr3t");
     let recipients = env.vault_config(VAULT).recipients;
     let labels: Vec<&str> = recipients.iter().map(|r| r.device.as_str()).collect();
@@ -101,7 +106,7 @@ fn recovery_rotate_adds_one_to_a_vault_without() {
     insert(&env, "api-token", "s3cr3t");
 
     let (r, shown, _) = run_rotate(&env, &[]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_verifies(&env, &shown.unwrap(), true);
     assert_eq!(env.vault_config(VAULT).recipients.len(), 2);
     assert!(r.stdout.contains("it had none"), "{}", r.stdout);
@@ -118,7 +123,7 @@ fn recovery_rotate_without_a_terminal_refuses_before_any_prompt() {
     init_vault_with_recovery_key_file(&env, VAULT);
     let p = FakePrompter::new();
     let r = env.run_with(&["recovery", "rotate"], &p);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("--recovery-key-out"), "{}", r.stderr);
     assert!(!r.stderr.contains("--no-"), "{}", r.stderr);
     assert!(p.unlock_requests().is_empty());
@@ -143,7 +148,7 @@ fn recovery_rotate_checks_the_key_destination_before_the_unlock() {
         ],
         &p,
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("vault"), "{}", r.stderr);
     assert!(p.unlock_requests().is_empty());
     assert!(!inside.exists());
@@ -162,7 +167,7 @@ fn recovery_rotate_key_out_writes_a_private_file() {
         "--recovery-key-out",
         out.to_str().unwrap(),
     ]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     let written = std::fs::read_to_string(&out).unwrap();
     let written = written.trim();
@@ -190,7 +195,7 @@ fn recovery_rotate_keeps_no_copy_of_either_key() {
     insert(&env, "api-token", "s3cr3t");
 
     let (r, shown, _) = run_rotate(&env, &[]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let shown = shown.unwrap();
     let path = env.entry(VAULT).path;
     assert_never_stored(&env, &path, &old, "retired recovery key");
@@ -221,7 +226,7 @@ fn recovery_rotate_still_publishes_when_the_confirmation_fails() {
 
     let p = ScreenPrompter::new().answering("NOTTHEKEY");
     let r = p.run(&env, &["recovery", "rotate"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     let shown = secret_keys(&r.stderr);
     assert_eq!(shown.len(), 1, "{}", r.stderr);
     let published = gage::gittest::Device::clone(remote.path()).read(".age-recipients");
@@ -271,7 +276,7 @@ fn recovery_verify_accepts_the_vaults_recovery_key() {
     let env = Env::new();
     let secret = init_vault_with_recovery_key_file(&env, VAULT);
     let (r, _) = run_verify(&env, &secret);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains(VAULT), "{}", r.stdout);
 }
 
@@ -280,7 +285,7 @@ fn recovery_verify_tolerates_pasted_whitespace() {
     let env = Env::new();
     let secret = init_vault_with_recovery_key_file(&env, VAULT);
     let (r, _) = run_verify(&env, &format!("  {secret}\n"));
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 }
 
 // The check a lost identity file
@@ -295,7 +300,7 @@ fn recovery_verify_needs_no_unlock() {
     let _ = std::fs::remove_file(&lock);
 
     let (r, p) = run_verify(&env, &secret);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(p.unlock_requests().is_empty(), "{:?}", p.unlock_requests());
     assert_eq!(p.value_prompts().len(), 1, "{:?}", p.value_prompts());
     assert!(!lock.exists(), "verify took the vault lock");
@@ -308,7 +313,7 @@ fn recovery_verify_rejects_a_key_that_is_not_a_recipient() {
     let env = Env::new();
     init_vault_with_recovery_key_file(&env, VAULT);
     let (r, _) = run_verify(&env, &stranger());
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert_eq!(r.stdout, "");
 }
 
@@ -321,7 +326,7 @@ fn recovery_verify_rejects_a_malformed_key() {
     let public = gage::recovery::new_recovery_key().unwrap().pubkey;
     for bad in ["", "not a key", &public] {
         let (r, _) = run_verify(&env, bad);
-        assert_eq!(r.code, Code::Usage, "{bad:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{bad:?}: {}", r.stderr);
     }
 }
 
@@ -375,7 +380,7 @@ fn recovery_verify_distinguishes_decrypting_from_enrolling() {
 
     // The recovery key says both.
     let (r, _) = run_verify(&env, &pasted);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains(RECOVERY_DEVICE_LABEL), "{}", r.stdout);
     assert!(
         r.stdout.contains("`gage recovery enroll` will accept it"),
@@ -386,7 +391,7 @@ fn recovery_verify_distinguishes_decrypting_from_enrolling() {
     // Another recipient's key really does decrypt, so exit 0, but it names
     // its own label and says enroll won't take it.
     let (r, _) = run_verify(&env, &spare.secret);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("\"paper-backup\""), "{}", r.stdout);
     assert!(
         r.stdout
@@ -451,7 +456,7 @@ fn recovery_enroll_without_a_terminal_refuses_before_anything() {
 
     let p = FakePrompter::new();
     let r = env.run_with(&["recovery", "enroll", "--device", "laptop-2"], &p);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("--recovery-key-out"), "{}", r.stderr);
     assert!(r.stderr.contains("--no-new-recovery-key"), "{}", r.stderr);
     assert!(!r.stderr.contains("--no-recovery-key"), "{}", r.stderr);
@@ -476,7 +481,7 @@ fn recovery_enroll_refuses_a_colliding_name_before_the_paste() {
 
     // laptop-1 is still a recipient, and --replaces doesn't name it.
     let (r, _, p) = run_enroll(&env, &pasted, &["--device", "laptop-1"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(p.asked.borrow().is_empty(), "{:?}", p.asked.borrow());
     assert!(p.inner.unlock_requests().is_empty());
     assert!(r.stderr.contains("--replaces laptop-1"), "{}", r.stderr);
@@ -525,7 +530,7 @@ fn recovery_enroll_local_identity_error_is_matchable() {
             Tty::BOTH,
         )
         .unwrap_err();
-    assert_eq!(err.code(), Code::Usage, "{err}");
+    assert_eq!(err.code(), ExitCode::Usage, "{err}");
     let typed = err
         .downcast_ref::<LocalIdentityExists>()
         .unwrap_or_else(|| panic!("not LocalIdentityExists: {err}"));
@@ -541,7 +546,7 @@ fn recovery_enroll_local_identity_error_is_matchable() {
 
     // And through the real renderer, the same refusal and code.
     let (r, _, _) = run_enroll(&env, &pasted, &["--device", "spare-1"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(
         r.stderr.contains("already holds an identity"),
         "{}",
@@ -563,7 +568,7 @@ fn recovery_enroll_refuses_replacing_the_recovery_key_before_the_paste() {
         &pasted,
         &["--device", "laptop-2", "--replaces", RECOVERY_DEVICE_LABEL],
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(
         r.stderr.contains("whether or not it is named"),
         "{}",
@@ -583,7 +588,7 @@ fn recovery_enroll_checks_the_key_before_the_new_passphrase() {
     lose_the_identity_file(&env);
 
     let (r, _, p) = run_enroll(&env, &stranger(), &["--device", "laptop-2"]);
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert_eq!(p.asked.borrow().len(), 1, "{:?}", p.asked.borrow());
     let requests = p.inner.unlock_requests();
     assert!(
@@ -622,7 +627,7 @@ fn recovery_verify_distinguishes_decrypting_from_enrolling_and_enroll_agrees() {
     lose_the_identity_file(&env);
 
     let (r, _, p) = run_enroll(&env, &spare.secret, &["--device", "laptop-2"]);
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(r.stderr.contains("\"paper-backup\""), "{}", r.stderr);
     assert!(p.inner.unlock_requests().is_empty());
     assert!(identity_files(&env).is_empty());
@@ -669,14 +674,14 @@ fn recovery_enroll_gets_a_working_device_back() {
     lose_the_identity_file(&env);
     assert_ne!(
         show(&env, "api-token").code,
-        Code::Success,
+        ExitCode::Success,
         "proves nothing"
     );
     let path = env.entry(VAULT).path;
     let commits = gage::gitrepo::commit_count(&path).unwrap();
 
     let (r, shown, p) = run_enroll(&env, &pasted, &["--device", "laptop-2"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     // The paste, then the new passphrase and nothing else: never an
     // unlock of a file that isn't there.
@@ -688,7 +693,7 @@ fn recovery_enroll_gets_a_working_device_back() {
 
     // The vault reads again, through the ordinary unlock.
     let read = show(&env, "api-token");
-    assert_eq!(read.code, Code::Success, "{}", read.stderr);
+    assert_eq!(read.code, ExitCode::Success, "{}", read.stderr);
     assert_eq!(read.stdout.trim(), "s3cr3t");
     assert_eq!(env.entry(VAULT).device, "laptop-2");
 
@@ -739,9 +744,9 @@ fn recovery_enroll_works_on_a_fresh_clone() {
     let env = Env::new();
     env.ok(&["clone", remote.path().to_str().unwrap(), "--name", VAULT]);
     let (r, _, _) = run_enroll(&env, &pasted, &["--device", "laptop-2"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let read = show(&env, "api-token");
-    assert_eq!(read.code, Code::Success, "{}", read.stderr);
+    assert_eq!(read.code, ExitCode::Success, "{}", read.stderr);
     assert_eq!(read.stdout.trim(), "s3cr3t");
     // Published, so the owner's machine sees the new device too.
     let published = gage::gittest::Device::clone(remote.path()).read(".age-recipients");
@@ -768,7 +773,7 @@ fn recovery_enroll_rebuilds_a_device_whose_passphrase_is_forgotten() {
         &pasted,
         &["--device", "laptop-1", "--replaces", "laptop-1"],
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     for req in p.inner.unlock_requests() {
         assert_eq!(req.purpose, Purpose::Create, "asked to open the old file");
     }
@@ -787,7 +792,7 @@ fn recovery_enroll_rebuilds_a_device_whose_passphrase_is_forgotten() {
         env.entry(VAULT).pubkey.as_ref()
     );
     let read = show(&env, "api-token");
-    assert_eq!(read.code, Code::Success, "{}", read.stderr);
+    assert_eq!(read.code, ExitCode::Success, "{}", read.stderr);
 }
 
 // The commonest rebuild, a new machine under the
@@ -806,11 +811,11 @@ fn recovery_enroll_rebuilds_under_the_same_name_after_losing_the_file() {
         &pasted,
         &["--device", "laptop-1", "--replaces", "laptop-1"],
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(labels(&env), ["laptop-1", RECOVERY_DEVICE_LABEL]);
     assert_ne!(env.vault_config(VAULT).recipients[0].pubkey, old_pubkey);
     let read = show(&env, "api-token");
-    assert_eq!(read.code, Code::Success, "{}", read.stderr);
+    assert_eq!(read.code, ExitCode::Success, "{}", read.stderr);
 }
 
 // A new machine
@@ -828,7 +833,7 @@ fn recovery_enroll_replaces_a_different_lost_device() {
         &pasted,
         &["--device", "laptop-2", "--replaces", "laptop-1"],
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(labels(&env), ["laptop-2", RECOVERY_DEVICE_LABEL]);
     assert_eq!(gage::gitrepo::commit_count(&path).unwrap(), commits + 1);
     assert!(r.stdout.contains("removed \"laptop-1\""), "{}", r.stdout);
@@ -851,7 +856,7 @@ fn recovery_enroll_rolls_back_the_identity_when_the_swap_fails() {
         &pasted,
         &["--device", "laptop-2", "--replaces", "desktop-9"],
     );
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     // It got as far as the identity, so the rollback really ran.
     assert_eq!(p.inner.unlock_requests().len(), 1);
     assert!(
@@ -910,7 +915,7 @@ fn recovery_enroll_restores_the_identity_it_displaced_when_aborted() {
         ],
         &p,
     );
-    assert_ne!(r.code, Code::Success, "{}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "{}", r.stdout);
     let requests = p.unlock_requests();
     assert_eq!(requests.len(), 1, "{requests:?}");
     assert_eq!(
@@ -931,7 +936,7 @@ fn recovery_enroll_restores_the_identity_it_displaced_when_aborted() {
         assert_eq!(mode(&dir), 0o700);
     }
     let read = show(&env, "api-token");
-    assert_eq!(read.code, Code::Success, "{}", read.stderr);
+    assert_eq!(read.code, ExitCode::Success, "{}", read.stderr);
     assert_eq!(env.vault_config(VAULT).recipients, before);
     assert!(
         !out.exists(),
@@ -975,7 +980,7 @@ fn recovery_enroll_restores_the_displaced_identity_when_the_swap_fails() {
         ],
         &p,
     );
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains(".age-recipients"), "{}", r.stderr);
     // Step 4 ran: a new identity was made in the old one's place.
     let requests = p.unlock_requests();
@@ -991,7 +996,7 @@ fn recovery_enroll_restores_the_displaced_identity_when_the_swap_fails() {
     );
     // The old passphrase, not the one typed for the new identity.
     let read = show(&env, "api-token");
-    assert_eq!(read.code, Code::Success, "{}", read.stderr);
+    assert_eq!(read.code, ExitCode::Success, "{}", read.stderr);
 }
 
 // No key made or
@@ -1015,7 +1020,7 @@ fn recovery_enroll_no_new_recovery_key_leaves_none() {
         ],
         &p,
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(labels(&env), ["laptop-1", "laptop-2"]);
     assert!(secret_keys(&format!("{}{}", r.stdout, r.stderr)).is_empty());
     assert!(r.stderr.contains("now has no recovery key"), "{}", r.stderr);
@@ -1080,7 +1085,7 @@ fn recovery_enroll_shows_the_new_key_even_if_registration_fails() {
         &pasted,
         &["--recovery-key-out", out.to_str().unwrap()],
     );
-    assert_ne!(r.code, Code::Success, "{}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "{}", r.stdout);
     // The swap happened, so the key is real, and it reached the user.
     let written = std::fs::read_to_string(&out).expect("the new key was never delivered");
     assert_verifies(&env, written.trim(), true);
@@ -1145,7 +1150,7 @@ fn recovery_enroll_reports_both_when_delivery_and_registration_fail() {
             out.to_str().unwrap(),
         ],
     );
-    assert_eq!(r.code, Code::Internal, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Internal, "{}", r.stderr);
     assert!(r.stderr.contains("that key is lost"), "{}", r.stderr);
     assert!(
         r.stderr.contains("`gage identity add --device laptop-2`"),
@@ -1182,7 +1187,7 @@ fn recovery_enroll_still_publishes_when_the_confirmation_fails() {
         .pasting(&pasted)
         .answering("NOTTHEKEY");
     let r = p.run(&env, &["recovery", "enroll", "--device", "laptop-2"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     let shown = secret_keys(&r.stderr);
     assert_eq!(shown.len(), 1, "{}", r.stderr);
     let published = gage::gittest::Device::clone(remote.path()).read(".age-recipients");
@@ -1204,7 +1209,7 @@ fn recovery_enroll_key_out_writes_a_private_file() {
         &pasted,
         &["--recovery-key-out", out.to_str().unwrap()],
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let written = std::fs::read_to_string(&out).unwrap();
     let written = written.trim();
     assert_eq!(secret_keys(written).len(), 1, "{written:?}");
@@ -1233,7 +1238,7 @@ fn recovery_enroll_keeps_no_copy_of_either_key() {
     lose_the_identity_file(&env);
 
     let (r, shown, _) = run_enroll(&env, &pasted, &["--device", "laptop-2"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let shown = shown.expect("no replacement key was shown");
     let path = env.entry(VAULT).path;
     assert_never_stored(&env, &path, &pasted, "pasted recovery key");
@@ -1252,7 +1257,7 @@ fn no_recovery_key_warning_names_a_real_command() {
     let pasted = init_vault_with_recovery_key_file(&env, VAULT);
     lose_the_identity_file(&env);
     let (r, _) = run_enroll_piped(&env, &pasted, &["--no-new-recovery-key"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     let warning: String = r
         .stderr
@@ -1287,7 +1292,7 @@ fn no_command_lets_a_device_take_the_recovery_label() {
         ],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Usage, "init: {}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "init: {}", r.stderr);
     assert!(!dir.join(".gage").exists());
 
     // identity add.
@@ -1297,7 +1302,7 @@ fn no_command_lets_a_device_take_the_recovery_label() {
         &["identity", "add", "--device", RECOVERY_DEVICE_LABEL],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Usage, "identity add: {}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "identity add: {}", r.stderr);
 
     // recipient add.
     let env = Env::new();
@@ -1310,7 +1315,7 @@ fn no_command_lets_a_device_take_the_recovery_label() {
         "--device",
         RECOVERY_DEVICE_LABEL,
     ]);
-    assert_ne!(r.code, Code::Success, "recipient add: {}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "recipient add: {}", r.stdout);
     assert_eq!(env.vault_config(VAULT).recipients.len(), 2);
 
     // recovery enroll, with the reservation as the reason given: the name
@@ -1321,7 +1326,7 @@ fn no_command_lets_a_device_take_the_recovery_label() {
     let pasted = init_vault_with_recovery_key_file(&env, VAULT);
     lose_the_identity_file(&env);
     let (r, _, p) = run_enroll(&env, &pasted, &["--device", RECOVERY_DEVICE_LABEL]);
-    assert_eq!(r.code, Code::Usage, "recovery enroll: {}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "recovery enroll: {}", r.stderr);
     assert!(r.stderr.contains("reserved"), "{}", r.stderr);
     assert!(!r.stderr.contains("--replaces"), "{}", r.stderr);
     assert!(p.asked.borrow().is_empty());
@@ -1371,7 +1376,7 @@ fn every_command_init_and_rotate_messages_name_is_registered() {
     let r = ScreenPrompter::new()
         .answering("NOTTHEKEY")
         .run(&env, &["init", VAULT, "--device", "laptop-1"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     said.push(r.stderr);
     said.push(
         env.run_with(&["recovery", "rotate"], &FakePrompter::new())
@@ -1394,7 +1399,7 @@ fn every_command_init_and_rotate_messages_name_is_registered() {
             out.to_str().unwrap(),
         ],
     );
-    assert_eq!(r.code, Code::Internal, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Internal, "{}", r.stderr);
     said.push(r.stderr);
 
     let reg = registry();

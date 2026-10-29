@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::atomicfile;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::serde_opt::empty_as_none;
 use crate::vaultconfig::{UnlockMethod, VaultId, VaultType};
 
@@ -118,38 +118,38 @@ pub struct Global {
 pub enum Error {
     /// No config file yet: a first run, not a fault. Callers decide whether
     /// that means "empty config" or an error.
-    #[error("config: {path} does not exist")]
+    #[error("{path} does not exist")]
     NotFound { path: PathBuf },
-    #[error("config: reading {path}: {source}")]
+    #[error("reading {path}: {source}")]
     Read {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("config: parsing {path}: {source}")]
+    #[error("parsing {path}: {source}")]
     Parse {
         path: PathBuf,
         source: toml::de::Error,
     },
-    #[error("config: encoding {path}: {source}")]
+    #[error("encoding {path}: {source}")]
     Encode {
         path: PathBuf,
         source: toml::ser::Error,
     },
-    #[error("config: creating {path}: {source}")]
+    #[error("creating {path}: {source}")]
     CreateDir {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("config: writing {path}: {source}")]
+    #[error("writing {path}: {source}")]
     Write {
         path: PathBuf,
         source: atomicfile::Error,
     },
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
-        Code::Internal
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Internal
     }
 }
 
@@ -167,12 +167,12 @@ pub enum RegistryError {
     NoCurrent,
 }
 
-impl HasCode for RegistryError {
-    fn code(&self) -> Code {
+impl HasKind for RegistryError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            RegistryError::AlreadyRegistered(_) => Code::Conflict,
-            RegistryError::NotRegistered(_) => Code::NotFound,
-            RegistryError::NoCurrent => Code::Usage,
+            RegistryError::AlreadyRegistered(_) => ErrorKind::Conflict,
+            RegistryError::NotRegistered(_) => ErrorKind::NotFound,
+            RegistryError::NoCurrent => ErrorKind::Usage,
         }
     }
 }
@@ -545,7 +545,7 @@ mod tests {
         let err = g.register("personal", entry("/b")).unwrap_err();
 
         assert_eq!(err, RegistryError::AlreadyRegistered("personal".into()));
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         assert_eq!(g, before);
     }
 
@@ -553,7 +553,7 @@ mod tests {
     fn entry_of_an_unknown_name_is_not_found() {
         let err = one_vault().entry("nope").unwrap_err();
         assert_eq!(err, RegistryError::NotRegistered("nope".into()));
-        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.kind(), ErrorKind::NotFound);
         assert_eq!(err.to_string(), "no such vault \"nope\"");
     }
 
@@ -564,7 +564,7 @@ mod tests {
         assert_eq!(g.name_or_current(None).unwrap(), "personal");
         let err = Global::default().name_or_current(None).unwrap_err();
         assert_eq!(err, RegistryError::NoCurrent);
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
     }
 
     #[test]
@@ -592,7 +592,7 @@ mod tests {
 
         let before = g.clone();
         let err = g.set_default("nope").unwrap_err();
-        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.kind(), ErrorKind::NotFound);
         assert_eq!(g, before);
     }
 

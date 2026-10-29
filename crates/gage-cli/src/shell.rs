@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::exitcode::ExitCode;
 use gage::config::{self, Shell};
-use gage::exitcode::Code;
 use gage::vaultconfig::VaultType;
 use gage::xdgpaths::Dirs;
 use gage::{gitrepo, paths};
@@ -68,16 +68,16 @@ pub fn resolve(
             Ok(d) => Some(d),
             Err(duration::DurationError::Negative) => {
                 return Err(CliError::new(
-                    Code::Usage,
+                    ExitCode::Usage,
                     format!(
-                        "gage: [shell].idle_timeout {raw:?} is negative; use \"0\" to disable the idle re-lock"
+                        "[shell].idle_timeout {raw:?} is negative; use \"0\" to disable the idle re-lock"
                     ),
                 ));
             }
             Err(duration::DurationError::Malformed) => {
                 return Err(CliError::new(
-                    Code::Usage,
-                    format!("gage: [shell].idle_timeout {raw:?} is not a duration (e.g. \"10m\")"),
+                    ExitCode::Usage,
+                    format!("[shell].idle_timeout {raw:?} is not a duration (e.g. \"10m\")"),
                 ));
             }
         },
@@ -92,19 +92,17 @@ pub fn resolve(
             Ok(d) if d >= MIN_CLIPBOARD_TIMEOUT => d,
             Ok(_) | Err(duration::DurationError::Negative) => {
                 return Err(CliError::new(
-                    Code::Usage,
+                    ExitCode::Usage,
                     format!(
-                        "gage: [shell].clipboard_timeout {raw:?} is below the {} minimum",
+                        "[shell].clipboard_timeout {raw:?} is below the {} minimum",
                         duration::format(MIN_CLIPBOARD_TIMEOUT)
                     ),
                 ));
             }
             Err(duration::DurationError::Malformed) => {
                 return Err(CliError::new(
-                    Code::Usage,
-                    format!(
-                        "gage: [shell].clipboard_timeout {raw:?} is not a duration (e.g. \"45s\")"
-                    ),
+                    ExitCode::Usage,
+                    format!("[shell].clipboard_timeout {raw:?} is not a duration (e.g. \"45s\")"),
                 ));
             }
         },
@@ -142,8 +140,8 @@ pub fn expand_gage_path(
         }
         let dir = dir.to_str().ok_or_else(|| {
             CliError::new(
-                Code::Internal,
-                format!("gage: {token} ({}) is not valid UTF-8", dir.display()),
+                ExitCode::Internal,
+                format!("{token} ({}) is not valid UTF-8", dir.display()),
             )
         })?;
         path = path.replace(token, dir);
@@ -159,7 +157,7 @@ pub fn expand_gage_path(
         None => Ok(PathBuf::from(path)),
         Some(rest) => {
             let home = home().ok_or_else(|| {
-                CliError::new(Code::Internal, "gage: resolving ~: no home directory")
+                CliError::new(ExitCode::Internal, "resolving ~: no home directory")
             })?;
             Ok(if rest.is_empty() {
                 home
@@ -275,7 +273,7 @@ mod tests {
                 ..Shell::default()
             })
             .unwrap_err();
-            assert_eq!(err.code(), Code::Usage, "{bad}: {err}");
+            assert_eq!(err.code(), ExitCode::Usage, "{bad}: {err}");
             assert!(err.to_string().contains("idle_timeout"), "{err}");
         }
     }
@@ -309,7 +307,7 @@ mod tests {
                 ..Shell::default()
             })
             .unwrap_err();
-            assert_eq!(err.code(), Code::Usage, "{bad}: {err}");
+            assert_eq!(err.code(), ExitCode::Usage, "{bad}: {err}");
             assert!(err.to_string().contains("clipboard_timeout"), "{err}");
         }
     }
@@ -403,7 +401,7 @@ mod tests {
             PathBuf::from("~user/x")
         );
         let err = expand_gage_path("~/x", &dirs, &|| None).unwrap_err();
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.code(), ExitCode::Internal);
     }
 
     // Anything the {dirty} token can't

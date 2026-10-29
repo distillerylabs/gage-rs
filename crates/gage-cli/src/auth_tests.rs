@@ -1,9 +1,9 @@
 //! `gage auth login|status|logout` through the real CLI, in-process.
 //! Vaults get an origin through `git set-remote`.
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::prompter::FakePrompter;
-use gage::{gitrepo, gittest, remoteauth};
+use gage::{gitrepo, gittest};
 
 use crate::lifecycle_tests::Env;
 use crate::registry::{Availability, registry};
@@ -33,7 +33,7 @@ impl Env {
 fn auth_login_stores_a_token_and_status_reports_it() {
     let env = Env::new();
     let r = env.auth(&["auth", "login", "--host", "github.com"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout.contains("stored a token for github.com"),
         "{}",
@@ -60,7 +60,7 @@ fn auth_logout_forgets_the_token() {
     let env = Env::new();
     assert_eq!(
         env.auth(&["auth", "login", "--host", "github.com"]).code,
-        Code::Success
+        ExitCode::Success
     );
     let r = env.ok(&["auth", "logout", "--host", "github.com"]);
     assert!(
@@ -86,7 +86,7 @@ fn host_defaults_to_the_current_vaults_origin() {
     let env = Env::new();
     env.vault_with_origin("https://git.example.com/me/vault.git");
     let r = env.auth(&["auth", "login"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("git.example.com"), "{}", r.stdout);
     assert!(env.token_path("git.example.com").exists());
 
@@ -100,7 +100,7 @@ fn auth_on_a_local_remote_says_no_token_is_needed() {
     let remote = gittest::new_bare_remote();
     env.vault_with_origin(remote.path().to_str().unwrap());
     let r = env.auth(&["auth", "login"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("local path"), "{}", r.stderr);
     assert!(!env.dirs.state.join("tokens").exists());
 }
@@ -133,7 +133,7 @@ fn auth_login_reads_the_origin_from_the_repository_when_config_lags() {
     assert_eq!(env.entry("personal").git.origin, None, "config lags");
 
     let r = env.auth(&["auth", "login"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("git.example.com"), "{}", r.stdout);
 }
 
@@ -142,7 +142,7 @@ fn auth_login_on_a_vault_with_no_remote_names_the_vault() {
     let env = Env::new();
     env.init("personal", &[]);
     let r = env.auth(&["auth", "login"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     for want in ["personal", "no remote", "--host"] {
         assert!(r.stderr.contains(want), "{want}: {}", r.stderr);
     }
@@ -217,7 +217,9 @@ fn no_token_value_ever_appears_in_output() {
 // reaches a real refusal.
 #[test]
 fn expired_token_error_names_the_host_and_the_command() {
-    let hint = remoteauth::auth_hint("github.com");
+    let refused = gage::syncerr::Error::new(gage::syncerr::Kind::Auth, "401");
+    let remedy = gage::error::HasKind::remedy(&refused.annotate_auth("github.com")).unwrap();
+    let hint = crate::remedy::render(&remedy);
     for want in ["github.com", "gage auth login", "expired"] {
         assert!(hint.contains(want), "{want}: {hint}");
     }
@@ -237,7 +239,7 @@ fn no_auth_failure_doubles_gages_own_prefix() {
     ];
     for args in failing {
         let r = env.auth(args);
-        assert_ne!(r.code, Code::Success, "{args:?}");
+        assert_ne!(r.code, ExitCode::Success, "{args:?}");
         assert!(r.stderr.starts_with("gage: "), "{args:?}: {}", r.stderr);
         assert!(!r.stderr.contains(&doubled), "{args:?}: {}", r.stderr);
     }
@@ -246,6 +248,6 @@ fn no_auth_failure_doubles_gages_own_prefix() {
         &["auth", "login", "--host", "github.com"],
         &FakePrompter::new().with_value("  "),
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(!r.stderr.contains(&doubled), "{}", r.stderr);
 }

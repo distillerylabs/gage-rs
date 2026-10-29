@@ -6,9 +6,9 @@
 
 use std::time::Duration;
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
 use gage::enrollment::{DEFAULT_ENROLLMENT_TTL, EnrollmentRequest, MAX_ENROLLMENT_TTL};
-use gage::exitcode::Code;
 use gage::prompter::Prompter;
 use gage::vault::Vault;
 use jiff::Timestamp;
@@ -80,7 +80,7 @@ fn parse_ttl(typed: &str) -> Result<Duration, CliError> {
             DurationError::Malformed => "not a duration such as 24h or 90m",
             DurationError::Negative => "a request cannot live for a negative time",
         };
-        fail(Code::Usage, format!("invalid --ttl {typed:?}: {why}"))
+        fail(ExitCode::Usage, format!("invalid --ttl {typed:?}: {why}"))
     })
 }
 

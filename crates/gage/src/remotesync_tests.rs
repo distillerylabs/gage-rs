@@ -14,10 +14,10 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::config::{self, Global, VaultEntry};
 use crate::entry::{NewEntry, WriteError};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::gittest::{self, BareRemote, Device};
 use crate::identity::Identity;
-use crate::prompter::FakePrompter;
+use crate::prompter::{FakePrompter, Warning};
 use crate::syncerr;
 use crate::testsupport::fast_scrypt;
 use crate::vault::CreateSpec;
@@ -167,7 +167,7 @@ pub(crate) fn unreachable_error() -> syncerr::Error {
 
 /// A push rejected for divergence, by the real classifier's elimination.
 pub(crate) fn diverged_error() -> syncerr::Error {
-    syncerr::classify_push(&std::io::Error::other(
+    syncerr::classify_push(&git2::Error::from_str(
         "non-fast-forward update: refs/heads/main",
     ))
 }
@@ -236,8 +236,8 @@ fn the_injected_offline_error_is_what_vault_treats_as_unreachable() {
     assert_eq!(err.kind(), syncerr::Kind::Unreachable, "{err}");
     let as_sync = SyncError::new(SyncCause::Remote(err.into()));
     assert_eq!(as_sync.remote_kind(), Some(syncerr::Kind::Unreachable));
-    assert_eq!(as_sync.code(), Code::Unreachable);
-    assert_eq!(offline_or_error(&as_sync), "could not reach origin");
+    assert_eq!(as_sync.kind(), ErrorKind::Unreachable);
+    assert_eq!(offline_or_error(&as_sync).text, "could not reach origin");
 }
 
 // --- the report -------------------------------------------------------------
@@ -257,23 +257,31 @@ fn summary_says_what_diverged_and_what_to_run() {
     assert_eq!(plain.conflict_kind(), ConflictKind::None);
     assert_eq!(
         plain.summary(),
-        "origin has diverged — 2 local commit(s) pending; run `gage sync`"
+        "origin has diverged — 2 local commit(s) pending"
     );
+    assert_eq!(plain.remedy(), Remedy::Sync);
 
     let entries = report(&["entries/a.age", "entries/b.age"]);
     assert_eq!(entries.conflict_kind(), ConflictKind::Entries);
     assert_eq!(
         entries.summary(),
-        "origin has diverged — 2 local commit(s) pending, and 2 entr(y/ies) changed on both sides; run `gage sync`"
+        "origin has diverged — 2 local commit(s) pending, and 2 entr(y/ies) changed on both sides"
     );
+    assert_eq!(entries.remedy(), Remedy::Sync);
 
     for path in [".age-recipients", ".gage/config.toml"] {
         let both = report(&["entries/a.age", path]);
         assert_eq!(both.conflict_kind(), ConflictKind::Recipients, "{path}");
         let summary = both.summary();
-        for want in [path, "who can read this vault", "never merged", "gage sync"] {
+        for want in [
+            path,
+            "who can read this vault",
+            "never merged",
+            "not even by a sync",
+        ] {
             assert!(summary.contains(want), "{want}: {summary}");
         }
+        assert_eq!(both.remedy(), Remedy::RecipientVerify, "{path}");
     }
 }
 
@@ -378,7 +386,7 @@ fn unlock_warns_on_a_divergence_and_leaves_it() {
     let warnings = p.warnings();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(warnings[0].contains("diverged"), "{}", warnings[0]);
-    assert!(warnings[0].contains("gage sync"), "{}", warnings[0]);
+    assert_eq!(p.warned()[0].remedy, Some(Remedy::Sync), "{}", warnings[0]);
     assert_eq!(s.head(), head, "a pull on unlock merged");
     assert!(!s.vault.path.join("notes.txt").exists());
 }
@@ -681,7 +689,7 @@ fn recipient_write_warnings(
                         &crate::recipient::RecipientWrite {
                             message: "gage: test",
                             delete_paths: &[],
-                            push_clause: Some(clause),
+                            push_clause: Some(clause.into()),
                         },
                         &identity,
                         &p,
@@ -704,7 +712,7 @@ fn failed_push_clause_is_the_callers_to_say() {
     let warnings = recipient_write_warnings(&SyncVault::new(), FakeSyncer::offline(), Some(own));
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
-        warnings[0].starts_with(&format!("gage: {own}: ")),
+        warnings[0].starts_with(&format!("{own}: ")),
         "{}",
         warnings[0]
     );
@@ -713,7 +721,7 @@ fn failed_push_clause_is_the_callers_to_say() {
     let warnings = recipient_write_warnings(&SyncVault::new(), FakeSyncer::offline(), None);
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
-        warnings[0].starts_with(&format!("gage: {UNPUSHED_WRITE_CLAUSE}: ")),
+        warnings[0].starts_with(&format!("{UNPUSHED_WRITE_CLAUSE}: ")),
         "{}",
         warnings[0]
     );
@@ -810,11 +818,11 @@ fn conflicting_divergence_is_detected_and_left_alone() {
     let err = s.vault.push().unwrap_err();
 
     assert_eq!(err.remote_kind(), Some(syncerr::Kind::Diverged), "{err}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(err.report.conflict_kind(), ConflictKind::Entries);
     assert_eq!(err.report.conflicts, vec![entry_path]);
     assert!(err.report.diverged);
-    assert_eq!(err.to_string(), format!("gage: {}", err.report.summary()));
+    assert_eq!(err.to_string(), err.report.summary());
     assert_eq!(s.head(), head, "HEAD moved on a conflicting divergence");
     let got = s.vault.read_entry(id, &identity).unwrap();
     assert_eq!(got.value, "rotated-locally", "the local edit was touched");
@@ -822,7 +830,7 @@ fn conflicting_divergence_is_detected_and_left_alone() {
 
 /// A write whose push is rejected for a real conflict: what the human was
 /// told.
-fn warning_from_conflicting_write() -> String {
+fn warning_from_conflicting_write() -> Warning {
     let s = SyncVault::new();
     let identity = s.unlock();
     let id = s
@@ -839,13 +847,13 @@ fn warning_from_conflicting_write() -> String {
     let mut e = s.vault.read_entry(id, &identity).unwrap();
     e.value = "rotated-locally".into();
     s.vault.update(id, &e, &p).unwrap();
-    let warnings = p.warnings();
+    let warnings = p.warned();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     warnings[0].clone()
 }
 
 /// A write whose push can't reach the remote: what the human was told.
-fn warning_from_offline_write() -> String {
+fn warning_from_offline_write() -> Warning {
     let s = SyncVault::new();
     let identity = s.unlock();
     let offline = s.vault.clone().with_remote_syncer(FakeSyncer::offline());
@@ -853,7 +861,7 @@ fn warning_from_offline_write() -> String {
     offline
         .insert(&identity, sample("ProtonMail"), false, &p)
         .unwrap();
-    let warnings = p.warnings();
+    let warnings = p.warned();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     warnings[0].clone()
 }
@@ -866,15 +874,16 @@ fn divergence_is_reported_differently_from_being_offline() {
     let offline = warning_from_offline_write();
 
     assert_ne!(diverged, offline);
-    assert!(diverged.contains("diverged"), "{diverged}");
-    assert!(diverged.contains("gage sync"), "{diverged}");
-    assert!(!offline.contains("diverged"), "{offline}");
-    assert!(offline.contains("could not reach origin"), "{offline}");
+    assert!(diverged.text.contains("diverged"), "{diverged:?}");
+    assert_eq!(diverged.remedy, Some(Remedy::Sync), "{diverged:?}");
+    assert!(!offline.text.contains("diverged"), "{offline:?}");
+    assert!(
+        offline.text.contains("could not reach origin"),
+        "{offline:?}"
+    );
+    assert_eq!(offline.remedy, None, "{offline:?}");
     for w in [&diverged, &offline] {
-        assert!(
-            w.starts_with("gage: ") && !w.starts_with("gage: gage:"),
-            "{w}"
-        );
+        assert!(!w.text.contains("gage:"), "{w:?}");
     }
 }
 
@@ -918,9 +927,8 @@ fn assert_recipient_file_conflicts(path: &str) {
     // `gage sync` refuses this too, so the summary must not send anyone there. It says what to do
     // instead, and what reviews the result.
     let summary = err.report.summary();
-    assert!(!summary.contains("run `gage sync`"), "{summary}");
     assert!(summary.contains("reconcile"), "{summary}");
-    assert!(summary.contains("gage recipient verify"), "{summary}");
+    assert_eq!(err.remedy(), Some(Remedy::RecipientVerify), "{summary}");
 }
 
 // Init writes `.gitattributes` for both recipient files, checked as content. gage's
@@ -967,11 +975,11 @@ fn sync_reports_a_dirty_work_tree_as_a_conflict_not_an_internal_error() {
     let err = s.vault.sync().unwrap_err();
 
     assert!(err.is_dirty_work_tree(), "{err:?}");
-    assert_eq!(err.code(), Code::Conflict, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Conflict, "{err}");
     let msg = err.to_string();
     assert!(msg.contains("hand-edited.txt"), "{msg}");
     assert!(
-        msg.starts_with("gage: ") && !msg.contains("gitrepo:"),
+        msg.starts_with("the working tree has uncommitted changes") && !msg.contains("gage:"),
         "{msg}"
     );
     assert_eq!(s.read("hand-edited.txt"), "half-typed note");
@@ -1085,7 +1093,7 @@ fn an_offline_manual_verb_fails_as_unreachable() {
     for run in [Vault::pull, Vault::push, Vault::sync] {
         let err = run(&offline).unwrap_err();
         assert_eq!(err.remote_kind(), Some(syncerr::Kind::Unreachable));
-        assert_eq!(err.code(), Code::Unreachable);
+        assert_eq!(err.kind(), ErrorKind::Unreachable);
     }
 }
 

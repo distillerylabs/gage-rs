@@ -10,7 +10,7 @@ use zeroize::Zeroizing;
 use super::{EnrollmentError, EnrollmentRequest, MAX_ENROLLMENT_TTL, name::pending_file_name};
 use crate::entry::WRITE_LOCK_TIMEOUT;
 use crate::gitrepo::REMOTE_OP_TIMEOUT;
-use crate::prompter::Prompter;
+use crate::prompter::{Prompter, Warning};
 use crate::recovery::check_device_label_free;
 use crate::syncerr::Kind;
 use crate::vault::Vault;
@@ -171,9 +171,9 @@ impl Vault {
         };
         let now = Timestamp::now();
         if head.duration_since(now) >= CLOCK_SKEW_THRESHOLD {
-            prompter.warn(&format!(
-                "gage: this machine's clock ({now}) is behind the vault's newest commit ({head}); a request sealed now may look expired or skewed to the approving device, so check the clock"
-            ));
+            prompter.warn(&Warning::from(format!(
+                "this machine's clock ({now}) is behind the vault's newest commit ({head}); a request sealed now may look expired or skewed to the approving device, so check the clock"
+            )));
         }
     }
 

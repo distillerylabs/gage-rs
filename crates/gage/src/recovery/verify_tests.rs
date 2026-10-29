@@ -1,7 +1,7 @@
 //! `Vault::verify_recovery_key`.
 
 use super::*;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::recipient_tests::dirs_in;
 use crate::vault::{CreateSpec, LabelledRecipient, Vault};
 use crate::vaultconfig;
@@ -75,7 +75,7 @@ fn verify_recovery_key() {
         matches!(&err, RecoveryError::NotARecipient { pubkey, vault }
         if *pubkey == stranger.pubkey && vault == "personal")
     );
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert!(!err.to_string().contains(stranger.secret.as_str()));
 
     // Garbage, and a near miss: a real key with its last character cut off.
@@ -83,7 +83,7 @@ fn verify_recovery_key() {
     for garbage in ["", "hello", "age1notasecret", truncated] {
         let err = f.vault.verify_recovery_key(garbage).unwrap_err();
         assert!(matches!(err, RecoveryError::MalformedRecoveryKey), "{err}");
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
         assert!(
             garbage.is_empty() || !err.to_string().contains(garbage),
             "Display echoed the input: {err}"

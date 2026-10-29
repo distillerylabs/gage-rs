@@ -156,11 +156,191 @@ rewrites their messages.
    it's a test aid. The roadmap's `errors.Is` concern is about the
    library.
 
+## Settled decisions
+
+> **Status: settled.** Reviewed and approved as written, 2026-10-28.
+
+### 1. Names: as proposed
+
+- `gage::error::ErrorKind` (`Conflict`, `Usage`, `NotFound`, `Ambiguous`,
+  `LockedOrAuth`, `Internal`, `Unreachable`), with no `Success` and no
+  discriminants. `HasKind { fn kind(&self) -> ErrorKind; fn remedy(&self)
+  -> Option<Remedy> { None } }`.
+- `code_of` goes. Library tests say `err.kind()`, and `Ok` is asserted as
+  `Ok`. `all()` becomes `ExitCode::ALL` in `gage-cli`, which owns the
+  `0..=7` pinning test.
+- The library's test mechanics change only by this rename (`Code::X` →
+  `ErrorKind::X`, `.code()` → `.kind()`). That rename is the one edit
+  that the "unedited" tests receive, and it touches no assertion's
+  meaning.
+
+### 2. `Remedy`: what to do, as data; the CLI owns the words
+
+`#[non_exhaustive] pub enum Remedy` in `gage::error`. A wrapper error
+delegates `remedy()` to its inner error the way it delegates `kind()`,
+unless it has its own, which then wins. `CliError` captures the remedy at
+`From` time, since `anyhow`'s chain can't be asked for it later.
+
+**Rule.** Each variant has exactly one CLI rendering, and it is always a
+trailing clause after the library's message, with its separator. A site
+whose sentence wove the command into its middle is reworded so the
+command comes last. That is the only kind of stderr change besides the
+dropped module prefix, and each one is listed below.
+
+**Flag hints.** A trailing "pass/use/choose `--flag`" instruction becomes
+a variant. A flag that is the *subject* of the explanation stays in the
+library's text: "removing a recipient requires --reencrypt: without it
+the removed key still opens every entry…" (`recipient.rs:159,166`),
+"--to-vault must name a different vault" (`movecopy.rs:42`), "--field
+{name} cannot be read from it" (`entry/mod.rs:250`) and "--replaces is
+for the device that was lost" (`recovery/mod.rs:64`). Rewording those
+would cost the reason the refusal gives, and the guard doesn't cover
+flags. A second frontend maps the same option names.
+
+| Variant | Data | CLI rendering (after the message) | Sites | stderr |
+|---|---|---|---|---|
+| `Sync` | | `; run ` `` `gage sync` `` | `DivergenceReport::summary` (entries, none) | same |
+| `SyncAgain` | | `; run ` `` `gage sync` `` ` again to finish` | `SyncCause::Unresolved` | same |
+| `RecipientVerify` | | `; run ` `` `gage recipient verify` `` | trust summary (mismatch), divergence summary (recipients) | **changed**, see below |
+| `RecipientRepair` | | `\ngage: fix this with ` `` `gage recipient verify --repair` `` `, which rewrites .age-recipients from .gage/config.toml and says what it drops` | `TrustError::OutOfSync` | same |
+| `AuthLogin` | `host` | `; run ` `` `gage auth login --host {host}` `` ` to store a token for {host} (an existing one may have expired or been revoked)` | `auth_hint` via `syncerr::Error` | same |
+| `AuthLoginAgain` | `host` | `; fix it or run ` `` `gage auth login --host {host}` `` ` again` | `remoteauth::Error::InsecureToken` | same |
+| `UseHttps` | | `; use the remote's HTTPS URL with ` `` `gage auth login` `` ` instead` | `SshAgent`, `SshConfigAlias` | `SshConfigAlias` **changed** |
+| `ReRegister` | `name` | `; re-register it with ` `` `gage vault remove {name}` `` ` and ` `` `gage clone` `` | `ResolveError::Mismatch`, `NoVaultId` | same |
+| `EnrollOrRecover` | | `; if this device has none yet, run ` `` `gage identity enroll` `` ` to ask to join this vault, or ` `` `gage recovery enroll` `` ` if you hold its recovery key` | `UnlockError::NoLocalIdentity` | same |
+| `SetRemote` | | `; configure one with ` `` `gage git set-remote` `` | `EnrollmentError::NoRemote` | same |
+| `Reclone` | `vault` | `, so discard this copy (` `` `gage vault remove {vault}` `` `), ` `` `gage clone` `` ` it again, then run ` `` `gage identity enroll` `` | `EnrollmentError::Diverged` | same |
+| `EnrollAgain` | `login_host: Option<String>` | `, so running ` `` `gage identity enroll` `` ` again is the way forward`; with a host: `; run ` `` `gage auth login --host {host}` `` ` first, then ` `` `gage identity enroll` `` ` again` | `EnrollmentError::Push` | auth case **changed** |
+| `Push` | | ` — run ` `` `gage push` `` ` to finish it` | `APPROVAL_PUSH_CLAUSE` warning | **changed** (order) |
+| `Force` | | `; use --force to insert a duplicate` | `entry::crud` duplicate title | same |
+| `ChooseDevice` | | `; choose another with --device` | `identity_add.rs:30`, `recovery/mod.rs:141`, `EnrollmentError::DeviceNameTaken` | `DeviceNameTaken` **changed** |
+| `ApproveWithDevice` | | `; approve with --device NAME to record this request under a different name` | `EnrollmentError::NameTaken` | same |
+| `PassName` | `plain: bool` | `; pass --name` / `; pass --name with a plain name` | `vault.rs:770,772` | same |
+| `Yes` | | `. Run the command where you can answer, or with --yes` | `TrustError::Unconfirmable` | same |
+
+The hostless `auth_hint` ("check that the repository exists at that path
+and is readable") names no command, so it stays library prose on
+`syncerr::Error` (a `note`), next to its new `remedy` field.
+
+**The stderr changes, exactly:**
+
+- Trust summary, mismatch:
+  - was ``… now disagree — run `gage recipient verify`.``
+  - now ``… now disagree; run `gage recipient verify` ``
+- Divergence summary, recipients:
+  - was ``… pending. These are never merged automatically, by `gage sync`
+    either: reconcile both sides by hand in the vault's git repository and
+    commit, then check the result with `gage recipient verify`; the next
+    write here will ask you to confirm the list``
+  - now ``… pending. These are never merged automatically, not even by a
+    sync: reconcile both sides by hand in the vault's git repository and
+    commit, and the next write here will ask you to confirm the list; run
+    `gage recipient verify` ``
+- `SshConfigAlias`:
+  - was ``… is not a resolvable host name. Re-spell the remote with the
+    host's real name, or (recommended) use its HTTPS URL with `gage auth
+    login` ``
+  - now ``… is not a resolvable host name (re-spelling the remote with the
+    host's real name also works); use the remote's HTTPS URL with `gage
+    auth login` instead``
+- `EnrollmentError::Push` on an auth failure. Today the inner error's
+  auth hint lands mid-message and the enroll clause follows. The inner
+  remedy is now superseded, and the `msg.contains("gage auth login")`
+  check goes:
+  - now ``{err}; the request was not published, but this device's
+    identity and the local commit are kept; run `gage auth login --host H`
+    first, then `gage identity enroll` again``
+- Approval push warning:
+  - was ``the approval is … still locked out — run `gage push` to finish
+    it: could not reach origin``
+  - now ``the approval is … still locked out: could not reach origin — run
+    `gage push` to finish it``
+- `DeviceNameTaken`:
+  - was `; pass --device with another name`
+  - now `; choose another with --device`
+
+### 3. Warnings: `Prompter::warn(&Warning)`
+
+Four warning sources carry a command: the trust summary, the divergence
+summary, the approval push clause, and any sync error that
+`offline_or_error` embeds (its `AuthLogin`). That is enough to type them.
+
+- `pub struct Warning { pub text: String, pub remedy: Option<Remedy> }`
+  in `gage::prompter`, with `From<String>` for the hint-free majority.
+- The terminal prompter and `gage-cli`'s wrapping prompters render
+  `gage: {text}{remedy}` with the same renderer `CliError` uses.
+- `FakePrompter::warnings()` keeps returning `Vec<String>`: the text,
+  with no `gage:` and no remedy. A new `FakePrompter::warned() ->
+  Vec<Warning>` serves the assertions about remedies. About 73
+  `warnings()` assertions lose a leading `gage: `, and nothing else.
+- `offline_or_error` returns the embedded error's text plus its remedy,
+  so the warning carries it.
+
+### 4. Multi-line output: as proposed
+
+`TrustError::OutOfSync` renders `gage: ` on its first line, the
+differences, then the `RecipientRepair` line, which opens with its own
+`gage: `. stderr is byte-identical, and a task-1 golden pins it.
+"Exactly once" means once at the front of the message; a remedy line the
+CLI writes is its own line.
+
+### 5. `git2` probes: none remain
+
+The only production caller, `gitrepo/remote.rs::fail`, already holds a
+`git2::Error`. So `classify_push` and `classify_fetch` take `&git2::Error`
+and classify it directly, and every chain walk goes:
+
+- the self-probe for `syncerr::Error` (a `git2::Error` has no source, so
+  it can never find one)
+- `classify_transport`'s and `git_cause`'s `git2::Error` downcasts
+
+No probe has to stay. Two test edits follow, and nothing else in
+`syncerr_tests.rs` or `remotesync_tests.rs` changes beyond decision 1's
+rename:
+
+- `classify_is_idempotent_on_an_already_classified_unreachable` is
+  deleted. It proved a path production never takes, and the type now
+  rules it out.
+- `remotesync_tests::diverged_error` builds its input with
+  `git2::Error::from_str(…)` instead of `std::io::Error::other(…)`. It
+  still goes through the real classifier's elimination.
+
+### 6. `CliError::downcast_ref`: as proposed
+
+### Amendments found while implementing
+
+- **`EnrollAgain` is `{ auth_refused: bool, host: Option<String> }`**, not
+  `{ login_host }`. An auth refusal with no known host (a fake syncer, or
+  a remote that gave none) still says ``; run `gage auth login` first,
+  then `gage identity enroll` again``, as the old `(run `gage auth login`
+  first)` did.
+- **A remedy comes last, so a few more warnings reorder.** This follows
+  from decision 2's rule, and the clause stays the same text:
+  - the pull-on-unlock and approval-fetch warnings put an embedded
+    error's remedy after "; continuing with the local copy of …" (or
+    "; approving against …")
+  - `ApprovalDiverged` puts the divergence's remedy after "— nothing was
+    approved, and the request is still pending"
+- **`UnlockError::NoIdentityFile(PathBuf)`** is new. Only the missing-file
+  case carried the enroll hint, so it gets its own variant and
+  `EnrollOrRecover`; `NoLocalIdentity` keeps the other three cases. Two
+  tests that matched `NoLocalIdentity(_)` accept either.
+- **`CliError::with_remedy`** is new. `pull` builds its own refusal
+  from the divergence report, and would otherwise have dropped the
+  report's remedy (`a_diverged_pull_names_sync` pins it). `init`'s
+  publish failure renders its inner error's remedy inline, ahead of its
+  own "gage never creates a repository" line, so that stderr is
+  unchanged.
+- **`remoteauth::auth_hint` is gone.** `syncerr::Error::annotate_auth(host)`
+  sets the `AuthLogin` remedy, or for a hostless remote the
+  "check that the repository exists…" note, which names no command and
+  stays library prose.
+
 ## Tasks
 
 ### 1. Pin today's stderr and exit codes
 
-- [ ] Golden stderr tests first, through `gage_cli::run`, one for each:
+- [x] Golden stderr tests first, through `gage_cli::run`, one for each:
   - a module-prefixed error (`vaultconfig` format version, `atomicfile`)
   - a hint-bearing error (`auth login`, `sync`, `recipient verify`)
   - the multi-line trust-cache refusal
@@ -172,33 +352,40 @@ rewrites their messages.
   the module prefix is deliberately dropped, and the diff shows exactly
   that.
 
+  Done in `gage-cli/src/stderr_golden_tests.rs`: 13 tests. stderr is
+  normalized only for the temp root, a loopback port and the path
+  separator. Two cases were chosen for gage-owned text so they hold on
+  all three platforms: auth is a stored token refused again, and
+  unreachable is a remote path that has gone. The `atomicfile` case is
+  Unix-only, because its OS error text differs on Windows.
+
 ### 2. `ErrorKind` in the library, `ExitCode` in the CLI
 
-- [ ] Tests first. In `gage-cli/src/exitcode.rs`:
+- [x] Tests first. In `gage-cli/src/exitcode.rs`:
   - every `ErrorKind` maps to its documented number
   - `Success` is 0
   - the names are unchanged
 
   The CLI's existing round-trip test now goes through `ErrorKind`.
-- [ ] Rename `HasCode` → `HasKind` and `code` → `kind` across the 39
+- [x] Rename `HasCode` → `HasKind` and `code` → `kind` across the 39
       library impls and the two CLI impls. `exitcode.rs` leaves the
       library, and `code_of` and `all()` move or go.
-- [ ] `CliError` holds an `ExitCode`. `From<E: HasKind + Error>` maps it.
+- [x] `CliError` holds an `ExitCode`. `From<E: HasKind + Error>` maps it.
       `main.rs` is unchanged apart from the type.
-- [ ] `doc/cli/exit-codes.md` and CLAUDE.md's module list name the new
+- [x] `doc/cli/exit-codes.md` and CLAUDE.md's module list name the new
       homes.
 
 ### 3. Typed `OpenError` and the `syncerr` downcasts
 
-- [ ] Tests first:
+- [x] Tests first:
   - `OpenError::Registry(NotRegistered)` is matchable
   - `source()` reaches the inner error
   - the CLI's exit code for each variant is unchanged
-- [ ] `session::OpenError` becomes `enum { Config(config::Error),
+- [x] `session::OpenError` becomes `enum { Config(config::Error),
       Registry(config::RegistryError), Resolve(vault::ResolveError) }`.
       `kind()` delegates to the inner error. `open_registered` and the
       test openers construct variants.
-- [ ] `syncerr` per decision 5. The existing classification tests
+- [x] `syncerr` per decision 5. The existing classification tests
       (`syncerr_tests.rs`, `remotesync_tests.rs`) stay green unedited.
       URL-userinfo redaction is still applied to every message that can
       carry a remote URL. Add a test that a remedy-rendered message with
@@ -206,56 +393,75 @@ rewrites their messages.
 
 ### 4. `Remedy`
 
-- [ ] Settle decision 2's list. Tests first: each variant renders to
+- [x] Settle decision 2's list. Tests first: each variant renders to
       exactly today's hint text in `gage-cli`.
-- [ ] Each hint-bearing variant drops the command text from its
+- [x] Each hint-bearing variant drops the command text from its
       `#[error]` and returns its `Remedy`. `CliError` renders `{message}`
       plus the remedy as today's text did, including the separator
       (`; run …`, `. Run …`, a new line).
-- [ ] `enrollment/mod.rs:290`'s `msg.contains("gage auth login")` becomes a
+- [x] `enrollment/mod.rs:290`'s `msg.contains("gage auth login")` becomes a
       match on the typed remedy.
-- [ ] Task 1's hint tests are green and unedited.
+- [x] Task 1's hint tests are green and unedited.
 
 ### 5. Prefixes out of the library
 
-- [ ] `#[error]`: remove `gage:` and the module prefixes. A message that
+- [x] `#[error]`: remove `gage:` and the module prefixes. A message that
       only made sense with its module name is reworded so it says what it
       is about, e.g. "unsupported format version 3 in .gage/config.toml".
-- [ ] Hand-written `Display` (`remotesync.rs`, `syncerr.rs`) and
+- [x] Hand-written `Display` (`remotesync.rs`, `syncerr.rs`) and
       `gitrepo/remote.rs`'s `from_str("gage: …")` follow.
-- [ ] Library hand-strips (`recipient.rs:191`, `trustcache.rs:153`,
+- [x] Library hand-strips (`recipient.rs:191`, `trustcache.rs:153`,
       `remotesync.rs:660`) go, now that nothing is prefixed.
-- [ ] `Prompter::warn` per decision 3. The library warns without
+- [x] `Prompter::warn` per decision 3. The library warns without
       `gage:`, and the terminal prompter adds it. The `prompter.rs:245`
       contract comment says so.
-- [ ] Commit messages are untouched: `format_v2_commit_layout` and the
+- [x] Commit messages are untouched: `format_v2_commit_layout` and the
       `merge_tests.rs` commit assertions stay green unedited.
 
 ### 6. `gage:` once, in the CLI
 
-- [ ] Tests first: a library error, a CLI-made error, a context-wrapped
+- [x] Tests first: a library error, a CLI-made error, a context-wrapped
       error and a script error each render with exactly one leading
       `gage:`.
-- [ ] `CliError`'s rendering adds `ERROR_PREFIX` once. `prefix_once` and
+- [x] `CliError`'s rendering adds `ERROR_PREFIX` once. `prefix_once` and
       the CLI hand-strips go: `repl.rs:108,214`, `init.rs:314`,
       `recoverykey.rs:337`.
-- [ ] `script_error` wraps the typed error with context instead of
+- [x] `script_error` wraps the typed error with context instead of
       rebuilding it from a string, so the exit code still comes from the
       original error. Test that a script-mode `NotFound` still exits 3.
-- [ ] CLI-made errors (`CliError::new(code, "gage: …")`, about 167
+- [x] CLI-made errors (`CliError::new(code, "gage: …")`, about 167
       literals) drop their own `gage:`. Success output on stdout
       ("gage: inserted …") is not an error and stays as it is.
 
 ### 7. Update the text-dependent tests
 
-- [ ] Every assertion that changes moves from the prefixed string to the
+- [x] Every assertion that changes moves from the prefixed string to the
       new sentence, never to a looser `contains`. List the files touched
       in the PR description.
-- [ ] The help snapshots and `format_v2_*` tests are unedited.
+- [x] The help snapshots and `format_v2_*` tests are unedited. The one
+      exception is `gage-cli/src/format_v2_tests.rs`, whose import and two
+      `Code::Success` uses follow the type to `ExitCode`.
+
+  **Assertions whose text or meaning changed.** Each moved to the new
+  sentence, or from hint text to the typed `Remedy` it now is:
+
+  - library: `enrollment/{approve_fetch,approve,enroll}_tests.rs`,
+    `gitrepo/remote_tests.rs`, `index_tests.rs`, `recovery/swap_tests.rs`,
+    `remoteauth_tests.rs`, `remotesync_tests.rs`, `syncerr_tests.rs`,
+    `trustcache_tests.rs`, `unlock_tests.rs`, and the inline tests in
+    `entry/mod.rs`, `gitrepo/mod.rs`, `recipients.rs`, `vault.rs`,
+    `vaultconfig/mod.rs` and `prompter.rs`
+  - CLI: `auth_tests.rs`, `init_identity_tests.rs`, `sync_tests.rs`,
+    `stderr_golden_tests.rs` (the trust-summary rewording and the three
+    module-prefix drops), and the inline tests in `error.rs`,
+    `prompter.rs` and `scriptprompt.rs`
+
+  Every other touched test file changed only by the `HasCode` →
+  `HasKind` / `Code` → `ErrorKind` or `ExitCode` rename.
 
 ### 8. ADR and guard
 
-- [ ] ADR-0054 *The library's errors are frontend-neutral*:
+- [x] ADR-0054 *The library's errors are frontend-neutral*:
   - no binary or module name in text
   - `ErrorKind` instead of exit numbers
   - `Remedy` instead of command text
@@ -263,7 +469,7 @@ rewrites their messages.
   - commit messages are format, not UI
 
   It cites ADR-0037 for the numbers. Link it from the README.
-- [ ] A guard test in `crates/gage/tests/`, std-only, after
+- [x] A guard test in `crates/gage/tests/`, std-only, after
       `no_frontend_deps.rs`'s pattern. It fails on these, outside
       `_tests.rs` files and the commit-message constants it allowlists
       by name:
@@ -272,6 +478,14 @@ rewrites their messages.
   - `"gage: ` passed to `warn`
 
   Prove it fails by hand once, and record that here.
+
+  Done in `crates/gage/tests/no_cli_text.rs`: any `"gage: ` literal must
+  open one of the v2 commit subjects, which covers `#[error("gage:` and
+  warnings alike. `the_detector_fires` pins each shape. Proven by hand:
+  `pub const PROBE: &str = "gage: probe, run `gage sync`";` put ahead of
+  `agekey.rs`'s test module failed the guard with `agekey.rs:145: a
+  message names gage; the frontend adds its name`, and the file was then
+  restored byte for byte.
 
 ## Definition of done
 

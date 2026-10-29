@@ -34,7 +34,7 @@
 use std::path::PathBuf;
 
 use crate::devicename;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::vaultconfig::VaultId;
 use crate::xdgpaths::Dirs;
 
@@ -48,15 +48,15 @@ pub enum Error {
     InvalidHost { host: String, reason: &'static str },
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
         match self {
             // A refused path component: the vault can't be
             // unlocked on this device as configured.
-            Error::InvalidDeviceName(_) => Code::LockedOrAuth,
+            Error::InvalidDeviceName(_) => ErrorKind::LockedOrAuth,
             // A host arrives from a remote URL or `--host`: the command
             // line or the config was wrong.
-            Error::InvalidHost { .. } => Code::Usage,
+            Error::InvalidHost { .. } => ErrorKind::Usage,
         }
     }
 }
@@ -218,7 +218,7 @@ mod tests {
         for device in ["", "..", "../x", "a/b", r"a\b", "UPPER"] {
             let err = identity_file_path(&dirs(), &id(), device).unwrap_err();
             assert_eq!(err, Error::InvalidDeviceName(device.to_string()));
-            assert_eq!(err.code(), Code::LockedOrAuth);
+            assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
         }
     }
 
@@ -247,7 +247,7 @@ mod tests {
         ] {
             let err = token_file_path(&dirs(), host).unwrap_err();
             assert!(matches!(err, Error::InvalidHost { .. }), "{host:?}");
-            assert_eq!(err.code(), Code::Usage);
+            assert_eq!(err.kind(), ErrorKind::Usage);
         }
     }
 

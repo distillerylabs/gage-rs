@@ -15,7 +15,7 @@ use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 
 /// How often [`Lock::acquire`] retries a contended lock. There is no
 /// portable "wake me when free" call, so waiting is a short poll loop,
@@ -48,33 +48,33 @@ impl fmt::Display for HolderInfo {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("vaultlock: opening {path}: {source}")]
+    #[error("opening {path}: {source}")]
     Open {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("vaultlock: locking {path}: {source}")]
+    #[error("locking {path}: {source}")]
     Lock {
         path: PathBuf,
         source: std::io::Error,
     },
     /// The timeout elapsed while someone else held the lock.
-    #[error("vaultlock: {path} is locked by {holder}")]
+    #[error("{path} is locked by {holder}")]
     Contended { path: PathBuf, holder: HolderInfo },
-    #[error("vaultlock: unlocking {path}: {source}")]
+    #[error("unlocking {path}: {source}")]
     Unlock {
         path: PathBuf,
         source: std::io::Error,
     },
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
         match self {
             // Someone else is mid-write: a state to retry or resolve, not
             // a fault.
-            Error::Contended { .. } => Code::Conflict,
-            _ => Code::Internal,
+            Error::Contended { .. } => ErrorKind::Conflict,
+            _ => ErrorKind::Internal,
         }
     }
 }
@@ -336,7 +336,7 @@ mod tests {
             panic!("want Contended, got {err:?}");
         };
         assert_eq!(p, &path);
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         // ADR-0003: Windows locks the bytes the record lives in, so a
         // contender can't read it there; the record is best-effort.
         if cfg!(unix) {
@@ -484,7 +484,7 @@ mod tests {
         let err =
             Lock::acquire(&dir.path().join("missing/vault.lock"), Duration::ZERO).unwrap_err();
         assert!(matches!(err, Error::Open { .. }), "{err:?}");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.kind(), ErrorKind::Internal);
     }
 
     #[test]

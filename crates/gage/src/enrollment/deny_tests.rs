@@ -6,7 +6,7 @@ use super::approve_atomic_tests::lay_stale_request;
 use super::approve_tests::{commits, enrolled, head, pending_names};
 use super::fixtures_tests::{assert_enrollment_error, hours, new_pubkey, vault};
 use super::*;
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::prompter::FakePrompter;
 use crate::remotesync::tests::{FakeSyncer, SyncVault, unreachable_error};
 
@@ -56,7 +56,7 @@ fn deny_on_an_ambiguous_id_deletes_nothing() {
         a.vault
             .deny_enrollment(&common_substring(&a.vault), &FakePrompter::new()),
         EnrollmentError::Ambiguous(_),
-        Code::Ambiguous
+        ErrorKind::Ambiguous
     );
     let EnrollmentError::Ambiguous(candidates) = err else {
         unreachable!()
@@ -74,7 +74,7 @@ fn deny_on_an_unmatched_id_deletes_nothing() {
     assert_enrollment_error!(
         a.vault.deny_enrollment("ffffffff", &FakePrompter::new()),
         EnrollmentError::NoSuchRequest { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
     assert_eq!(pending_names(&a.vault).len(), 1);
     assert_eq!(commits(&a.vault), before);

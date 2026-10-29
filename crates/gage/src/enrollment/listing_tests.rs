@@ -7,7 +7,7 @@ use uuid::Uuid;
 use super::fixtures_tests::*;
 use super::name::{parse_pending_file_name, pending_file_name};
 use super::{EnrollmentError, MAX_ENROLLMENT_TTL, MAX_PENDING_REQUEST_BYTES};
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::prompter::FakePrompter;
 
 // The normal
@@ -152,7 +152,7 @@ fn resolve_enrollment_follows_the_base_resolution_order() {
     let err = assert_enrollment_error!(
         f.vault.resolve_enrollment("aaaaaaaa"),
         EnrollmentError::Ambiguous(_),
-        Code::Ambiguous
+        ErrorKind::Ambiguous
     );
     let EnrollmentError::Ambiguous(candidates) = err else {
         unreachable!()
@@ -168,12 +168,12 @@ fn resolve_enrollment_follows_the_base_resolution_order() {
     assert_enrollment_error!(
         f.vault.resolve_enrollment("cccc"),
         EnrollmentError::NoSuchRequest { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
     assert_enrollment_error!(
         f.vault.resolve_enrollment(""),
         EnrollmentError::NoSuchRequest { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
 
     let dead = "cccccccc-0000-4000-8000-000000000004";
@@ -181,7 +181,7 @@ fn resolve_enrollment_follows_the_base_resolution_order() {
     assert_enrollment_error!(
         f.vault.resolve_enrollment(dead),
         EnrollmentError::NoSuchRequest { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
 }
 

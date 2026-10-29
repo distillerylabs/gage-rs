@@ -10,7 +10,7 @@
 //! round-trips its config. That is also why this is not the `age` crate's
 //! X25519 parser (ADR-0022).
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 
 /// Bech32's 32-character data alphabet.
 const CHARSET: &str = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
@@ -56,15 +56,15 @@ impl std::fmt::Display for Reason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("agekey: {recipient:?} is not a valid age recipient: {reason}")]
+#[error("{recipient:?} is not a valid age recipient: {reason}")]
 pub struct Error {
     pub recipient: String,
     pub reason: Reason,
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
-        Code::Usage
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Usage
     }
 }
 
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn errors_are_usage_and_name_the_input() {
         let err = validate_recipient("not-a-valid-key").unwrap_err();
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
         assert!(err.to_string().contains("\"not-a-valid-key\""), "{err}");
     }
 }

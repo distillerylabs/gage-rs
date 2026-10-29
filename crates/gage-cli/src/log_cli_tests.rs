@@ -1,8 +1,8 @@
 //! `gage log` and `gage history --decrypt` through the real CLI,
 //! in-process.
 
+use crate::exitcode::ExitCode;
 use gage::entry::Entry;
-use gage::exitcode::Code;
 use gage::prompter::FakePrompter;
 use uuid::Uuid;
 
@@ -129,11 +129,11 @@ fn log_on_a_query_that_is_neither_a_title_nor_a_uuid() {
 
     for query in ["nonsense", &id.to_string()[..8]] {
         let r = env.cmd(&["log", query]);
-        assert_eq!(r.code, Code::NotFound, "{query}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::NotFound, "{query}: {}", r.stderr);
         assert_eq!(r.stdout, "");
     }
     let r = env.cmd(&["history", "--decrypt", "nonsense"]);
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn history_requires_decrypt() {
     env.insert_ok("v", &["Account"]);
     let prompter = unlocks();
     let r = env.run_with(&["history", "Account"], &prompter);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("--decrypt"), "{}", r.stderr);
     assert!(r.stderr.contains("gage log"), "{}", r.stderr);
     assert!(prompter.unlock_requests().is_empty());
@@ -229,9 +229,9 @@ fn history_with_no_query_is_a_usage_error() {
     let env = env_with_vault();
     let prompter = unlocks();
     let r = env.run_with(&["history", "--decrypt"], &prompter);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(prompter.unlock_requests().is_empty());
-    assert_eq!(env.cmd(&["history"]).code, Code::Usage);
+    assert_eq!(env.cmd(&["history"]).code, ExitCode::Usage);
 }
 
 // Oldest first; the first
@@ -323,7 +323,7 @@ fn history_decrypt_fails_on_an_undecryptable_revision() {
     gage::gitrepo::commit_all(&vault.path, &id.to_string()).unwrap();
 
     let r = env.cmd(&["history", "--decrypt", "Account"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stdout);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stdout);
     assert!(r.stderr.contains(&id.to_string()), "{}", r.stderr);
     assert!(
         !r.stdout.contains("== "),

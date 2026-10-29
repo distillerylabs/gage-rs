@@ -13,11 +13,13 @@ use uuid::Uuid;
 
 use super::*;
 use crate::entry::{Entry, ResolveError, Timestamp};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::gitrepo;
 use crate::gittest::Device;
 use crate::identity::Identity;
-use crate::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse};
+use crate::prompter::{
+    FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse, Warning,
+};
 use crate::remotesync::tests::{DEVICE, SyncVault, sample, unlocks};
 use crate::remotesync::{ConflictKind, REMOTE_OP_TIMEOUT, RemoteSyncer, SyncCause, SyncReport};
 use crate::syncerr::Kind;
@@ -384,7 +386,7 @@ fn keep_both_leaves_two_entries_the_resolver_disambiguates() {
         panic!("{err}");
     };
     assert_eq!(list.candidates.len(), 2, "{list:?}");
-    assert_eq!(err.code(), Code::Ambiguous);
+    assert_eq!(err.kind(), ErrorKind::Ambiguous);
 }
 
 // Skip is not a
@@ -399,7 +401,7 @@ fn skip_leaves_the_entry_conflicted_and_does_not_push() {
     assert!(!err.report.pushed && !err.report.merged, "{:?}", err.report);
     assert_eq!(err.report.skipped, 1);
     assert_eq!(err.report.resolved, 0);
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     // The divergence it declined to resolve is still there.
     assert_eq!(err.remote_kind(), Some(Kind::Diverged));
     assert!(err.to_string().contains("1 of 1"), "{err}");
@@ -486,7 +488,7 @@ fn abort_restores_the_pre_sync_state() {
     assert!(err.report.aborted);
     assert!(!err.report.pushed && !err.report.merged);
     assert_eq!(err.report.skipped, 0, "an abort is not a skip of each");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(p.conflicts_presented().len(), 1, "abort must stop asking");
     assert!(err.to_string().contains("aborted"), "{err}");
     f.assert_untouched();
@@ -741,8 +743,8 @@ impl Prompter for Observing<'_> {
     fn choose(&self, list: &crate::entry::CandidateList) -> Result<Uuid, PromptError> {
         self.inner.choose(list)
     }
-    fn warn(&self, msg: &str) {
-        self.inner.warn(msg)
+    fn warn(&self, warning: &Warning) {
+        self.inner.warn(warning)
     }
     fn resolve_conflict(&self, c: &EntryConflict) -> Result<Resolution, PromptError> {
         (self.before)();
@@ -797,7 +799,7 @@ fn a_failed_unlock_changes_nothing() {
         })
         .unwrap_err();
     assert!(matches!(*err.cause, SyncCause::Unlock(_)), "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert!(p.conflicts_presented().is_empty());
     f.assert_untouched();
 }
@@ -816,7 +818,7 @@ fn a_non_entry_conflict_is_refused_without_unlocking() {
     let err = unlock.run(&s.vault, &p).unwrap_err();
     assert!(err.to_string().contains("notes.txt"), "{err}");
     assert!(err.to_string().contains("not an entry"), "{err}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(p.conflicts_presented().is_empty());
     assert_eq!(unlock.calls(), 0);
     assert!(!err.report.merged && !err.report.pushed);
@@ -882,7 +884,7 @@ fn non_interactive_prompter_refuses_on_the_first_conflict() {
         fn choose(&self, _: &crate::entry::CandidateList) -> Result<Uuid, PromptError> {
             unreachable!()
         }
-        fn warn(&self, _: &str) {}
+        fn warn(&self, _: &Warning) {}
     }
 
     let f = Fixture::two();
@@ -891,7 +893,7 @@ fn non_interactive_prompter_refuses_on_the_first_conflict() {
         matches!(*err.cause, SyncCause::Prompt(PromptError::NotInteractive)),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(err.to_string().contains("needs someone to ask"), "{err}");
     assert_eq!(err.report.resolved, 0);
     f.assert_untouched();

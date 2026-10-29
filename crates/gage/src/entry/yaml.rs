@@ -800,8 +800,8 @@ fields:
         let err = marshal(&e).unwrap_err();
         assert!(matches!(err, Error::Unfaithful(_)), "{err}");
         assert_eq!(
-            crate::exitcode::HasCode::code(&err),
-            crate::exitcode::Code::Internal
+            crate::error::HasKind::kind(&err),
+            crate::error::ErrorKind::Internal
         );
     }
 
@@ -971,8 +971,8 @@ an_empty_map: {}
             let err = unmarshal(doc.as_bytes()).unwrap_err();
             assert!(matches!(err, Error::Parse(_)), "{doc:?}: {err}");
             assert_eq!(
-                crate::exitcode::HasCode::code(&err),
-                crate::exitcode::Code::Conflict
+                crate::error::HasKind::kind(&err),
+                crate::error::ErrorKind::Conflict
             );
         }
     }

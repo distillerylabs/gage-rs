@@ -15,9 +15,9 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use super::{Entry, Error, Extra, Timestamp, new_id};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::identity::Identity;
-use crate::prompter::Prompter;
+use crate::prompter::{Prompter, Warning};
 use crate::trustcache::TrustError;
 use crate::vault::Vault;
 use crate::{gitrepo, paths, vaultlock};
@@ -85,21 +85,28 @@ pub struct CandidateList {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ResolveError {
-    #[error("gage: no entry matches {query:?}")]
+    #[error("no entry matches {query:?}")]
     NotFound { query: String },
-    #[error("gage: {:?} is ambiguous: it matches {} entries", .0.query, .0.candidates.len())]
+    #[error("{:?} is ambiguous: it matches {} entries", .0.query, .0.candidates.len())]
     Ambiguous(CandidateList),
     /// Reading the vault's entries to resolve against failed.
     #[error(transparent)]
     Entry(#[from] Error),
 }
 
-impl HasCode for ResolveError {
-    fn code(&self) -> Code {
+impl HasKind for ResolveError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            ResolveError::NotFound { .. } => Code::NotFound,
-            ResolveError::Ambiguous(_) => Code::Ambiguous,
-            ResolveError::Entry(e) => e.code(),
+            ResolveError::NotFound { .. } => ErrorKind::NotFound,
+            ResolveError::Ambiguous(_) => ErrorKind::Ambiguous,
+            ResolveError::Entry(e) => e.kind(),
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            ResolveError::Entry(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -108,9 +115,7 @@ impl HasCode for ResolveError {
 #[non_exhaustive]
 pub enum WriteError {
     /// Another entry already has this exact title, and `force` was not set.
-    #[error(
-        "gage: an entry titled {title:?} already exists ({id}); use --force to insert a duplicate"
-    )]
+    #[error("an entry titled {title:?} already exists ({id})")]
     DuplicateTitle { title: String, id: Uuid },
     #[error(transparent)]
     Resolve(#[from] ResolveError),
@@ -126,7 +131,7 @@ pub enum WriteError {
     /// recipient list this device never reviewed.
     #[error(transparent)]
     Trust(#[from] TrustError),
-    #[error("gage: {action} {path}: {source}")]
+    #[error("{action} {path}: {source}")]
     Io {
         action: &'static str,
         path: std::path::PathBuf,
@@ -134,17 +139,30 @@ pub enum WriteError {
     },
 }
 
-impl HasCode for WriteError {
-    fn code(&self) -> Code {
+impl HasKind for WriteError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            WriteError::DuplicateTitle { .. } => Code::Conflict,
-            WriteError::Resolve(e) => e.code(),
-            WriteError::Entry(e) => e.code(),
-            WriteError::Path(e) => e.code(),
-            WriteError::Lock(e) => e.code(),
-            WriteError::Git(e) => e.code(),
-            WriteError::Trust(e) => e.code(),
-            WriteError::Io { .. } => Code::Internal,
+            WriteError::DuplicateTitle { .. } => ErrorKind::Conflict,
+            WriteError::Resolve(e) => e.kind(),
+            WriteError::Entry(e) => e.kind(),
+            WriteError::Path(e) => e.kind(),
+            WriteError::Lock(e) => e.kind(),
+            WriteError::Git(e) => e.kind(),
+            WriteError::Trust(e) => e.kind(),
+            WriteError::Io { .. } => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            WriteError::DuplicateTitle { .. } => Some(Remedy::Force),
+            WriteError::Resolve(e) => e.remedy(),
+            WriteError::Entry(e) => e.remedy(),
+            WriteError::Path(e) => e.remedy(),
+            WriteError::Lock(e) => e.remedy(),
+            WriteError::Git(e) => e.remedy(),
+            WriteError::Trust(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -531,10 +549,10 @@ impl Vault {
         // The working tree moved, as a pull moves it: a session's index
         // must not keep serving what the discarded files held.
         self.pulled.note();
-        prompter.warn(&format!(
-            "gage: discarded uncommitted changes left by an interrupted write: {}",
+        prompter.warn(&Warning::from(format!(
+            "discarded uncommitted changes left by an interrupted write: {}",
             discarded.join(", ")
-        ));
+        )));
         Ok(())
     }
 
@@ -565,18 +583,25 @@ impl Vault {
 pub enum LockError {
     #[error(transparent)]
     Lock(#[from] vaultlock::Error),
-    #[error("gage: creating {path}: {source}")]
+    #[error("creating {path}: {source}")]
     Io {
         path: std::path::PathBuf,
         source: std::io::Error,
     },
 }
 
-impl HasCode for LockError {
-    fn code(&self) -> Code {
+impl HasKind for LockError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            LockError::Lock(e) => e.code(),
-            LockError::Io { .. } => Code::Internal,
+            LockError::Lock(e) => e.kind(),
+            LockError::Io { .. } => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            LockError::Lock(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -768,7 +793,7 @@ mod tests {
             matches!(&err, WriteError::DuplicateTitle { id, .. } if *id == first),
             "{err}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         assert_eq!(f.vault.entry_ids().unwrap().len(), 1);
         assert_eq!(f.commits(), before, "a refused insert commits nothing");
     }
@@ -857,7 +882,7 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, WriteError::Git(_)), "{err}");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.kind(), ErrorKind::Internal);
         assert_eq!(f.commits(), before);
         let orphan = f.vault.entry_ids().unwrap();
         assert_eq!(orphan.len(), 1, "the file stays");
@@ -904,7 +929,7 @@ mod tests {
             matches!(&err, WriteError::Resolve(ResolveError::NotFound { query }) if query == "nope"),
             "{err}"
         );
-        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.kind(), ErrorKind::NotFound);
         assert_eq!(f.vault.entry_ids().unwrap().len(), 1);
         assert_eq!(f.commits(), before);
     }
@@ -961,7 +986,7 @@ mod tests {
         let mut entries = pairs(&["twin", "twin", "zzz"]);
         entries.sort_by_key(|(id, _)| std::cmp::Reverse(*id));
         let err = resolve_query("twin", &entries).unwrap_err();
-        assert_eq!(err.code(), Code::Ambiguous);
+        assert_eq!(err.kind(), ErrorKind::Ambiguous);
         let ResolveError::Ambiguous(list) = err else {
             panic!("want Ambiguous");
         };
@@ -978,7 +1003,7 @@ mod tests {
     fn resolve_unknown_query_fails() {
         let err = resolve_query("nothing", &pairs(&["a"])).unwrap_err();
         assert!(matches!(&err, ResolveError::NotFound { query } if query == "nothing"));
-        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.kind(), ErrorKind::NotFound);
         assert!(matches!(
             resolve_query("x", &[]).unwrap_err(),
             ResolveError::NotFound { .. }
@@ -1135,7 +1160,7 @@ mod tests {
         let a = f.insert_named("AWS root account");
         let b = f.insert_named("AWS IAM backup admin");
         let err = f.resolve("aws").unwrap_err();
-        assert_eq!(err.code(), Code::Ambiguous);
+        assert_eq!(err.kind(), ErrorKind::Ambiguous);
         let ResolveError::Ambiguous(list) = err else {
             panic!("want Ambiguous");
         };
@@ -1154,7 +1179,7 @@ mod tests {
         let a = f.write_with_id("aaaaaaaa-1111-4111-8111-111111111111", "Something", "1");
         let b = f.write_with_id("aaaaaaaa-2222-4222-8222-222222222222", "Something", "2");
         let err = f.resolve("aaaaaaaa").unwrap_err();
-        assert_eq!(err.code(), Code::Ambiguous);
+        assert_eq!(err.kind(), ErrorKind::Ambiguous);
         assert_eq!(candidate_ids(err), [a, b]);
     }
 
@@ -1196,9 +1221,9 @@ mod tests {
             matches!(ambiguous, ResolveError::Ambiguous(_)),
             "{ambiguous}"
         );
-        assert_eq!(not_found.code(), Code::NotFound);
-        assert_eq!(ambiguous.code(), Code::Ambiguous);
-        assert_ne!(not_found.code(), ambiguous.code());
+        assert_eq!(not_found.kind(), ErrorKind::NotFound);
+        assert_eq!(ambiguous.kind(), ErrorKind::Ambiguous);
+        assert_ne!(not_found.kind(), ambiguous.kind());
     }
 
     // --- update and rename ------------------------------------------------
@@ -1327,7 +1352,7 @@ mod tests {
             matches!(&err, WriteError::DuplicateTitle { title, id } if title == "Entry A" && *id == a),
             "{err}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         assert_eq!(f.commits(), before);
         assert_eq!(f.resolve("Entry B").unwrap().0, b, "B is unrenamed");
 
@@ -1377,7 +1402,7 @@ mod tests {
             matches!(&err, WriteError::Resolve(ResolveError::NotFound { .. })),
             "{err}"
         );
-        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.kind(), ErrorKind::NotFound);
         assert_eq!(f.commits(), before);
     }
 
@@ -1399,7 +1424,7 @@ mod tests {
                 &FakePrompter::new(),
             )
             .unwrap_err();
-        assert_eq!(err.code(), Code::Ambiguous);
+        assert_eq!(err.kind(), ErrorKind::Ambiguous);
         assert_eq!(f.commits(), before);
         assert!(f.resolve("Whatever").is_err());
     }
@@ -1460,7 +1485,7 @@ mod tests {
             matches!(err, crate::vault::ResolveError::NoVaultId { .. }),
             "{err}"
         );
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
         assert!(!f.dirs.state.exists(), "no lock directory was created");
     }
 
@@ -1601,7 +1626,7 @@ mod tests {
             matches!(err, WriteError::Lock(vaultlock::Error::Contended { .. })),
             "{err}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         assert!(f.vault.entry_ids().unwrap().is_empty());
         assert_eq!(f.commits(), before);
 

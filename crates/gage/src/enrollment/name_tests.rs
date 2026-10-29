@@ -7,7 +7,7 @@ use uuid::Uuid;
 use super::fixtures_tests::*;
 use super::name::{parse_pending_file_name, pending_file_name};
 use super::{DEFAULT_ENROLLMENT_TTL, EnrollmentError, MAX_ENROLLMENT_TTL};
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::vaultconfig::UnlockMethod;
 
 // <request-id>-<expires-epoch>.age,
@@ -83,7 +83,7 @@ fn seal_rejects_ttls_outside_the_ceiling() {
             f.vault
                 .seal_enrollment("phone", &joining, &UnlockMethod::Passphrase, ttl),
             EnrollmentError::InvalidTtl { .. },
-            Code::Usage
+            ErrorKind::Usage
         );
     }
     // The boundary itself is accepted: a ceiling, not one below it.

@@ -17,9 +17,9 @@ use sha2::{Digest, Sha256};
 
 use crate::entry::Timestamp;
 use crate::entry::WRITE_LOCK_TIMEOUT;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::gitrepo;
-use crate::prompter::{PromptError, Prompter};
+use crate::prompter::{PromptError, Prompter, Warning};
 use crate::recipient::{RecipientError, RecipientVerification, VerifyError};
 use crate::serde_opt::empty_as_none;
 use crate::vault::Vault;
@@ -72,23 +72,30 @@ impl RecipientChangeWarning {
     }
 
     /// The one line the opportunistic checks warn with, on unlock and on
-    /// sync, where nothing blocks and nobody is asked. It says what to do
-    /// next: the warning rides along with a read, so what it interrupts is
-    /// not what it is about.
+    /// sync, where nothing blocks and nobody is asked. With
+    /// [`RecipientChangeWarning::summary_remedy`] it says what to do next:
+    /// the warning rides along with a read, so what it interrupts is not
+    /// what it is about.
     pub fn summary(&self) -> String {
         if self.mismatched() {
             return format!(
-                "gage: {:?}'s recipient list changed since this device last confirmed it, and its two \
-                 recipient files now disagree — run `gage recipient verify`.",
+                "{:?}'s recipient list changed since this device last confirmed it, and its two \
+                 recipient files now disagree",
                 self.vault
             );
         }
         format!(
-            "gage: {:?}'s recipient list changed since this device last confirmed it ({}); \
+            "{:?}'s recipient list changed since this device last confirmed it ({}); \
              the next write here will ask you to review it.",
             self.vault,
             self.delta()
         )
+    }
+
+    /// What the summary's reader does next: check the files when they
+    /// disagree. Otherwise the next write asks, and nothing needs running.
+    pub fn summary_remedy(&self) -> Option<Remedy> {
+        self.mismatched().then_some(Remedy::RecipientVerify)
     }
 
     /// The summary's parenthetical: what moved, counted rather than listed,
@@ -145,16 +152,14 @@ pub enum TrustError {
     /// The recipient list changed and the answer was no. Nothing was
     /// written, and the cache stays where it was, so the same question
     /// comes back next time.
-    #[error(
-        "gage: the recipient list of {vault:?} changed and was not confirmed; nothing was written"
-    )]
+    #[error("the recipient list of {vault:?} changed and was not confirmed; nothing was written")]
     ChangeDeclined { vault: String },
     /// The recipient list changed and nobody could be asked: a frontend
     /// with no one at it. An unapproved list is exactly what the check
     /// refuses to encrypt to.
     #[error(
-        "gage: the recipient list of {vault:?} changed and could not be confirmed ({}); nothing was written. Run the command where you can answer, or with --yes",
-        source.to_string().trim_start_matches("gage: ")
+        "the recipient list of {vault:?} changed and could not be confirmed ({}); nothing was written",
+        source
     )]
     Unconfirmable { vault: String, source: PromptError },
     /// `recipient add`/`remove` refusing a vault whose two recipient files
@@ -164,31 +169,31 @@ pub enum TrustError {
     /// and the cache regenerated over a list nobody reviewed. It names
     /// every difference, since those are the whole content of the refusal.
     #[error(
-        "gage: the recipient files of {vault:?} disagree:\n{}\ngage: fix this with `gage recipient verify --repair`, which rewrites .age-recipients from .gage/config.toml and says what it drops",
+        "the recipient files of {vault:?} disagree:\n{}",
         difference_lines(.verification)
     )]
     OutOfSync {
         vault: String,
         verification: RecipientVerification,
     },
-    #[error("gage: reading {path}: {source}")]
+    #[error("reading {path}: {source}")]
     Read {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("gage: parsing {path}: {source}")]
+    #[error("parsing {path}: {source}")]
     Parse {
         path: PathBuf,
         source: Box<toml::de::Error>,
     },
-    #[error("gage: encoding {TRUST_FILE}: {0}")]
+    #[error("encoding {TRUST_FILE}: {0}")]
     Encode(#[from] toml::ser::Error),
-    #[error("gage: creating {path}: {source}")]
+    #[error("creating {path}: {source}")]
     CreateDir {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("gage: removing {path}: {source}")]
+    #[error("removing {path}: {source}")]
     Remove {
         path: PathBuf,
         source: std::io::Error,
@@ -216,21 +221,32 @@ impl From<vaultconfig::Error> for TrustError {
     }
 }
 
-impl HasCode for TrustError {
-    fn code(&self) -> Code {
+impl HasKind for TrustError {
+    fn kind(&self) -> ErrorKind {
         match self {
             // A human must decide, and didn't or couldn't.
             TrustError::ChangeDeclined { .. }
             | TrustError::Unconfirmable { .. }
-            | TrustError::OutOfSync { .. } => Code::Conflict,
-            TrustError::Write(e) => e.code(),
-            TrustError::Verify(e) => e.code(),
-            TrustError::Config(e) => e.code(),
+            | TrustError::OutOfSync { .. } => ErrorKind::Conflict,
+            TrustError::Write(e) => e.kind(),
+            TrustError::Verify(e) => e.kind(),
+            TrustError::Config(e) => e.kind(),
             TrustError::Read { .. }
             | TrustError::Parse { .. }
             | TrustError::Encode(_)
             | TrustError::CreateDir { .. }
-            | TrustError::Remove { .. } => Code::Internal,
+            | TrustError::Remove { .. } => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            TrustError::Unconfirmable { .. } => Some(Remedy::Yes),
+            TrustError::OutOfSync { .. } => Some(Remedy::RecipientRepair),
+            TrustError::Write(e) => e.remedy(),
+            TrustError::Verify(e) => e.remedy(),
+            TrustError::Config(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -496,7 +512,7 @@ impl Vault {
     /// acted on.
     pub(crate) fn warn_recipient_trust(&self, prompter: &dyn Prompter) {
         if let Ok(Some(warning)) = self.check_recipient_trust() {
-            prompter.warn(&warning.summary());
+            prompter.warn(&Warning::from(warning.summary()).with_remedy(warning.summary_remedy()));
         }
     }
 

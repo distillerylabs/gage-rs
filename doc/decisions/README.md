@@ -79,6 +79,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0049](0049-qr-crate.md) The QR crate: encode-only, no decoder
 - [0050](0050-line-editor.md) The line editor and the history file
 - [0051](0051-recovery-key-out-refusals.md) What `--recovery-key-out` refuses
+- [0054](0054-frontend-neutral-errors.md) The library's errors are frontend-neutral
 
 ### Device enrollment
 

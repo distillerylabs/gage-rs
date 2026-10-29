@@ -405,9 +405,7 @@ impl<'m> Op<'m> {
         });
         cb.push_negotiation(|updates| {
             if !self.alive() {
-                return Err(git2::Error::from_str(
-                    "gage: the remote operation timed out",
-                ));
+                return Err(git2::Error::from_str("the remote operation timed out"));
             }
             if updates.iter().any(|u| u.src() != u.dst()) {
                 self.sent.set(true);
@@ -441,9 +439,7 @@ impl<'m> Op<'m> {
         allowed: git2::CredentialType,
     ) -> Result<git2::Cred, git2::Error> {
         if !self.alive() {
-            return Err(git2::Error::from_str(
-                "gage: the remote operation timed out",
-            ));
+            return Err(git2::Error::from_str("the remote operation timed out"));
         }
         if let Method::SshAgent { user, .. } = self.method {
             let user = username.unwrap_or(user);
@@ -509,9 +505,7 @@ impl<'m> Op<'m> {
             syncerr::classify_fetch(&err)
         };
         match classified {
-            Some(e) => e
-                .annotate_auth(remoteauth::auth_hint(self.method.host()))
-                .into(),
+            Some(e) => e.annotate_auth(self.method.host()).into(),
             None => fail(op, dir)(err),
         }
     }

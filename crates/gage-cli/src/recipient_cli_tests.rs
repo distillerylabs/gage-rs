@@ -3,7 +3,7 @@
 //! recipient change grants is a real second device's, and what it can read
 //! is checked from that device.
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::prompter::FakePrompter;
 use gage::{gitrepo, recipients};
 
@@ -44,7 +44,7 @@ impl Env {
             &FakePrompter::new().with_passphrase(PASSPHRASE),
             format!("{value}\n").as_bytes(),
         );
-        assert_eq!(r.code, Code::Success, "insert {title}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "insert {title}: {}", r.stderr);
     }
 
     /// `gage recipient add <key> --device <device>`, required to succeed.
@@ -147,7 +147,7 @@ fn recipient_add_rejects_the_removed_reencrypt_flag() {
         &p,
     );
 
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("--reencrypt"), "{}", r.stderr);
     assert!(p.unlock_requests().is_empty());
     assert_eq!(t.a.head(), head);
@@ -203,7 +203,7 @@ fn recipient_remove_without_reencrypt_is_rejected_by_the_cli() {
 
     let r = t.a.run_with(&["recipient", "remove", "phone-1"], &p);
 
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stderr.contains("--reencrypt"), "{}", r.stderr);
     assert!(
         p.unlock_requests().is_empty(),
@@ -232,7 +232,7 @@ fn recipient_remove_reencrypt_prints_the_revocation_warning() {
     assert!(r.stdout.contains("removed recipient"), "{}", r.stdout);
     assert!(!t.a.recipients_file().contains(&key));
     let r = t.b.run(&["show", "ProtonMail"]);
-    assert_ne!(r.code, Code::Success, "B still reads it:\n{}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "B still reads it:\n{}", r.stdout);
 }
 
 // Vault-domain commands,
@@ -316,7 +316,7 @@ fn recipient_remove_of_this_device_asks_and_a_no_writes_nothing() {
     let r =
         t.a.run_with(&["recipient", "remove", A_DEVICE, "--reencrypt"], &p);
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("nothing was written"), "{}", r.stderr);
     assert_eq!(p.confirm_prompts().len(), 1);
     assert_eq!(t.a.head(), head);

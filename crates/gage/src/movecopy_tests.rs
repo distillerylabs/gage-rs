@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::entry::{Entry, NewEntry, Timestamp};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::movecopy::MoveError;
 use crate::prompter::FakePrompter;
 use crate::recipient_tests::Fixture;
@@ -184,7 +184,7 @@ fn move_rejects_the_source_vault_as_its_own_destination() {
         .unwrap_err();
 
     assert!(matches!(err, MoveError::SameVault { .. }), "{err}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     assert_eq!(f.vault.entry_ids().unwrap(), vec![id]);
     assert_eq!(f.commits(), before);
 }
@@ -284,7 +284,7 @@ fn move_declining_the_trust_check_aborts_the_whole_operation() {
         matches!(err, MoveError::Trust(TrustError::ChangeDeclined { .. })),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(s.vault.entry_ids().unwrap(), vec![entry]);
     assert_eq!(s.head(), s_head);
     assert_eq!(d.head(), d_head);

@@ -12,7 +12,7 @@ use super::fixtures_tests::*;
 use super::name::pending_file_name;
 use super::seal::{Attempt, Payload};
 use super::{EnrollmentError, MAX_PENDING_REQUEST_BYTES, PendingRequest};
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::vaultconfig::UnlockMethod;
 
 // Each is MalformedRequest
@@ -74,8 +74,8 @@ fn malformed_payloads_are_refused_as_malformed() {
             "{name}: {result:?}"
         );
         assert_eq!(
-            crate::exitcode::HasCode::code(&result.unwrap_err()),
-            Code::Conflict,
+            crate::error::HasKind::kind(&result.unwrap_err()),
+            ErrorKind::Conflict,
             "{name}"
         );
     }
@@ -169,7 +169,7 @@ fn validate_sealed_payload_rejects_non_toml() {
         let err = assert_enrollment_error!(
             f.vault.validate_payload(&request, plaintext, hours(0)),
             EnrollmentError::MalformedRequest { .. },
-            Code::Conflict
+            ErrorKind::Conflict
         );
         assert!(err.to_string().contains("not valid TOML"), "{err}");
     }
@@ -188,18 +188,18 @@ fn seal_enrollment_rejects_invalid_input() {
     let err = assert_enrollment_error!(
         seal("not a valid name!", &joining, "passphrase"),
         EnrollmentError::InvalidDevice { .. },
-        Code::Usage
+        ErrorKind::Usage
     );
     assert!(err.to_string().contains("device name"), "{err}");
     assert_enrollment_error!(
         seal("phone", "not-an-age-key", "passphrase"),
         EnrollmentError::InvalidPubkey(_),
-        Code::Usage
+        ErrorKind::Usage
     );
     let err = assert_enrollment_error!(
         seal("phone", &joining, "yubikey"),
         EnrollmentError::UnknownMethod { .. },
-        Code::Usage
+        ErrorKind::Usage
     );
     assert!(err.to_string().contains("passphrase"), "{err}");
 }
@@ -224,7 +224,7 @@ fn request_sealed_for_another_vault_is_refused() {
     let err = assert_enrollment_error!(
         open_all(&personal.vault, &req.code),
         EnrollmentError::WrongVault { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
     assert!(err.to_string().contains("\"work\""), "{err}");
 
@@ -289,7 +289,7 @@ fn oversized_file_is_skipped_even_when_handed_in_directly() {
     assert_enrollment_error!(
         f.vault.open_enrollment(&[direct], &codes(&req.code)),
         EnrollmentError::CodeWrong,
-        Code::LockedOrAuth
+        ErrorKind::LockedOrAuth
     );
     assert_eq!(f.vault.enrollment_decrypt_count(), 0);
 }

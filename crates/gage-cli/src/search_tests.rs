@@ -2,7 +2,7 @@
 //! the real CLI in-process: one-shot, and in a session driven by a typed
 //! script.
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 
 use crate::editor::fake::{Action, FakeEditor, Set};
 use crate::entry_tests::env_with_vault;
@@ -95,14 +95,14 @@ fn reindex_one_shot_has_nothing_to_rebuild() {
     let env = env_with_vault();
     // No passphrase scripted: an unlock would fail the test.
     let r = env.run_with(&["reindex"], &gage::prompter::FakePrompter::new());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("nothing to reindex"), "{}", r.stdout);
 
     let r = env.run_with(
         &["reindex", "--use", "no-such-vault"],
         &gage::prompter::FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
 }
 
 // Ls and search follow
@@ -272,7 +272,7 @@ fn no_search_or_reindex_failure_doubles_gages_own_prefix() {
         &["reindex", "--use", "nope"],
     ] {
         let r = env.run_with(args, &gage::prompter::FakePrompter::new());
-        assert_ne!(r.code, Code::Success, "{args:?}");
+        assert_ne!(r.code, ExitCode::Success, "{args:?}");
         assert!(r.stderr.starts_with("gage: "), "{args:?}: {}", r.stderr);
         assert!(!r.stderr.contains(&doubled), "{args:?}: {}", r.stderr);
     }

@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use crate::config;
 use crate::devicename;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::identityfile::{self, IDENTITY_FILE_EXTENSION, UnlockError};
 use crate::paths;
 use crate::prompter::Prompter;
@@ -26,9 +26,7 @@ pub enum IdentityAddError {
     /// The vault already lists a recipient under this label, so a second
     /// device answering to it would be indistinguishable from the first in
     /// every recipient listing.
-    #[error(
-        "device name {device:?} is already listed as a recipient of {vault:?}; choose another with --device"
-    )]
+    #[error("device name {device:?} is already listed as a recipient of {vault:?}")]
     DeviceNameTaken { device: String, vault: String },
     #[error(transparent)]
     Config(#[from] vaultconfig::Error),
@@ -36,14 +34,24 @@ pub enum IdentityAddError {
     Identity(#[from] UnlockError),
 }
 
-impl HasCode for IdentityAddError {
-    fn code(&self) -> Code {
+impl HasKind for IdentityAddError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            IdentityAddError::InvalidDeviceName(_) => Code::Usage,
-            IdentityAddError::ReservedDeviceLabel(e) => e.code(),
-            IdentityAddError::DeviceNameTaken { .. } => Code::Conflict,
-            IdentityAddError::Config(e) => e.code(),
-            IdentityAddError::Identity(e) => e.code(),
+            IdentityAddError::InvalidDeviceName(_) => ErrorKind::Usage,
+            IdentityAddError::ReservedDeviceLabel(e) => e.kind(),
+            IdentityAddError::DeviceNameTaken { .. } => ErrorKind::Conflict,
+            IdentityAddError::Config(e) => e.kind(),
+            IdentityAddError::Identity(e) => e.kind(),
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            IdentityAddError::DeviceNameTaken { .. } => Some(Remedy::ChooseDevice),
+            IdentityAddError::ReservedDeviceLabel(e) => e.remedy(),
+            IdentityAddError::Config(e) => e.remedy(),
+            IdentityAddError::Identity(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -58,10 +66,10 @@ pub enum ListIdentitiesError {
     },
 }
 
-impl HasCode for ListIdentitiesError {
-    fn code(&self) -> Code {
+impl HasKind for ListIdentitiesError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            ListIdentitiesError::Io { .. } => Code::Internal,
+            ListIdentitiesError::Io { .. } => ErrorKind::Internal,
         }
     }
 }

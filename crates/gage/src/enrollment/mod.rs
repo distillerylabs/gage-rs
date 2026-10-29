@@ -27,11 +27,10 @@ use zeroize::Zeroizing;
 pub use approve::{Approval, ApprovalOutcome, ApprovalResult};
 
 use crate::entry::LockError;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::recipient::RecipientError;
 use crate::recovery::ReservedLabel;
 use crate::remotesync::SyncError;
-use crate::syncerr::Kind;
 use crate::vault::Vault;
 use crate::vaultconfig::{self, UnlockMethod, VaultId};
 use crate::{agekey, atomicfile, config, crypt, gitrepo, identityfile, paths};
@@ -208,9 +207,7 @@ pub enum EnrollmentError {
     },
     /// Enrollment publishes a request through the remote, so a vault with
     /// none cannot be joined this way.
-    #[error(
-        "gage: {vault:?} has no remote, and enrollment publishes its request through one; configure one with `gage git set-remote`"
-    )]
+    #[error("{vault:?} has no remote, and enrollment publishes its request through one")]
     NoRemote { vault: String },
     /// The first thing enroll does with the network failed, before any
     /// identity was created or anything was asked.
@@ -220,13 +217,11 @@ pub enum EnrollmentError {
     /// commits the remote doesn't. A device that cannot decrypt anything
     /// cannot resolve that, so the advice is for the other side.
     #[error(
-        "gage: {vault:?} has diverged from its remote and nothing was changed; this device cannot reconcile it, so discard this copy (`gage vault remove {vault}`), `gage clone` it again, then run `gage identity enroll`"
+        "{vault:?} has diverged from its remote and nothing was changed; this device cannot reconcile it"
     )]
     Diverged { vault: String },
     /// A recipient already carries this device name with a different key.
-    #[error(
-        "gage: {vault:?} already has a recipient named {device:?} with a different key; pass --device with another name"
-    )]
+    #[error("{vault:?} already has a recipient named {device:?} with a different key")]
     DeviceNameTaken { device: String, vault: String },
     /// A fetch that failed for a reason other than being unreachable.
     #[error("{0}")]
@@ -243,28 +238,28 @@ pub enum EnrollmentError {
     /// the ordinary case, found before anything is asked, and it names the
     /// flag that fixes it.
     #[error(
-        "gage: another recipient of this vault already uses this request's device name: {device:?} already labels the key {pubkey} in vault {vault:?}; approve with --device NAME to record this request under a different name"
+        "another recipient of this vault already uses this request's device name: {device:?} already labels the key {pubkey} in vault {vault:?}"
     )]
     NameTaken {
         device: String,
         pubkey: String,
         vault: String,
     },
-    #[error("gage: no enrollment requests to approve")]
+    #[error("no enrollment requests to approve")]
     EmptyBatch,
     /// A request that was pending when it was opened and is not now, or no
     /// longer opens to what was shown. Its own variant rather than
     /// `NoSuchRequest`, which means the id was mistyped: here it most
     /// likely means another device resolved it.
     #[error(
-        "gage: no pending enrollment request with id {id:?}: it was still pending when it was opened and is not now — another device most likely approved or denied it in the meantime. Nothing was changed here: if it was approved elsewhere the device already has access, and if it was denied it should not be given any"
+        "no pending enrollment request with id {id:?}: it was still pending when it was opened and is not now — another device most likely approved or denied it in the meantime. Nothing was changed here: if it was approved elsewhere the device already has access, and if it was denied it should not be given any"
     )]
     NoLongerPending { id: String },
     /// Approval's fetch found the vault diverged from its remote. Unlike
     /// enroll's `Diverged`, the advice is the ordinary `gage sync`: an
     /// approver can decrypt, so that is exactly what resolves it.
-    #[error("gage: {summary} — nothing was approved, and the request is still pending")]
-    ApprovalDiverged { summary: String },
+    #[error("{summary} — nothing was approved, and the request is still pending")]
+    ApprovalDiverged { summary: String, remedy: Remedy },
     /// The recipient write's own refusals and failures, unchanged:
     /// `CannotGrantFullAccess`, `RecipientExists`, the trust question.
     #[error(transparent)]
@@ -277,37 +272,33 @@ pub enum EnrollmentError {
     Git(#[from] gitrepo::Error),
     #[error(transparent)]
     VaultConfig(#[from] vaultconfig::Error),
-    #[error("gage: writing the request: {0}")]
+    #[error("writing the request: {0}")]
     Write(#[from] atomicfile::Error),
 }
 
-/// What a failed publish says: the failure, then what survived it and what
-/// to run, naming `gage auth login` when the remote refused access.
+/// What a failed publish says: the failure, then what survived it. What to
+/// run is [`EnrollmentError::remedy`]'s.
 fn push_message(err: &SyncError) -> String {
-    let mut msg = format!(
-        "{err}; the request was not published, but this device's identity and the local commit are kept, so running `gage identity enroll` again is the way forward"
-    );
-    if err.remote_kind() == Some(Kind::Auth) && !msg.contains("gage auth login") {
-        msg.push_str(" (run `gage auth login` first)");
-    }
-    msg
+    format!(
+        "{err}; the request was not published, but this device's identity and the local commit are kept"
+    )
 }
 
-impl HasCode for EnrollmentError {
-    fn code(&self) -> Code {
+impl HasKind for EnrollmentError {
+    fn kind(&self) -> ErrorKind {
         use EnrollmentError::*;
         match self {
-            CodeWrong => Code::LockedOrAuth,
+            CodeWrong => ErrorKind::LockedOrAuth,
             Expired { .. }
             | ClockSkew { .. }
             | IdMismatch { .. }
             | MalformedRequest { .. }
             | WrongVault { .. }
-            | TooManyPending { .. } => Code::Conflict,
-            NoSuchRequest { .. } => Code::NotFound,
-            Ambiguous(_) => Code::Ambiguous,
+            | TooManyPending { .. } => ErrorKind::Conflict,
+            NoSuchRequest { .. } => ErrorKind::NotFound,
+            Ambiguous(_) => ErrorKind::Ambiguous,
             InvalidTtl { .. } | InvalidDevice { .. } | InvalidPubkey(_) | UnknownMethod { .. } => {
-                Code::Usage
+                ErrorKind::Usage
             }
             Random(_)
             | CodeMismatch
@@ -315,20 +306,49 @@ impl HasCode for EnrollmentError {
             | Seal(_)
             | Io { .. }
             | VaultConfig(_)
-            | Write(_) => Code::Internal,
-            NoRemote { .. } => Code::Usage,
+            | Write(_) => ErrorKind::Internal,
+            NoRemote { .. } => ErrorKind::Usage,
             Diverged { .. }
             | DeviceNameTaken { .. }
             | NameTaken { .. }
-            | ApprovalDiverged { .. } => Code::Conflict,
-            EmptyBatch => Code::Usage,
-            ReservedDeviceLabel(e) => e.code(),
-            NoLongerPending { .. } => Code::NotFound,
-            Recipient(e) => e.code(),
-            RemoteUnreachable(e) | Sync(e) | Push(e) => e.code(),
-            Identity(e) => e.code(),
-            Lock(e) => e.code(),
-            Git(e) => e.code(),
+            | ApprovalDiverged { .. } => ErrorKind::Conflict,
+            EmptyBatch => ErrorKind::Usage,
+            ReservedDeviceLabel(e) => e.kind(),
+            NoLongerPending { .. } => ErrorKind::NotFound,
+            Recipient(e) => e.kind(),
+            RemoteUnreachable(e) | Sync(e) | Push(e) => e.kind(),
+            Identity(e) => e.kind(),
+            Lock(e) => e.kind(),
+            Git(e) => e.kind(),
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        use EnrollmentError::*;
+        match self {
+            NoRemote { .. } => Some(Remedy::SetRemote),
+            Diverged { vault } => Some(Remedy::Reclone {
+                vault: vault.clone(),
+            }),
+            DeviceNameTaken { .. } => Some(Remedy::ChooseDevice),
+            NameTaken { .. } => Some(Remedy::ApproveWithDevice),
+            ApprovalDiverged { remedy, .. } => Some(remedy.clone()),
+            // Enrolling again is the way forward, after storing a token
+            // when the remote refused the one it had.
+            Push(e) => Some(Remedy::EnrollAgain {
+                auth_refused: e.remote_kind() == Some(crate::syncerr::Kind::Auth),
+                host: match e.remedy() {
+                    Some(Remedy::AuthLogin { host }) => Some(host),
+                    _ => None,
+                },
+            }),
+            ReservedDeviceLabel(e) => e.remedy(),
+            Recipient(e) => e.remedy(),
+            RemoteUnreachable(e) | Sync(e) => e.remedy(),
+            Identity(e) => e.remedy(),
+            Lock(e) => e.remedy(),
+            Git(e) => e.remedy(),
+            _ => None,
         }
     }
 }

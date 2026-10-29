@@ -10,7 +10,7 @@
 //! pulled-recipient-change tests.
 
 use crate::config::{self, Global, VaultEntry};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::gitrepo;
 use crate::gittest;
 use crate::identity_add::IdentityAddError;
@@ -320,7 +320,7 @@ fn add_identity_rejects_a_name_already_registered_as_a_recipient() {
         matches!(&err, IdentityAddError::DeviceNameTaken { device, .. } if device == DEVICE),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(
         !paths::identities_dir(&b.dirs, &b.vault.id).exists(),
         "a refused name must leave no directory behind"
@@ -337,7 +337,7 @@ fn add_identity_rejects_an_invalid_device_name() {
             matches!(&err, IdentityAddError::InvalidDeviceName(n) if n == bad),
             "{bad:?}: {err:?}"
         );
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
     }
     assert!(!paths::identities_dir(&b.dirs, &b.vault.id).exists());
 }

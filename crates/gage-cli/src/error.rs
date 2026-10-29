@@ -1,40 +1,47 @@
 //! How a command fails: an error message plus the exit code it renders as.
 //!
 //! Library errors arrive through `From`, carrying the code their
-//! `HasCode` impl gives them. Anything else is Internal unless a handler
+//! `HasKind` impl's kind maps to. Anything else is Internal unless a handler
 //! says otherwise, so no command can surface an unenumerated status by
 //! accident .
 
 use std::fmt;
 
-use gage::exitcode::{Code, HasCode};
+use gage::error::{HasKind, Remedy};
+
+use crate::exitcode::ExitCode;
 
 /// gage names itself in front of everything it reports, exactly once.
 pub const ERROR_PREFIX: &str = "gage: ";
 
 #[derive(Debug)]
 pub struct CliError {
-    code: Code,
+    code: ExitCode,
     err: anyhow::Error,
+    /// What the library error said would fix it, rendered after the
+    /// message. Taken at conversion: the chain can't be asked later.
+    remedy: Option<Remedy>,
 }
 
 impl CliError {
-    pub fn new(code: Code, msg: impl fmt::Display) -> CliError {
+    pub fn new(code: ExitCode, msg: impl fmt::Display) -> CliError {
         CliError {
             code,
             err: anyhow::anyhow!("{msg}"),
+            remedy: None,
         }
     }
 
     /// An error that never opted into a code.
     pub fn internal(err: anyhow::Error) -> CliError {
         CliError {
-            code: Code::Internal,
+            code: ExitCode::Internal,
             err,
+            remedy: None,
         }
     }
 
-    pub fn code(&self) -> Code {
+    pub fn code(&self) -> ExitCode {
         self.code
     }
 
@@ -48,11 +55,21 @@ impl CliError {
         self.err.chain().find_map(|cause| cause.downcast_ref::<E>())
     }
 
+    /// The same error, offering `remedy` after its message: for an error
+    /// the CLI builds from a library value that carries one.
+    pub fn with_remedy(self, remedy: Option<Remedy>) -> CliError {
+        CliError {
+            remedy: remedy.or(self.remedy),
+            ..self
+        }
+    }
+
     /// Adds context in front of the message, keeping the code.
     pub fn context(self, context: impl fmt::Display + Send + Sync + 'static) -> CliError {
         CliError {
             code: self.code,
             err: self.err.context(context),
+            remedy: self.remedy,
         }
     }
 }
@@ -74,43 +91,45 @@ impl fmt::Display for CliError {
             }
             rendered.push_str(&msg);
         }
+        if let Some(remedy) = &self.remedy {
+            rendered.push_str(&crate::remedy::render(remedy));
+        }
         f.write_str(&rendered)
     }
 }
 
 impl<E> From<E> for CliError
 where
-    E: HasCode + std::error::Error + Send + Sync + 'static,
+    E: HasKind + std::error::Error + Send + Sync + 'static,
 {
     fn from(err: E) -> CliError {
         CliError {
-            code: err.code(),
+            code: ExitCode::from(err.kind()),
+            remedy: err.remedy(),
             err: err.into(),
         }
     }
 }
 
-/// Adds [`ERROR_PREFIX`] to a message that doesn't already open with it.
-/// The one place errors and warnings get gage's name, so a message that
-/// already carries it is never doubled to `gage: gage: ...`.
-pub fn prefix_once(msg: &str) -> String {
-    if msg.starts_with(ERROR_PREFIX) {
-        msg.to_string()
-    } else {
-        format!("{ERROR_PREFIX}{msg}")
-    }
+/// An error as stderr shows it: [`ERROR_PREFIX`], then the message. No
+/// message arrives carrying gage's name (ADR-0054), so this is the one
+/// place an error gets it, exactly once.
+pub fn prefixed(msg: impl fmt::Display) -> String {
+    format!("{ERROR_PREFIX}{msg}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use gage::error::ErrorKind;
+
     #[derive(Debug, thiserror::Error)]
     #[error("library failure")]
-    struct Coded(Code);
+    struct Coded(ErrorKind);
 
-    impl HasCode for Coded {
-        fn code(&self) -> Code {
+    impl HasKind for Coded {
+        fn kind(&self) -> ErrorKind {
             self.0
         }
     }
@@ -118,7 +137,7 @@ mod tests {
     #[test]
     fn bare_error_is_internal() {
         let err = CliError::internal(anyhow::anyhow!("boom"));
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.code(), ExitCode::Internal);
     }
 
     // Every defined code round-trips (CLI half):
@@ -126,9 +145,12 @@ mod tests {
     // code.
     #[test]
     fn every_code_round_trips_through_cli_error() {
-        for code in gage::exitcode::all() {
+        for code in ExitCode::ALL {
             assert_eq!(CliError::new(code, "example failure").code(), code);
-            let from_library: CliError = Coded(code).into();
+        }
+        for kind in ErrorKind::ALL {
+            let code = ExitCode::from(kind);
+            let from_library: CliError = Coded(kind).into();
             assert_eq!(from_library.code(), code);
             let with_context = from_library.context("context");
             assert_eq!(with_context.code(), code);
@@ -150,7 +172,7 @@ mod tests {
         let rendered = err.to_string();
 
         assert_eq!(rendered.matches(&cause).count(), 1, "{rendered}");
-        assert!(rendered.starts_with("config: writing "), "{rendered}");
+        assert!(rendered.starts_with("writing "), "{rendered}");
 
         let with_context = err.context("saving");
         assert_eq!(with_context.to_string(), format!("saving: {rendered}"));
@@ -159,11 +181,11 @@ mod tests {
     // A typed error is found under any context, and only by its own type.
     #[test]
     fn downcast_ref_finds_a_typed_error_through_context() {
-        let err = CliError::from(Coded(Code::Usage)).context("outer");
-        assert_eq!(err.downcast_ref::<Coded>().unwrap().0, Code::Usage);
+        let err = CliError::from(Coded(ErrorKind::Usage)).context("outer");
+        assert_eq!(err.downcast_ref::<Coded>().unwrap().0, ErrorKind::Usage);
         assert!(err.downcast_ref::<std::io::Error>().is_none());
         assert!(
-            CliError::new(Code::Usage, "plain")
+            CliError::new(ExitCode::Usage, "plain")
                 .downcast_ref::<Coded>()
                 .is_none()
         );
@@ -172,19 +194,34 @@ mod tests {
     #[test]
     fn a_library_error_keeps_its_own_code() {
         let err: CliError = gage::paths::Error::InvalidDeviceName("x".into()).into();
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(err.code(), ExitCode::LockedOrAuth);
     }
 
-    // Rendering half. The
-    // end-to-end half (a real warning through Prompter::warn) waits for
-    // the milestone that adds warn.
+    // Every kind of error gets gage's name exactly once, at the front: one
+    // from the library, one the CLI made, one with context added, and a
+    // script line's.
     #[test]
-    fn prefix_once_never_doubles() {
-        assert_eq!(prefix_once("boom"), "gage: boom");
-        assert_eq!(prefix_once("gage: boom"), "gage: boom");
-        assert_eq!(
-            prefix_once(&prefix_once("continuing without x")),
-            "gage: continuing without x"
+    fn every_error_is_prefixed_exactly_once() {
+        let library: CliError = gage::paths::Error::InvalidDeviceName("x".into()).into();
+        let made = CliError::new(ExitCode::Usage, "bad flag");
+        let wrapped = CliError::new(ExitCode::Usage, "bad flag").context("saving");
+        let script = crate::repl::script_error(
+            CliError::from(Coded(ErrorKind::NotFound)),
+            "commands.gage",
+            3,
+            "show Foo",
         );
+        for err in [&library, &made, &wrapped, &script] {
+            let shown = prefixed(err);
+            assert!(shown.starts_with(ERROR_PREFIX), "{shown}");
+            assert_eq!(shown.matches(ERROR_PREFIX).count(), 1, "{shown}");
+        }
+        assert_eq!(prefixed(&wrapped), "gage: saving: bad flag");
+        assert_eq!(
+            prefixed(&script),
+            "gage: commands.gage:3: show Foo: library failure"
+        );
+        // The script's exit code is its command's, from the typed error.
+        assert_eq!(script.code(), ExitCode::NotFound);
     }
 }

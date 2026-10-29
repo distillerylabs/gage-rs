@@ -8,44 +8,44 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 
 /// Which step of an atomic write failed. The destination is untouched in
 /// every case, and the temp file has been removed.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("atomicfile: creating temp file for {path}: {source}")]
+    #[error("creating temp file for {path}: {source}")]
     CreateTemp {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("atomicfile: writing temp file for {path}: {source}")]
+    #[error("writing temp file for {path}: {source}")]
     Write {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("atomicfile: setting permissions for {path}: {source}")]
+    #[error("setting permissions for {path}: {source}")]
     Permissions {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("atomicfile: renaming into place at {path}: {source}")]
+    #[error("renaming into place at {path}: {source}")]
     Rename {
         path: PathBuf,
         source: std::io::Error,
     },
     /// [`write_new`]'s destination already exists. `source` is the
     /// rename's own error, of kind `AlreadyExists`.
-    #[error("atomicfile: {path} already exists")]
+    #[error("{path} already exists")]
     AlreadyExists {
         path: PathBuf,
         source: std::io::Error,
     },
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
-        Code::Internal
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Internal
     }
 }
 
@@ -321,6 +321,6 @@ mod tests {
         let err = write(&path, b"x", 0o600).unwrap_err();
 
         assert!(matches!(err, Error::CreateTemp { .. }), "{err}");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.kind(), ErrorKind::Internal);
     }
 }

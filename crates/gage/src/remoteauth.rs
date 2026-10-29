@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 use zeroize::Zeroizing;
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::paths;
 use crate::xdgpaths::Dirs;
 
@@ -30,15 +30,15 @@ pub enum Error {
     /// The host isn't a single safe path component.
     #[error(transparent)]
     Path(#[from] paths::Error),
-    #[error("gage: an empty token is not accepted")]
+    #[error("an empty token is not accepted")]
     EmptyToken,
-    #[error("gage: no token is stored for {host}")]
+    #[error("no token is stored for {host}")]
     NoToken { host: String },
     /// A stored token is readable by more than its owner. A token is a
     /// bearer credential, so a loosened mode is refused rather than used,
     /// the posture identity files take.
     #[error(
-        "gage: token file permissions are too permissive: {} is {mode:04o}, want 0600; fix it or run `gage auth login --host {host}` again",
+        "token file permissions are too permissive: {} is {mode:04o}, want 0600",
         path.display()
     )]
     InsecureToken {
@@ -48,37 +48,48 @@ pub enum Error {
     },
     #[error(transparent)]
     Write(#[from] crate::atomicfile::Error),
-    #[error("gage: {op} {}: {source}", path.display())]
+    #[error("{op} {}: {source}", path.display())]
     Io {
         op: &'static str,
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("gage: cannot parse remote {url:?}: {reason}")]
+    #[error("cannot parse remote {url:?}: {reason}")]
     BadRemote { url: String, reason: String },
     /// An SSH remote whose host only `~/.ssh/config` could resolve.
     #[error(
-        "gage: this remote depends on a ~/.ssh/config host alias, which gage does not read: {host:?} is not a resolvable host name. Re-spell the remote with the host's real name, or (recommended) use its HTTPS URL with `gage auth login`"
+        "this remote depends on a ~/.ssh/config host alias, which gage does not read: {host:?} is not a resolvable host name (re-spelling the remote with the host's real name also works)"
     )]
     SshConfigAlias { host: String },
     /// An SSH remote, and no ssh-agent to authenticate through.
     #[error(
-        "gage: this remote is SSH-spelled and gage could not reach ssh-agent ({reason}). SSH support is best-effort; use the remote's HTTPS URL with `gage auth login` instead"
+        "this remote is SSH-spelled and gage could not reach ssh-agent ({reason}). SSH support is best-effort"
     )]
     SshAgent { reason: String },
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
         match self {
-            Error::Path(e) => e.code(),
+            Error::Path(e) => e.kind(),
             Error::EmptyToken | Error::BadRemote { .. } | Error::SshConfigAlias { .. } => {
-                Code::Usage
+                ErrorKind::Usage
             }
             Error::NoToken { .. } | Error::InsecureToken { .. } | Error::SshAgent { .. } => {
-                Code::LockedOrAuth
+                ErrorKind::LockedOrAuth
             }
-            Error::Write(_) | Error::Io { .. } => Code::Internal,
+            Error::Write(_) | Error::Io { .. } => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            Error::InsecureToken { host, .. } => {
+                Some(Remedy::AuthLoginAgain { host: host.clone() })
+            }
+            Error::SshConfigAlias { .. } | Error::SshAgent { .. } => Some(Remedy::UseHttps),
+            Error::Path(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -369,19 +380,6 @@ fn agent_available() -> Result<(), Error> {
 /// anyway.
 fn is_ssh_config_alias(host: &str) -> bool {
     !host.is_empty() && !host.contains('.')
-}
-
-/// The sentence gage appends when a remote refuses access, so an expired
-/// or absent token names the host and the command that fixes it rather
-/// than surfacing a bare 403. A remote with no host is a local path, where
-/// no token exists to be wrong.
-pub fn auth_hint(host: &str) -> String {
-    if host.is_empty() {
-        return "check that the repository exists at that path and is readable".into();
-    }
-    format!(
-        "run `gage auth login --host {host}` to store a token for {host} (an existing one may have expired or been revoked)"
-    )
 }
 
 #[cfg(unix)]

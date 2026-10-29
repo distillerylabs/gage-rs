@@ -152,7 +152,7 @@ macro_rules! assert_enrollment_error {
             stringify!($pat)
         );
         assert_eq!(
-            $crate::exitcode::HasCode::code(&err),
+            $crate::error::HasKind::kind(&err),
             $code,
             "exit code for {err}"
         );

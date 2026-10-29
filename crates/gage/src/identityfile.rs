@@ -7,17 +7,19 @@
 //! Nothing here touches a terminal: every passphrase arrives through a
 //! [`Prompter`], and how many tries a human gets is the frontend's call.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use zeroize::Zeroizing;
 
 use crate::atomicfile;
 use crate::config;
 use crate::crypt;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::identity::{KeyLine, SECRET_KEY_PREFIX};
 use crate::paths;
-use crate::prompter::{Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse};
+use crate::prompter::{
+    Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse, Warning,
+};
 use crate::vaultconfig::VaultId;
 use crate::xdgpaths::Dirs;
 
@@ -50,6 +52,13 @@ pub enum UnlockError {
     /// file where the registration points.
     #[error("no local identity is registered for this device: {0}")]
     NoLocalIdentity(String),
+    /// The registration is complete but no identity file is where it
+    /// points: a device that hasn't joined the vault yet, most likely.
+    #[error(
+        "no local identity is registered for this device: expected a wrapped identity at {}",
+        .0.display()
+    )]
+    NoIdentityFile(PathBuf),
     /// This device's locally recorded method is one this build can't
     /// perform.
     #[error(
@@ -90,18 +99,28 @@ pub enum UnlockError {
     Wrap(crypt::Error),
 }
 
-impl HasCode for UnlockError {
-    fn code(&self) -> Code {
+impl HasKind for UnlockError {
+    fn kind(&self) -> ErrorKind {
         use UnlockError::*;
         match self {
             NoLocalIdentity(_)
+            | NoIdentityFile(_)
             | UnsupportedMethod { .. }
             | WrongPassphrase(_)
             | Prompter(_)
-            | EmptyPassphrase => Code::LockedOrAuth,
-            UnsafePath(e) => e.code(),
-            CorruptIdentityFile(_) => Code::Conflict,
-            Io { .. } | Write(_) | Config(_) | Wrap(_) => Code::Internal,
+            | EmptyPassphrase => ErrorKind::LockedOrAuth,
+            UnsafePath(e) => e.kind(),
+            CorruptIdentityFile(_) => ErrorKind::Conflict,
+            Io { .. } | Write(_) | Config(_) | Wrap(_) => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        use UnlockError::*;
+        match self {
+            NoIdentityFile(_) => Some(Remedy::EnrollOrRecover),
+            UnsafePath(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -131,9 +150,9 @@ pub fn create(
     let path = paths::identity_file_path(dirs, vault_id, device)?;
     if let Some(wrapped) = read(&path)? {
         let key = open(vault_name, device, &wrapped, p)?;
-        p.warn(&format!(
-            "gage: reusing the existing local identity file for {vault_name:?} (device {device}) rather than generating a new one"
-        ));
+        p.warn(&Warning::from(format!(
+            "reusing the existing local identity file for {vault_name:?} (device {device}) rather than generating a new one"
+        )));
         return Ok(key.recipient().to_string());
     }
 

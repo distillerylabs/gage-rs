@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use super::fixtures_tests::{DAY, open_all, seal_into, vault, write_pending};
 use super::*;
 use crate::entry::WRITE_LOCK_TIMEOUT;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::gittest;
 use crate::prompter::{FakePrompter, PromptError, Purpose};
 use crate::remotesync::RemoteSyncer;
@@ -153,7 +153,7 @@ fn enroll_with_a_wrong_passphrase_on_the_reuse_path_publishes_nothing() {
 
     let err = b.vault.enroll(B_DEVICE, DAY, &p).unwrap_err();
 
-    assert_eq!(err.code(), Code::LockedOrAuth, "{err}");
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth, "{err}");
     assert_eq!(commits(&b.vault), before);
     assert!(origin_pending(&a).is_empty());
     assert!(!b.vault.pending_dir().exists());
@@ -230,7 +230,7 @@ fn enroll_refuses_an_unusable_ttl_before_anything_happens() {
         let before = commits(&b.vault);
         let err = b.vault.enroll(B_DEVICE, ttl, &p).unwrap_err();
         assert!(matches!(err, EnrollmentError::InvalidTtl { .. }), "{err}");
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
         assert!(p.unlock_requests().is_empty());
         assert!(!identity_exists(&b, B_DEVICE));
         assert_eq!(commits(&b.vault), before);
@@ -388,8 +388,12 @@ fn enroll_refuses_a_name_that_labels_a_different_recipient() {
         matches!(err, EnrollmentError::DeviceNameTaken { .. }),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
-    assert!(err.to_string().contains("--device"), "{err}");
+    assert_eq!(err.kind(), ErrorKind::Conflict);
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::ChooseDevice),
+        "{err}"
+    );
     assert!(!identity_exists(&b, DEVICE));
     assert!(p.unlock_requests().is_empty());
 }
@@ -439,7 +443,7 @@ fn enroll_with_an_unreachable_remote_fails_before_anything_is_created() {
         matches!(err, EnrollmentError::RemoteUnreachable(_)),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Unreachable);
+    assert_eq!(err.kind(), ErrorKind::Unreachable);
     assert!(p.unlock_requests().is_empty());
     assert!(!identity_exists(&b, B_DEVICE));
     assert!(!b.vault.pending_dir().exists());
@@ -452,7 +456,7 @@ fn enroll_with_no_remote_fails_with_its_own_error() {
     let p = FakePrompter::new();
     let err = f.vault.enroll("phone", DAY, &p).unwrap_err();
     assert!(matches!(err, EnrollmentError::NoRemote { .. }), "{err}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     assert!(p.unlock_requests().is_empty());
 }
 
@@ -545,8 +549,17 @@ fn enroll_push_rejected_for_write_access_keeps_what_it_made() {
     let err = vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap_err();
 
     assert!(matches!(err, EnrollmentError::Push(_)), "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
-    assert!(err.to_string().contains("gage auth login"), "{err}");
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
+    assert!(
+        matches!(
+            err.remedy(),
+            Some(crate::error::Remedy::EnrollAgain {
+                auth_refused: true,
+                ..
+            })
+        ),
+        "{err}"
+    );
     assert!(identity_exists(&b, B_DEVICE), "the identity is kept");
     assert_eq!(commits(&b.vault), before + 1, "the local commit is kept");
     assert_eq!(b.vault.pending_enrollments().unwrap().len(), 1);
@@ -598,7 +611,7 @@ fn enroll_refuses_a_diverged_pull() {
 
     let err = b.vault.enroll(B_DEVICE, DAY, &p).unwrap_err();
 
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(!err.to_string().contains("gage sync"), "{err}");
     assert_eq!(commits(&b.vault), before);
     assert_eq!(b.vault.pending_enrollments().unwrap().len(), pending_before);
@@ -628,7 +641,7 @@ fn divergence_is_found_by_the_report_rather_than_an_error() {
     let err = b.vault.enroll(B_DEVICE, DAY, &p).unwrap_err();
 
     assert!(matches!(err, EnrollmentError::Diverged { .. }), "{err:?}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(p.unlock_requests().is_empty());
     assert_eq!(
         commits(&b.vault),

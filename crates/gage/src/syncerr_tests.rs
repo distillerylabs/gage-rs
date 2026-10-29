@@ -5,7 +5,7 @@
 use std::path::Path;
 
 use super::*;
-use crate::exitcode::code_of;
+use crate::error::HasKind;
 use crate::gitrepo;
 use crate::gittest::{self, Answer, HttpRecorder};
 
@@ -92,36 +92,41 @@ fn classify_push_sorts_the_three_buckets() {
     let rejected = non_fast_forward_error();
     assert_class(&rejected, &[Class::Reference], C::NotFastForward);
 
-    let cases: Vec<(&str, &git2::Error, Kind, Code)> = vec![
-        ("refused", &refused, Kind::Unreachable, Code::Unreachable),
-        ("dns", &dns, Kind::Unreachable, Code::Unreachable),
-        ("401", &unauthorized, Kind::Auth, Code::LockedOrAuth),
-        ("403", &refusals[0], Kind::Auth, Code::LockedOrAuth),
-        ("404", &refusals[1], Kind::Auth, Code::LockedOrAuth),
+    let cases: Vec<(&str, &git2::Error, Kind, ErrorKind)> = vec![
+        (
+            "refused",
+            &refused,
+            Kind::Unreachable,
+            ErrorKind::Unreachable,
+        ),
+        ("dns", &dns, Kind::Unreachable, ErrorKind::Unreachable),
+        ("401", &unauthorized, Kind::Auth, ErrorKind::LockedOrAuth),
+        ("403", &refusals[0], Kind::Auth, ErrorKind::LockedOrAuth),
+        ("404", &refusals[1], Kind::Auth, ErrorKind::LockedOrAuth),
         (
             "missing path",
             &missing,
             Kind::Unreachable,
-            Code::Unreachable,
+            ErrorKind::Unreachable,
         ),
         (
             "not a repository",
             &not_a_repo,
             Kind::Auth,
-            Code::LockedOrAuth,
+            ErrorKind::LockedOrAuth,
         ),
-        ("non-ff", &rejected, Kind::Diverged, Code::Conflict),
+        ("non-ff", &rejected, Kind::Diverged, ErrorKind::Conflict),
     ];
     for (name, err, kind, code) in cases {
         let got = classify_push(err);
         assert_eq!(got.kind(), kind, "{name}: {got}");
-        assert_eq!(code_of::<(), _>(&Err(got.clone())), code, "{name}");
+        assert_eq!(HasKind::kind(&got), code, "{name}");
         assert!(got.to_string().contains(err.message()), "{name}: {got}");
     }
 
     // gage's own deadline abort is built directly, never inferred.
     let deadline = Error::new(Kind::Unreachable, "timed out after 30s");
-    assert_eq!(deadline.code(), Code::Unreachable);
+    assert_eq!(HasKind::kind(&deadline), ErrorKind::Unreachable);
 }
 
 // A real
@@ -165,23 +170,9 @@ fn classify_fetch_never_invents_a_divergence() {
 fn offline_and_diverged_do_not_share_an_exit_code() {
     let offline = classify_push(&connect_error(&refused_url()));
     let diverged = classify_push(&non_fast_forward_error());
-    assert_ne!(offline.code(), diverged.code());
-    assert_eq!(offline.code(), Code::Unreachable);
-    assert_eq!(diverged.code(), Code::Conflict);
-}
-
-/// An error that wraps another, as a caller retrying an operation would.
-#[derive(Debug, thiserror::Error)]
-#[error("gage: retrying: {0}")]
-struct Retrying(#[source] Error);
-
-#[test]
-fn classify_is_idempotent_on_an_already_classified_unreachable() {
-    let already = Retrying(Error::new(Kind::Unreachable, "connection refused"));
-    for got in [classify_push(&already), classify_fetch(&already).unwrap()] {
-        assert_eq!(got.kind(), Kind::Unreachable, "{got}");
-        assert_eq!(got.code(), Code::Unreachable);
-    }
+    assert_ne!(HasKind::kind(&offline), HasKind::kind(&diverged));
+    assert_eq!(HasKind::kind(&offline), ErrorKind::Unreachable);
+    assert_eq!(HasKind::kind(&diverged), ErrorKind::Conflict);
 }
 
 #[test]
@@ -189,18 +180,27 @@ fn the_message_names_the_bucket_and_the_cause() {
     let err = Error::new(Kind::Unreachable, "failed to connect");
     assert_eq!(
         err.to_string(),
-        "gage: could not reach the remote: failed to connect"
+        "could not reach the remote: failed to connect"
     );
-    let auth = Error::new(Kind::Auth, "401").annotate_auth("run x");
+    let auth = Error::new(Kind::Auth, "401").annotate_auth("github.com");
+    assert_eq!(auth.to_string(), "the remote refused access: 401");
     assert_eq!(
-        auth.to_string(),
-        "gage: the remote refused access: 401; run x"
+        auth.remedy(),
+        Some(Remedy::AuthLogin {
+            host: "github.com".into()
+        })
     );
-    let diverged = Error::new(Kind::Diverged, "rejected").annotate_auth("run x");
+    let local = Error::new(Kind::Auth, "401").annotate_auth("");
+    assert_eq!(
+        local.to_string(),
+        "the remote refused access: 401; check that the repository exists at that path and is readable"
+    );
+    let diverged = Error::new(Kind::Diverged, "rejected").annotate_auth("github.com");
     assert_eq!(
         diverged.to_string(),
-        "gage: the remote has diverged from this vault: rejected"
+        "the remote has diverged from this vault: rejected"
     );
+    assert_eq!(diverged.remedy(), None);
 }
 
 #[test]

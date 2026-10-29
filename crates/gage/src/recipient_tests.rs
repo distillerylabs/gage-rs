@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::entry::{Entry, NewEntry};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::gitrepo;
 use crate::identity::Identity;
 use crate::prompter::FakePrompter;
@@ -324,7 +324,7 @@ fn recipient_add_refuses_an_actor_that_cannot_read_every_entry() {
         matches!(err, RecipientError::CannotGrantFullAccess { .. }),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     let msg = err.to_string();
     assert!(msg.contains("1 of 3"), "{msg}");
     assert!(msg.contains("personal"), "{msg}");
@@ -396,7 +396,7 @@ fn add_is_still_refused_on_a_dirty_tree_when_access_is_genuinely_partial() {
         matches!(err, RecipientError::CannotGrantFullAccess { .. }),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(err.to_string().contains("1 of 3"), "{err}");
     assert!(!err.to_string().contains(&hidden.to_string()), "{err}");
     assert!(p.confirm_prompts().is_empty());
@@ -426,7 +426,7 @@ fn add_recipient_rejects_invalid_device_name_or_pubkey() {
             ),
             "{device:?} {key:?}: {err:?}"
         );
-        assert_eq!(err.code(), Code::Usage, "{device:?} {key:?}");
+        assert_eq!(err.kind(), ErrorKind::Usage, "{device:?} {key:?}");
     }
     before.assert_still(&f);
 }
@@ -451,7 +451,7 @@ fn recipient_add_rejects_a_duplicate_key() {
         matches!(err, RecipientError::RecipientExists { .. }),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(err.to_string().contains(DEVICE), "{err}");
 
     let err = f
@@ -619,7 +619,7 @@ fn recipient_remove_without_reencrypt_is_rejected() {
         .unwrap_err();
 
     assert!(matches!(err, RecipientError::ReencryptRequired), "{err:?}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     assert!(err.to_string().contains("--reencrypt"), "{err}");
     assert!(
         start.elapsed() < Duration::from_secs(5),
@@ -709,7 +709,7 @@ fn recipient_remove_of_an_unknown_recipient_is_rejected() {
         matches!(&err, RecipientError::RecipientNotFound { query } if query == "no-such-device"),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::NotFound);
+    assert_eq!(err.kind(), ErrorKind::NotFound);
     before.assert_still(&f);
 }
 
@@ -730,7 +730,7 @@ fn recipient_remove_refuses_the_last_recipient() {
         matches!(&err, RecipientError::LastRecipient { device } if device == DEVICE),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert!(p.confirm_prompts().is_empty());
     before.assert_still(&f);
     assert_eq!(f.recipients_file().len(), 1);
@@ -756,7 +756,7 @@ fn recipient_remove_of_this_device_needs_confirmation() {
         matches!(err, RecipientError::SelfRemovalDeclined { .. }),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     let asked = declining.confirm_prompts();
     assert_eq!(asked.len(), 1);
     assert!(

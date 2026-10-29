@@ -9,7 +9,7 @@ use super::fixtures_tests::{assert_enrollment_error, good_payload, hand_seal, ho
 use super::name::pending_file_name;
 use super::seal::Payload;
 use super::*;
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::prompter::FakePrompter;
 use crate::recipient::RecipientError;
 use crate::reencrypt_tests::{crashed, crashing_after};
@@ -78,7 +78,7 @@ fn approval_writes_what_it_verified_under_the_lock_not_what_was_displayed() {
             &unlocks()
         ),
         EnrollmentError::NoLongerPending { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
     assert_eq!(
         key_listed_as(&a.vault, &swapped),
@@ -144,7 +144,7 @@ fn approval_refuses_a_request_whose_device_name_changed_after_it_was_shown() {
             &unlocks()
         ),
         EnrollmentError::NoLongerPending { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
     assert_eq!(key_listed_as(&a.vault, &opened.pubkey), None);
     assert_eq!(head(&a.vault), before);
@@ -226,7 +226,7 @@ fn a_refusal_under_the_lock_is_reported_as_itself() {
             &unlocks()
         ),
         EnrollmentError::WrongVault { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
     assert_eq!(key_listed_as(&a.vault, &opened.pubkey), None);
     assert_eq!(head(&a.vault), before);
@@ -266,7 +266,7 @@ fn a_request_that_expired_in_the_window_is_reported_as_expired() {
             &unlocks()
         ),
         EnrollmentError::Expired { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
     assert_eq!(key_listed_as(&a.vault, &opened.pubkey), None);
     assert_eq!(head(&a.vault), before);
@@ -328,7 +328,7 @@ fn the_authoritative_duplicate_check_still_fires_under_the_lock() {
     assert_enrollment_error!(
         approve_as(&a, &[Approval::new(opened)], &codes_of(&[&req]), &trusting),
         EnrollmentError::Recipient(RecipientError::RecipientExists { pubkey: None, .. }),
-        Code::Conflict
+        ErrorKind::Conflict
     );
 }
 
@@ -362,7 +362,7 @@ fn approval_refuses_an_empty_batch() {
     let err = assert_enrollment_error!(
         approve_as(&a, &[], &[], &unlocks()),
         EnrollmentError::EmptyBatch,
-        Code::Usage
+        ErrorKind::Usage
     );
     assert!(err.to_string().contains("approve"), "{err}");
 }

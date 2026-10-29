@@ -11,9 +11,10 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
 use gage::config::{GitMeta, RegistryError, VaultEntry};
-use gage::exitcode::{Code, HasCode};
+use gage::error::HasKind;
 use gage::prompter::Prompter;
 use gage::recovery::{RECOVERY_DEVICE_LABEL, check_device_label_free, new_recovery_key};
 use gage::syncerr::Kind;
@@ -26,7 +27,7 @@ use super::recoverykey::{
 };
 use super::{arg, cwd, dirs, fail, load_global, out};
 use crate::Io;
-use crate::error::{CliError, prefix_once};
+use crate::error::{CliError, prefixed};
 
 pub const LONG_ABOUT: &str = "Create a new vault.
 
@@ -197,7 +198,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
             // leave one orphaned private key behind.
             if let Err(rollback) = identityfile::remove(&dirs, &spec.id, &spec.device) {
                 return Err(fail(
-                    Code::Internal,
+                    ExitCode::Internal,
                     format!("{err} (and rolling back the generated identity failed: {rollback})"),
                 ));
             }
@@ -263,7 +264,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         // So it sets the exit code, and the push failure is reported
         // beside it.
         (Err(delivery), Err(push)) => {
-            let _ = writeln!(io.stderr, "{}", prefix_once(&push.to_string()));
+            let _ = writeln!(io.stderr, "{}", prefixed(&push));
             Err(delivery)
         }
         (Err(e), Ok(())) | (Ok(()), Err(e)) => Err(e),
@@ -301,17 +302,21 @@ fn publish(io: &mut Io, prompter: &dyn Prompter, v: &Vault, remote: &str) -> Res
         return Ok(());
     }
     let code = if missing_path {
-        Code::LockedOrAuth
+        ExitCode::LockedOrAuth
     } else {
-        err.code()
+        ExitCode::from(err.kind())
     };
-    let msg = err.to_string();
+    // The failure's own remedy (a login, for a refused token) stays with
+    // the failure, ahead of the line about creating the repository.
+    let remedy = err
+        .remedy()
+        .map(|r| crate::remedy::render(&r))
+        .unwrap_or_default();
     Err(fail(
         code,
         format!(
-            "{name:?} was created locally, but publishing it to {remote} failed: {}\n\
-             gage: gage never creates a repository for you — create an empty one there, then run `gage push`",
-            msg.strip_prefix("gage: ").unwrap_or(&msg)
+            "{name:?} was created locally, but publishing it to {remote} failed: {err}{remedy}\n\
+             gage: gage never creates a repository for you — create an empty one there, then run `gage push`"
         ),
     ))
 }
@@ -336,7 +341,7 @@ fn ensure_remote_token(io: &mut Io, prompter: &dyn Prompter, remote: &str) -> Re
     }
     let token = prompter
         .value(&format!("token for {host} (leave blank to skip)"))
-        .map_err(|e| fail(Code::LockedOrAuth, e))?;
+        .map_err(|e| fail(ExitCode::LockedOrAuth, e))?;
     if token.trim().is_empty() {
         return Ok(());
     }
@@ -369,14 +374,14 @@ pub fn resolve_device_name(explicit: Option<&str>, hostname: &str) -> Result<Str
             Ok(explicit.to_string())
         } else {
             Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!("--device {explicit:?} is invalid"),
             ))
         };
     }
     devicename::normalize(hostname).ok_or_else(|| {
         fail(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
                 "this machine's hostname ({hostname:?}) doesn't normalize to a usable device name; pass --device NAME"
             ),

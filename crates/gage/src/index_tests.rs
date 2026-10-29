@@ -584,7 +584,7 @@ fn index_page_lock_failure_warns_once_and_proceeds() {
 
     assert_eq!(s.list(None).unwrap().len(), 1, "proceeds unlocked");
     assert_eq!(index_warnings(&p).len(), 1, "{:?}", p.warnings());
-    assert!(index_warnings(&p)[0].starts_with("gage: "));
+    assert!(index_warnings(&p)[0].starts_with("could not lock personal's metadata index"));
     assert!(index_warnings(&p)[0].contains("personal"));
 
     s.list(None).unwrap();

@@ -181,7 +181,7 @@ fn restrict_dir(_dir: &std::path::Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use crate::entry::{Extra, Timestamp, new_id};
-    use crate::exitcode::{Code, HasCode};
+    use crate::error::{ErrorKind, HasKind};
     use crate::testsupport::fast_scrypt;
     use crate::xdgpaths::Dirs;
 
@@ -384,7 +384,7 @@ mod tests {
             matches!(&err, Error::Crypt(crypt::Error::InvalidRecipient { .. })),
             "{err}"
         );
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
         assert!(!f.vault.entries_dir().exists(), "nothing is written");
     }
 
@@ -413,7 +413,7 @@ mod tests {
             matches!(&err, Error::EntryNotFound { id: got } if *got == id),
             "{err}"
         );
-        assert_eq!(err.code(), Code::NotFound);
+        assert_eq!(err.kind(), ErrorKind::NotFound);
         assert!(err.to_string().contains(&id.to_string()));
     }
 
@@ -428,7 +428,7 @@ mod tests {
             matches!(err, Error::Crypt(crypt::Error::NotARecipient)),
             "{err}"
         );
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     }
 
     #[test]
@@ -446,7 +446,7 @@ mod tests {
             matches!(err, Error::Crypt(crypt::Error::CorruptCiphertext(_))),
             "{err}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         std::fs::write(&path, b"not an age file").unwrap();
         let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
         assert!(
@@ -468,7 +468,7 @@ mod tests {
         .unwrap();
         let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
         assert!(matches!(err, Error::Parse(_)), "{err}");
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
     }
 
     #[test]

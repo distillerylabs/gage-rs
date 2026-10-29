@@ -8,7 +8,7 @@ use super::fixtures_tests::*;
 use super::name::pending_file_name;
 use super::{EnrollmentError, MAX_ENROLLMENT_ATTEMPTS, PendingRequest};
 use crate::crypt;
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::vaultconfig::UnlockMethod;
 
 /// The `-> scrypt <salt> <logN>` stanza's logN, off a real header.
@@ -185,7 +185,7 @@ fn hostile_work_factor_costs_a_bounded_wait() {
         .recv_timeout(Duration::from_secs(30))
         .expect("opening a request claiming 2^30 did not return within 30s: the open path is not capping the work factor");
     // Refused, not honoured: the file did not open.
-    assert_enrollment_error!(result, EnrollmentError::CodeWrong, Code::LockedOrAuth);
+    assert_enrollment_error!(result, EnrollmentError::CodeWrong, ErrorKind::LockedOrAuth);
 }
 
 // ADR-0026: a claim above the enrollment cap that the identity
@@ -214,7 +214,7 @@ fn claimed_factor_is_capped_at_the_enrollment_cap() {
     assert_enrollment_error!(
         open_all(&f.vault, &req.code),
         EnrollmentError::CodeWrong,
-        Code::LockedOrAuth
+        ErrorKind::LockedOrAuth
     );
     let elapsed = start.elapsed();
     assert!(
@@ -255,7 +255,7 @@ fn wrong_code_opens_nothing() {
     assert_enrollment_error!(
         open_all(&f.vault, &wrong),
         EnrollmentError::CodeWrong,
-        Code::LockedOrAuth
+        ErrorKind::LockedOrAuth
     );
 }
 
@@ -304,7 +304,7 @@ fn malformed_code_is_rejected_before_any_decryption() {
         assert_enrollment_error!(
             open_all(&f.vault, typed),
             EnrollmentError::CodeWrong,
-            Code::LockedOrAuth
+            ErrorKind::LockedOrAuth
         );
     }
     assert_eq!(
@@ -353,7 +353,7 @@ fn sealed_id_must_match_the_filename() {
     assert_enrollment_error!(
         open_all(&f.vault, &code),
         EnrollmentError::IdMismatch { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
 
     // The same request under an epoch two hours from the sealed one: still
@@ -388,7 +388,7 @@ fn too_many_pending_is_refused_before_any_decryption() {
     let err = assert_enrollment_error!(
         open_all(&f.vault, &new_code()),
         EnrollmentError::TooManyPending { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
     assert_eq!(f.vault.enrollment_decrypt_count(), 0);
     assert!(err.to_string().contains("by id"), "{err}");
@@ -473,6 +473,6 @@ fn scope_is_honoured_not_treated_as_a_hint() {
     assert_enrollment_error!(
         f.vault.open_enrollment(&[scoped], &codes(&wanted.code)),
         EnrollmentError::CodeWrong,
-        Code::LockedOrAuth
+        ErrorKind::LockedOrAuth
     );
 }

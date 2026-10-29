@@ -13,8 +13,8 @@ use std::cell::RefCell;
 use std::io::{BufReader, Read};
 use std::rc::Rc;
 
+use crate::exitcode::ExitCode;
 use gage::config;
-use gage::exitcode::Code;
 use gage::paths;
 use gage::prompter::Prompter;
 use gage::session::{Session, SessionConfig};
@@ -24,7 +24,7 @@ use crate::Io;
 use crate::cli::{self, Outcome, ScriptSource};
 use crate::commands::{self, Keys};
 use crate::complete::{SessionHelper, resolve_session_command_name};
-use crate::error::{CliError, prefix_once};
+use crate::error::{CliError, prefixed};
 use crate::history::History;
 use crate::lineread::{LineReader, PlainLineReader, ReadOutcome, RustylineReader, read_one_line};
 use crate::registry::Registry;
@@ -101,12 +101,7 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
 
     let mut history = History::open(Some(&settings.history_file)).unwrap_or_else(|e| {
         // Losing recall is no reason to refuse a session: say so once.
-        let msg = e.to_string();
-        let _ = writeln!(
-            io.stderr,
-            "gage: continuing without command history: {}",
-            msg.trim_start_matches("gage: ")
-        );
+        let _ = writeln!(io.stderr, "gage: continuing without command history: {e}");
         History::open(None).expect("a disabled history always opens")
     });
     let mut reader: Box<dyn LineReader + '_> = if io.line_editor {
@@ -117,10 +112,7 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
             Rc::clone(&session),
         );
         Box::new(RustylineReader::new(&history.lines(), helper).map_err(|e| {
-            CliError::new(
-                Code::Internal,
-                format!("gage: starting the line editor: {e}"),
-            )
+            CliError::new(ExitCode::Internal, format!("starting the line editor: {e}"))
         })?)
     } else {
         Box::new(PlainLineReader)
@@ -173,8 +165,8 @@ pub fn run_script(
                 Ok(None) => return Ok(()),
                 Err(e) => {
                     return Err(CliError::new(
-                        Code::Internal,
-                        format!("gage: reading {name}: {e}"),
+                        ExitCode::Internal,
+                        format!("reading {name}: {e}"),
                     ));
                 }
             };
@@ -204,16 +196,8 @@ pub fn run_script(
 /// A failed line's error with where it came from, in the one place that
 /// can locate a failure in a file nobody watched run, keeping the exit
 /// code a script should fail with: the one its command would have.
-fn script_error(err: CliError, source: &str, line_no: usize, line: &str) -> CliError {
-    let code = err.code();
-    let msg = err.to_string();
-    CliError::new(
-        code,
-        format!(
-            "{source}:{line_no}: {line}: {}",
-            msg.trim_start_matches(crate::error::ERROR_PREFIX)
-        ),
-    )
+pub(crate) fn script_error(err: CliError, source: &str, line_no: usize, line: &str) -> CliError {
+    err.context(format!("{source}:{line_no}: {line}"))
 }
 
 /// The lines of a script, one at a time and never ahead.
@@ -232,9 +216,8 @@ impl Lines {
         match source {
             ScriptSource::Stdin => Ok(Lines::Stdin),
             ScriptSource::File(path) => {
-                let file = std::fs::File::open(path).map_err(|e| {
-                    CliError::new(Code::Usage, format!("gage: opening script: {e}"))
-                })?;
+                let file = std::fs::File::open(path)
+                    .map_err(|e| CliError::new(ExitCode::Usage, format!("opening script: {e}")))?;
                 Ok(Lines::File {
                     path: path.clone(),
                     file: BufReader::new(file),
@@ -288,8 +271,8 @@ impl Repl<'_, '_> {
                 Ok(ReadOutcome::Eof) => return Ok(()),
                 Err(e) => {
                     return Err(CliError::new(
-                        Code::Internal,
-                        format!("gage: reading a command: {e}"),
+                        ExitCode::Internal,
+                        format!("reading a command: {e}"),
                     ));
                 }
             };
@@ -343,7 +326,7 @@ impl Repl<'_, '_> {
 }
 
 fn report(io: &mut Io, err: &CliError) {
-    let _ = writeln!(io.stderr, "{}", prefix_once(&err.to_string()));
+    let _ = writeln!(io.stderr, "{}", prefixed(err));
 }
 
 /// Whether a line is typed by a human or read from a script. They differ in
@@ -408,9 +391,9 @@ fn run_command(
         && !info.availability.session_visible()
     {
         return Err(CliError::new(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
-                "gage: {0} is a one-shot command and isn't available in a session; run `gage {0}` from your shell instead",
+                "{0} is a one-shot command and isn't available in a session; run `gage {0}` from your shell instead",
                 info.name
             ),
         ));
@@ -418,9 +401,9 @@ fn run_command(
     let root = cli::build(reg, &io.build);
     if cli::reached_path(&root, args).is_empty() {
         return Err(CliError::new(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
-                "gage: unknown command {:?}; type `help` for what's available in a session",
+                "unknown command {:?}; type `help` for what's available in a session",
                 args[0]
             ),
         ));
@@ -444,7 +427,7 @@ fn run_command(
         Outcome::Command(name, matches) => {
             commands::run(name, &matches, io, &mut Keys::Session(session)).unwrap_or_else(|| {
                 Err(CliError::new(
-                    Code::Internal,
+                    ExitCode::Internal,
                     format!("{name} is not implemented yet"),
                 ))
             })
@@ -459,8 +442,8 @@ fn run_command(
 /// take over its own command stream.
 pub(crate) fn refuse_script_flags_in_session() -> CliError {
     CliError::new(
-        Code::Usage,
-        "gage: --script/--stdin start a session and aren't available inside one",
+        ExitCode::Usage,
+        "--script/--stdin start a session and aren't available inside one",
     )
 }
 
@@ -481,7 +464,7 @@ fn command_path(reg: &Registry, args: &[String]) -> String {
 /// commands use.
 fn session_use(session: &mut Session, args: &[String]) -> Result<(), CliError> {
     let [name] = args else {
-        return Err(CliError::new(Code::Usage, "gage: usage: use <vault>"));
+        return Err(CliError::new(ExitCode::Usage, "usage: use <vault>"));
     };
     session.use_vault(name).map_err(commands::session_failure)
 }
@@ -493,7 +476,7 @@ fn session_lock(session: &mut Session, io: &mut Io, args: &[String]) -> Result<(
     let name = match args {
         [] => None,
         [name] => Some(name.as_str()),
-        _ => return Err(CliError::new(Code::Usage, "gage: usage: lock [vault]")),
+        _ => return Err(CliError::new(ExitCode::Usage, "usage: lock [vault]")),
     };
     let targets: Vec<String> = match name {
         Some(name) => vec![name.to_string()],
@@ -522,7 +505,7 @@ fn session_lock(session: &mut Session, io: &mut Io, args: &[String]) -> Result<(
 /// timeout already applied.
 fn session_status(session: &mut Session, io: &mut Io, args: &[String]) -> Result<(), CliError> {
     if !args.is_empty() {
-        return Err(CliError::new(Code::Usage, "gage: usage: status"));
+        return Err(CliError::new(ExitCode::Usage, "usage: status"));
     }
     let states = session.status();
     if states.is_empty() {
@@ -558,9 +541,9 @@ fn session_help(reg: &Registry, io: &mut Io, topic: &[String]) -> Result<(), Cli
     let path = cli::reached_path(&root, topic);
     if path.len() != topic.len() {
         return Err(CliError::new(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
-                "gage: unknown help topic {:?}; type `help` for what's available in a session",
+                "unknown help topic {:?}; type `help` for what's available in a session",
                 topic.join(" ")
             ),
         ));
@@ -611,8 +594,8 @@ pub fn split_line(line: &str) -> Result<Vec<String>, CliError> {
     }
     if let Some(q) = quote {
         return Err(CliError::new(
-            Code::Usage,
-            format!("gage: unbalanced {q} in command line"),
+            ExitCode::Usage,
+            format!("unbalanced {q} in command line"),
         ));
     }
     if in_arg {

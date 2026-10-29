@@ -35,54 +35,45 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::entry::{self, Entry, ListEntry, ResolveError, resolve_query};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::identity::Identity;
 use crate::identityfile::UnlockError;
 use crate::index::Index;
-use crate::prompter::{PromptError, Prompter};
+use crate::prompter::{PromptError, Prompter, Warning};
 use crate::remotesync::{SyncError, SyncReport};
 use crate::search::{SearchResult, matches_body, sort_results};
 use crate::vault::Vault;
 
-/// Why the session's opener couldn't produce a vault: whatever the
-/// frontend's lookup failed with (an unregistered name, an unreadable
-/// config, a registration pointing at another vault), keeping its message
-/// and exit code.
-#[derive(Debug)]
-pub struct OpenError {
-    code: Code,
-    source: Box<dyn std::error::Error + Send + Sync>,
+/// Why the session's opener couldn't produce a vault: the frontend's
+/// lookup failed reading the registry, finding the name in it, or
+/// resolving the registration to the vault it names. Each variant's
+/// message is the inner error's, and `source()` is that error.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum OpenError {
+    #[error("{0}")]
+    Config(#[from] crate::config::Error),
+    #[error("{0}")]
+    Registry(#[from] crate::config::RegistryError),
+    #[error("{0}")]
+    Resolve(#[from] crate::vault::ResolveError),
 }
 
-impl OpenError {
-    pub fn new<E>(err: E) -> OpenError
-    where
-        E: std::error::Error + HasCode + Send + Sync + 'static,
-    {
-        OpenError {
-            code: err.code(),
-            source: Box::new(err),
+impl HasKind for OpenError {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            OpenError::Config(e) => e.kind(),
+            OpenError::Registry(e) => e.kind(),
+            OpenError::Resolve(e) => e.kind(),
         }
     }
-}
 
-impl std::fmt::Display for OpenError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.source.fmt(f)
-    }
-}
-
-// Transparent: the wrapped error's own source, so nobody renders the same
-// message twice.
-impl std::error::Error for OpenError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.source()
-    }
-}
-
-impl HasCode for OpenError {
-    fn code(&self) -> Code {
-        self.code
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            OpenError::Config(e) => e.remedy(),
+            OpenError::Registry(e) => e.remedy(),
+            OpenError::Resolve(e) => e.remedy(),
+        }
     }
 }
 
@@ -92,14 +83,14 @@ pub enum SessionError {
     /// No vault was named and none is current, or `use` was given an
     /// empty name. Reported before any prompt: there's no vault whose
     /// passphrase could be asked for.
-    #[error("gage: no vault is selected in this session: {hint}")]
+    #[error("no vault is selected in this session: {hint}")]
     NoCurrentVault { hint: &'static str },
     #[error(transparent)]
     Open(#[from] OpenError),
     #[error(transparent)]
     Unlock(#[from] UnlockError),
     /// `lock` named a vault this session never touched.
-    #[error("gage: {0:?} is not unlocked in this session")]
+    #[error("{0:?} is not unlocked in this session")]
     NotHeld(String),
     #[error(transparent)]
     Resolve(#[from] ResolveError),
@@ -112,21 +103,32 @@ pub enum SessionError {
     /// The prompter answered a candidate list with an id that wasn't in
     /// it: a frontend bug, refused rather than trusted, since it would
     /// otherwise select an arbitrary entry.
-    #[error("gage: the chosen id {0} is not one of the candidates offered")]
+    #[error("the chosen id {0} is not one of the candidates offered")]
     NotACandidate(Uuid),
 }
 
-impl HasCode for SessionError {
-    fn code(&self) -> Code {
+impl HasKind for SessionError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            SessionError::NoCurrentVault { .. } => Code::Usage,
-            SessionError::Open(e) => e.code(),
-            SessionError::Unlock(e) => e.code(),
-            SessionError::NotHeld(_) => Code::NotFound,
-            SessionError::Resolve(e) => e.code(),
-            SessionError::Entry(e) => e.code(),
-            SessionError::Choose(e) => e.code(),
-            SessionError::NotACandidate(_) => Code::Internal,
+            SessionError::NoCurrentVault { .. } => ErrorKind::Usage,
+            SessionError::Open(e) => e.kind(),
+            SessionError::Unlock(e) => e.kind(),
+            SessionError::NotHeld(_) => ErrorKind::NotFound,
+            SessionError::Resolve(e) => e.kind(),
+            SessionError::Entry(e) => e.kind(),
+            SessionError::Choose(e) => e.kind(),
+            SessionError::NotACandidate(_) => ErrorKind::Internal,
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            SessionError::Open(e) => e.remedy(),
+            SessionError::Unlock(e) => e.remedy(),
+            SessionError::Resolve(e) => e.remedy(),
+            SessionError::Entry(e) => e.remedy(),
+            SessionError::Choose(e) => e.remedy(),
+            _ => None,
         }
     }
 }
@@ -723,11 +725,11 @@ fn warn_index_lock_once(held: &mut HeldVault, prompter: &dyn Prompter) {
     let failed = held.index.as_ref().is_some_and(|i| !i.lock_ok());
     if failed && !held.index_warned {
         held.index_warned = true;
-        prompter.warn(&format!(
-            "gage: could not lock {}'s metadata index into memory; continuing without it, \
+        prompter.warn(&Warning::from(format!(
+            "could not lock {}'s metadata index into memory; continuing without it, \
              so cached titles/descriptions may be written to swap.",
             held.vault.name
-        ));
+        )));
     }
 }
 

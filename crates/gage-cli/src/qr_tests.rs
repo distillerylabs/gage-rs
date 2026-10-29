@@ -6,7 +6,7 @@
 //! when `--field` asked for one key) and leaves "does the crate encode
 //! correctly" to the crate. No decoder dependency (ADR-0049).
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use qrcode::{Color, QrCode};
 
 use crate::entry_tests::env_with_vault;
@@ -164,7 +164,7 @@ fn render_qr_is_square_ish_and_rectangular() {
 #[test]
 fn render_qr_rejects_an_empty_value() {
     let err = render_qr("").unwrap_err();
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.code(), ExitCode::Usage);
 }
 
 // A value no QR version holds is a usage error naming the
@@ -172,7 +172,7 @@ fn render_qr_rejects_an_empty_value() {
 #[test]
 fn render_qr_rejects_a_value_too_long_to_encode() {
     let err = render_qr(&"x".repeat(8000)).unwrap_err();
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.code(), ExitCode::Usage);
     assert!(err.to_string().contains("too long"), "{err}");
 }
 
@@ -237,6 +237,6 @@ fn show_qr_of_an_empty_field_is_a_usage_error() {
     let env = env_with_vault();
     env.insert_ok("v", &["Proton", "--field", "note="]);
     let r = env.cmd(&["show", "Proton", "--field", "note", "-q"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(r.stdout.is_empty(), "{}", r.stdout);
 }

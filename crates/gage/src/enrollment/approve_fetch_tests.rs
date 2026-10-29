@@ -15,7 +15,7 @@ use super::fixtures_tests::{assert_enrollment_error, good_payload, hand_seal, wr
 use super::name::pending_file_name;
 use super::*;
 use crate::entry::WRITE_LOCK_TIMEOUT;
-use crate::exitcode::Code;
+use crate::error::ErrorKind;
 use crate::gittest;
 use crate::identity::Identity;
 use crate::prompter::FakePrompter;
@@ -108,10 +108,10 @@ fn approval_refuses_a_diverged_remote_before_writing_anything() {
     let err = assert_enrollment_error!(
         approve_with(&a.vault, &identity, &req, &unlocks()),
         EnrollmentError::ApprovalDiverged { .. },
-        Code::Conflict
+        ErrorKind::Conflict
     );
 
-    assert!(err.to_string().contains("gage sync"), "{err}");
+    assert_eq!(err.remedy(), Some(crate::error::Remedy::Sync), "{err}");
     assert_eq!(head(&a.vault), before);
     assert_eq!(a.vault.recipients().unwrap(), list_before);
     assert_eq!(pending_names(&a.vault).len(), 1);
@@ -209,7 +209,7 @@ fn approval_reports_a_request_resolved_by_another_device() {
             &unlocks()
         ),
         EnrollmentError::NoLongerPending { .. },
-        Code::NotFound
+        ErrorKind::NotFound
     );
     assert!(err.to_string().contains("another device"), "{err}");
     assert_eq!(key_listed_as(&a.vault, &req.pubkey), None);
@@ -242,9 +242,13 @@ fn approval_warns_when_its_push_fails() {
         !warnings.contains(UNPUSHED_WRITE_CLAUSE),
         "the generic clause:\n{warnings}"
     );
-    for want in ["locked out", "gage push"] {
-        assert!(warnings.contains(want), "never says {want:?}:\n{warnings}");
-    }
+    assert!(warnings.contains("locked out"), "{warnings}");
+    assert!(
+        p.warned()
+            .iter()
+            .any(|w| w.remedy == Some(crate::error::Remedy::Push)),
+        "never offers a push:\n{warnings}"
+    );
     assert!(pending_names(&a.vault).is_empty());
     assert!(remote_has(&a, &request_path(&req)), "the push didn't fail");
 }

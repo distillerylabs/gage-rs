@@ -1,6 +1,6 @@
 //! `gage mv` and `gage cp` through the real CLI, in-process.
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::gitrepo;
 use gage::prompter::FakePrompter;
 
@@ -49,7 +49,7 @@ fn mv_through_the_cli_moves_entry_between_vaults() {
     );
     assert_eq!(
         env.cmd(&["show", "GitHub", "--use", "personal"]).code,
-        Code::NotFound
+        ExitCode::NotFound
     );
 }
 
@@ -76,7 +76,7 @@ fn mv_requires_the_to_vault_flag() {
 
     for verb in ["mv", "cp"] {
         let r = env.run_with(&[verb, "GitHub", "--use", "personal"], &p);
-        assert_eq!(r.code, Code::Usage, "{verb}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{verb}: {}", r.stderr);
         assert!(r.stderr.contains("--to-vault"), "{verb}: {}", r.stderr);
     }
     assert!(p.unlock_requests().is_empty());
@@ -96,7 +96,7 @@ fn mv_to_an_unregistered_vault_fails_cleanly() {
         &p,
     );
 
-    assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
     assert!(r.stderr.contains("ghost"), "{}", r.stderr);
     assert!(p.unlock_requests().is_empty(), "the source was unlocked");
     assert_eq!(
@@ -125,7 +125,7 @@ fn mv_to_its_own_source_vault_is_rejected() {
             ],
             &p,
         );
-        assert_eq!(r.code, Code::Usage, "{verb}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{verb}: {}", r.stderr);
     }
     assert!(p.unlock_requests().is_empty(), "unlocked before refusing");
     assert_eq!(env.commits_in("personal"), before);
@@ -139,7 +139,7 @@ fn mv_to_its_own_source_vault_is_rejected() {
         &["mv", "GitHub", "--to-vault", "alias", "--use", "personal"],
         &p,
     );
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(p.unlock_requests().is_empty());
 }
 
@@ -165,7 +165,7 @@ fn mv_declining_the_trust_check_aborts_through_the_cli() {
         &p,
     );
 
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert_eq!(p.recipient_changes().len(), 1);
     assert_eq!(p.recipient_changes()[0].vault, "shared");
     assert_eq!(
@@ -175,7 +175,7 @@ fn mv_declining_the_trust_check_aborts_through_the_cli() {
     assert!(env.titles_in("personal").contains("GitHub"));
     assert_eq!(
         env.cmd(&["show", "GitHub", "--use", "shared"]).code,
-        Code::NotFound,
+        ExitCode::NotFound,
         "the destination has the entry after a declined mv"
     );
     assert!(gitrepo::is_clean(&shared).unwrap());

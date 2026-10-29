@@ -50,11 +50,13 @@ fn load_refuses_a_token_others_can_read() {
         matches!(err, Error::InsecureToken { mode: 0o644, .. }),
         "{err}"
     );
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert!(!err.to_string().contains("ghp_example"), "{err}");
-    assert!(
-        err.to_string()
-            .contains("gage auth login --host github.com"),
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::AuthLoginAgain {
+            host: "github.com".into()
+        }),
         "{err}"
     );
 }
@@ -120,7 +122,7 @@ fn host_reads_both_remote_spellings() {
         assert_eq!(host(url).unwrap(), want, "{url}");
     }
     let err = host("https://").unwrap_err();
-    assert_eq!(err.code(), Code::Usage, "{err}");
+    assert_eq!(err.kind(), ErrorKind::Usage, "{err}");
 }
 
 #[test]
@@ -144,10 +146,10 @@ fn ssh_remote_needing_ssh_config_fails_with_the_real_reason() {
     let (_root, dirs) = machine();
     let err = method(&dirs, "git@internal:secrets/work-vault.git").unwrap_err();
     assert!(matches!(err, Error::SshConfigAlias { .. }), "{err}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     let msg = err.to_string();
     assert!(msg.contains("~/.ssh/config"), "{msg}");
-    assert!(msg.contains("HTTPS"), "{msg}");
+    assert_eq!(err.remedy(), Some(crate::error::Remedy::UseHttps), "{msg}");
 }
 
 // Whether an agent is running
@@ -177,7 +179,7 @@ fn store_refuses_an_empty_token() {
     for token in ["", "   ", "\n"] {
         let err = store(&dirs, "github.com", token).unwrap_err();
         assert!(matches!(err, Error::EmptyToken), "{token:?}");
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
     }
     assert!(!paths::tokens_dir(&dirs).join("github.com").exists());
 }
@@ -194,14 +196,20 @@ fn host_cannot_escape_the_tokens_directory() {
 }
 
 #[test]
-fn auth_hint_names_the_host_and_the_command() {
-    let hint = auth_hint("github.com");
-    assert!(hint.contains("github.com"), "{hint}");
-    assert!(hint.contains("gage auth login"), "{hint}");
+fn an_auth_failure_offers_a_login_for_its_host() {
+    use crate::error::{HasKind, Remedy};
+    use crate::syncerr;
+    let refused = || syncerr::Error::new(syncerr::Kind::Auth, "401");
+    assert_eq!(
+        refused().annotate_auth("github.com").remedy(),
+        Some(Remedy::AuthLogin {
+            host: "github.com".into()
+        })
+    );
     // A local path has no token to be wrong.
-    let local = auth_hint("");
-    assert!(!local.contains("gage auth login"), "{local}");
-    assert!(local.contains("path"), "{local}");
+    let local = refused().annotate_auth("");
+    assert_eq!(local.remedy(), None);
+    assert!(local.to_string().contains("path"), "{local}");
 }
 
 #[test]

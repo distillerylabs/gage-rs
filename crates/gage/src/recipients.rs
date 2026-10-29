@@ -6,25 +6,25 @@
 use std::path::{Path, PathBuf};
 
 use crate::atomicfile;
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("recipients: reading {path}: {source}")]
+    #[error("reading {path}: {source}")]
     Read {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("recipients: writing {path}: {source}")]
+    #[error("writing {path}: {source}")]
     Write {
         path: PathBuf,
         source: atomicfile::Error,
     },
 }
 
-impl HasCode for Error {
-    fn code(&self) -> Code {
-        Code::Internal
+impl HasKind for Error {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Internal
     }
 }
 
@@ -133,7 +133,7 @@ mod tests {
             matches!(&err, Error::Read { source, .. } if source.kind() == std::io::ErrorKind::NotFound),
             "{err:?}"
         );
-        assert!(err.to_string().starts_with("recipients: reading"), "{err}");
+        assert!(err.to_string().starts_with("reading"), "{err}");
     }
 
     // An overlong line is not silently truncated or dropped. Rust's
@@ -154,7 +154,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let err = write(&dir.path().join("missing/.age-recipients"), &keys()).unwrap_err();
         assert!(matches!(err, Error::Write { .. }), "{err:?}");
-        assert!(err.to_string().starts_with("recipients: writing"), "{err}");
+        assert!(err.to_string().starts_with("writing"), "{err}");
     }
 
     #[cfg(unix)]

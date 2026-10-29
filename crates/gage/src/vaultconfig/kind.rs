@@ -13,7 +13,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 
 /// The kind of store a vault is. Today's only one is git.
 ///
@@ -34,9 +34,9 @@ pub enum VaultType {
 #[error("unknown vault type {0:?}; accepted: {accepted}", accepted = VaultType::names(", "))]
 pub struct UnknownVaultType(pub String);
 
-impl HasCode for UnknownVaultType {
-    fn code(&self) -> Code {
-        Code::Usage
+impl HasKind for UnknownVaultType {
+    fn kind(&self) -> ErrorKind {
+        ErrorKind::Usage
     }
 }
 
@@ -194,7 +194,7 @@ mod tests {
         let err = "s3".parse::<VaultType>().unwrap_err();
         assert_eq!(err, UnknownVaultType("s3".into()));
         assert_eq!(err.to_string(), "unknown vault type \"s3\"; accepted: git");
-        assert_eq!(err.code(), Code::Usage);
+        assert_eq!(err.kind(), ErrorKind::Usage);
     }
 
     // Lenient: a method a later build adds parses, and is written back

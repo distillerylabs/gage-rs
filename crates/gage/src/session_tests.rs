@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use crate::config::{self, Global, RegistryError, VaultEntry};
 use crate::entry::{NewEntry, ResolveError};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::locker::Locker;
 use crate::memlock;
 use crate::paths;
@@ -147,7 +147,7 @@ impl Device {
         self.vaults
             .get(name)
             .cloned()
-            .ok_or_else(|| OpenError::new(RegistryError::NotRegistered(name.to_string())))
+            .ok_or_else(|| OpenError::Registry(RegistryError::NotRegistered(name.to_string())))
     }
 
     pub(crate) fn session<'a>(&'a self, prompter: &'a FakePrompter, cfg: Cfg) -> Session<'a> {
@@ -262,7 +262,7 @@ fn session_use_with_empty_name_says_so() {
 
     let err = s.use_vault("").unwrap_err();
     assert!(matches!(err, SessionError::NoCurrentVault { .. }), "{err}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
 }
 
 // Reported before any prompt:
@@ -275,7 +275,7 @@ fn session_with_no_current_vault_says_so() {
 
     let err = s.vault(None).unwrap_err();
     assert!(matches!(err, SessionError::NoCurrentVault { .. }), "{err}");
-    assert_eq!(err.code(), Code::Usage);
+    assert_eq!(err.kind(), ErrorKind::Usage);
     assert!(p.unlock_requests().is_empty());
 }
 
@@ -289,7 +289,7 @@ fn session_open_failure_keeps_the_openers_code_and_never_prompts() {
 
     let err = s.use_vault("nope").unwrap_err();
     assert!(matches!(err, SessionError::Open(_)), "{err}");
-    assert_eq!(err.code(), Code::NotFound);
+    assert_eq!(err.kind(), ErrorKind::NotFound);
     assert!(err.to_string().contains("nope"), "{err}");
     assert_eq!(s.current(), None, "a failed use selects nothing");
     assert!(
@@ -509,7 +509,7 @@ fn inherent_impl_scan_finds_what_it_should() {
     let src = "
         impl Session { fn insert(&self) {} }
         impl<'a> Session<'a> { fn a(&self) { if x { y } } }
-        impl HasCode for Session { fn code(&self) {} }
+        impl HasKind for Session { fn code(&self) {} }
         impl SessionError { fn insert(&self) {} }
         fn simple_impl() {}
         impl<'a> crate::session::Session<'a> { fn remove(&self) {} }
@@ -576,7 +576,7 @@ fn session_lock_unknown_vault_reports() {
         matches!(err, SessionError::NotHeld(ref n) if n == "nope"),
         "{err}"
     );
-    assert_eq!(err.code(), Code::NotFound);
+    assert_eq!(err.kind(), ErrorKind::NotFound);
 }
 
 #[test]
@@ -807,7 +807,7 @@ fn session_resolve_refuses_an_id_that_was_never_offered() {
         matches!(err, SessionError::NotACandidate(id) if id == ids[2]),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Internal);
+    assert_eq!(err.kind(), ErrorKind::Internal);
 }
 
 // A
@@ -825,7 +825,7 @@ fn resolve_ambiguous_with_no_prompter_returns_candidates() {
         panic!("want the candidate list, got {err}");
     };
     assert_eq!(list.candidates.len(), 2);
-    assert_eq!(err.code(), Code::Ambiguous);
+    assert_eq!(err.kind(), ErrorKind::Ambiguous);
 }
 
 // A picker that gives up is reported as its own failure, coded Ambiguous,
@@ -842,7 +842,7 @@ fn a_picker_that_gives_up_is_ambiguous() {
         matches!(err, SessionError::Choose(PromptError::NoChoice(3))),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Ambiguous);
+    assert_eq!(err.kind(), ErrorKind::Ambiguous);
 }
 
 // --- page locks -------------------------------------------------------------
@@ -1053,5 +1053,23 @@ fn the_destination_of_a_move_is_held_but_never_unlocked() {
         unlock_count(&p, "personal"),
         1,
         "asked again for the source"
+    );
+}
+
+// A frontend matches why a vault didn't open, and the chain reaches the
+// lookup's own error rather than skipping past it.
+#[test]
+fn open_error_is_matchable_and_its_source_is_the_lookup_error() {
+    let err = OpenError::Registry(RegistryError::NotRegistered("work".into()));
+    assert!(matches!(
+        &err,
+        OpenError::Registry(RegistryError::NotRegistered(name)) if name == "work"
+    ));
+    assert_eq!(err.kind(), ErrorKind::NotFound);
+    assert_eq!(err.to_string(), "no such vault \"work\"");
+    let source = std::error::Error::source(&err).expect("a source");
+    assert_eq!(
+        source.downcast_ref::<RegistryError>(),
+        Some(&RegistryError::NotRegistered("work".into()))
     );
 }

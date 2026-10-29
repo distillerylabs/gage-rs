@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use crate::config::{self, Global, VaultEntry};
 use crate::entry::{NewEntry, WriteError};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::gitrepo;
 use crate::identity::Identity;
 use crate::prompter::FakePrompter;
@@ -473,8 +473,9 @@ fn summary_says_what_to_do_next() {
     assert_eq!(w.delta(), "1 removed");
     w.verification.in_sync = false;
     assert!(w.mismatched());
-    assert!(
-        w.summary().contains("gage recipient verify"),
+    assert_eq!(
+        w.summary_remedy(),
+        Some(crate::error::Remedy::RecipientVerify),
         "{}",
         w.summary()
     );
@@ -504,7 +505,7 @@ fn an_unparseable_trust_record_is_an_error() {
     .unwrap();
     let err = t.vault.load_trust_cache().unwrap_err();
     assert!(matches!(err, TrustError::Parse { .. }), "{err}");
-    assert_eq!(err.code(), Code::Internal);
+    assert_eq!(err.kind(), ErrorKind::Internal);
 }
 
 // --- the blocking check -----------------------------------------------------
@@ -613,7 +614,7 @@ fn declining_the_recipient_change_aborts_the_write() {
         matches!(err, WriteError::Trust(TrustError::ChangeDeclined { .. })),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
 
     assert_eq!(t.commits(), commits, "a declined write committed");
     assert_eq!(t.head(), head);
@@ -732,7 +733,7 @@ fn confirm_recipient_trust_with_no_prompter_refuses() {
         ) -> Result<Uuid, crate::prompter::PromptError> {
             unreachable!()
         }
-        fn warn(&self, _: &str) {}
+        fn warn(&self, _: &crate::prompter::Warning) {}
     }
 
     let t = TrustVault::new();
@@ -749,7 +750,7 @@ fn confirm_recipient_trust_with_no_prompter_refuses() {
         ),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
 }
 
 // --- the opportunistic checks -----------------------------------------------
@@ -898,9 +899,13 @@ fn recipient_add_and_remove_refuse_over_a_failing_verify() {
             matches!(err, RecipientError::Trust(TrustError::OutOfSync { .. })),
             "{verb}: {err}"
         );
-        assert_eq!(err.code(), Code::Conflict);
+        assert_eq!(err.kind(), ErrorKind::Conflict);
         assert!(err.to_string().contains(&stray), "{verb}: {err}");
-        assert!(err.to_string().contains("--repair"), "{verb}: {err}");
+        assert_eq!(
+            err.remedy(),
+            Some(crate::error::Remedy::RecipientRepair),
+            "{verb}: {err}"
+        );
         // Refused before anyone was asked to approve it.
         assert!(p.recipient_changes().is_empty(), "{verb} asked first");
         assert!(p.confirm_prompts().is_empty(), "{verb} asked first");
@@ -1150,7 +1155,7 @@ fn repair_declined_writes_nothing() {
         matches!(err, crate::recipient::RecipientError::RepairDeclined { .. }),
         "{err}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(p.confirm_prompts().len(), 1);
     assert_eq!(t.file(".age-recipients"), before);
     assert_eq!(t.commits(), commits);
@@ -1175,7 +1180,7 @@ fn repair_with_no_prompter_refuses() {
         "{err}"
     );
     assert!(err.to_string().contains("disagree"), "{err}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(t.commits(), commits);
 }
 

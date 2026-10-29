@@ -8,8 +8,8 @@
 //! private repository you own, which is broader than the fine-grained,
 //! single-repository token `login` asks for.
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::exitcode::Code;
 use gage::{gitrepo, remoteauth};
 
 use super::{Keys, dirs, fail, load_global, out};
@@ -45,8 +45,8 @@ fn resolve_host(explicit: Option<&str>, io: &Io) -> Result<String, CliError> {
     }
     let no_vault = || {
         fail(
-            Code::Usage,
-            "gage: no --host given and no current vault to take one from",
+            ExitCode::Usage,
+            "no --host given and no current vault to take one from",
         )
     };
     let (_, global) = load_global(io).map_err(|_| no_vault())?;
@@ -59,18 +59,18 @@ fn resolve_host(explicit: Option<&str>, io: &Io) -> Result<String, CliError> {
     };
     let Some(origin) = origin.filter(|o| !o.is_empty()) else {
         return Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
-                "gage: vault {name:?} has no remote, so there is no host to authenticate to; pass --host"
+                "vault {name:?} has no remote, so there is no host to authenticate to; pass --host"
             ),
         ));
     };
     let host = remoteauth::host(&origin)?;
     if host.is_empty() {
         return Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
-                "gage: vault {name:?}'s remote ({origin}) is a local path, which needs no token; pass --host to name one"
+                "vault {name:?}'s remote ({origin}) is a local path, which needs no token; pass --host to name one"
             ),
         ));
     }
@@ -85,7 +85,7 @@ pub fn login(matches: &ArgMatches, io: &mut Io, keys: &Keys) -> Result<(), CliEr
     let token = keys
         .prompter()
         .value(&format!("token for {host}"))
-        .map_err(|e| fail(Code::LockedOrAuth, e))?;
+        .map_err(|e| fail(ExitCode::LockedOrAuth, e))?;
     remoteauth::store(&dirs(io)?, &host, &token)?;
     out(io, &[format!("gage: stored a token for {host}")]);
     Ok(())

@@ -13,15 +13,15 @@
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
+use crate::exitcode::ExitCode;
 use gage::atomicfile;
-use gage::exitcode::Code;
-use gage::prompter::Prompter;
+use gage::prompter::{Prompter, Warning};
 use gage::recovery::RecoveryKey;
 use gage::xdgpaths::Dirs;
 use zeroize::Zeroizing;
 
 use super::fail;
-use crate::error::{CliError, ERROR_PREFIX};
+use crate::error::CliError;
 use crate::{Io, qr};
 
 /// How many of the key's own last characters the re-type asks for. An
@@ -71,7 +71,7 @@ pub(crate) fn plan_recovery_key(
 ) -> Result<KeyPlan, CliError> {
     match (no_key, out) {
         (true, Some(_)) => Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
                 "{} and --recovery-key-out are mutually exclusive; the first says not to make a key, the second says where to put one",
                 skip_flag.unwrap_or("--no-recovery-key")
@@ -82,7 +82,7 @@ pub(crate) fn plan_recovery_key(
         // the screen, and an empty path would otherwise name the working
         // directory (ADR-0051).
         (false, Some("")) => Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             "--recovery-key-out needs a file name to write the recovery key to",
         )),
         // The destination is checked separately, once the caller knows
@@ -94,7 +94,7 @@ pub(crate) fn plan_recovery_key(
         // private key into a build log.
         (false, None) if io.stdin_is_terminal && io.stderr_is_terminal => Ok(KeyPlan::Show),
         (false, None) => Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             match skip_flag {
                 None => {
                     "this generates a recovery key and shows it once, which needs a terminal.\n\
@@ -138,7 +138,7 @@ pub(crate) fn check_recovery_key_out_path(
         // the key wherever it points.
         Ok(_) => {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!("{shown} already exists; refusing to overwrite it with a new recovery key"),
             ));
         }
@@ -154,10 +154,10 @@ pub(crate) fn check_recovery_key_out_path(
 
     let parent = dest.parent().unwrap_or(&dest);
     match std::fs::metadata(parent) {
-        Err(e) => return Err(fail(Code::Usage, format!("cannot write {shown}: {e}"))),
+        Err(e) => return Err(fail(ExitCode::Usage, format!("cannot write {shown}: {e}"))),
         Ok(meta) if !meta.is_dir() => {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!(
                     "cannot write {shown}: {} is not a directory",
                     parent.display()
@@ -173,7 +173,7 @@ pub(crate) fn check_recovery_key_out_path(
     tempfile::Builder::new()
         .prefix(".gage-write-probe-")
         .tempfile_in(parent)
-        .map_err(|e| fail(Code::Usage, format!("cannot write {shown}: {e}")))?;
+        .map_err(|e| fail(ExitCode::Usage, format!("cannot write {shown}: {e}")))?;
     Ok(dest)
 }
 
@@ -190,7 +190,7 @@ fn check_not_gages(dest: &Path, shown: &str, vault: &Path, dirs: &Dirs) -> Resul
                          gage: interrupted write, which would delete the key. Write it outside any vault.";
     if path_is_inside(dest, vault) {
         return Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             format!("{shown} is inside the vault being created; {RESET}"),
         ));
     }
@@ -201,14 +201,14 @@ fn check_not_gages(dest: &Path, shown: &str, vault: &Path, dirs: &Dirs) -> Resul
     for dir in resolved.ancestors().skip(1) {
         if dir.join(".gage").join("config.toml").exists() {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!("{shown} is inside the vault at {}; {RESET}", dir.display()),
             ));
         }
     }
     if path_is_inside(dest, &dirs.data) {
         return Err(fail(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
                 "{shown} is inside {}, which gage manages and rewrites; a key there is not safely\n\
                  gage: stored. Write it outside gage's own directories.",
@@ -332,10 +332,10 @@ fn show_recovery_key(
         Ok(art) => {
             let _ = err.write_all(art.as_bytes());
         }
-        Err(e) => prompter.warn(&format!(
-            "gage: could not draw the key as a QR code: {}",
-            e.to_string().trim_start_matches(ERROR_PREFIX)
-        )),
+        Err(e) => prompter.warn(&Warning::from(format!(
+            "could not draw the key as a QR code: {}",
+            e
+        ))),
     }
     let _ = writeln!(
         err,
@@ -367,16 +367,18 @@ fn confirm_recovery_key_saved(prompter: &dyn Prompter, secret: &str) -> Result<(
     for attempt in 1..=MAX_RECOVERY_CONFIRM_ATTEMPTS {
         let got = prompter
             .value(&title)
-            .map_err(|e| fail(Code::LockedOrAuth, e))?;
+            .map_err(|e| fail(ExitCode::LockedOrAuth, e))?;
         if got.trim().eq_ignore_ascii_case(want) {
             return Ok(());
         }
         if attempt < MAX_RECOVERY_CONFIRM_ATTEMPTS {
-            prompter.warn("gage: that doesn't match the key above; try again.");
+            prompter.warn(&Warning::from(
+                "that doesn't match the key above; try again.",
+            ));
         }
     }
     Err(fail(
-        Code::Conflict,
+        ExitCode::Conflict,
         "the recovery key was not confirmed.\n\
          gage: the change is committed and that key is one of this vault's recipients, so it\n\
          gage: is worth saving from the screen above — gage kept no copy and it cannot be shown\n\
@@ -405,7 +407,7 @@ fn write_recovery_key_file(
     // the user never ran.
     atomicfile::write_new(dest, &data, RECOVERY_KEY_FILE_MODE).map_err(|e| {
         fail(
-            Code::Internal,
+            ExitCode::Internal,
             format!(
                 "{vault:?}'s recipient list is committed, but writing its recovery key to {} failed: {e}\n\
                  gage: that key is lost — `gage recovery rotate` replaces it with a new one",

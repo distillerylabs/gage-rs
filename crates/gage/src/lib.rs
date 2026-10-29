@@ -14,7 +14,7 @@ pub mod crypt;
 pub mod devicename;
 pub mod enrollment;
 pub mod entry;
-pub mod exitcode;
+pub mod error;
 #[cfg(test)]
 mod format_v2_bytes_tests;
 #[cfg(test)]

@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::gittest::{self, Answer, BareRemote, Device, HttpRecorder};
 use gage::prompter::FakePrompter;
 use gage::remotesync::SyncReport;
@@ -28,7 +28,7 @@ impl Env {
     fn init_with_remote(&self, name: &str) -> (PathBuf, BareRemote) {
         let remote = gittest::new_bare_remote();
         let r = self.run(&["init", name, "--remote", url(&remote), "--no-recovery-key"]);
-        assert_eq!(r.code, Code::Success, "init: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "init: {}", r.stderr);
         (self.entry(name).path, remote)
     }
 }
@@ -65,7 +65,7 @@ fn init_publishes_the_new_vault() {
         url(&remote),
         "--no-recovery-key",
     ]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("published"), "{}", r.stdout);
     assert!(Device::clone(remote.path()).exists(".age-recipients"));
     assert_eq!(env.entry("personal").git.origin, Some(url(&remote).into()));
@@ -84,7 +84,7 @@ fn init_against_a_missing_repository_says_to_create_it() {
         missing.to_str().unwrap(),
         "--no-recovery-key",
     ]);
-    assert_ne!(r.code, Code::Success, "{}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "{}", r.stdout);
     assert!(r.stderr.contains("create an empty one"), "{}", r.stderr);
     assert!(r.stderr.contains("gage push"), "{}", r.stderr);
     assert!(env.entry("personal").path.join(".age-recipients").exists());
@@ -107,7 +107,7 @@ fn init_against_a_host_without_the_repository_says_to_create_it() {
         ],
         &unlocks().with_value(""),
     );
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     assert!(r.stderr.contains("create an empty one"), "{}", r.stderr);
     assert!(env.global().vaults.contains_key("personal"));
 }
@@ -126,7 +126,7 @@ fn init_against_an_unreachable_remote_succeeds_and_says_so() {
         ],
         &unlocks().with_value(""),
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stderr.contains("could not reach"), "{}", r.stderr);
     assert!(r.stderr.contains("next successful sync"), "{}", r.stderr);
 }
@@ -150,7 +150,7 @@ fn init_solicits_a_token_when_none_is_stored() {
         ],
         &p,
     );
-    assert_ne!(r.code, Code::Success, "the recorder refuses every push");
+    assert_ne!(r.code, ExitCode::Success, "the recorder refuses every push");
 
     let prompts = p.value_prompts();
     assert_eq!(prompts.len(), 1, "{prompts:?}");
@@ -185,7 +185,7 @@ fn init_skips_the_token_when_the_answer_is_blank() {
         ],
         &unlocks().with_value(""),
     );
-    assert_ne!(r.code, Code::Success);
+    assert_ne!(r.code, ExitCode::Success);
     assert!(matches!(
         remoteauth::load(&env.dirs, HOST),
         Err(remoteauth::Error::NoToken { .. })
@@ -212,7 +212,7 @@ fn init_does_not_prompt_when_a_token_already_exists() {
         ],
         &p,
     );
-    assert_ne!(r.code, Code::Success);
+    assert_ne!(r.code, ExitCode::Success);
     assert!(p.value_prompts().is_empty(), "{:?}", p.value_prompts());
     assert!(
         recorder
@@ -236,7 +236,7 @@ fn init_does_not_prompt_for_a_local_remote() {
         ],
         &p,
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(p.value_prompts().is_empty());
     assert!(!env.dirs.state.join("tokens").exists());
 }
@@ -250,13 +250,13 @@ fn push_publishes_and_pull_catches_up() {
     Device::clone(remote.path()).write_commit_push("notes.txt", "from elsewhere", "theirs");
 
     let r = env.run(&["pull"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("caught"), "{}", r.stdout);
     assert!(vault.join("notes.txt").exists());
 
     local_commit(&vault, "mine.txt", "mine");
     let r = env.run(&["push"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("pushed"), "{}", r.stdout);
     assert!(Device::clone(remote.path()).exists("mine.txt"));
 }
@@ -271,7 +271,7 @@ fn one_shot_command_pulls_on_its_implicit_unlock() {
     Device::clone(remote.path()).write_commit_push("notes.txt", "from elsewhere", "theirs");
 
     let r = env.cmd(&["show", "ProtonMail"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(r.stdout, "hunter2\n");
     assert!(
         vault.join("notes.txt").exists(),
@@ -287,7 +287,7 @@ fn write_reaches_the_remote_without_anyone_asking_it() {
     // printing them), so that is where friction would show.
     let p = with_value("hunter2");
     let r = env.run_with(&["insert", "ProtonMail"], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(p.warnings().is_empty(), "{:?}", p.warnings());
     assert!(
         r.stderr.is_empty(),
@@ -318,7 +318,7 @@ fn every_write_command_pushes() {
     for (name, args, p) in cases {
         let before = local_commits();
         let r = env.run_with(args, p);
-        assert_eq!(r.code, Code::Success, "{name}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{name}: {}", r.stderr);
         assert!(p.warnings().is_empty(), "{name}: {:?}", p.warnings());
         assert_eq!(local_commits(), before + 1, "{name} committed once");
         assert_eq!(remote_commits(), local_commits(), "{name} did not push");
@@ -333,7 +333,7 @@ fn pull_reports_a_divergence_rather_than_merging_it() {
     local_commit(&vault, "local.txt", "local");
 
     let r = env.run(&["pull"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("diverged"), "{}", r.stderr);
     assert!(!vault.join("notes.txt").exists(), "pull merged");
 }
@@ -349,7 +349,7 @@ fn sync_merges_a_disjoint_divergence_without_prompting() {
 
     let p = FakePrompter::new();
     let r = env.run_with(&["sync"], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("merged"), "{}", r.stdout);
     assert!(vault.join("notes.txt").exists());
     assert!(p.unlock_requests().is_empty(), "a mergeable sync prompted");
@@ -365,7 +365,7 @@ fn sync_reports_a_conflicting_divergence_and_names_the_vault() {
     local_commit(&vault, "shared.txt", "my version");
 
     let r = env.run(&["sync"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("shared.txt"), "{}", r.stderr);
     assert!(r.stderr.contains(vault.to_str().unwrap()), "{}", r.stderr);
     assert_eq!(
@@ -382,7 +382,7 @@ fn sync_on_a_vault_with_no_remote_says_so_and_succeeds() {
     env.init("personal", &[]);
     for verb in ["sync", "pull", "push"] {
         let r = env.run(&[verb]);
-        assert_eq!(r.code, Code::Success, "{verb}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{verb}: {}", r.stderr);
         assert!(r.stdout.contains("local-only"), "{verb}: {}", r.stdout);
         assert!(r.stdout.contains("no remote"), "{verb}: {}", r.stdout);
     }
@@ -403,17 +403,17 @@ fn offline_exits_unreachable_and_diverged_exits_conflict() {
         ],
         &unlocks().with_value(""),
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     for verb in ["push", "pull", "sync"] {
         let r = env.run(&[verb]);
-        assert_eq!(r.code, Code::Unreachable, "{verb}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Unreachable, "{verb}: {}", r.stderr);
     }
 
     let diverged = Env::new();
     let (vault, remote) = diverged.init_with_remote("personal");
     Device::clone(remote.path()).write_commit_push("shared.txt", "theirs", "theirs");
     local_commit(&vault, "shared.txt", "mine");
-    assert_eq!(diverged.run(&["push"]).code, Code::Conflict);
+    assert_eq!(diverged.run(&["push"]).code, ExitCode::Conflict);
 }
 
 // Auth is its own exit code, and the message names the host and the fix.
@@ -431,9 +431,9 @@ fn an_auth_failure_exits_locked_or_auth_with_the_hint() {
         ],
         &unlocks().with_value(""),
     );
-    assert_eq!(r.code, Code::LockedOrAuth);
+    assert_eq!(r.code, ExitCode::LockedOrAuth);
     let r = env.run(&["push"]);
-    assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
     for want in [HOST, "gage auth login"] {
         assert!(r.stderr.contains(want), "{want}: {}", r.stderr);
     }
@@ -447,7 +447,7 @@ fn push_names_the_conflicting_paths_just_like_sync() {
     local_commit(&vault, "shared.txt", "my version");
 
     let r = env.run(&["push"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("shared.txt"), "{}", r.stderr);
 }
 
@@ -462,7 +462,7 @@ fn sync_refuses_over_uncommitted_changes() {
     std::fs::write(vault.join("scratch.txt"), "half-typed").unwrap();
 
     let r = env.run(&["sync"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("scratch.txt"), "{}", r.stderr);
     assert!(!Device::clone(remote.path()).exists("scratch.txt"));
 }
@@ -480,7 +480,7 @@ fn sync_line_says_already_in_sync_when_there_was_nothing_to_do() {
 
     for verb in ["sync", "push", "pull"] {
         let r = env.run(&[verb]);
-        assert_eq!(r.code, Code::Success, "{verb}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{verb}: {}", r.stderr);
         assert!(
             r.stdout.contains("already in sync with origin"),
             "{verb}: {}",
@@ -496,7 +496,7 @@ fn sync_reports_no_push_when_nothing_was_sent() {
     let env = Env::new();
     let (_vault, _remote) = env.init_with_remote("personal");
     let r = env.run(&["sync"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(!r.stdout.contains("pushed"), "{}", r.stdout);
 }
 
@@ -600,7 +600,7 @@ fn sync_resolves_a_conflict_interactively_and_pushes() {
     let (path, alpha, _remote) = conflicting_vault(&env);
     let p = unlocks().with_resolutions(&[Resolution::KeepBoth]);
     let r = env.run_with(&["sync"], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(p.conflicts_presented().len(), 1);
     assert_eq!(p.conflicts_presented()[0].id, alpha);
     assert!(
@@ -613,7 +613,7 @@ fn sync_resolves_a_conflict_interactively_and_pushes() {
     assert_eq!(entry_files(&path).len(), 3);
     // And the merge reached the remote: the next push has nothing to do.
     let r = env.run(&["push"]);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("already in sync"), "{}", r.stdout);
 }
 
@@ -661,7 +661,7 @@ fn sync_without_a_terminal_refuses_rather_than_choosing() {
         SecretInput::Lines,
     );
     let r = env.run_with(&["sync"], &p);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("needs someone to ask"), "{}", r.stderr);
     assert!(!out.text().contains("[l/r/b/s/q]"), "{}", out.text());
     assert_eq!(head(&path), before, "HEAD moved with nobody to ask");
@@ -680,7 +680,7 @@ fn yes_does_not_resolve_conflicts() {
     let before = head(&path);
     let p = unlocks();
     let r = env.run_with(&["sync", "--yes"], &p);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(!r.stderr.contains("unexpected argument"), "{}", r.stderr);
     assert!(r.stderr.contains("needs someone to ask"), "{}", r.stderr);
     assert!(r.stderr.contains(&alpha.to_string()), "{}", r.stderr);
@@ -700,7 +700,7 @@ fn sync_with_a_skip_exits_conflict_and_pushes_nothing() {
     let before = head(&path);
     let p = unlocks().with_resolutions(&[Resolution::Skip]);
     let r = env.run_with(&["sync"], &p);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("1 of 1"), "{}", r.stderr);
     assert!(r.stderr.contains(&alpha.to_string()), "{}", r.stderr);
     assert_eq!(head(&path), before);
@@ -773,7 +773,7 @@ impl Env {
         let mut full = vec!["clone"];
         full.extend_from_slice(args);
         let r = self.run_with(&full, &FakePrompter::new());
-        assert_eq!(r.code, Code::Success, "{full:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{full:?}: {}", r.stderr);
         r
     }
 }
@@ -883,7 +883,7 @@ fn clone_refuses_an_unrecognized_format_version() {
         &["clone", url(&remote), "--name", "personal"],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(
         !paths::global_config_file(&env.dirs).exists()
             || !env.global().vaults.contains_key("personal")
@@ -905,7 +905,7 @@ fn a_refused_clone_leaves_no_half_made_vault() {
         &["clone", missing.to_str().unwrap(), "--name", "x"],
         &FakePrompter::new(),
     );
-    assert_ne!(r.code, Code::Success);
+    assert_ne!(r.code, ExitCode::Success);
     assert!(!paths::vaults_dir(&env.dirs).join("x").exists());
     assert!(!paths::global_config_file(&env.dirs).exists() || env.global().vaults.is_empty());
 
@@ -922,7 +922,7 @@ fn a_refused_clone_leaves_no_half_made_vault() {
         ],
         &FakePrompter::new(),
     );
-    assert_ne!(r.code, Code::Success);
+    assert_ne!(r.code, ExitCode::Success);
     assert!(dir.is_dir(), "the user's own directory was removed");
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
 
@@ -943,7 +943,7 @@ fn a_refused_clone_leaves_no_half_made_vault() {
         ],
         &FakePrompter::new(),
     );
-    assert_ne!(r.code, Code::Success);
+    assert_ne!(r.code, ExitCode::Success);
     assert_eq!(
         std::fs::read_to_string(full.join("keep.txt")).unwrap(),
         "mine"
@@ -967,7 +967,7 @@ fn offline_warnings_reach_the_terminal() {
         ],
         &unlocks().with_value(""),
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let r = env.session_ok(&["insert x", crate::lifecycle_tests::PASSPHRASE, "v", "exit"]);
     let text = r.stderr;
     assert_eq!(
@@ -991,7 +991,7 @@ fn clone_refuses_an_already_registered_name() {
         &["clone", url(&remote), "--name", "personal"],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("--name"), "{}", r.stderr);
 }
 
@@ -1015,7 +1015,7 @@ fn clone_refuses_a_name_that_escapes_the_vaults_directory() {
             &["clone", url(&remote), "--name", bad],
             &FakePrompter::new(),
         );
-        assert_eq!(r.code, Code::Usage, "{bad}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Usage, "{bad}: {}", r.stderr);
     }
     assert!(!paths::vaults_dir(&env.dirs).exists());
 }
@@ -1105,8 +1105,10 @@ fn no_sync_failure_or_warning_doubles_gages_own_prefix() {
             assert!(!line.contains(&doubled), "{name}: {line}");
             assert!(line.matches(ERROR_PREFIX).count() <= 1, "{name}: {line}");
         }
+        // The library's text names no frontend; stderr, above, is where
+        // gage's name is added.
         for w in warnings {
-            assert!(w.starts_with(ERROR_PREFIX), "{name}: {w}");
+            assert!(!w.contains(ERROR_PREFIX), "{name}: {w}");
         }
         if !r.stderr.is_empty() {
             assert!(r.stderr.starts_with(ERROR_PREFIX), "{name}:\n{}", r.stderr);

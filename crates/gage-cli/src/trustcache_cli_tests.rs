@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 use gage::prompter::{FakePrompter, Prompter};
 use gage::{gitrepo, gittest, recipients, vaultconfig};
 
@@ -135,7 +135,7 @@ fn insert_blocks_on_an_unreviewed_recipient_change() {
 
     let p = answering(&[false]);
     let r = env.insert_with("ProtonMail", &[], &p);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("was not confirmed"), "{}", r.stderr);
     let asked = p.recipient_changes();
     assert_eq!(asked.len(), 1);
@@ -155,7 +155,7 @@ fn yes_bypasses_the_recipient_prompt_for_scripting() {
 
     let p = answering(&[]);
     let r = env.insert_with("ProtonMail", &["--yes"], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(p.recipient_changes().is_empty(), "--yes still asked");
 
     // Also before the command, where a root flag usually goes.
@@ -164,11 +164,16 @@ fn yes_bypasses_the_recipient_prompt_for_scripting() {
         &answering(&[]),
         b"v\n",
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
 
     let p = answering(&[]);
     let r = env.insert_with("Bank", &[], &p);
-    assert_eq!(r.code, Code::Success, "the warning came back: {}", r.stderr);
+    assert_eq!(
+        r.code,
+        ExitCode::Success,
+        "the warning came back: {}",
+        r.stderr
+    );
 }
 
 // `--yes` proceeds but
@@ -184,18 +189,18 @@ fn yes_does_not_regenerate_the_cache_on_a_mismatch() {
 
     for title in ["ProtonMail", "Bank"] {
         let r = env.insert_with(title, &["--yes"], &unlocks());
-        assert_eq!(r.code, Code::Success, "{title}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{title}: {}", r.stderr);
     }
     assert_eq!(env.known_config(), cache, "--yes regenerated the cache");
 
     // Without --yes, the next write still asks.
     let p = answering(&[false]);
     let r = env.insert_with("Router", &[], &p);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(p.recipient_changes()[0].mismatched());
 
     let verify = env.run_with(&["recipient", "verify"], &FakePrompter::new());
-    assert_eq!(verify.code, Code::Conflict, "{}", verify.stdout);
+    assert_eq!(verify.code, ExitCode::Conflict, "{}", verify.stdout);
     assert!(verify.stderr.contains(&stray), "{}", verify.stderr);
 }
 
@@ -211,7 +216,7 @@ fn yes_does_not_answer_the_self_removal_confirmation() {
 
     let p = unlocks().with_confirm(false);
     let r = env.run_with(&["recipient", "remove", DEVICE, "--reencrypt", "--yes"], &p);
-    assert_ne!(r.code, Code::Success, "{}", r.stdout);
+    assert_ne!(r.code, ExitCode::Success, "{}", r.stdout);
     assert_eq!(p.confirm_prompts().len(), 1, "--yes answered the question");
     assert!(env.age_recipients().contains(&own), "removed anyway");
 }
@@ -227,7 +232,7 @@ fn recipient_add_is_refused_over_a_diverged_vault_from_the_cli() {
     let before = env.age_recipients();
 
     let r = env.cmd(&["recipient", "add", &new_key(), "--device", "phone-1"]);
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains(&stray), "{}", r.stderr);
     assert!(r.stderr.contains("--repair"), "{}", r.stderr);
     assert_eq!(
@@ -248,12 +253,12 @@ fn recipient_verify_repair_fixes_the_divergence() {
     let none = FakePrompter::new();
     assert_eq!(
         env.run_with(&["recipient", "verify"], &none).code,
-        Code::Conflict
+        ExitCode::Conflict
     );
 
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["recipient", "verify", "--repair"], &p);
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout.contains(&format!("dropped {stray}")),
         "{}",
@@ -264,7 +269,7 @@ fn recipient_verify_repair_fixes_the_divergence() {
 
     assert_eq!(
         env.run_with(&["recipient", "verify"], &none).code,
-        Code::Success
+        ExitCode::Success
     );
     assert!(!env.age_recipients().contains(&stray));
     assert!(gitrepo::is_clean(&env.vault_dir()).unwrap());
@@ -275,7 +280,7 @@ fn recipient_verify_repair_on_a_vault_in_sync_says_there_is_nothing_to_do() {
     let env = env_with_vault();
     let before = gitrepo::head_commit(&env.vault_dir()).unwrap();
     let r = env.run_with(&["recipient", "verify", "--repair"], &FakePrompter::new());
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(r.stdout.contains("already in sync"), "{}", r.stdout);
     assert!(r.stdout.contains("nothing to repair"), "{}", r.stdout);
     assert_eq!(gitrepo::head_commit(&env.vault_dir()).unwrap(), before);
@@ -301,7 +306,7 @@ fn recipient_verify_repair_reports_what_it_added() {
         &["recipient", "verify", "--repair"],
         &FakePrompter::new().with_confirm(true),
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert!(
         r.stdout.contains(&format!("added {declared}")),
         "{}",
@@ -321,7 +326,7 @@ fn recipient_verify_repair_declined_writes_nothing() {
         &["recipient", "verify", "--repair"],
         &FakePrompter::new().with_confirm(false),
     );
-    assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(r.stderr.contains("not repairing"), "{}", r.stderr);
     assert_eq!(env.age_recipients(), before);
 }
@@ -364,7 +369,7 @@ fn yes_is_refused_in_a_session() {
     );
 
     let r = env.run_tty(&["--yes"]);
-    assert_eq!(r.code, Code::Usage, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(
         r.stderr.contains("isn't available in a session"),
         "{}",
@@ -389,7 +394,7 @@ fn reads_warn_opportunistically_in_one_shot_mode() {
     ] {
         let p = answering(&[]);
         let r = env.run_with(args, &p);
-        assert_eq!(r.code, Code::Success, "{args:?}: {}", r.stderr);
+        assert_eq!(r.code, ExitCode::Success, "{args:?}: {}", r.stderr);
         assert!(
             r.stderr.contains("recipient list changed"),
             "{args:?}: {}",
@@ -469,7 +474,7 @@ fn two_vaults_under_one_local_name_share_neither_directory() {
         ],
         &FakePrompter::new(),
     );
-    assert_eq!(r.code, Code::Success, "{}", r.stderr);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     let b_id = env.entry(VAULT).id.unwrap();
     assert_ne!(b_id, a_id, "two unrelated vaults share an id");
 

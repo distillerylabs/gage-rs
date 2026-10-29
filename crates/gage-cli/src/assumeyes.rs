@@ -3,14 +3,14 @@
 //! answer is already known (ADR-0033).
 
 use gage::entry::CandidateList;
-use gage::prompter::{PromptError, Prompter, UnlockRequest, UnlockResponse};
+use gage::prompter::{PromptError, Prompter, UnlockRequest, UnlockResponse, Warning};
 use gage::syncresolve::{EntryConflict, Resolution};
 use gage::trustcache::RecipientChangeWarning;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::error::CliError;
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 
 /// The flag's id, as clap registers it on the root.
 pub const FLAG: &str = "yes";
@@ -61,8 +61,8 @@ impl Prompter for AssumeYes<'_> {
         Ok(true)
     }
 
-    fn warn(&self, msg: &str) {
-        self.0.warn(msg);
+    fn warn(&self, warning: &Warning) {
+        self.0.warn(warning);
     }
 }
 
@@ -83,8 +83,8 @@ pub fn given(matches: &clap::ArgMatches) -> bool {
 /// exists for, and never reaches this: it wraps its prompter for the run.
 pub fn refused_in_session() -> CliError {
     CliError::new(
-        Code::Usage,
-        "gage: --yes is for scripted, one-shot runs and isn't available in a session; \
+        ExitCode::Usage,
+        "--yes is for scripted, one-shot runs and isn't available in a session; \
          answer the prompt, or run the command from your shell with --yes",
     )
 }

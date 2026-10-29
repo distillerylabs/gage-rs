@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::config::{self, Global, VaultEntry};
 use crate::crypt::{self, Recipient};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 use crate::identity::SECRET_KEY_PREFIX;
 use crate::identityfile::{self, MARKER_FILE_NAME, UnlockError};
 use crate::locker::{Locker, MemLocker};
@@ -614,7 +614,7 @@ fn identity_file_path_refuses_an_unsafe_device_name() {
     for device in std::iter::once(String::new()).chain(unsafe_device_names()) {
         let err = paths::identity_file_path(&m.dirs, &id, &device).unwrap_err();
         assert_eq!(err, paths::Error::InvalidDeviceName(device.clone()));
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     }
 }
 
@@ -791,7 +791,7 @@ fn unlock_with_the_wrong_passphrase_is_distinguishable() {
         .unlock(&prompter_then_gives_up(&["not the passphrase"]))
         .unwrap_err();
     assert!(matches!(err, UnlockError::WrongPassphrase(_)), "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
 }
 
 // The library
@@ -834,7 +834,7 @@ fn unlock_with_a_corrupt_identity_file_is_distinguishable() {
     truncate_identity_file(&m.identity_path(&v.id, "laptop-1"));
     let err = v.unlock(&prompter(&[PASSPHRASE])).unwrap_err();
     assert!(matches!(err, UnlockError::CorruptIdentityFile(_)), "{err}");
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
 }
 
 // A valid age file wrapped to a public key fails exactly like a bad
@@ -900,7 +900,7 @@ fn unlock_of_a_file_claiming_excessive_work_is_corrupt_not_wrong_passphrase() {
         matches!(err, UnlockError::CorruptIdentityFile(_)),
         "{err:?}"
     );
-    assert_eq!(err.code(), Code::Conflict);
+    assert_eq!(err.kind(), ErrorKind::Conflict);
     assert_eq!(p.unlock_requests().len(), 1, "re-prompted for a passphrase");
     assert!(
         start.elapsed() < std::time::Duration::from_secs(5),
@@ -941,13 +941,19 @@ fn unlock_rejects_an_empty_passphrase() {
     let p = prompter(&[""]);
     let err = v.unlock(&p).unwrap_err();
     assert!(matches!(err, UnlockError::EmptyPassphrase), "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert_eq!(p.unlock_requests().len(), 1);
 }
 
 fn assert_no_local_identity(err: UnlockError) {
-    assert!(matches!(err, UnlockError::NoLocalIdentity(_)), "{err:?}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert!(
+        matches!(
+            err,
+            UnlockError::NoLocalIdentity(_) | UnlockError::NoIdentityFile(_)
+        ),
+        "{err:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
 }
 
 #[test]
@@ -1007,7 +1013,7 @@ fn unlock_dispatches_on_the_local_method_not_the_vault_default() {
         "{err}"
     );
     assert!(err.to_string().contains("yubikey"), "{err}");
-    assert_eq!(err.code(), Code::LockedOrAuth);
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert!(
         p.unlock_requests().is_empty(),
         "prompted despite the method not being passphrase"
@@ -1035,7 +1041,7 @@ fn unlock_never_builds_a_path_from_an_unvalidated_device_name() {
             matches!(&err, UnlockError::UnsafePath(paths::Error::InvalidDeviceName(d)) if *d == device),
             "{device:?}: {err:?}"
         );
-        assert_eq!(err.code(), Code::LockedOrAuth);
+        assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
         assert!(
             !m.identities_root().exists(),
             "{device:?}: unlock created something under identities/"
@@ -1060,7 +1066,7 @@ fn unlock_with_no_recorded_device_is_a_missing_identity_not_an_unsafe_name() {
 // A frontend shows a warning as it is (the terminal prompter
 // prints it verbatim), so each one names gage itself, exactly once.
 #[test]
-fn warnings_do_not_double_gages_own_prefix() {
+fn warnings_leave_gages_name_to_the_frontend() {
     let m = Machine::new();
     let (v, _) = m.unlockable("personal", "laptop-1");
     let vault_id = v.id.clone();
@@ -1075,7 +1081,6 @@ fn warnings_do_not_double_gages_own_prefix() {
     let warnings = p.warnings();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
     for w in &warnings {
-        assert!(w.starts_with("gage: "), "does not name gage: {w}");
-        assert_eq!(w.matches("gage: ").count(), 1, "names gage twice: {w}");
+        assert!(!w.contains("gage: "), "names gage itself: {w}");
     }
 }

@@ -5,7 +5,7 @@
 
 use rand_core::{OsRng, RngCore};
 
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind};
 
 /// The value's length when none is asked for. Public so a frontend's help
 /// can state it without carrying a second copy of the number.
@@ -59,25 +59,25 @@ impl GenerateOptions {
 #[non_exhaustive]
 pub enum GenerateError {
     /// The human asked for something gage won't do: a usage error.
-    #[error("gage: generate: length {length} is too short; the minimum is {MIN_LENGTH}")]
+    #[error("a generated length of {length} is too short; the minimum is {MIN_LENGTH}")]
     TooShort { length: usize },
-    #[error("gage: generate: length must be positive")]
+    #[error("a generated length must be positive")]
     ZeroLength,
     /// Empty, or longer than one byte can index without bias.
-    #[error("gage: generate: the alphabet must hold 1 to 256 characters, not {0}")]
+    #[error("a generator's alphabet must hold 1 to 256 characters, not {0}")]
     BadAlphabet(usize),
     /// The randomness source failed. Never papered over with a weaker one.
-    #[error("gage: generating random value: {0}")]
+    #[error("generating random value: {0}")]
     Random(#[source] rand_core::Error),
 }
 
-impl HasCode for GenerateError {
-    fn code(&self) -> Code {
+impl HasKind for GenerateError {
+    fn kind(&self) -> ErrorKind {
         match self {
-            GenerateError::TooShort { .. } => Code::Usage,
+            GenerateError::TooShort { .. } => ErrorKind::Usage,
             GenerateError::ZeroLength
             | GenerateError::BadAlphabet(_)
-            | GenerateError::Random(_) => Code::Internal,
+            | GenerateError::Random(_) => ErrorKind::Internal,
         }
     }
 }
@@ -216,7 +216,7 @@ mod tests {
     fn random_string_propagates_reader_failure() {
         let err = random_string(&mut Failing, 8, b"ab").unwrap_err();
         assert!(matches!(err, GenerateError::Random(_)), "{err}");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.kind(), ErrorKind::Internal);
         let source = std::error::Error::source(&err).unwrap().to_string();
         assert!(source.contains("boom"), "{source}");
     }
@@ -347,7 +347,7 @@ mod tests {
             })
             .unwrap_err();
             assert!(matches!(err, GenerateError::TooShort { .. }), "{err}");
-            assert_eq!(err.code(), Code::Usage);
+            assert_eq!(err.kind(), ErrorKind::Usage);
             assert!(err.to_string().contains(&MIN_LENGTH.to_string()), "{err}");
         }
     }

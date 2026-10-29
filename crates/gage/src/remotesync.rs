@@ -23,10 +23,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use crate::entry::{self, LockError, WRITE_LOCK_TIMEOUT};
-use crate::exitcode::{Code, HasCode};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::gitrepo::{self, MergeResult, RemoteOptions, RemoteState};
 use crate::identityfile::UnlockError;
-use crate::prompter::{PromptError, Prompter};
+use crate::prompter::{PromptError, Prompter, Warning};
 use crate::syncerr::Kind;
 use crate::vault::Vault;
 use crate::xdgpaths::Dirs;
@@ -41,6 +41,19 @@ pub const MERGE_COMMIT_MESSAGE: &str = "gage: merge origin";
 /// Later writes that need a more specific clause reuse the sentence
 /// rather than inventing their own.
 pub const UNPUSHED_WRITE_CLAUSE: &str = "the write is committed locally but not pushed";
+
+/// What a write whose push failed says it left unpublished, and what
+/// finishes publishing it, if that is more than the failure's own remedy.
+pub(crate) struct PushClause<'a> {
+    pub(crate) text: &'a str,
+    pub(crate) remedy: Option<Remedy>,
+}
+
+impl<'a> From<&'a str> for PushClause<'a> {
+    fn from(text: &'a str) -> PushClause<'a> {
+        PushClause { text, remedy: None }
+    }
+}
 
 /// The two files whose divergence is more serious than an entry's: they
 /// define who can read the vault at all.
@@ -197,33 +210,38 @@ impl SyncReport {
     }
 
     /// The divergence in one line, in the design doc's own words ("origin
-    /// has diverged — 2 local commits pending"), plus what conflicted and
-    /// what to run.
-    ///
-    /// A recipient-file conflict names a different next step from "run
-    /// `gage sync`": `sync` refuses it too, so the summary says what actually resolves
-    /// it. Once a human has reconciled the files, the trust cache's check
-    /// before the next encrypt reviews the resulting list.
+    /// has diverged — 2 local commits pending"), plus what conflicted.
+    /// What to do next is [`SyncReport::remedy`].
     pub fn summary(&self) -> String {
         match self.conflict_kind() {
             ConflictKind::Recipients => format!(
                 "origin has diverged on the files that define who can read this vault ({}) — \
-                 {} local commit(s) pending. These are never merged automatically, by `gage sync` \
-                 either: reconcile both sides by hand in the vault's git repository and commit, \
-                 then check the result with `gage recipient verify`; the next write here will \
-                 ask you to confirm the list",
+                 {} local commit(s) pending. These are never merged automatically, not even by \
+                 a sync: reconcile both sides by hand in the vault's git repository and commit, \
+                 and the next write here will ask you to confirm the list",
                 self.conflicts.join(", "),
                 self.ahead
             ),
             ConflictKind::Entries => format!(
-                "origin has diverged — {} local commit(s) pending, and {} entr(y/ies) changed on both sides; run `gage sync`",
+                "origin has diverged — {} local commit(s) pending, and {} entr(y/ies) changed on both sides",
                 self.ahead,
                 self.conflicts.len()
             ),
             ConflictKind::None => format!(
-                "origin has diverged — {} local commit(s) pending; run `gage sync`",
+                "origin has diverged — {} local commit(s) pending",
                 self.ahead
             ),
+        }
+    }
+
+    /// What resolves the divergence. A recipient-file conflict names a
+    /// different next step from a sync: sync refuses it too, so the remedy
+    /// is checking the files once a human has reconciled them. The trust
+    /// cache's check before the next encrypt then reviews the list.
+    pub fn remedy(&self) -> Remedy {
+        match self.conflict_kind() {
+            ConflictKind::Recipients => Remedy::RecipientVerify,
+            ConflictKind::Entries | ConflictKind::None => Remedy::Sync,
         }
     }
 }
@@ -315,31 +333,25 @@ impl SyncError {
 impl std::fmt::Display for SyncError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &*self.cause {
-            SyncCause::Conflict => write!(f, "gage: {}", self.report.summary()),
-            // gitrepo's own wording, said as gage: a dirty tree is neither
-            // unexpected nor a fault, so it reads as gage's message.
-            SyncCause::Local(e @ gitrepo::Error::DirtyWorkTree { .. }) => {
-                let msg = e.to_string();
-                write!(f, "gage: {}", msg.strip_prefix("gitrepo: ").unwrap_or(&msg))
-            }
+            SyncCause::Conflict => f.write_str(&self.report.summary()),
             SyncCause::Remote(e) | SyncCause::Local(e) => e.fmt(f),
             SyncCause::Lock(e) => e.fmt(f),
             SyncCause::Prompt(e) => e.fmt(f),
-            SyncCause::Unlock(e) => write!(f, "gage: unlocking to resolve a conflict: {e}"),
+            SyncCause::Unlock(e) => write!(f, "unlocking to resolve a conflict: {e}"),
             SyncCause::Entry(e) => e.fmt(f),
             SyncCause::NotAnEntry(path) => write!(
                 f,
-                "gage: {path:?} changed on both sides and is not an entry, so there is no version of it to choose; \
+                "{path:?} changed on both sides and is not an entry, so there is no version of it to choose; \
                  the vault is an ordinary git repository"
             ),
             SyncCause::Unresolved { total } => write!(
                 f,
-                "gage: {} of {total} conflicting entries left unresolved, so nothing was applied and \
-                 nothing was pushed; run `gage sync` again to finish",
+                "{} of {total} conflicting entries left unresolved, so nothing was applied and \
+                 nothing was pushed",
                 self.report.skipped
             ),
             SyncCause::Aborted => {
-                f.write_str("gage: resolution aborted; nothing was changed and nothing was pushed")
+                f.write_str("resolution aborted; nothing was changed and nothing was pushed")
             }
         }
     }
@@ -362,23 +374,36 @@ impl std::error::Error for SyncError {
     }
 }
 
-impl HasCode for SyncError {
-    fn code(&self) -> Code {
+impl HasKind for SyncError {
+    fn kind(&self) -> ErrorKind {
         match &*self.cause {
             // Unreachable 7, auth 5, diverged 1 (ADR-0017).
-            SyncCause::Remote(e) => e.code(),
+            SyncCause::Remote(e) => e.kind(),
             // "A state a human must resolve."
-            SyncCause::Conflict => Code::Conflict,
+            SyncCause::Conflict => ErrorKind::Conflict,
             // A dirty tree is Conflict; anything else here is Internal.
-            SyncCause::Local(e) => e.code(),
-            SyncCause::Lock(e) => e.code(),
+            SyncCause::Local(e) => e.kind(),
+            SyncCause::Lock(e) => e.kind(),
             // Nobody to ask is Conflict; a broken terminal is Internal.
-            SyncCause::Prompt(e) => e.code(),
-            SyncCause::Unlock(e) => e.code(),
-            SyncCause::Entry(e) => e.code(),
+            SyncCause::Prompt(e) => e.kind(),
+            SyncCause::Unlock(e) => e.kind(),
+            SyncCause::Entry(e) => e.kind(),
             SyncCause::NotAnEntry(_) | SyncCause::Unresolved { .. } | SyncCause::Aborted => {
-                Code::Conflict
+                ErrorKind::Conflict
             }
+        }
+    }
+
+    fn remedy(&self) -> Option<Remedy> {
+        match &*self.cause {
+            SyncCause::Conflict => Some(self.report.remedy()),
+            SyncCause::Unresolved { .. } => Some(Remedy::SyncAgain),
+            SyncCause::Remote(e) | SyncCause::Local(e) => e.remedy(),
+            SyncCause::Lock(e) => e.remedy(),
+            SyncCause::Prompt(e) => e.remedy(),
+            SyncCause::Unlock(e) => e.remedy(),
+            SyncCause::Entry(e) => e.remedy(),
+            SyncCause::NotAnEntry(_) | SyncCause::Aborted => None,
         }
     }
 }
@@ -484,14 +509,19 @@ impl Vault {
             // ordinary concurrency.
             Ok(None) => {}
             Ok(Some(report)) if report.diverged => {
-                prompter.warn(&format!("gage: {}", report.summary()));
+                prompter.warn(&Warning::from(report.summary()).with_remedy(Some(report.remedy())));
             }
             Ok(Some(_)) => {}
-            Err(err) => prompter.warn(&format!(
-                "gage: {}; continuing with the local copy of {:?}",
-                offline_or_error(&err),
-                self.name
-            )),
+            Err(err) => {
+                let cause = offline_or_error(&err);
+                prompter.warn(&Warning {
+                    text: format!(
+                        "{}; continuing with the local copy of {:?}",
+                        cause.text, self.name
+                    ),
+                    remedy: cause.remedy,
+                });
+            }
         }
     }
 
@@ -501,21 +531,29 @@ impl Vault {
     /// warns, differently for being offline ("your commit is safe but
     /// unsent") and for a divergence ("run `gage sync`").
     pub(crate) fn push_after_write(&self, prompter: &dyn Prompter) {
-        self.push_after_write_saying(prompter, UNPUSHED_WRITE_CLAUSE);
+        self.push_after_write_saying(prompter, UNPUSHED_WRITE_CLAUSE.into());
     }
 
     /// [`Vault::push_after_write`] for a write that has its own account of
     /// what went unpublished. A divergence says its own thing and ignores
     /// `clause`.
-    pub(crate) fn push_after_write_saying(&self, prompter: &dyn Prompter, clause: &str) {
+    pub(crate) fn push_after_write_saying(&self, prompter: &dyn Prompter, clause: PushClause<'_>) {
         match self.push_locked(Instant::now() + REMOTE_OP_TIMEOUT) {
             Ok(_) => {}
             // The divergence has its own sentence; what wasn't published
             // is already in it.
             Err(err) if err.remote_kind() == Some(Kind::Diverged) => {
-                prompter.warn(&format!("gage: {}", err.report.summary()));
+                prompter.warn(
+                    &Warning::from(err.report.summary()).with_remedy(Some(err.report.remedy())),
+                );
             }
-            Err(err) => prompter.warn(&format!("gage: {clause}: {}", offline_or_error(&err))),
+            Err(err) => {
+                let cause = offline_or_error(&err);
+                prompter.warn(&Warning {
+                    text: format!("{}: {}", clause.text, cause.text),
+                    remedy: clause.remedy.or(cause.remedy),
+                });
+            }
         }
     }
 
@@ -649,15 +687,14 @@ impl Vault {
     }
 }
 
-/// A sync failure as a clause that reads mid-sentence: being offline as the
-/// expected, unalarming thing it is, and anything else as its own message
-/// without the "gage: " the surrounding warning already opens with.
-pub(crate) fn offline_or_error(err: &SyncError) -> String {
+/// A sync failure as a clause that reads mid-sentence, with its remedy:
+/// being offline as the expected, unalarming thing it is, and anything else
+/// as its own message.
+pub(crate) fn offline_or_error(err: &SyncError) -> Warning {
     if err.remote_kind() == Some(Kind::Unreachable) {
-        return "could not reach origin".to_string();
+        return Warning::from("could not reach origin");
     }
-    let msg = err.to_string();
-    msg.strip_prefix("gage: ").unwrap_or(&msg).to_string()
+    Warning::from(err.to_string()).with_remedy(err.remedy())
 }
 
 #[cfg(test)]

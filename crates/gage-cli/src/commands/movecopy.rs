@@ -7,8 +7,8 @@
 //! from the registry fails before the source asks for a passphrase: a
 //! destination that isn't registered, and one that is the source.
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::exitcode::Code;
 use gage::identity::Identity;
 use gage::movecopy::{MoveError, MoveResult};
 use gage::prompter::Prompter;
@@ -110,7 +110,7 @@ fn transfer(
 
 fn same_vault(to: &str) -> CliError {
     fail(
-        Code::Usage,
+        ExitCode::Usage,
         format!("{to:?} is the source vault; --to-vault must name a different vault"),
     )
 }

@@ -10,7 +10,7 @@ use clap::builder::ValueRange;
 use clap::error::ErrorKind;
 use clap::{Arg, ArgAction, ArgMatches, Command};
 
-use gage::exitcode::Code;
+use crate::exitcode::ExitCode;
 
 use crate::error::CliError;
 use crate::registry::{Availability, CommandInfo, Registry};
@@ -335,9 +335,9 @@ pub fn parse(
         // command they ask for a session and a one-shot in one breath.
         // Refusing beats picking one and ignoring half of what was typed.
         return Err(CliError::new(
-            Code::Usage,
+            ExitCode::Usage,
             format!(
-                "gage: --script/--stdin run a whole session's commands, so they can't be \
+                "--script/--stdin run a whole session's commands, so they can't be \
                  combined with the {name:?} command; put {name} on a line in the script instead"
             ),
         ));
@@ -352,8 +352,8 @@ fn script_source(matches: &ArgMatches) -> Result<Option<ScriptSource>, CliError>
     let stdin = matches.get_flag(STDIN_FLAG);
     match (file, stdin) {
         (Some(_), true) => Err(CliError::new(
-            Code::Usage,
-            "gage: --script and --stdin are mutually exclusive",
+            ExitCode::Usage,
+            "--script and --stdin are mutually exclusive",
         )),
         (Some(file), false) => Ok(Some(ScriptSource::File(file.clone()))),
         (None, true) => Ok(Some(ScriptSource::Stdin)),
@@ -427,7 +427,10 @@ fn usage_error(root: &Command, reg: &Registry, args: &[String], e: &clap::Error)
         .trim()
         .trim_start_matches("error: ");
     let help = command_help(root, reg, &reached_path(root, args));
-    CliError::new(Code::Usage, format!("{complaint}\n\n{}", help.trim_end()))
+    CliError::new(
+        ExitCode::Usage,
+        format!("{complaint}\n\n{}", help.trim_end()),
+    )
 }
 
 /// `gage help [command...]`: the root listing, or one command's help. An
@@ -444,7 +447,7 @@ pub fn help_topic(
     let path = reached_path(&root, topic);
     if path.len() != topic.len() {
         return Err(CliError::new(
-            Code::Usage,
+            ExitCode::Usage,
             format!("unknown help topic {:?}", topic.join(" ")),
         ));
     }

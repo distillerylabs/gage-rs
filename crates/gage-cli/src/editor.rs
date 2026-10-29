@@ -18,8 +18,8 @@ use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use crate::exitcode::ExitCode;
 use gage::entry::{self, Entry};
-use gage::exitcode::Code;
 use zeroize::Zeroizing;
 
 use crate::error::CliError;
@@ -49,17 +49,17 @@ fn edit_yaml_in(dir: &Path, editor: Option<&str>, seed: &Entry) -> Result<Edited
         .args(&args)
         .arg(&scratch.path)
         .status()
-        .map_err(|e| CliError::new(Code::Internal, format!("gage: running $EDITOR: {e}")))?;
+        .map_err(|e| CliError::new(ExitCode::Internal, format!("running $EDITOR: {e}")))?;
     if !status.success() {
         return Err(CliError::new(
-            Code::Internal,
-            format!("gage: $EDITOR exited with an error: {status}"),
+            ExitCode::Internal,
+            format!("$EDITOR exited with an error: {status}"),
         ));
     }
     let edited = Zeroizing::new(fs::read(&scratch.path).map_err(|e| {
         CliError::new(
-            Code::Internal,
-            format!("gage: reading the edited scratch file: {e}"),
+            ExitCode::Internal,
+            format!("reading the edited scratch file: {e}"),
         )
     })?);
     let entry = entry::unmarshal(&edited)?;
@@ -79,14 +79,14 @@ fn resolve_editor(editor: Option<&str>) -> Result<(PathBuf, Vec<String>), CliErr
     let mut words = editor.split_whitespace();
     let Some(first) = words.next() else {
         return Err(CliError::new(
-            Code::Internal,
-            "gage: $EDITOR is not set; gage edit and gage insert -e need it to open a scratch file",
+            ExitCode::Internal,
+            "$EDITOR is not set; gage edit and gage insert -e need it to open a scratch file",
         ));
     };
     let program = which::which(first).map_err(|e| {
         CliError::new(
-            Code::Internal,
-            format!("gage: $EDITOR {editor:?} is not usable: {e}"),
+            ExitCode::Internal,
+            format!("$EDITOR {editor:?} is not usable: {e}"),
         )
     })?;
     Ok((program, words.map(str::to_string).collect()))
@@ -108,7 +108,7 @@ impl Scratch {
     /// `gage-edit-*.yaml` name, 0600 on Unix) holding `data`.
     fn create(dir: &Path, data: &[u8]) -> Result<Scratch, CliError> {
         let creating = |e: std::io::Error| {
-            CliError::new(Code::Internal, format!("gage: creating scratch file: {e}"))
+            CliError::new(ExitCode::Internal, format!("creating scratch file: {e}"))
         };
         let mut builder = tempfile::Builder::new();
         builder.prefix("gage-edit-").suffix(".yaml");
@@ -125,7 +125,7 @@ impl Scratch {
         };
         if let Some(file) = &mut scratch.original {
             file.write_all(data).map_err(|e| {
-                CliError::new(Code::Internal, format!("gage: writing scratch file: {e}"))
+                CliError::new(ExitCode::Internal, format!("writing scratch file: {e}"))
             })?;
         }
         // Closed before the editor opens it: Windows won't share it
@@ -521,7 +521,7 @@ mod tests {
         for editor in [None, Some(""), Some("   \t ")] {
             let (dir, r) = in_private_dir(editor, &seed());
             let err = r.err().expect("an unset $EDITOR must fail");
-            assert_eq!(err.code(), Code::Internal);
+            assert_eq!(err.code(), ExitCode::Internal);
             assert!(err.to_string().contains("$EDITOR is not set"), "{err}");
             assert!(
                 is_empty(dir.path()),
@@ -538,7 +538,7 @@ mod tests {
         );
         let (dir, r) = in_private_dir(Some(&missing), &seed());
         let err = r.err().expect("an unusable $EDITOR must fail");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.code(), ExitCode::Internal);
         assert!(err.to_string().contains("is not usable"), "{err}");
         assert!(is_empty(dir.path()), "a scratch file was created");
     }
@@ -600,7 +600,7 @@ mod tests {
         let fake = FakeEditor::new(Action::Fail);
         let (_dir, r) = in_private_dir(Some(&fake.command), &seed());
         let err = r.err().expect("a failing editor must fail the edit");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.code(), ExitCode::Internal);
         assert!(
             err.to_string().contains("$EDITOR exited with an error"),
             "{err}"
@@ -612,7 +612,7 @@ mod tests {
         let fake = FakeEditor::new(Action::InvalidYaml);
         let (_dir, r) = in_private_dir(Some(&fake.command), &seed());
         let err = r.err().expect("unparseable content must fail the edit");
-        assert_ne!(err.code(), Code::Success);
+        assert_ne!(err.code(), ExitCode::Success);
         assert!(err.to_string().contains("parsing entry"), "{err}");
     }
 
@@ -652,7 +652,7 @@ mod tests {
         let fake = FakeEditor::new(Action::Delete);
         let (dir, r) = in_private_dir(Some(&fake.command), &seed());
         let err = r.err().expect("a vanished file must fail the edit");
-        assert_eq!(err.code(), Code::Internal);
+        assert_eq!(err.code(), ExitCode::Internal);
         assert!(
             err.to_string().contains("reading the edited scratch file"),
             "{err}"

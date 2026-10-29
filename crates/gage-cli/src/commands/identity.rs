@@ -5,8 +5,8 @@
 //! library (`identity_add`); this records the device, method and key in
 //! global config (never in the vault) and renders.
 
+use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::exitcode::Code;
 use gage::vaultconfig::UnlockMethod;
 
 use super::entry::use_flag;
@@ -67,7 +67,7 @@ pub fn add(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cli
         };
         if let UnlockMethod::Other(method) = &method {
             return Err(fail(
-                Code::Usage,
+                ExitCode::Usage,
                 format!(
                     "unknown method {method:?}; accepted: {}",
                     UnlockMethod::names(", ")
@@ -106,7 +106,7 @@ pub(super) fn record_local_identity(
     let (path, mut global) = load_global(io)?;
     let entry = global.vaults.get_mut(vault).ok_or_else(|| {
         fail(
-            Code::NotFound,
+            ExitCode::NotFound,
             format!("{vault:?} is not a registered vault"),
         )
     })?;
