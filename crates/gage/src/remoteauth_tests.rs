@@ -1,6 +1,6 @@
 use super::*;
 
-/// A fresh machine's directories (Go's `isolateState`).
+/// A fresh machine's directories.
 fn machine() -> (tempfile::TempDir, Dirs) {
     let root = tempfile::tempdir().unwrap();
     let dirs = Dirs {
@@ -11,7 +11,6 @@ fn machine() -> (tempfile::TempDir, Dirs) {
     (root, dirs)
 }
 
-// Go: TestStoreWritesTheTokenUnderStateAt0600
 #[test]
 fn store_writes_the_token_under_state_at_0600() {
     let (_root, dirs) = machine();
@@ -35,8 +34,8 @@ fn store_writes_the_token_under_state_at_0600() {
     assert_eq!(&*load(&dirs, "github.com").unwrap(), "ghp_example");
 }
 
-// Go: TestLoadRefusesATokenOthersCanRead. Windows doesn't model the mode
-// bits (see `load`), so this runs on Unix only, as Go's does.
+// Windows doesn't model the mode
+// bits (see `load`), so this runs on Unix only.
 #[cfg(unix)]
 #[test]
 fn load_refuses_a_token_others_can_read() {
@@ -60,7 +59,6 @@ fn load_refuses_a_token_others_can_read() {
     );
 }
 
-// Go: TestLogoutForgetsTheTokenAndIsSafeTwice
 #[test]
 fn logout_forgets_the_token_and_is_safe_twice() {
     let (_root, dirs) = machine();
@@ -73,7 +71,6 @@ fn logout_forgets_the_token_and_is_safe_twice() {
     remove(&dirs, "github.com").unwrap();
 }
 
-// Go: TestTwoVaultsOnOneHostShareOneToken
 #[test]
 fn two_vaults_on_one_host_share_one_token() {
     let (_root, dirs) = machine();
@@ -100,7 +97,6 @@ fn two_vaults_on_one_host_share_one_token() {
     );
 }
 
-// Go: TestHostReadsBothRemoteSpellings
 #[test]
 fn host_reads_both_remote_spellings() {
     for (url, want) in [
@@ -127,7 +123,6 @@ fn host_reads_both_remote_spellings() {
     assert_eq!(err.code(), Code::Usage, "{err}");
 }
 
-// Go: TestTokenHostOnlyNamesHTTPHosts
 #[test]
 fn token_host_only_names_http_hosts() {
     for (url, want) in [
@@ -144,7 +139,6 @@ fn token_host_only_names_http_hosts() {
     }
 }
 
-// Go: TestSSHRemoteNeedingSSHConfigFailsWithTheRealReason
 #[test]
 fn ssh_remote_needing_ssh_config_fails_with_the_real_reason() {
     let (_root, dirs) = machine();
@@ -156,7 +150,7 @@ fn ssh_remote_needing_ssh_config_fails_with_the_real_reason() {
     assert!(msg.contains("HTTPS"), "{msg}");
 }
 
-// Go: TestSSHRemoteWithARealHostIsAttempted. Whether an agent is running
+// Whether an agent is running
 // differs per machine and CI runner, so this pins which path resolving
 // took, never the outcome: an agent credential, or an error naming
 // ssh-agent. Never the alias refusal, never "unsupported".
@@ -177,7 +171,6 @@ fn ssh_remote_with_a_real_host_is_attempted() {
     }
 }
 
-// Go: TestStoreRefusesAnEmptyToken
 #[test]
 fn store_refuses_an_empty_token() {
     let (_root, dirs) = machine();
@@ -189,7 +182,6 @@ fn store_refuses_an_empty_token() {
     assert!(!paths::tokens_dir(&dirs).join("github.com").exists());
 }
 
-// Go: TestHostCannotEscapeTheTokensDirectory
 #[test]
 fn host_cannot_escape_the_tokens_directory() {
     let (root, dirs) = machine();
@@ -201,7 +193,6 @@ fn host_cannot_escape_the_tokens_directory() {
     assert!(!root.path().join("etc").exists());
 }
 
-// Go: TestAuthHintNamesTheHostAndTheCommand
 #[test]
 fn auth_hint_names_the_host_and_the_command() {
     let hint = auth_hint("github.com");

@@ -1,10 +1,10 @@
-//! Session mode over a real terminal: the one M6 test that needs one.
+//! Session mode over a real terminal: the one session test that needs one.
 //! Everything else about the REPL runs in-process through the plain line
 //! reader (`repl_tests` in the crate), so without this the `rustyline`
 //! half would ship untested: raw mode, and the prompter reading a masked
 //! passphrase from the same terminal between two lines.
 //!
-//! A pty is a POSIX object, so Unix only, as Go's is (`linux || darwin`).
+//! A pty is a POSIX object, so Unix only (`linux || darwin`).
 #![cfg(unix)]
 
 use std::io::{Read, Write};
@@ -55,7 +55,7 @@ fn echo_on(tty: &std::fs::File) -> bool {
     lflag & libc::ECHO != 0
 }
 
-// Go: TestSessionOverARealTerminalDrivesTheLineEditor. Bare `gage` on a
+// Bare `gage` on a
 // terminal reaches the line editor; a passphrase asked between two lines
 // is read masked from the same terminal; Up recalls a line and Ctrl-C
 // abandons one, which only the editor's raw mode does (cooked, the first

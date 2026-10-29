@@ -1,6 +1,6 @@
 //! The shipped `gage` binary is built without the library's `test-support`
 //! feature. That feature is what exposes `set_scrypt_work_factor_for_tests`,
-//! the one way to lower the identity file's KDF cost (Q-SCRYPT-HOOK), so a
+//! the one way to lower the identity file's KDF cost (ADR-0024), so a
 //! build that enabled it would ship a binary able to weaken its own
 //! passphrase wrapping. Nothing else checks this: every other test runs in
 //! a build where dev-dependencies are unified in, and so has the feature by

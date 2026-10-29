@@ -1,6 +1,5 @@
 //! `recipient approve`'s scope, its late unlock across both invocation
-//! modes, and its two questions: Go's `approve_scope_cli_test.go`. Each
-//! test names its Go row.
+//! modes, and its two questions.
 
 use gage::exitcode::Code;
 use gage::gitrepo;
@@ -18,8 +17,8 @@ use crate::script_tests::Run;
 use crate::trustcache_cli_tests::commit_routine_change;
 
 /// A device listed in the vault by hand, without re-encrypting, so it
-/// can't read what was written before (the damage A19 left one way to
-/// reach). Returns its machine, caught up.
+/// can't read what was written before (the damage a skipped re-encrypt
+/// would do). Returns its machine, caught up.
 fn partially_admitted(e: &Enrolled, device: &str) -> Env {
     let env = Env::new();
     let url = e.t._origin.path().to_str().unwrap();
@@ -61,7 +60,7 @@ fn real_script(env: &Env, lines: &[&str]) -> crate::lifecycle_tests::CliResult {
     )
 }
 
-// Go: TestApprovalPromptsOnceForTheApproversPassphrase. A git writer
+// A git writer
 // holding no key of this vault can't approve.
 #[test]
 fn approval_prompts_once_for_the_approvers_passphrase() {
@@ -72,7 +71,7 @@ fn approval_prompts_once_for_the_approvers_passphrase() {
     assert_eq!(p.unlock_requests().len(), 1);
 }
 
-// Go: TestTheFullAccessRefusalCostsOneUnlockNotZero. The pre-flight is a
+// The pre-flight is a
 // decryption pass with no identity-free form, so its refusal comes after
 // the one unlock: the documented cost of the late unlock. Zero here would
 // be asserting the impossible.
@@ -83,7 +82,7 @@ fn the_full_access_refusal_costs_one_unlock_not_zero() {
     e.a().ok(&["push"]);
     let partial = partially_admitted(&e, "desktop-1");
     // Its first unlock writes its trust baseline (the listing itself fails:
-    // it can't read A's entry); then the list changes again, so M10's
+    // it can't read A's entry); then the list changes again, so the trust-the-list
     // question is live and "not asked" means something.
     assert_ne!(partial.cmd(&["ls"]).code, Code::Success);
     let stray = age::x25519::Identity::generate().to_public().to_string();
@@ -100,11 +99,11 @@ fn the_full_access_refusal_costs_one_unlock_not_zero() {
     assert_eq!(p.unlock_requests().len(), 1);
     assert!(
         p.recipient_changes().is_empty(),
-        "M10 asked before the refusal"
+        "the trust question was asked before the refusal"
     );
 }
 
-// Go: TestApproveInASessionReusesTheCachedIdentity. `use` unlocked it;
+// `use` unlocked it;
 // approve asks for no second passphrase.
 #[test]
 fn approve_in_a_session_reuses_the_cached_identity() {
@@ -125,7 +124,7 @@ fn approve_in_a_session_reuses_the_cached_identity() {
     assert!(!still_pending(e.a()));
 }
 
-// Beyond Go's rows, found in E4's second review: the late unlock holds in
+// The late unlock holds in
 // a session too. A vault the session never unlocked stays locked through a
 // declined approval; only the one-shot path was pinned before.
 #[test]
@@ -140,8 +139,8 @@ fn declining_the_approval_in_a_session_costs_no_unlock() {
     assert!(still_pending(e.a()));
 }
 
-// Go: TestTheApproverAnswersTwoDistinctQuestions. "Let this device in" is
-// approve's; "do you trust the list" is M10's, asked here because another
+// "Let this device in" is
+// approve's; "do you trust the list" is the trust cache's, asked here because another
 // device changed the list. Never collapsed, and declining the second
 // aborts with nothing committed.
 #[test]
@@ -155,7 +154,11 @@ fn the_approver_answers_two_distinct_questions() {
 
     let declines = approving().with_recipient_answers(&[false]);
     let r = e.a().approve(&["--code", &e.code], &declines);
-    assert_ne!(r.code, Code::Success, "declined M10, and still approved");
+    assert_ne!(
+        r.code,
+        Code::Success,
+        "declined the trust question, and still approved"
+    );
     assert_eq!(declines.confirm_prompts().len(), 1);
     assert_eq!(declines.recipient_changes().len(), 1);
     assert_eq!(e.commits(), before);
@@ -170,7 +173,6 @@ fn the_approver_answers_two_distinct_questions() {
     assert!(!asked[0].contains("trust"), "{asked:?}");
 }
 
-// Go: TestApproveRefusesATakenNameBeforeTheConfirmationAndBeforeAnyUnlock.
 // It reads only the plaintext list, so it genuinely can come first; and
 // --device is the way out.
 #[test]
@@ -194,7 +196,7 @@ fn approve_refuses_a_taken_name_before_the_confirmation_and_before_any_unlock() 
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
 }
 
-// Go: TestApproveSurfacesARequestExpiredByItsSeal. A real request with a
+// A real request with a
 // one-second TTL, left to lapse, then filed under a live-looking name:
 // the sealed expiry is what approval enforces, before any question.
 #[test]
@@ -234,7 +236,7 @@ fn approve_surfaces_a_request_expired_by_its_seal() {
     assert!(p.confirm_prompts().is_empty());
 }
 
-// Go: TestApproveOnAnAmbiguousIDRendersTheCandidates. Approve and deny
+// Approve and deny
 // resolve through one function, so they render one list.
 #[test]
 fn approve_on_an_ambiguous_id_renders_the_candidates() {
@@ -253,7 +255,7 @@ fn approve_on_an_ambiguous_id_renders_the_candidates() {
     }
 }
 
-// Go: TestApproveWithNoIDAgainstAStuffedPendingRefuses. Past the bound, a
+// Past the bound, a
 // broad run refuses before any decryption or question, and says what to
 // type instead.
 #[test]
@@ -274,7 +276,7 @@ fn approve_with_no_id_against_a_stuffed_pending_refuses() {
     assert_eq!(e.commits(), before);
 }
 
-// Go: TestNamingAnIDIsTheWayOutOfAStuffedPending. `pending` and `deny`
+// `pending` and `deny`
 // open nothing, so a stuffed directory stays inspectable and cleanable,
 // and `approve <ID>` narrows the question.
 #[test]
@@ -297,7 +299,7 @@ fn naming_an_id_is_the_way_out_of_a_stuffed_pending() {
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
 }
 
-// Go: TestTheBoundFollowsTheScopeNotTheFlag. Naming every id gives the
+// Naming every id gives the
 // same oversized scope a broad run does, and the same refusal: the bound
 // is a property of the scope, not of whether an ID was typed.
 #[test]
@@ -314,7 +316,7 @@ fn the_bound_follows_the_scope_not_the_flag() {
     assert!(r.stderr.contains("too many pending"), "{}", r.stderr);
 }
 
-// Go: TestApproveUnderARealScriptRunFailsCleanly. The terminal prompter in
+// The terminal prompter in
 // a script has nobody to answer approve's [y/N], so nothing is approved.
 #[test]
 fn approve_under_a_real_script_run_fails_cleanly() {
@@ -330,7 +332,6 @@ fn approve_under_a_real_script_run_fails_cleanly() {
     assert!(!e.a().ok(&["recipient", "list"]).stdout.contains("phone-1"));
 }
 
-// Go: TestPendingAndDenyUnderARealScriptRun
 #[test]
 fn pending_and_deny_under_a_real_script_run() {
     let e = Enrolled::new("phone-1");
@@ -344,9 +345,9 @@ fn pending_and_deny_under_a_real_script_run() {
     assert!(pending_ids(&e.vault_path()).is_empty());
 }
 
-// Go: TestPendingRendersExpiryInTheLocalTimezone. The same instant, two
+// The same instant, two
 // zones through `Io`, each reading its own wall clock; no process
-// environment is touched (Q-PENDING-TZ).
+// environment is touched.
 #[test]
 fn pending_renders_expiry_in_the_local_timezone() {
     let e = Enrolled::new("phone-1");

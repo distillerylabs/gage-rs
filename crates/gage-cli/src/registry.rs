@@ -1,6 +1,6 @@
 //! The command registry: every command's name, aliases, description, group
 //! and one-shot/session availability, in one place. One-shot help (clap)
-//! and M6's in-session help both render from it, so the two can't drift,
+//! and in-session help both render from it, so the two can't drift,
 //! and the clap command tree is built from it (see `cli`). Adding a command
 //! means registering it here, not just adding a clap subcommand.
 
@@ -81,8 +81,7 @@ pub struct Registry {
     pub parents: Vec<ParentInfo>,
 }
 
-/// The real registry. Commands are listed in the order Go's registry
-/// lists them, which is the order each group renders in.
+/// The real registry. Commands are listed in the order each group renders in.
 pub fn registry() -> Registry {
     use Availability::{Both, OneShotOnly, SessionOnly};
     let session = |name, aliases, usage, short| CommandInfo {
@@ -125,7 +124,7 @@ pub fn registry() -> Registry {
             session("help", &[], "[command]", "Show help for gage's commands"),
             // One-shot only: it creates a vault rather than operating on
             // one, which leaves "does the new vault become the session's
-            // current one?" unanswered (Go's Q-CMD-AVAILABILITY).
+            // current one?" unanswered (ADR-0032).
             command(
                 "init",
                 "<name>",
@@ -240,7 +239,7 @@ pub fn registry() -> Registry {
                 GROUP_RECIPIENT,
                 Both,
             ),
-            // One-shot only, as in Go's registry.
+            // One-shot only.
             command(
                 "recovery enroll",
                 "",
@@ -496,20 +495,18 @@ pub fn group_commands(commands: &[CommandInfo]) -> Vec<CommandGroup> {
 mod tests {
     use super::*;
 
-    // Go: TestFindCommandResolvesAliases
     #[test]
     fn find_command_resolves_aliases() {
         assert_eq!(registry().find("whoami").unwrap().name, "status");
         assert_eq!(registry().find("quit").unwrap().name, "exit");
     }
 
-    // Go: TestFindCommandUnknown
     #[test]
     fn find_command_unknown() {
         assert_eq!(registry().find("not-a-command"), None);
     }
 
-    // Go: TestEveryRegistryEntryHasShortAndGroup. Availability can't be
+    // Availability can't be
     // unset in Rust (a closed enum with no default), so only the strings
     // need checking.
     #[test]
@@ -535,7 +532,6 @@ mod tests {
         }
     }
 
-    // Go: TestGroupCommandsStillRendersAGroupMissingFromGroupOrder
     #[test]
     fn group_commands_still_renders_a_group_missing_from_group_order() {
         let cmd = |name, group| CommandInfo {

@@ -147,7 +147,7 @@ pub fn verify(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
 
 /// `recovery enroll` refusing to replace a wrapped identity this machine
 /// already holds for the device it was told to enroll, unless `--replaces`
-/// names that same device (Q-RECOVERY-LOCAL-IDENTITY-ERROR).
+/// names that same device.
 ///
 /// A frontend policy, so it lives here: `identityfile::create` would
 /// happily *reuse* the file, asking for its passphrase, and a forgotten
@@ -220,7 +220,7 @@ pub fn enroll(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
     check_device_label_free(&device)?;
     // The used key is retired whether or not it is named. Knowable from
     // the flags, so refused here rather than by the swap after a new
-    // passphrase (RK4's review); the swap still refuses it too.
+    // passphrase; the swap still refuses it too.
     if replaces == Some(RECOVERY_DEVICE_LABEL) {
         return Err(RecoveryError::ReplacesRecoveryKey.into());
     }

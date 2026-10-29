@@ -4,7 +4,7 @@
 //! only thing that produces one, and every CRUD method takes it explicitly,
 //! so `Vault` stays stateless and identity-agnostic.
 //!
-//! Memory layout (Q-IDENTITY-SECRET): the key is held as its
+//! Memory layout (ADR-0023): the key is held as its
 //! `AGE-SECRET-KEY-1…` line in a [`LockedBuf`], a page-aligned allocation
 //! no other data shares, page-locked if the platform allows. The X25519
 //! key age decrypts with is parsed from that line per operation and
@@ -17,18 +17,17 @@
 //! # fn f(vault: &gage::vault::Vault, p: &dyn gage::prompter::Prompter) {
 //! let id = vault.unlock(p).unwrap();
 //! drop(id);
-//! let _ = gage::crypt::decrypt(b"", &id); // Go: TestUsingAnIdentityAfterCloseFails
+//! let _ = gage::crypt::decrypt(b"", &id); // error: use of moved value
 //! # }
 //! ```
 //!
-//! Nor can two copies of one key exist to be dropped separately (Go's
-//! copies-share-one-close problem has no Rust counterpart; `Identity` is
+//! Nor can two copies of one key exist to be dropped separately (`Identity` is
 //! not `Clone`):
 //!
 //! ```compile_fail,E0599
 //! # fn f(vault: &gage::vault::Vault, p: &dyn gage::prompter::Prompter) {
 //! let id = vault.unlock(p).unwrap();
-//! let copy = id.clone(); // Go: TestIdentityCopiesShareOneClose
+//! let copy = id.clone(); // error: `Identity` is not `Clone`
 //! # }
 //! ```
 //!
@@ -44,7 +43,7 @@
 //! # }
 //! ```
 //!
-//! Recorded gap, as Go records its own: age's Bech32 decoding makes
+//! Recorded gap: age's Bech32 decoding makes
 //! transient copies of the key while parsing it, which are neither locked
 //! nor (all) wiped. The line this type owns end to end is.
 
@@ -143,7 +142,7 @@ impl Identity {
 
     /// An identity over a bare key, unlocked and never page-locked, for
     /// tests of the crypto wrapper that have no vault or file to unlock
-    /// from (Go's `wrapIdentity`).
+    /// from.
     #[cfg(test)]
     pub(crate) fn for_tests(key: &age::x25519::Identity) -> Identity {
         use age::secrecy::ExposeSecret;

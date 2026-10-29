@@ -22,7 +22,7 @@ use crate::identity::Identity;
 /// brute force, so every step up doubles the attacker's cost for the same
 /// passphrase. It stops at 19 because one-shot mode pays this cost on every
 /// invocation, and a `gage show` that takes four seconds pushes people
-/// toward weaker passphrases (Go's `shippedScryptWorkFactor`).
+/// toward weaker passphrases.
 ///
 /// Raising it later needs no migration: each file records its own factor in
 /// its scrypt stanza. A `const`, so nothing at runtime can move the shipped
@@ -30,7 +30,7 @@ use crate::identity::Identity;
 pub const SHIPPED_SCRYPT_WORK_FACTOR: u8 = 19;
 
 /// The live work factor every passphrase recipient is built at, and the
-/// only part of this a test can move (Q-SCRYPT-HOOK): the suites unlock
+/// only part of this a test can move (ADR-0024): the suites unlock
 /// real vaults hundreds of times, which at the shipped cost is minutes
 /// spent proving that scrypt still costs what scrypt costs.
 ///
@@ -53,13 +53,13 @@ pub const SCRYPT_MAX_WORK_FACTOR: u8 = 22;
 ///
 /// A work factor buys cost per guess, which is what a passphrase a human
 /// chose needs. An enrollment code is chosen by nobody: it is 16 Crockford
-/// characters from the OS RNG, 80 bits (D-ENROLL-CODE-FORMAT), and at 80
+/// characters from the OS RNG, 80 bits (ADR-0039), and at 80
 /// bits the guess count is already the defence at any factor. The extra
 /// doublings would be paid in latency and buy nothing. Not zero, though:
 /// the licence is a property of the generator, and the factor should still
 /// hold up if a bug weakens it. 14 is about 32× cheaper than 19, and it is
 /// what keeps the honest case (a mistyped code against a full `pending/`)
-/// fast, which is the case D-ENROLL-SEAL-COST is calibrated for.
+/// fast, which is the case ADR-0040 is calibrated for.
 ///
 /// The coupling, recorded where someone would break it: the low factor is
 /// licensed by the code being generated, uniform and 80 bits. If a chosen
@@ -70,11 +70,11 @@ pub const SCRYPT_MAX_WORK_FACTOR: u8 = 22;
 pub const SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR: u8 = 14;
 
 /// The live copy of [`SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR`]: what sealing
-/// reads, and the only part a test can move (Q-ENROLL-SCRYPT-HOOK). Its own
+/// reads, and the only part a test can move (ADR-0025). Its own
 /// atomic and its own setter are what keep the two factors independent:
 /// sealing at [`SCRYPT_WORK_FACTOR`] would let a suite that lowered the
 /// identity factor silently lower the seal's, hiding the calibration
-/// D-ENROLL-SEAL-COST makes.
+/// ADR-0040 makes.
 ///
 /// The only writer is [`set_enrollment_work_factor_for_tests`];
 /// `only_the_test_hooks_write_the_work_factors` enforces it.
@@ -82,7 +82,7 @@ static ENROLLMENT_SCRYPT_WORK_FACTOR: AtomicU8 =
     AtomicU8::new(SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR);
 
 /// The most work the enrollment open path will do on a request's *claimed*
-/// factor (Q-ENROLL-SCRYPT-CAP). Its own cap, not [`SCRYPT_MAX_WORK_FACTOR`]:
+/// factor (ADR-0026). Its own cap, not [`SCRYPT_MAX_WORK_FACTOR`]:
 /// the identity file is local, while `pending/` is writable by any git
 /// writer, and scrypt's memory is 1 KiB × N. At 22 one hostile file costs
 /// 4 GiB and seconds; at 18, four doublings above what gage seals at
@@ -127,7 +127,7 @@ pub enum Error {
     /// here keeps the reason gage's own.
     #[error("refusing to encrypt to zero recipients")]
     NoRecipients,
-    /// The identity file's "always exactly one recipient" property (A3)
+    /// The identity file's "always exactly one recipient" property
     /// rests on this, so gage states it rather than inheriting age's.
     #[error(
         "a passphrase recipient must be a file's only recipient (asked to combine it with {others} other recipient(s))"
@@ -169,8 +169,7 @@ impl HasCode for Error {
 
 /// One recipient gage can encrypt to. Its fields are private and it has no
 /// `Default`, so the only ways to get one are [`Recipient::parse`] and
-/// [`Recipient::passphrase`] (Go's `TestEncryptRefusesAZeroValueRecipient`
-/// guards a zero value Rust can't produce):
+/// [`Recipient::passphrase`], so there is no zero value to refuse:
 ///
 /// ```compile_fail,E0599
 /// let r = gage::crypt::Recipient::default();
@@ -286,8 +285,7 @@ pub fn encrypt(plaintext: &[u8], to: &[Recipient]) -> Result<Vec<u8>, Error> {
 /// Decrypts `ciphertext` with `id`'s private key. [`Error::NotARecipient`]
 /// when `id` isn't one of the file's recipients, [`Error::CorruptCiphertext`]
 /// when the bytes aren't an intact age file; never a panic and never
-/// partial plaintext. A dropped identity can't be passed at all (Go's
-/// `TestDecryptWithAClosedIdentityFails`):
+/// partial plaintext. A dropped identity can't be passed at all:
 ///
 /// ```compile_fail,E0382
 /// # fn f(vault: &gage::vault::Vault, p: &dyn gage::prompter::Prompter) {
@@ -429,7 +427,7 @@ mod tests {
         age::decrypt(&scrypt_identity(passphrase), ct).unwrap()
     }
 
-    // Go: TestEncryptDecryptRoundTripIsByteIdentical. A NUL and a
+    // A NUL and a
     // multi-byte character: the wrapper must not be quietly text-oriented.
     #[test]
     fn encrypt_decrypt_round_trip_is_byte_identical() {
@@ -443,7 +441,6 @@ mod tests {
         assert_eq!(decrypt(&ct, &wrap(&key)).unwrap(), payload);
     }
 
-    // Go: TestEncryptToEmptyPayloadRoundTrips
     #[test]
     fn encrypt_to_empty_payload_round_trips() {
         let (key, recipient) = keypair();
@@ -451,7 +448,7 @@ mod tests {
         assert!(decrypt(&ct, &wrap(&key)).unwrap().is_empty());
     }
 
-    // Go: TestEachRecipientCanDecryptIndependently: N recipients are N
+    // N recipients are N
     // independently sufficient keys, not a quorum.
     #[test]
     fn each_recipient_can_decrypt_independently() {
@@ -464,7 +461,6 @@ mod tests {
         }
     }
 
-    // Go: TestPassphraseRecipientAloneRoundTrips
     #[test]
     fn passphrase_recipient_alone_round_trips() {
         crate::testsupport::fast_scrypt();
@@ -473,7 +469,6 @@ mod tests {
         assert_eq!(decrypt_scrypt(&ct, "hunter2"), payload);
     }
 
-    // Go: TestEncryptToZeroRecipientsIsRefused
     #[test]
     fn encrypt_to_zero_recipients_is_refused() {
         let err = encrypt(b"nobody could read this", &[]).unwrap_err();
@@ -481,7 +476,7 @@ mod tests {
         assert_eq!(err.code(), Code::Usage);
     }
 
-    // Go: TestScryptRecipientCannotBeCombined (A3). Both orderings, and
+    // A passphrase recipient cannot be combined with another. Both orderings, and
     // two passphrases: gage refuses before age is reached either way.
     #[test]
     fn scrypt_recipient_cannot_be_combined() {
@@ -513,7 +508,6 @@ mod tests {
         }
     }
 
-    // Go: TestParseRecipientRejectsNonEncryptableStrings
     #[test]
     fn parse_recipient_rejects_non_encryptable_strings() {
         for s in [
@@ -533,8 +527,8 @@ mod tests {
         }
     }
 
-    // Go: TestRecipientStringRendersTheParsedSpelling, plus the
-    // passphrase half the plan adds: it renders as a label, never a key.
+    // A recipient renders as its parsed spelling, and a passphrase
+    // recipient: it renders as a label, never a key.
     #[test]
     fn recipient_string_renders_the_parsed_spelling() {
         crate::testsupport::fast_scrypt();
@@ -545,7 +539,7 @@ mod tests {
         assert!(!format!("{pass:?}").contains("hunter2"));
     }
 
-    // Go: TestDecryptWithANonRecipientFailsTyped. A wrong key never looks
+    // A wrong key never looks
     // like a damaged file.
     #[test]
     fn decrypt_with_a_non_recipient_fails_typed() {
@@ -563,11 +557,11 @@ mod tests {
         out
     }
 
-    // Go: TestCorruptedCiphertextFailsCleanly. Damage across the whole
+    // Damage across the whole
     // file, failing at different stages inside age; none may panic or
     // return plaintext (a Result carries none on Err by construction).
-    // Go's cases accept either error, since a damaged recipient stanza is
-    // indistinguishable from someone else's; the plan's cases, which
+    // Some cases accept either error, since a damaged recipient stanza is
+    // indistinguishable from someone else's; the others, which
     // damage nothing a recipient match depends on, must be corrupt.
     #[test]
     fn corrupted_ciphertext_fails_cleanly() {
@@ -603,7 +597,7 @@ mod tests {
         }
     }
 
-    // Go: TestScryptWorkFactorIsDeliberate. Checks the constant, not the
+    // Checks the constant, not the
     // live value the test hook lowers.
     #[test]
     fn scrypt_work_factor_is_deliberate() {
@@ -616,11 +610,11 @@ mod tests {
         assert_eq!(SCRYPT_MAX_WORK_FACTOR, 22);
     }
 
-    // Go: TestEnrollmentScryptWorkFactorIsDeliberate. The shipped
+    // The shipped
     // constant, not the live value. 14 is licensed by the code being 80
-    // generated bits (D-ENROLL-SEAL-COST); the rest stop it being
+    // generated bits (ADR-0040); the rest stop it being
     // "simplified" into the identity file's, and keep gage able to open
-    // what it seals under its own cap (Q-ENROLL-SCRYPT-CAP).
+    // what it seals under its own cap (ADR-0026).
     #[test]
     fn enrollment_scrypt_work_factor_is_deliberate() {
         assert_eq!(SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR, 14);
@@ -630,7 +624,7 @@ mod tests {
         const { assert!(ENROLLMENT_SCRYPT_MAX_WORK_FACTOR <= SCRYPT_MAX_WORK_FACTOR) };
     }
 
-    // Go: TestScryptWorkFactorIsActuallyApplied. The constant can be right
+    // The constant can be right
     // and never reach age: dropping the set_work_factor call would write
     // every file at age's calibrated default while everything else stayed
     // green.
@@ -659,11 +653,10 @@ mod tests {
         eprintln!("FACTOR {factor} {reads_back}");
     }
 
-    // Go: TestShippedWorkFactorReachesARealAgeFile, the one test that
-    // observes the shipped cost reaching a real header. Go lowers and
-    // restores the live value around one encryption; tests here share one
-    // process and run in parallel, so that would race every other scrypt
-    // test. A child process that never calls the hook is the same proof
+    // The one test that observes the shipped cost reaching a real header.
+    // Lowering and restoring the live value around one encryption would
+    // race every other scrypt test: tests share one process and run in
+    // parallel. A child process that never calls the hook is the same proof
     // without the race: the live factor's *initial* value is the shipped
     // one, it reaches age, and the cap admits it on a real file.
     #[test]
@@ -760,7 +753,7 @@ mod tests {
             .collect()
     }
 
-    // Go: TestOnlyTheTestHooksWriteTheWorkFactors, both halves. The
+    // Only the test hooks write the work factors. The
     // shipped constants can't move, but the live atomics can, and one
     // stray `SCRYPT_WORK_FACTOR.store(10, ..)` in library code would ship a
     // weakened KDF every other guard misses. So every mention of each
@@ -837,13 +830,12 @@ mod tests {
         }
     }
 
-    // Go: TestEveryScryptIdentityCapsItsWorkFactor, both halves. A scrypt
+    // Every scrypt identity caps its work factor. A scrypt
     // identity built without a cap inherits age's per-machine one, and the
-    // next decryption path would inherit a limit nobody chose. Rust's
-    // version is stricter than Go's per-function scan: there is exactly one
+    // next decryption path would inherit a limit nobody chose. There is exactly one
     // construction site in the library, it sets the cap it is given, and
     // every call of it passes one of the two named caps
-    // (Q-ENROLL-SCRYPT-CAP): the identity file's, or the seal's.
+    // (ADR-0026): the identity file's, or the seal's.
     #[test]
     fn every_scrypt_identity_caps_its_work_factor() {
         const CONSTRUCTOR: &str = "capped_scrypt_identity";

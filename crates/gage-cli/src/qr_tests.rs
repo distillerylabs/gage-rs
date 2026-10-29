@@ -1,10 +1,10 @@
 //! `-q/--qr`: the renderer, and `show`/`generate` drawing a code instead
 //! of printing the value. "The code encodes exactly this value" is checked
 //! by turning the render back into its module grid and comparing it with
-//! the crate's own grid for the same value, as Go's tests compare with
-//! `rsc.io/qr`'s. That catches encoding the wrong thing (the whole entry
+//! the crate's own grid for the same value.
+//! That catches encoding the wrong thing (the whole entry
 //! when `--field` asked for one key) and leaves "does the crate encode
-//! correctly" to the crate. No decoder dependency (Q-QR-CRATE).
+//! correctly" to the crate. No decoder dependency (ADR-0049).
 
 use gage::exitcode::Code;
 use qrcode::{Color, QrCode};
@@ -87,7 +87,7 @@ fn render_lines(value: &str) -> Vec<String> {
         .collect()
 }
 
-// Go: TestRenderQRRoundTripsToTheExactValue. No truncation, no trailing
+// No truncation, no trailing
 // newline swept in, no padding that shifts the grid.
 #[test]
 fn render_qr_round_trips_to_the_exact_value() {
@@ -106,7 +106,7 @@ fn render_qr_round_trips_to_the_exact_value() {
     }
 }
 
-// Go: TestRenderQRDistinguishesValues. What gives the round trip its
+// What gives the round trip its
 // teeth: a comparison that matched everything would prove nothing.
 #[test]
 fn render_qr_distinguishes_values() {
@@ -114,7 +114,7 @@ fn render_qr_distinguishes_values() {
     assert_ne!(decode_rendered_qr(&art), reference_grid("hunter3"));
 }
 
-// Go: TestRenderQRHasAQuietZone. The top QR_QUIET_ZONE/2 lines are solid
+// The top QR_QUIET_ZONE/2 lines are solid
 // border, and so are the first and last QR_QUIET_ZONE columns of every
 // line.
 #[test]
@@ -147,7 +147,7 @@ fn render_qr_has_a_quiet_zone() {
     }
 }
 
-// Go: TestRenderQRIsSquareIshAndRectangular. Every line the same width, and
+// Every line the same width, and
 // two module rows per line.
 #[test]
 fn render_qr_is_square_ish_and_rectangular() {
@@ -159,7 +159,7 @@ fn render_qr_is_square_ish_and_rectangular() {
     assert_eq!(lines.len(), width.div_ceil(2));
 }
 
-// Go: TestRenderQRRejectsAnEmptyValue. Nothing to scan, and an empty symbol
+// Nothing to scan, and an empty symbol
 // would be a silently useless answer.
 #[test]
 fn render_qr_rejects_an_empty_value() {
@@ -167,7 +167,7 @@ fn render_qr_rejects_an_empty_value() {
     assert_eq!(err.code(), Code::Usage);
 }
 
-// Beyond Go's rows: a value no QR version holds is a usage error naming the
+// A value no QR version holds is a usage error naming the
 // cause, not a crash or a partial symbol.
 #[test]
 fn render_qr_rejects_a_value_too_long_to_encode() {
@@ -178,7 +178,7 @@ fn render_qr_rejects_a_value_too_long_to_encode() {
 
 // --- show / generate -q ---------------------------------------------------------
 
-// Go: TestShowQRPrintsNoPlaintextAlongsideTheCode. -q renders *instead of*
+// -q renders *instead of*
 // printing: a code with the secret written under it defeats itself.
 #[test]
 fn show_qr_prints_no_plaintext_alongside_the_code() {
@@ -192,7 +192,7 @@ fn show_qr_prints_no_plaintext_alongside_the_code() {
     assert_eq!(decode_rendered_qr(&r.stdout), reference_grid("hunter2"));
 }
 
-// Go: TestShowFieldQREncodesOnlyThatField. A structured note must not be
+// A structured note must not be
 // dumped whole into a code when only the TOTP seed was wanted.
 #[test]
 fn show_field_qr_encodes_only_that_field() {
@@ -217,7 +217,7 @@ fn show_field_qr_encodes_only_that_field() {
     }
 }
 
-// Go (generate): TestGenerateQRRendersWithoutPrintingTheValue. The code is
+// The code is
 // the value that was stored, and the value itself is printed nowhere.
 #[test]
 fn generate_qr_renders_without_printing_the_value() {

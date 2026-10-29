@@ -5,12 +5,12 @@
 //! Unlike the global config, every field here can reach the local
 //! filesystem (the id and each recipient's device name become path
 //! components), and the file is committed, so any git-writer can edit it.
-//! [`read`] therefore validates before returning, in Go's order: the
+//! [`read`] therefore validates before returning, in a fixed order: the
 //! format version first (a file this build doesn't understand is never
-//! acted on), then the id, then the device names (Q-DEVICE-NAME, A20).
+//! acted on), then the id, then the device names (ADR-0010, ADR-0006).
 //!
-//! The schema (table and field names) follows Go; the bytes are the `toml`
-//! crate's own (Q-COMPAT).
+//! The schema (table and field names) is fixed by the format; the bytes are
+//! the `toml` crate's own (ADR-0002).
 
 mod id;
 
@@ -28,7 +28,7 @@ use crate::exitcode::{Code, HasCode};
 /// The only `format_version` this build understands. Bumped when the
 /// file's shape changes in a way an older reader can't safely ignore.
 ///
-/// 2 added `[vault].id` (A20). A v1 vault has no id at all, so there is
+/// 2 added `[vault].id` (ADR-0006). A v1 vault has no id at all, so there is
 /// nothing to key its identities directory, trust cache or lock by, which
 /// is why the refusal in [`read`] is not a formality it could parse past.
 pub const CURRENT_FORMAT_VERSION: i64 = 2;
@@ -40,7 +40,7 @@ pub struct VaultMeta {
     pub name: String,
     /// The vault's own id: minted once by `gage init`, never changed, and
     /// cloned with the vault, so every clone agrees on it however it was
-    /// named locally. See A20.
+    /// named locally (ADR-0006).
     pub id: String,
     #[serde(rename = "type")]
     pub vault_type: String,
@@ -52,7 +52,7 @@ pub struct VaultMeta {
 
 /// The `[method]` table: a default for devices joining this vault, not a
 /// vault-wide constraint. See "Decryption methods are per-device" and
-/// Q-METHOD-SCOPE.
+/// ADR-0011.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Method {
@@ -63,7 +63,7 @@ pub struct Method {
 
 /// One `[[recipients]]` entry. Deliberately only a device label and a
 /// public key: a per-recipient method would tell anyone with read access
-/// which recipient is the softest target (Q-METHOD-SCOPE).
+/// which recipient is the softest target (ADR-0011).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Recipient {
@@ -85,7 +85,7 @@ pub struct File {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionSkew {
     /// Written by an older gage (or missing). It can't be upgraded in
-    /// place: A20 added `[vault].id` and there is no id to invent for a
+    /// place: version 2 added `[vault].id` and there is no id to invent for a
     /// vault that never had one, so the remedy is to re-create it.
     Older,
     /// Written by a newer gage: upgrade this one.
@@ -148,7 +148,7 @@ pub enum Error {
 impl HasCode for Error {
     // The three refusals are anticipated states a human resolves
     // (upgrade gage, re-create or repair the vault), not gage bugs, so a
-    // script can tell them from Internal. Go maps them the same way.
+    // script can tell them from Internal.
     fn code(&self) -> Code {
         match self {
             Error::UnsupportedFormatVersion { .. }
@@ -260,16 +260,15 @@ mod tests {
         read(&path)
     }
 
-    // Go: TestRoundTrip
     #[test]
     fn round_trip() {
         let want = valid_file();
         assert_eq!(write_then_read(&want).unwrap(), want);
     }
 
-    // Go's table and field names: the schema follows Go (Q-COMPAT).
+    // The table and field names are the format's (ADR-0002).
     #[test]
-    fn written_with_gos_table_and_field_names() {
+    fn written_with_the_formats_table_and_field_names() {
         let mut file = valid_file();
         file.method.plugin = "yubikey".into();
         let text = toml::to_string(&file).unwrap();
@@ -292,8 +291,7 @@ mod tests {
         assert!(!toml::to_string(&valid_file()).unwrap().contains("plugin"));
     }
 
-    // Go: TestRecipientsCarryOnlyDeviceAndPubkey. Go counts the struct's
-    // fields by reflection; here the exhaustive pattern stops compiling if
+    // The exhaustive pattern stops compiling if
     // a field is added, and the serialized keys are checked too.
     #[test]
     fn recipients_carry_only_device_and_pubkey() {
@@ -312,7 +310,6 @@ mod tests {
         }
     }
 
-    // Go: TestReadRejectsUnrecognizedFormatVersion
     #[test]
     fn read_rejects_unrecognized_format_version() {
         let mut file = valid_file();
@@ -337,7 +334,7 @@ mod tests {
         assert_eq!(err.code(), Code::Conflict);
     }
 
-    // Go: TestReadRejectsMissingFormatVersion. Treated as older than this
+    // Treated as older than this
     // build, never best-effort parsed.
     #[test]
     fn read_rejects_missing_format_version() {
@@ -367,7 +364,6 @@ mod tests {
         );
     }
 
-    // Go: TestReadRefusesAVaultOlderThanThisBuildWithARecreateMessage.
     // Telling the owner of a v1 vault to upgrade gage is advice that
     // can't work: the refusal is directional.
     #[test]
@@ -395,14 +391,14 @@ mod tests {
         assert!(msg.contains("format_version 1"), "{msg}");
     }
 
-    // Go: TestCurrentFormatVersionIsTwo. A20's "re-create the vault" story
+    // The "re-create the vault" story
     // only works if the marker that triggers it actually moved.
     #[test]
     fn current_format_version_is_two() {
         assert_eq!(CURRENT_FORMAT_VERSION, 2);
     }
 
-    // Go: TestReadMissingFile. Rust adds a distinguishable variant.
+    // Rust adds a distinguishable variant.
     #[test]
     fn read_missing_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -421,7 +417,7 @@ mod tests {
         assert_eq!(err.code(), Code::Internal);
     }
 
-    // Go: TestReadRejectsAnIDThatIsNotAUUID. The id becomes a path
+    // The id becomes a path
     // component and arrives from a file any git-writer can edit, so it is
     // refused on read, before any path is built from it.
     #[test]
@@ -468,7 +464,7 @@ mod tests {
         assert!(matches!(err, Error::InvalidVaultId { .. }), "{err:?}");
     }
 
-    // Go: TestReadRejectsPathTraversalDeviceNameBeforeUse. Rejected, never
+    // Rejected, never
     // normalized: a normalized name is a different device.
     #[test]
     fn read_rejects_path_traversal_device_name_before_use() {
@@ -498,7 +494,7 @@ mod tests {
         }
     }
 
-    // Go: TestFormatVersionCheckedBeforeDeviceNames. A file whose version
+    // A file whose version
     // is unrecognized is never looked into, not even its recipients.
     #[test]
     fn format_version_checked_before_device_names() {
@@ -514,7 +510,7 @@ mod tests {
         );
     }
 
-    // Go: TestFormatVersionCheckedBeforeTheID. A v1 vault's missing id is
+    // A v1 vault's missing id is
     // a version mismatch, not a malformed id: only one of those messages
     // says what actually happened.
     #[test]
@@ -531,7 +527,7 @@ mod tests {
         );
     }
 
-    // The id is checked before the device names, Go's order.
+    // The id is checked before the device names.
     #[test]
     fn the_id_is_checked_before_device_names() {
         let mut file = valid_file();
@@ -543,7 +539,7 @@ mod tests {
         assert!(matches!(err, Error::InvalidVaultId { .. }), "{err:?}");
     }
 
-    // Go: TestWriteWrapsAnAtomicfileFailure. The failure comes back named
+    // The failure comes back named
     // as a vaultconfig write, not a bare atomicfile error.
     #[test]
     fn write_wraps_an_atomicfile_failure() {

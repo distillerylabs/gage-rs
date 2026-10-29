@@ -1,8 +1,8 @@
 //! An entry's YAML form: gage's own emitter and `saphyr`'s parser
-//! (Q-YAML-CRATE).
+//! (ADR-0048).
 //!
 //! The emitter is gage's because no library's scalar-style heuristics can
-//! be trusted with a password manager's contents: Go's yaml.v3 writes a
+//! be trusted with a password manager's contents: a typical YAML emitter writes a
 //! block scalar that reads back one newline short for `"\nsecret"`, and one
 //! it cannot re-read for a value with a tab, so the entry would encrypt
 //! cleanly and never open again. So [`marshal`] owns the rule (see
@@ -12,8 +12,8 @@
 //!
 //! The parser is configured with `early_parse(false)`, so every scalar
 //! keeps the text and style it was written with: gage's string fields take
-//! that text as is (`title: 0x1F` is the string `0x1F`, as yaml.v3 decodes
-//! into a Go string), and unknown fields keep theirs.
+//! that text as is (`title: 0x1F` is the string `0x1F`, as a typed decode
+//! into a string would), and unknown fields keep theirs.
 
 use std::collections::BTreeMap;
 
@@ -478,7 +478,7 @@ fn extra_of(v: YamlOwned) -> Result<Extra, Error> {
             }
             Ok(Extra::Map(pairs))
         }
-        // A tag on a collection: the tag is dropped, as in Go.
+        // A tag on a collection: the tag is dropped.
         YamlOwned::Tagged(_, inner) => extra_of(*inner),
         _ => Err(parse_error("unsupported YAML value".into())),
     }
@@ -605,9 +605,9 @@ fields:
         .collect()
     }
 
-    // Go: TestEntryMarshalMatchesDesignDocShape. The design doc's own
+    // The design doc's own
     // example parses to the entry, and the entry writes back in the same
-    // shape (fields sorted, as Go sorts them).
+    // shape (fields sorted).
     #[test]
     fn entry_marshal_matches_design_doc_shape() {
         assert_eq!(unmarshal(KEY_DOC.as_bytes()).unwrap(), design_doc_entry());
@@ -627,7 +627,6 @@ fields:
         );
     }
 
-    // Go: TestEntryMarshalIsDeterministic
     #[test]
     fn entry_marshal_is_deterministic() {
         let mut e = design_doc_entry();
@@ -640,7 +639,7 @@ fields:
         assert!(first.find("\naa: 2\n").unwrap() < first.find("\nzz: 1\n").unwrap());
     }
 
-    // Go: TestEntryEmptyDescriptionAndFieldsRoundTripConsistently. Absent
+    // Absent
     // on the wire, never null or "".
     #[test]
     fn empty_description_and_fields_are_absent_and_round_trip() {
@@ -655,7 +654,6 @@ fields:
         assert_eq!(unmarshal(text.as_bytes()).unwrap(), e);
     }
 
-    // Go: TestEntryMultiLineValueStaysReadable
     #[test]
     fn multi_line_value_stays_readable() {
         let text = marshaled(&only_value("first line\nsecond line\nthird"));
@@ -675,7 +673,6 @@ fields:
         }
     }
 
-    // Go: TestEntryValueRoundTripsYAMLHostileContent
     #[test]
     fn value_round_trips_yaml_hostile_content() {
         for s in hostile() {
@@ -688,7 +685,7 @@ fields:
         }
     }
 
-    // Go: TestEntryEveryStringFieldRoundTripsHostileContent. The same
+    // The same
     // strings as every string the entry holds, keys of `fields` included.
     #[test]
     fn every_string_field_round_trips_hostile_content() {
@@ -747,7 +744,6 @@ fields:
         }
     }
 
-    // Go: TestEntryQuotedFallbackRoundTripsEverything
     #[test]
     fn quoted_fallback_round_trips_everything() {
         for s in hostile() {
@@ -765,7 +761,7 @@ fields:
         }
     }
 
-    // Go: TestVerifyFaithfulReportsEachMismatchedField. By name, never by
+    // By name, never by
     // content.
     #[test]
     fn verify_faithful_reports_each_mismatched_field() {
@@ -809,7 +805,6 @@ fields:
         );
     }
 
-    // Go: TestEntryPreservesUnknownFields
     #[test]
     fn preserves_unknown_fields() {
         let text = "\
@@ -832,7 +827,6 @@ future_list:
         assert!(out.contains("\nfuture_note: \"quoted\"\n"), "{out}");
     }
 
-    // Go: TestExtraPreservesLargeAndNestedValues
     #[test]
     fn extra_preserves_large_and_nested_values() {
         let mut nested = Extra::Text("deep\nvalue".into());
@@ -859,7 +853,7 @@ future_list:
         assert_eq!(unmarshal(text.as_bytes()).unwrap(), e);
     }
 
-    // Go: TestUnknownValueNodeHandlesEveryClosedSetType. Rust's unknown
+    // Rust's unknown
     // values are a closed enum, so this walks every variant through the
     // text a generic YAML decode would produce.
     #[test]
@@ -904,7 +898,7 @@ an_empty_map: {}
         assert_eq!(unmarshal(marshaled(&e).as_bytes()).unwrap(), e);
     }
 
-    // Go: TestUnknownValueNodeMapAndSeqRecurse. Nested collections keep
+    // Nested collections keep
     // document order and unquoted scalars inside them.
     #[test]
     fn unknown_map_and_seq_recurse() {
@@ -997,8 +991,7 @@ an_empty_map: {}
         assert_eq!((e.title.as_str(), e.value.as_str()), ("with bom", "v"));
     }
 
-    // Includes Go's TestTimestampUnmarshalYAMLRejectsNonStringNode: the
-    // `created:` rows put a mapping and a sequence where a timestamp
+    // The `created:` rows put a mapping and a sequence where a timestamp
     // belongs.
     #[test]
     fn collections_where_strings_belong_are_refused() {

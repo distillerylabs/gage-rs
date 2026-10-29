@@ -1,4 +1,4 @@
-//! RK1 task 4, the approval half: a request can't claim
+//! The approval half of the reservation: a request can't claim
 //! `recovery-paper-key`, and an approver can't relabel one to it. The rest
 //! of the reservation is in `recovery/reservation_tests.rs`.
 

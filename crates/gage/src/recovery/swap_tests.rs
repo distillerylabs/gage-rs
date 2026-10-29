@@ -1,7 +1,4 @@
-//! RK2: the recovery identity and the swap. Go:
-//! `internal/gage/recovery_enroll_test.go`, every row but
-//! `TestTheRecoveryLabelIsReservedForTheRecoveryKey` (RK1's). Each test
-//! names its Go row.
+//! The recovery identity and the swap.
 //!
 //! A child of `swap`, so it reaches the private `recovery_identity` and
 //! `apply_swap` without either being widened.
@@ -33,7 +30,7 @@ const OWNER: &str = "laptop-1";
 
 /// A vault in the shape `gage init` now leaves: the owner's wrapped
 /// identity on disk and registered, a recovery recipient beside it, a
-/// published first commit (Go's `newRecoverFixture`).
+/// published first commit.
 pub(super) struct Recover {
     _root: tempfile::TempDir,
     _remote: BareRemote,
@@ -154,7 +151,7 @@ impl Recover {
         gitrepo::is_clean(&self.vault.path).unwrap()
     }
 
-    /// The list as `device=pubkey` pairs, in order (Go's `labels`).
+    /// The list as `device=pubkey` pairs, in order.
     pub(super) fn labels(&self) -> Vec<String> {
         self.vault
             .recipients()
@@ -178,7 +175,7 @@ impl Recover {
         crate::recipients::read(&self.vault.path.join(".age-recipients")).unwrap()
     }
 
-    /// Whether `secret` opens every entry on disk (Go's `decryptsWith`).
+    /// Whether `secret` opens every entry on disk.
     pub(super) fn decrypts_with(&self, secret: &str) -> bool {
         let key: age::x25519::Identity = secret.trim().parse().unwrap();
         let identity = Identity::for_tests(&key);
@@ -189,7 +186,7 @@ impl Recover {
     }
 }
 
-/// A key belonging to nothing in particular (Go's `freshPubkey`).
+/// A key belonging to nothing in particular.
 pub(super) fn fresh_pubkey() -> String {
     new_recovery_key().unwrap().pubkey
 }
@@ -222,9 +219,8 @@ impl Locker for RefusesToLock {
     }
 }
 
-// --- task 1: recovery_identity ------------------------------------------------
+// --- recovery_identity ------------------------------------------------
 
-// Go: TestRecoveryIdentityAcceptsOnlyTheRecoveryRecipient.
 #[test]
 fn recovery_identity_accepts_only_the_recovery_recipient() {
     let f = Recover::new();
@@ -238,7 +234,7 @@ fn recovery_identity_accepts_only_the_recovery_recipient() {
     assert_eq!(id.recipient(), f.key().pubkey);
 }
 
-// Go: TestRecoveryIdentityRefusesADeviceKey. D12: the recovery path is for
+// D12: the recovery path is for
 // the recovery key, not any key that happens to be a recipient. A device's
 // key is wrapped and reaches gage through unlock; letting a bare one in
 // here would make "recovery only" a comment rather than a property.
@@ -276,7 +272,6 @@ fn recovery_identity_refuses_a_device_key() {
     assert!(err.to_string().contains("desktop-1"), "{err}");
 }
 
-// Go: TestRecoveryIdentityRefusesStrangersAndGarbage.
 #[test]
 fn recovery_identity_refuses_strangers_and_garbage() {
     let f = Recover::new();
@@ -313,7 +308,6 @@ fn recovery_identity_refuses_strangers_and_garbage() {
     }
 }
 
-// Go: TestRecoveryIdentityToleratesPastedWhitespace.
 #[test]
 fn recovery_identity_tolerates_pasted_whitespace() {
     let f = Recover::new();
@@ -327,7 +321,7 @@ fn recovery_identity_tolerates_pasted_whitespace() {
     assert_eq!(id.recipient(), f.key().pubkey);
 }
 
-// Beyond Go's rows: a platform refusing the page lock warns with unlock's
+// A platform refusing the page lock warns with unlock's
 // sentence, naming the recovery label, and the identity still works.
 #[test]
 fn recovery_identity_warns_like_unlock_when_the_page_lock_fails() {
@@ -348,7 +342,7 @@ fn recovery_identity_warns_like_unlock_when_the_page_lock_fails() {
     );
 }
 
-// Go: TestRecoveryErrorsNeverQuoteTheSecret. age's own parse errors can
+// Age's own parse errors can
 // echo their input, and a malformed paste is usually most of a real key.
 // This covers recovery_identity's refusals; recover_device's are checked
 // in its two refusal tables, against the real secret.
@@ -368,7 +362,7 @@ fn recovery_errors_never_quote_the_secret() {
     }
 }
 
-// --- task 2: swap_recipients and recover_device -----------------------------
+// --- swap_recipients and recover_device -----------------------------
 
 impl Recover {
     pub(super) fn recover(
@@ -409,7 +403,6 @@ pub(super) fn assert_wrote_nothing(f: &Recover, head: &str, labels: &[String], w
     assert!(f.is_clean(), "{what}: the tree is dirty");
 }
 
-// Go: TestRecoverDeviceSwapsTheListInOneCommit.
 #[test]
 fn recover_device_swaps_the_list_in_one_commit() {
     let f = Recover::new();
@@ -474,7 +467,7 @@ fn recover_device_swaps_the_list_in_one_commit() {
     );
 }
 
-// Go: TestRecoverDeviceRetiresTheUsedKeyForFutureWrites. The claim the
+// The claim the
 // feature rests on: the key pasted into a terminal stops reading what the
 // vault writes next.
 #[test]
@@ -510,7 +503,7 @@ fn recover_device_retires_the_used_key_for_future_writes() {
     assert!(f.decrypts_with(&next.secret));
 }
 
-// Go: TestRecoverDeviceLetsTheNewDeviceRead. The point of the exercise.
+// The point of the exercise.
 #[test]
 fn recover_device_lets_the_new_device_read() {
     let f = Recover::new();
@@ -535,7 +528,6 @@ fn recover_device_lets_the_new_device_read() {
     assert!(f.decrypts_with(&next.secret), "the new recovery key");
 }
 
-// Go: TestRecoverDeviceWithoutAReplacementLeavesNoRecoveryRecipient.
 #[test]
 fn recover_device_without_a_replacement_leaves_no_recovery_recipient() {
     let f = Recover::new();
@@ -549,7 +541,7 @@ fn recover_device_without_a_replacement_leaves_no_recovery_recipient() {
     assert_eq!(res.new_recovery_pubkey, None);
 }
 
-// Go: TestRecoverDeviceLeavesUpdatedByAlone. Re-encryption is not an edit.
+// Re-encryption is not an edit.
 #[test]
 fn recover_device_leaves_updated_by_alone() {
     let f = Recover::new();
@@ -569,7 +561,7 @@ fn recover_device_leaves_updated_by_alone() {
     assert!(before.iter().all(|(_, by)| by == OWNER));
 }
 
-// Go: TestRecoverDeviceRefusalsWriteNothing. One case per refusal, each
+// One case per refusal, each
 // pinning its variant and code.
 #[test]
 fn recover_device_refusals_write_nothing() {
@@ -692,7 +684,7 @@ fn recover_device_refusals_write_nothing() {
     }
 }
 
-// Go: TestRecoverDeviceReusingTheReplacedName. Rebuilding a machine under
+// Rebuilding a machine under
 // the name it always had is the ordinary case, so collisions are checked
 // against the final list.
 #[test]
@@ -713,7 +705,7 @@ fn recover_device_reusing_the_replaced_name() {
     assert_eq!(f.labels(), [format!("{OWNER}={fresh}")]);
 }
 
-// Go: TestRecoverDeviceRefusesToReAddTheRetiredKey. The swap removes the
+// The swap removes the
 // recovery label before it checks the additions, so without an explicit
 // check the retired key sails back in under another label and
 // "retirement" reports success while the pasted secret stays a recipient.
@@ -759,7 +751,7 @@ fn recover_device_refuses_to_re_add_the_retired_key() {
     }
 }
 
-// Go: TestRecoverDeviceStillAsksM10sQuestion. The recovery path is not a
+// The recovery path is not a
 // way around the trust cache: a list nobody here reviewed is still shown.
 #[test]
 fn recover_device_still_asks_m10s_question() {
@@ -776,7 +768,7 @@ fn recover_device_still_asks_m10s_question() {
     assert_eq!(
         p.recipient_changes().len(),
         1,
-        "M10's question was not asked"
+        "the recipient-trust question was not asked"
     );
     assert!(
         matches!(
@@ -788,7 +780,7 @@ fn recover_device_still_asks_m10s_question() {
     assert_wrote_nothing(&f, &head, &labels, "declined");
 }
 
-// Go: TestApplySwapRefusesLeavingNothingToEncryptTo. Every caller adds at
+// Every caller adds at
 // least one recipient today, so this drives the pure function itself.
 #[test]
 fn apply_swap_refuses_leaving_nothing_to_encrypt_to() {
@@ -816,7 +808,7 @@ fn apply_swap_refuses_leaving_nothing_to_encrypt_to() {
     assert_eq!(err.code(), Code::Conflict);
 }
 
-// --- task 3: the secret's lifetime --------------------------------------------
+// --- the secret's lifetime --------------------------------------------
 
 /// `recovery/`'s non-test source, by file name.
 fn recovery_sources() -> Vec<(String, String)> {
@@ -884,8 +876,7 @@ fn lines_using(body: &str, ident: &str) -> Vec<String> {
         .collect()
 }
 
-// Go: TestRecoverDeviceZeroesTheSecretItWasHanded, ported per decision 2.
-// Go zeroes the caller's buffer because it can't take it; here ownership
+// The secret handed to `recover_device` is zeroed. Ownership
 // moves in, and the buffer is dropped (zeroed) once parsed, on every path.
 // What is left to prove is that nothing copies it on the way.
 #[test]
@@ -929,7 +920,7 @@ fn recover_device_takes_the_secret_by_value() {
     }
 }
 
-// --- task 4: atomicity ---------------------------------------------------------
+// --- atomicity ---------------------------------------------------------
 
 /// Asserts the state an interrupted swap must leave: HEAD, both recipient
 /// files and the recovery key exactly as committed before it, and then the
@@ -981,12 +972,12 @@ pub(super) fn assert_interrupted_swap_invisible(
     assert_eq!(f.recipients_file(), file, "{what}");
 }
 
-// Go: TestInterruptedRecoverDeviceLeavesHEADUntouched. A crash partway
+// A crash partway
 // through the re-encryption commits nothing and the old recovery key still
 // works, so re-running is the whole recovery procedure. At the first entry
 // and at the last; the window after the last entry and before the commit
 // (the recipient files written) is the shared commit_recipient_list's, and
-// M9b's interrupted_recipient_write_leaves_no_half_migrated_state proves it.
+// interrupted_recipient_write_leaves_no_half_migrated_state proves it.
 #[test]
 fn interrupted_recover_device_leaves_head_untouched() {
     for crash_after in [1, 3] {
@@ -1030,10 +1021,10 @@ fn interrupted_recover_device_leaves_head_untouched() {
     }
 }
 
-// --- task 5: rotate_recovery_key --------------------------------------------
+// --- rotate_recovery_key --------------------------------------------
 
 impl Recover {
-    /// Rotates as the owner, through an ordinary unlock (Go's `rotateAs`).
+    /// Rotates as the owner, through an ordinary unlock.
     pub(super) fn rotate(
         &self,
         new_pubkey: &str,
@@ -1044,7 +1035,7 @@ impl Recover {
     }
 }
 
-// Go: TestRotateRecoveryKeySwapsInOneCommit. The old key stops opening new
+// The old key stops opening new
 // ciphertext and the new one opens everything.
 #[test]
 fn rotate_recovery_key_swaps_in_one_commit() {
@@ -1084,7 +1075,7 @@ fn rotate_recovery_key_swaps_in_one_commit() {
     assert!(f.is_clean());
 }
 
-// Go: TestRotateRecoveryKeyCreatesOneWhenThereIsNone. How a vault made
+// How a vault made
 // with --no-recovery-key gets one later.
 #[test]
 fn rotate_recovery_key_creates_one_when_there_is_none() {
@@ -1106,7 +1097,7 @@ fn rotate_recovery_key_creates_one_when_there_is_none() {
     assert!(f.decrypts_with(&next.secret));
 }
 
-// Go: TestRotateRecoveryKeyRefusesTheKeyItIsRetiring. The swap removes the
+// The swap removes the
 // old label before it checks the additions, so re-offering the retired key
 // would sail through and report a rotation that changed nothing.
 #[test]
@@ -1126,7 +1117,6 @@ fn rotate_recovery_key_refuses_the_key_it_is_retiring() {
     assert_wrote_nothing(&f, &head, &labels, "retired key");
 }
 
-// Go: TestRotateRecoveryKeyRefusalsWriteNothing.
 #[test]
 fn rotate_recovery_key_refusals_write_nothing() {
     type Check = fn(&RecoveryError) -> bool;
@@ -1166,7 +1156,7 @@ fn rotate_recovery_key_refusals_write_nothing() {
     }
 }
 
-// Go: TestInterruptedRotateRecoveryKeyLeavesHEADUntouched. The recovery
+// The recovery
 // key stays the vault's recovery recipient, so a retry is the whole
 // procedure. Checked against the committed list, not by decrypting
 // entries off disk: an interrupted write leaves entries/ holding the new
@@ -1207,7 +1197,6 @@ fn interrupted_rotate_recovery_key_leaves_head_untouched() {
     }
 }
 
-// Go: TestRotateRecoveryKeyStillAsksM10sQuestion.
 #[test]
 fn rotate_recovery_key_still_asks_m10s_question() {
     let f = Recover::new();
@@ -1221,7 +1210,7 @@ fn rotate_recovery_key_still_asks_m10s_question() {
     assert_eq!(
         p.recipient_changes().len(),
         1,
-        "M10's question was not asked"
+        "the recipient-trust question was not asked"
     );
     assert!(
         matches!(
@@ -1233,11 +1222,10 @@ fn rotate_recovery_key_still_asks_m10s_question() {
     assert_wrote_nothing(&f, &head, &labels, "declined");
 }
 
-// Go: TestRotateRefusesToEvictTheActingDevice. The backstop under the
+// The backstop under the
 // label reservation: even if something ever let a device hold the label,
 // rotate must not be what locks out the machine running it. No reserved
-// path reaches this state, so it is written by hand and noted reviewed, as
-// Go's test constructs it directly.
+// path reaches this state, so it is written by hand and noted reviewed.
 #[test]
 fn rotate_refuses_to_evict_the_acting_device() {
     let f = Recover::without_recovery_key();
@@ -1268,7 +1256,7 @@ fn rotate_refuses_to_evict_the_acting_device() {
     assert_wrote_nothing(&f, &head, &labels, "acting device");
 }
 
-// Go: TestRotateWarnsThatRetirementIsFutureOnly. The leak-response user
+// The leak-response user
 // most needs to hear that the retired key still opens history, and rotate
 // retires through remove_if_present.
 #[test]
@@ -1302,17 +1290,17 @@ fn rotate_warns_that_retirement_is_future_only() {
     );
 }
 
-// --- task 6: found by the review -------------------------------------------
+// --- found by the review -------------------------------------------
 
-// Beyond Go's rows, found by the review's mutation pass (task 6): deleting
-// the swap's require_full_access left every test green. A19 holds for both
+// Found by a mutation pass: deleting the swap's require_full_access left
+// every test green. The full-access rule (ADR-0009) holds for both
 // swaps. An actor who can't read the whole vault has nothing whole to
 // grant, and the refusal comes before any question or byte, never midway
 // through on an opaque entry id.
 #[test]
 fn both_swaps_refuse_an_actor_who_cannot_read_every_entry() {
     /// Rewrites one entry so only `to` can open it, and commits it: what a
-    /// partial add from before A19 would have left.
+    /// partial add from before ADR-0009 would have left.
     fn readable_only_by(f: &Recover, to: &str) {
         let id = f.vault.entry_ids().unwrap()[0];
         let entry = f.vault.read_entry(id, &f.unlock()).unwrap();

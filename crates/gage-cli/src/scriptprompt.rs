@@ -1,6 +1,6 @@
 //! Where a non-interactive run's passphrase comes from: not a library
 //! concept, but this frontend deciding what to do when nobody is at the
-//! prompt (Q-SCRIPT-PASSPHRASE). The library still just asks through a
+//! prompt (ADR-0034). The library still just asks through a
 //! [`Prompter`] and has no idea an environment variable exists.
 //!
 //! Three wrappers, each answering one thing and delegating the rest, shaped
@@ -11,7 +11,7 @@
 //! - [`NoCreatePrompter`] refuses a *new* identity's passphrase, for a run
 //!   with no human to type it.
 //!
-//! [`for_script`] picks among them in Go's fixed order. What every branch
+//! [`for_script`] picks among them in a fixed order. What every branch
 //! has in common is the property that matters: no path reads the command
 //! stream as a passphrase. Under `--stdin` the prompter's input *is* that
 //! stream, so a read there takes the next command line, and for a new
@@ -245,7 +245,7 @@ impl Prompter for NoChoosePrompter<'_> {
 }
 
 /// The prompter a script run unlocks through, from where its commands come
-/// from and what it can ask. In Go's fixed order:
+/// from and what it can ask. In a fixed order:
 ///
 /// 1. `GAGE_PASSPHRASE`, if set (`passphrase_env`; set-but-empty counts).
 /// 2. Otherwise a prompt, but only when a human can be asked.
@@ -315,7 +315,7 @@ mod tests {
         )
     }
 
-    // Go: TestEnvPrompterAnswersOnceThenRefuses. The retry policy at the
+    // The retry policy at the
     // unit it lives in, since a CLI run can't tell "asked once" from "asked
     // three times and gave up".
     #[test]
@@ -332,7 +332,7 @@ mod tests {
         assert!(inner.unlock_requests().is_empty(), "the inner was asked");
     }
 
-    // Go: TestGagePassphraseIsIgnoredForANewIdentity, at the unit. A
+    // At the unit. A
     // create-purpose answer can't be checked against anything, so a typo in
     // the variable would be unrecoverable.
     #[test]
@@ -377,7 +377,7 @@ mod tests {
         assert_eq!(passphrase_of(got), PASSPHRASE);
     }
 
-    // Go: TestNoCreatePrompterPassesOrdinaryUnlocksThrough. It refuses only
+    // It refuses only
     // `Create`: an ordinary unlock has a passphrase that can be checked, so
     // it goes to the prompter underneath.
     #[test]
@@ -467,8 +467,7 @@ mod tests {
         assert_eq!(inner.warnings(), vec!["gage: careful".to_string()]);
     }
 
-    // Replaces Go's TestTerminalPrompterOfWalksDecoratorChains (Q-SCRIPT-
-    // PASSPHRASE): nothing here unwraps a prompter, so what needs proving
+    // ADR-0034: nothing here unwraps a prompter, so what needs proving
     // is that no wrapper answers, or loses, a question it isn't for.
     #[test]
     fn every_wrapper_passes_through_each_method_it_does_not_answer() {
@@ -485,7 +484,7 @@ mod tests {
         assert_passes_the_rest_through(&NoCreatePrompter(&inner), &inner);
     }
 
-    // Go: TestNoNonInteractivePrompterAnswersConfirmDefaultYes. Clone's
+    // Clone's
     // offer is a decision for a human: no wrapper, and not `--yes`, says
     // yes for one, so over a base that declines every one returns no.
     #[test]
@@ -514,7 +513,7 @@ mod tests {
         check(&AssumeYes(&inner), &inner, "AssumeYes");
     }
 
-    // Beyond Go's rows (see M12d's decisions): with nobody to pick, an
+    // With nobody to pick, an
     // ambiguous query is declined without a read, and nothing else changes.
     #[test]
     fn no_choose_prompter_declines_a_pick_and_passes_everything_else() {
@@ -551,7 +550,7 @@ mod tests {
         assert_eq!(inner.warnings().len(), 1);
     }
 
-    // Go: TestAssumeYesAnswersTheTrustQuestionAndNothingElse, over the new
+    // Over the new
     // wrappers too. `--yes` answers the recipient-change question and never
     // `confirm` (locking a device out) or a conflict, whichever side of the
     // script layer it sits.
@@ -604,7 +603,7 @@ mod tests {
         check(&AssumeYes(&wrapped), &inner);
     }
 
-    // Go: TestAssumeYesOverANonConflictPrompterStaysNonConflict. Wrapping
+    // Wrapping
     // must not make a frontend that can't resolve conflicts look like one
     // that can: here, `--yes` over a prompter whose `resolve_conflict`
     // refuses still refuses, through every wrapper.
@@ -629,9 +628,9 @@ mod tests {
     }
 
     // for_script's three branches, by what each does to an unlock and to a
-    // new identity (the source order, Go's scriptPrompter).
+    // new identity (the source order).
     #[test]
-    fn for_script_picks_the_source_in_go_s_order() {
+    fn for_script_picks_the_source_in_order() {
         let var = Some(Zeroizing::new("from-env".to_string()));
 
         // 1. The variable, with or without a terminal.

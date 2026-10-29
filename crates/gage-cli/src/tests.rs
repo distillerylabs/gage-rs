@@ -1,7 +1,7 @@
 //! In-process CLI tests of parsing, help and dispatch: `run_with` against
 //! injected IO and a fake prompter. Help tests assert structure (grouping,
-//! aliases, the one-shot set equal to the registry), not Cobra's bytes
-//! (Q-HELP-RENDER), and inject test commands where the real registry has
+//! aliases, the one-shot set equal to the registry), not exact bytes
+//! (ADR-0030), and inject test commands where the real registry has
 //! none of the shape under test. Vault lifecycle tests live in
 //! `lifecycle_tests`.
 
@@ -115,7 +115,7 @@ fn parent_tree_paths(root: &clap::Command) -> Vec<String> {
     out
 }
 
-// Go: TestRegistryCompleteness. Every clap command is registered and every
+// Every clap command is registered and every
 // registry entry has a clap command, so a command added outside the
 // registry fails here at once. Parents too: a `ParentInfo` that names no
 // parent in the tree (a typo), or a parent with no `ParentInfo`, would
@@ -148,7 +148,7 @@ fn registry_completeness_detects_parent_drift() {
     assert_ne!(parents, registered);
 }
 
-// Go: TestRegistryCompletenessDetectsNestedDrift. Proves the walk above
+// Proves the walk above
 // would catch an unregistered nested command.
 #[test]
 fn registry_completeness_detects_nested_drift() {
@@ -166,7 +166,6 @@ fn registry_completeness_detects_nested_drift() {
     assert_eq!(registry().find("zzz-fake-group leaf"), None);
 }
 
-// Go: TestAliasResolvesToSameCommandAtCLILevel
 #[test]
 fn alias_resolves_to_same_command_at_cli_level() {
     for (canonical, alias) in [("status", "whoami"), ("exit", "quit")] {
@@ -178,7 +177,6 @@ fn alias_resolves_to_same_command_at_cli_level() {
 
 // --- help -----------------------------------------------------------------
 
-// Go: TestHelpFlagExitsZero
 #[test]
 fn help_flag_exits_zero() {
     let r = run(&["--help"]);
@@ -191,7 +189,6 @@ fn help_flag_exits_zero() {
     assert_eq!(r.stderr, "");
 }
 
-// Go: TestHelpCommandExitsZeroAndMatchesHelpFlag
 #[test]
 fn help_command_exits_zero_and_matches_help_flag() {
     {
@@ -206,7 +203,6 @@ fn help_command_exits_zero_and_matches_help_flag() {
     }
 }
 
-// Go: TestHelpSubcommandPrintsUsageAndExitsZero
 #[test]
 fn help_subcommand_prints_usage_and_exits_zero() {
     let r = run(&["help", "use"]);
@@ -219,7 +215,6 @@ fn help_subcommand_prints_usage_and_exits_zero() {
     assert_eq!(run(&["use", "--help"]).stdout, r.stdout);
 }
 
-// Go: TestHelpUnknownTopicFailsWithUsageCode
 #[test]
 fn help_unknown_topic_fails_with_usage_code() {
     for topic in [
@@ -233,7 +228,6 @@ fn help_unknown_topic_fails_with_usage_code() {
     }
 }
 
-// Go: TestHelpOutputIsGrouped
 #[test]
 fn help_output_is_grouped() {
     let mut reg = registry();
@@ -254,10 +248,10 @@ fn help_output_is_grouped() {
     assert!(out[entry..].contains("fake-entry-cmd"));
 }
 
-// Go: TestOneShotHelpMatchesRegistryExactly. Read from the registry, not
+// Read from the registry, not
 // by parsing names out of prose: the listed lines are exactly the
 // one-shot commands' lines. The injected entry keeps the positive half
-// from passing vacuously on M0b's all-session registry.
+// from passing vacuously on an all-session registry.
 #[test]
 fn one_shot_help_matches_registry_exactly() {
     let mut reg = registry();
@@ -278,7 +272,6 @@ fn one_shot_help_matches_registry_exactly() {
     assert_eq!(listed_lines(&out), want);
 }
 
-// Go: TestNeitherHelpSpellingListsSessionOnlyCommands
 #[test]
 fn neither_help_spelling_lists_session_only_commands() {
     for args in [&["--help"][..], &["help"], &[]] {
@@ -301,7 +294,6 @@ fn neither_help_spelling_lists_session_only_commands() {
     }
 }
 
-// Go: TestAliasesListedAlongsideCanonicalName
 #[test]
 fn aliases_listed_alongside_canonical_name() {
     let mut reg = registry();
@@ -318,7 +310,6 @@ fn aliases_listed_alongside_canonical_name() {
     assert!(out.contains("  search, grep  "), "{out}");
 }
 
-// Go: TestCommandHelpListsAliasesSortedWithTheCanonicalName
 #[test]
 fn command_help_lists_aliases_sorted_with_the_canonical_name() {
     let r = run(&["help", "status"]);
@@ -347,7 +338,7 @@ fn command_help_lists_aliases_sorted_with_the_canonical_name() {
     assert!(!run(&["help", "use"]).stdout.contains("Aliases:"));
 }
 
-// Go: TestParentCommandHelpListsItsChildren, over both real parents.
+// Over both real parents.
 #[test]
 fn parent_command_help_lists_its_children() {
     for (parent, short, children) in [
@@ -372,7 +363,6 @@ fn parent_command_help_lists_its_children() {
     }
 }
 
-// Go: TestParentCommandChildrenListedWithTheirShortText
 #[test]
 fn parent_command_children_listed_with_their_short_text() {
     let reg = registry();
@@ -391,7 +381,6 @@ fn parent_command_children_listed_with_their_short_text() {
     }
 }
 
-// Go: TestParentCommandHelpMatchesAcrossBareDashHelpAndHelpCommand
 #[test]
 fn parent_command_help_matches_across_bare_dash_help_and_help_command() {
     for parent in ["vault", "git"] {
@@ -402,7 +391,6 @@ fn parent_command_help_matches_across_bare_dash_help_and_help_command() {
     }
 }
 
-// Go: TestLeafCommandHelpUnchangedByTheChildrenListing
 #[test]
 fn leaf_command_help_unchanged_by_the_children_listing() {
     for path in [&["vault", "list"][..], &["git", "set-remote"]] {
@@ -421,13 +409,10 @@ fn leaf_command_help_unchanged_by_the_children_listing() {
     }
 }
 
-// Go's TestListsCommandEntryIgnoresProse is excused: it tests a helper that
-// parsed names out of Cobra's help text. These tests read the registry and
-// clap's command tree instead.
+// These tests read the registry and clap's command tree, not help text.
 
 // --- usage errors ---------------------------------------------------------
 
-// Go: TestWrongArgCountShowsCommandUsage
 #[test]
 fn wrong_arg_count_shows_command_usage() {
     let r = run(&["use"]);
@@ -445,7 +430,6 @@ fn wrong_arg_count_shows_command_usage() {
     assert_eq!(r.stdout, "", "usage help goes to stderr, never stdout");
 }
 
-// Go: TestUnknownFlagShowsCommandUsage
 #[test]
 fn unknown_flag_shows_command_usage() {
     let r = run(&["status", "--no-such-flag"]);
@@ -455,7 +439,6 @@ fn unknown_flag_shows_command_usage() {
     assert_eq!(r.stdout, "");
 }
 
-// Go: TestUnknownCommandShowsFullHelpListing
 #[test]
 fn unknown_command_shows_full_help_listing() {
     let r = run(&["frobnicate"]);
@@ -472,13 +455,13 @@ fn unknown_command_shows_full_help_listing() {
     assert!(r.stderr.contains("Available Commands:"), "{}", r.stderr);
 }
 
-// Go: TestCodedApplicationErrorsDoNotGrowUsageText. Only parse rejections
+// Only parse rejections
 // get usage appended; an error a command chose keeps its own message.
-// (Go's TestSessionWrongArgCountShowsCommandUsage is in repl_tests.)
+// (The session's wrong-argument-count case is in repl_tests.)
 #[test]
 fn coded_application_errors_do_not_grow_usage_text() {
-    // Both are Usage: a session-only command in one-shot mode (Go's
-    // session.go) and an unknown help topic.
+    // Both are Usage: a session-only command in one-shot mode
+    // and an unknown help topic.
     for args in [&["status"][..], &["help", "nope"]] {
         let r = run(args);
         assert_eq!(r.code, Code::Usage, "{args:?}:\n{}", r.stderr);
@@ -488,8 +471,8 @@ fn coded_application_errors_do_not_grow_usage_text() {
 
 // --- error prefix ---------------------------------------------------------
 
-// Go: TestNoCommandDoublesGagesOwnPrefix, over the failures that exist in
-// M0b. Process rule: every milestone that adds a command adds its failing
+// Over the failures that exist.
+// Rule: every change that adds a command adds its failing
 // cases to this table.
 #[test]
 fn no_command_doubles_gages_own_prefix() {
@@ -522,8 +505,7 @@ fn no_command_doubles_gages_own_prefix() {
 
 // --- version and dispatch -------------------------------------------------
 
-// Go: TestVersionFlagPrintsVersionAndCommit. Both of Cobra's spellings:
-// it gives a root with a version `-v` as the shorthand.
+// Both spellings: `--version` and the `-v` shorthand.
 #[test]
 fn version_flag_prints_version_and_commit() {
     for flag in ["--version", "-v"] {
@@ -533,7 +515,7 @@ fn version_flag_prints_version_and_commit() {
     }
 }
 
-// clap's own `-V` is not one of Go's spellings, so it is an unknown flag.
+// clap's own `-V` is not a spelling gage accepts, so it is an unknown flag.
 #[test]
 fn capital_v_is_not_a_version_flag() {
     let r = run(&["-V"]);
@@ -544,7 +526,7 @@ fn capital_v_is_not_a_version_flag() {
 // Bare `gage` on a terminal enters the session: repl_tests'
 // bare_gage_on_tty_enters_session_mode.
 
-// Go: TestBareGageWithPipedStdinPrintsHelp. Bare `gage` with stdin
+// Bare `gage` with stdin
 // redirected prints the root help, since --stdin is the explicit spelling
 // for reading session commands from stdin.
 #[test]
@@ -554,8 +536,8 @@ fn bare_gage_with_redirected_stdin_prints_root_help() {
     assert_eq!(r.stdout, run(&["--help"]).stdout);
 }
 
-// A stub that isn't session-only reports it is not implemented, as Go's
-// stubs do, rather than looking like an unknown command.
+// A stub that isn't session-only reports it is not implemented
+// rather than looking like an unknown command.
 #[test]
 fn an_unimplemented_one_shot_command_is_internal() {
     let mut reg = registry();

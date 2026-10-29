@@ -2,8 +2,8 @@
 //! how this device unlocks each one, and shell preferences. See the design
 //! doc's "Global config" section.
 //!
-//! The schema (file name, table and field names) follows Go; the bytes are
-//! the `toml` crate's own (Q-COMPAT).
+//! The schema (file name, table and field names) is fixed by the format; the bytes are
+//! the `toml` crate's own (ADR-0002).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -37,7 +37,7 @@ pub struct VaultEntry {
     /// A copy of the vault's committed `[vault].id`, so this machine can
     /// find the vault's identities, trust cache and lock without reading
     /// the vault, which is what `vault remove` needs once the vault's
-    /// files have moved or gone (A20).
+    /// files have moved or gone (ADR-0006).
     #[serde(skip_serializing_if = "String::is_empty")]
     pub id: String,
     #[serde(rename = "type")]
@@ -46,7 +46,7 @@ pub struct VaultEntry {
     /// This device's own public key for the vault, recorded when the
     /// identity is created, so "is the key I hold still a recipient?" is
     /// answered by comparing keys rather than device names
-    /// (Q-ORPHAN-BY-NAME). Public and already committed in the vault.
+    /// (ADR-0013). Public and already committed in the vault.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub pubkey: String,
     pub method: String,
@@ -278,7 +278,6 @@ mod tests {
         }
     }
 
-    // Go: TestRoundTrip
     #[test]
     fn round_trip() {
         let dir = tempfile::tempdir().unwrap();
@@ -328,7 +327,7 @@ mod tests {
 
         assert_eq!(read(&path).unwrap(), want);
         let text = std::fs::read_to_string(&path).unwrap();
-        // Go's table and field names: the schema follows Go.
+        // The table and field names are the format's.
         for needle in [
             "current = ",
             "[vaults.personal]",
@@ -342,7 +341,7 @@ mod tests {
         }
     }
 
-    // Empty optional fields are omitted, as Go's omitempty does.
+    // Empty optional fields are omitted.
     #[test]
     fn empty_optional_fields_are_omitted() {
         let text = toml::to_string(&one_vault()).unwrap();
@@ -358,7 +357,7 @@ mod tests {
         assert_eq!(toml::to_string(&Global::default()).unwrap(), "");
     }
 
-    // Go: TestReadMissingFile. Rust adds a distinguishable variant.
+    // Rust adds a distinguishable variant.
     #[test]
     fn read_missing_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -366,7 +365,6 @@ mod tests {
         assert!(matches!(err, Error::NotFound { .. }), "{err:?}");
     }
 
-    // Go: TestReadRejectsMalformedTOML
     #[test]
     fn read_rejects_malformed_toml() {
         let dir = tempfile::tempdir().unwrap();
@@ -379,7 +377,7 @@ mod tests {
         assert!(err.to_string().contains("parsing"), "{err}");
     }
 
-    // Go: TestGlobalConfigWriteIsAtomic. atomicfile's own discriminator,
+    // Atomicfile's own discriminator,
     // applied to config::write: a refactor that dropped the atomicfile
     // call would leave atomicfile's tests green and only this one would
     // notice.
@@ -406,7 +404,6 @@ mod tests {
         assert_eq!(read(&path).unwrap(), work);
     }
 
-    // Go: TestFailedGlobalConfigWriteLeavesPreviousConfigParseable
     #[cfg(unix)]
     #[test]
     fn failed_global_config_write_leaves_previous_config_parseable() {
@@ -449,9 +446,7 @@ mod tests {
         assert_eq!(read(&path).unwrap(), one_vault());
     }
 
-    // Go: TestWriteThenModifyLeavesOldValueUntouchedUntilRename, ported as
-    // Go's body is: two writes, the second wins. Despite the name, Go's test
-    // doesn't observe the old value surviving until the rename either; that
+    // Two writes, the second wins. This doesn't observe the old value surviving until the rename either; that
     // property is `global_config_write_is_atomic`'s, above.
     #[test]
     fn write_then_modify() {

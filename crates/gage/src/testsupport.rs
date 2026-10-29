@@ -14,7 +14,7 @@ pub mod format_v2;
 /// What tests wrap and unlock identities at instead of the shipped,
 /// deliberately expensive factor. Still a real scrypt pass, so every test
 /// that unlocks a vault exercises the real wrap/unwrap path, at a cost too
-/// small to notice (Go's `testScryptWorkFactor`).
+/// small to notice.
 pub const TEST_SCRYPT_WORK_FACTOR: u8 = 10;
 
 /// Lowers both live scrypt work factors, the identity file's and the
@@ -60,7 +60,7 @@ pub fn file_unchecked_request(
 mod tests {
     use super::*;
 
-    // Go: TestMain, as the hook it installs: the live factor is lowered,
+    // The hook lowers the live factor,
     // and calling it again changes nothing.
     #[test]
     fn fast_scrypt_lowers_the_live_factor_and_is_idempotent() {

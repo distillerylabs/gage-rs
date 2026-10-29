@@ -2,8 +2,8 @@
 //! which is `flock(2)` on Unix and `LockFileEx` on Windows). It is a
 //! correctness mechanism between cooperating gage processes, not a
 //! security one: see "Concurrent processes and the vault lock" in the
-//! design doc and Q-FILE-LOCK. Writes take it across their whole
-//! read-modify-commit sequence; reads never do. M4 is the first caller.
+//! design doc and ADR-0003. Writes take it across their whole
+//! read-modify-commit sequence; reads never do.
 //!
 //! The OS releases the lock the moment the holder's file handle closes,
 //! including when the holding process is killed, so there is never a stale
@@ -222,7 +222,7 @@ fn read_holder(file: &mut File) -> HolderInfo {
 // processes.
 //
 // The holder is this test binary re-executed with HOLDER_ENV set, running
-// only `lock_holder_trampoline` (Go's TestMain trampoline).
+// only `lock_holder_trampoline`.
 #[cfg(test)]
 #[allow(clippy::disallowed_macros, clippy::disallowed_methods)]
 mod tests {
@@ -233,7 +233,7 @@ mod tests {
 
     const HOLDER_ENV: &str = "GAGE_VAULTLOCK_TEST_HOLDER";
 
-    /// The child side (Go: TestMain + runLockHolder). Acquires the lock,
+    /// The child side. Acquires the lock,
     /// announces it on stderr (libtest owns stdout), then holds it until
     /// stdin closes (graceful release) or the process is killed.
     #[test]
@@ -311,7 +311,6 @@ mod tests {
         (dir, path)
     }
 
-    // Go: TestAcquireRoundTripsOnThisPlatform
     #[test]
     fn acquire_round_trips_on_this_platform() {
         let (_dir, path) = lock_path();
@@ -326,7 +325,6 @@ mod tests {
             .unwrap();
     }
 
-    // Go: TestAcquireSerializesAcrossProcesses
     #[test]
     fn acquire_serializes_across_processes() {
         let (_dir, path) = lock_path();
@@ -339,7 +337,7 @@ mod tests {
         };
         assert_eq!(p, &path);
         assert_eq!(err.code(), Code::Conflict);
-        // Q-FILE-LOCK: Windows locks the bytes the record lives in, so a
+        // ADR-0003: Windows locks the bytes the record lives in, so a
         // contender can't read it there; the record is best-effort.
         if cfg!(unix) {
             assert_eq!(h.pid, Some(holder.pid()), "the holder's real pid");
@@ -348,7 +346,6 @@ mod tests {
         }
     }
 
-    // Go: TestReleaseLetsWaiterProceed
     #[test]
     fn release_lets_waiter_proceed() {
         let (_dir, path) = lock_path();
@@ -375,7 +372,7 @@ mod tests {
         );
     }
 
-    // Go: TestKilledHolderReleasesLock. No stale lock survives a crash.
+    // No stale lock survives a crash.
     #[test]
     fn killed_holder_releases_lock() {
         let (_dir, path) = lock_path();
@@ -387,7 +384,6 @@ mod tests {
             .unwrap();
     }
 
-    // Go: TestAcquireZeroTimeoutFailsFastWhenContended
     #[test]
     fn acquire_zero_timeout_fails_fast_when_contended() {
         let (_dir, path) = lock_path();
@@ -423,7 +419,7 @@ mod tests {
         );
     }
 
-    // Go: TestReleaseOnANilLockIsANoOp. Rust has no nil lock: release is
+    // Rust has no nil lock: release is
     // Drop plus an explicit release() that reports the unlock error. What
     // carries over is that both together are safe: release consumes the
     // lock, and the Drop that follows does nothing.

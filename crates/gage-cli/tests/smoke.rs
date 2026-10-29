@@ -4,7 +4,6 @@
 
 use assert_cmd::cargo::cargo_bin_cmd;
 
-// Go: TestRealBinaryVersionFlag
 #[test]
 fn real_binary_version_flag() {
     let out = cargo_bin_cmd!("gage").arg("--version").assert().success();
@@ -13,7 +12,7 @@ fn real_binary_version_flag() {
     assert!(stdout.contains("(commit "), "{stdout:?}");
 }
 
-// Go: TestRealBinaryWithRedirectedStdinPrintsHelp. assert_cmd's stdin is
+// Assert_cmd's stdin is
 // not a terminal, so bare `gage` must print help and exit 0 rather than
 // start a session.
 #[test]
@@ -23,7 +22,7 @@ fn real_binary_with_redirected_stdin_prints_help() {
     assert!(stdout.contains("Usage:\n  gage [command]"), "{stdout}");
 }
 
-// Go: TestPromptsGoToTheErrorStreamNotStdout. A property of how main wires
+// A property of how main wires
 // the prompter, so it needs main: with stdin redirected, init's passphrase
 // prompts land on stderr and stdout carries only init's report. (The
 // in-process half, init through the real prompter, is in
@@ -61,7 +60,7 @@ fn prompts_go_to_the_error_stream_not_stdout() {
     assert!(!stdout.contains("s3cret") && !stderr.contains("s3cret"));
 }
 
-// P8 · RK3: the both-terminals rule needs main, which is what reads
+// The both-terminals rule needs main, which is what reads
 // whether stdin and stderr are terminals. A piped default init, the run
 // that would file a private key into a log, refuses with Usage before
 // asking anything, and leaves gage's data dir as it found it.
@@ -96,8 +95,6 @@ fn real_binary_exits_with_the_usage_code() {
     cargo_bin_cmd!("gage").arg("frobnicate").assert().code(2);
 }
 
-// Go: TestMain built the binary; cargo builds it for integration tests,
-// so it is excused.
-// Go: TestLinkTimeVersionInjection is `make stamp-check`, run in CI (a
+// The link-time version stamp is `make stamp-check`, run in CI (a
 // stamped rebuild inside `make test` would cost more than it proves on
 // every run).

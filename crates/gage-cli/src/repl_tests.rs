@@ -1,12 +1,9 @@
 //! Session mode through the real CLI, in-process: bare `gage` with a
 //! terminal on stdin, its lines and every prompt's answer read from one
 //! in-memory script, exactly as a human types them in order (the line
-//! after `use personal` is the passphrase). Ports Go's `repl_test.go`,
-//! `session_test.go`, `sessionhelp_test.go` and the session row of
-//! `usageerror_test.go`; each test names its Go row.
+//! after `use personal` is the passphrase).
 //!
-//! Prompts go to stderr in gage-rs, where Go's REPL moved them to stdout,
-//! so a few assertions read both streams where Go read stdout alone.
+//! Prompts go to stderr, so a few assertions read both streams.
 
 use std::cell::{Cell, RefCell};
 use std::io::{Cursor, Read, Write};
@@ -74,7 +71,7 @@ pub(crate) fn passphrase_prompts(r: &CliResult) -> usize {
 
 /// A clock that advances `step` each time it is read: how a session
 /// driven end to end gets simulated idle time with no hook between its
-/// lines (Go's `stepClock`).
+/// lines.
 fn step_clock(step: Duration) -> impl Fn() -> Instant {
     let t = Cell::new(Instant::now());
     move || {
@@ -85,7 +82,7 @@ fn step_clock(step: Duration) -> impl Fn() -> Instant {
 
 impl Env {
     /// Bare `gage` on a "terminal", fed `script` through the real
-    /// terminal prompter (Go's `runSessionScript`).
+    /// terminal prompter.
     pub(crate) fn session(&self, script: &str) -> CliResult {
         self.session_with_clock(script, &Instant::now)
     }
@@ -161,7 +158,7 @@ const NOTHING_UNLOCKED_YET: &str = "no vaults have been unlocked in this session
 
 // --- entering a session -----------------------------------------------------
 
-// Go: TestBareGageOnTTYEntersSessionMode. Stdin is empty, so the loop
+// Stdin is empty, so the loop
 // starts, prompts once, reads end of input and exits cleanly.
 #[test]
 fn bare_gage_on_tty_enters_session_mode() {
@@ -172,7 +169,6 @@ fn bare_gage_on_tty_enters_session_mode() {
     assert!(r.stdout.contains("gage> "), "no prompt:\n{}", r.stdout);
 }
 
-// Go: TestSessionOnlyCommandsFailCleanlyOneShot
 #[test]
 fn session_only_commands_fail_cleanly_one_shot() {
     let env = Env::new();
@@ -183,7 +179,7 @@ fn session_only_commands_fail_cleanly_one_shot() {
     }
 }
 
-// Go: TestNoBareUnenumeratedExitCode. Every scenario maps to a defined
+// Every scenario maps to a defined
 // code, and never a bare 1 (Conflict), which none of these produce.
 #[test]
 fn no_bare_unenumerated_exit_code() {
@@ -271,7 +267,7 @@ impl Locker for Tally {
     }
 }
 
-// Go: TestREPLIsAThinWiringLayer. A typed line becomes the matching
+// A typed line becomes the matching
 // Session call and its result is rendered; Session's own behavior is
 // tested in the library.
 #[test]
@@ -300,7 +296,6 @@ fn repl_is_a_thin_wiring_layer() {
     }
 }
 
-// Go: TestSessionSkipsBlankLines
 #[test]
 fn session_skips_blank_lines() {
     let env = Env::new();
@@ -308,7 +303,7 @@ fn session_skips_blank_lines() {
     assert!(!r.stderr.contains("unknown command"), "{}", r.stderr);
 }
 
-// Go: TestUnknownSessionCommandReportsAndContinues. A typo doesn't end a
+// A typo doesn't end a
 // session, and points at the surface listing what's available.
 #[test]
 fn unknown_session_command_reports_and_continues() {
@@ -323,7 +318,7 @@ fn unknown_session_command_reports_and_continues() {
     assert!(r.stdout.contains(NOTHING_UNLOCKED_YET), "{}", r.stdout);
 }
 
-// Go: TestOneShotOnlyCommandsReportPlainlyInSession. init creates a vault
+// Init creates a vault
 // rather than operating on one, so it's one-shot only, and says so.
 #[test]
 fn one_shot_only_commands_report_plainly_in_session() {
@@ -337,7 +332,7 @@ fn one_shot_only_commands_report_plainly_in_session() {
     assert!(!env.global().vaults.contains_key("another"));
 }
 
-// Go: TestStdinReadingInsertModesAreRefusedInASession. Both read stdin to
+// Both read stdin to
 // EOF, and in a session that's the session's own input.
 #[test]
 fn stdin_reading_insert_modes_are_refused_in_a_session() {
@@ -361,8 +356,7 @@ fn stdin_reading_insert_modes_are_refused_in_a_session() {
     }
 }
 
-// Go: TestSessionCommandArgumentCountsAreChecked (interactive half; the
-// --stdin half is P6 · M12's). A usage error is reported and the session
+// Argument counts are checked (interactive half; the --stdin half is in script_tests).
 // goes on.
 #[test]
 fn session_command_argument_counts_are_checked() {
@@ -384,8 +378,8 @@ fn session_command_argument_counts_are_checked() {
     }
 }
 
-// Go: usageerror TestSessionWrongArgCountShowsCommandUsage, through the
-// interactive session (Go drives it through --stdin, which is P6's). A
+// Through the
+// interactive session. A
 // clap rejection carries the command's own usage, not only the
 // complaint, and the session goes on.
 #[test]
@@ -398,7 +392,7 @@ fn session_wrong_arg_count_shows_command_usage() {
     assert!(r.stdout.contains(NOTHING_UNLOCKED_YET), "{}", r.stdout);
 }
 
-// Go: TestNoCommandDoublesGagesOwnPrefix, the session's failures (the
+// The session's failures (the
 // table's process rule: each milestone adds its own).
 #[test]
 fn no_session_failure_doubles_gages_own_prefix() {
@@ -431,7 +425,7 @@ fn no_session_failure_doubles_gages_own_prefix() {
     }
 }
 
-// Go: TestSplitLineHandlesQuotesAndBackslashes. Titles have spaces, and
+// Titles have spaces, and
 // Windows paths have backslashes, which survive: quotes are the only
 // grouping.
 #[test]
@@ -463,7 +457,6 @@ fn split_line_handles_quotes_and_backslashes() {
     }
 }
 
-// Go: TestSplitLineRejectsAnUnbalancedQuote
 #[test]
 fn split_line_rejects_an_unbalanced_quote() {
     for input in [r#"show "unterminated"#, "show 'x"] {
@@ -474,7 +467,7 @@ fn split_line_rejects_an_unbalanced_quote() {
 
 // --- unlock and lock ---------------------------------------------------------
 
-// Go: TestSessionUnlocksOnceForManyCommands. The milestone's headline: one
+// The milestone's headline: one
 // passphrase, several commands.
 #[test]
 fn session_unlocks_once_for_many_commands() {
@@ -499,7 +492,6 @@ fn session_unlocks_once_for_many_commands() {
     assert_eq!(passphrase_prompts(&r), 1, "{}", r.stderr);
 }
 
-// Go: TestSessionLockThenUseRePrompts
 #[test]
 fn session_lock_then_use_re_prompts() {
     let env = Env::new();
@@ -524,7 +516,7 @@ fn session_lock_then_use_re_prompts() {
     );
 }
 
-// Go: TestSessionBareLockLocksEverythingItHolds. It names each vault it
+// It names each vault it
 // locked: what was holding a key, not its arguments.
 #[test]
 fn session_bare_lock_locks_everything_it_holds() {
@@ -561,7 +553,6 @@ fn session_bare_lock_locks_everything_it_holds() {
     );
 }
 
-// Go: TestSessionLockWithNothingUnlockedSaysSo
 #[test]
 fn session_lock_with_nothing_unlocked_says_so() {
     let env = Env::new();
@@ -575,7 +566,6 @@ fn session_lock_with_nothing_unlocked_says_so() {
     assert!(!r.stdout.contains("locked. run `use"), "{}", r.stdout);
 }
 
-// Go: TestSessionStatusListsTouchedVaults
 #[test]
 fn session_status_lists_touched_vaults() {
     let env = Env::new();
@@ -609,7 +599,6 @@ fn session_status_lists_touched_vaults() {
     assert!(work.contains("last used"), "{work}");
 }
 
-// Go: TestSessionAdHocUseFlagDoesNotChangeCurrentVault
 #[test]
 fn session_ad_hoc_use_flag_does_not_change_current_vault() {
     let env = Env::new();
@@ -633,7 +622,7 @@ fn session_ad_hoc_use_flag_does_not_change_current_vault() {
 
 // --- the picker ---------------------------------------------------------------
 
-// Go: TestSessionAmbiguousQueryPrompts. The numbered picker, answered by a
+// The numbered picker, answered by a
 // typed number, where one-shot fails with the same list.
 #[test]
 fn session_ambiguous_query_prompts() {
@@ -650,7 +639,7 @@ fn session_ambiguous_query_prompts() {
     assert!(!r.stdout.contains("iam-secret"), "{}", r.stdout);
 }
 
-// Go: TestSessionRmResolvesAmbiguityThroughThePicker. rm resolves inside
+// Rm resolves inside
 // the library, so it needs its own proof that a session asks.
 #[test]
 fn session_rm_resolves_ambiguity_through_the_picker() {
@@ -735,7 +724,7 @@ fn run_repl(
     })
 }
 
-// Go: TestREPLClosesEveryHeldIdentityOnExit. Driven directly over a
+// Driven directly over a
 // session the test holds, the only way to look at its keys afterwards.
 #[test]
 fn repl_closes_every_held_identity_on_exit() {
@@ -752,7 +741,7 @@ fn repl_closes_every_held_identity_on_exit() {
     assert_eq!(tally.held(), 0, "exited still holding a key");
 }
 
-// Go: TestREPLEOFTerminatesLikeExit. Ctrl-D (end of input) is a clean
+// Ctrl-D (end of input) is a clean
 // exit, keys dropped the same way.
 #[test]
 fn repl_eof_terminates_like_exit() {
@@ -781,7 +770,6 @@ impl LineReader for InterruptOnce {
     }
 }
 
-// Go: TestCtrlCAbandonsTheLineNotTheSession
 #[test]
 fn ctrl_c_abandons_the_line_not_the_session() {
     let env = Env::new();
@@ -800,7 +788,7 @@ fn ctrl_c_abandons_the_line_not_the_session() {
     assert_eq!(tally.held(), 0);
 }
 
-// Go: TestMapReadlineErrTranslatesCtrlC. Ctrl-C and Ctrl-D become their
+// Ctrl-C and Ctrl-D become their
 // outcomes, and every other error passes through, so a real failure
 // isn't read as a cancellation.
 #[test]
@@ -827,7 +815,7 @@ fn map_readline_err_translates_ctrl_c() {
 
 // --- the idle timeout from config ---------------------------------------------
 
-// Go: TestConfiguredIdleTimeoutReachesTheSession. The [shell] value is
+// The [shell] value is
 // wired to the re-lock: with an hour between reads of the clock, a 10m
 // timeout re-locks between every command.
 #[test]
@@ -867,7 +855,7 @@ fn configured_idle_timeout_reaches_the_session() {
     );
 }
 
-// Go: TestConfiguredIdleTimeoutIsNotAppliedTooEagerly. The other half:
+// The other half:
 // with a second between reads, nothing ages out, so the test above can't
 // be satisfied by a build that re-locks on every command.
 #[test]
@@ -913,7 +901,7 @@ fn a_malformed_idle_timeout_refuses_the_session() {
 
 // --- the prompt -----------------------------------------------------------------
 
-// Go: TestSessionPromptRendersTokensAndTracksLockState. The prompt comes
+// The prompt comes
 // from [shell].prompt, and its lock glyph follows the session's state.
 #[test]
 fn session_prompt_renders_tokens_and_tracks_lock_state() {
@@ -939,7 +927,7 @@ fn session_prompt_renders_tokens_and_tracks_lock_state() {
 
 // --- history --------------------------------------------------------------------
 
-// Go: TestSessionHistoryRecordsCommandsNeverValues. The typed query is
+// The typed query is
 // fine (it was typed); a decrypted value or a passphrase never is.
 #[test]
 fn session_history_records_commands_never_values() {
@@ -970,7 +958,7 @@ fn session_history_records_commands_never_values() {
     );
 }
 
-// Go: TestSessionHistoryFileIsCreated0600. The file a session creates by
+// The file a session creates by
 // default; history.rs covers tightening one that already existed.
 #[test]
 fn session_history_file_is_created_0600() {
@@ -1035,7 +1023,7 @@ fn session_help(args: &str) -> CliResult {
     r
 }
 
-// Go: TestSessionHelpMatchesRegistryExactly. Every session-available
+// Every session-available
 // command and alias is listed, and nothing that isn't available leaks in.
 #[test]
 fn session_help_matches_registry_exactly() {
@@ -1054,7 +1042,7 @@ fn session_help_matches_registry_exactly() {
     }
 }
 
-// Go: TestSessionHelpListsTheMetaVerbs. The design doc's own list, so the
+// The design doc's own list, so the
 // registry-derived check above can't be vacuous.
 #[test]
 fn session_help_lists_the_meta_verbs() {
@@ -1064,14 +1052,13 @@ fn session_help_lists_the_meta_verbs() {
     }
 }
 
-// Go: TestInitIsNotOfferedInSession
 #[test]
 fn init_is_not_offered_in_session() {
     let listed = listed_names(&session_help("").stdout);
     assert!(!listed.iter().any(|l| l == "init"), "{listed:?}");
 }
 
-// Go: TestBothHelpSurfacesRenderTheSameRegistry. A command available in
+// A command available in
 // both modes appears in both listings with the same description.
 #[test]
 fn both_help_surfaces_render_the_same_registry() {
@@ -1093,7 +1080,6 @@ fn both_help_surfaces_render_the_same_registry() {
     }
 }
 
-// Go: TestSessionOnlyCommandsNeverLeakIntoOneShotHelp
 #[test]
 fn session_only_commands_never_leak_into_one_shot_help() {
     let env = Env::new();
@@ -1108,7 +1094,7 @@ fn session_only_commands_never_leak_into_one_shot_help() {
     }
 }
 
-// Go: TestSessionHelpLeadsWithBareUse. Vault selection is `use <vault>`
+// Vault selection is `use <vault>`
 // here; the -u/--use flag belongs in per-command help.
 #[test]
 fn session_help_leads_with_bare_use() {
@@ -1117,7 +1103,6 @@ fn session_help_leads_with_bare_use() {
     assert!(!out.contains("--use"), "{out}");
 }
 
-// Go: TestSessionPerCommandHelpListsTheUseFlag
 #[test]
 fn session_per_command_help_lists_the_use_flag() {
     let out = session_help("show").stdout;
@@ -1127,7 +1112,6 @@ fn session_per_command_help_lists_the_use_flag() {
     assert!(out.contains("<query>"), "{out}");
 }
 
-// Go: TestSessionHelpForAMetaVerbPrintsItsUsage
 #[test]
 fn session_help_for_a_meta_verb_prints_its_usage() {
     let out = session_help("use").stdout;
@@ -1136,7 +1120,6 @@ fn session_help_for_a_meta_verb_prints_its_usage() {
     assert!(out.contains("status"), "{out}");
 }
 
-// Go: TestSessionHelpUnknownTopicDoesNotEndTheSession
 #[test]
 fn session_help_unknown_topic_does_not_end_the_session() {
     let env = Env::new();

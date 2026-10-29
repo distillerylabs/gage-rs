@@ -67,7 +67,7 @@ pub fn write(path: &Path, data: &[u8], mode: u32) -> Result<(), Error> {
 /// Like [`write`], but only creates: if `path` already exists, nothing is
 /// written and the error is [`Error::AlreadyExists`]. The check and the
 /// rename are one operation, so a file that appears after a caller looked
-/// is refused rather than replaced (Q-RECOVERY-NOCLOBBER).
+/// is refused rather than replaced (ADR-0028).
 pub fn write_new(path: &Path, data: &[u8], mode: u32) -> Result<(), Error> {
     let tmp = stage(path, data, mode)?;
     tmp.persist_noclobber(path).map_err(|e| {
@@ -143,7 +143,6 @@ mod tests {
         names
     }
 
-    // Go: TestWriteFileCreatesAndReads
     #[test]
     fn creates_and_reads() {
         let dir = tempfile::tempdir().unwrap();
@@ -177,7 +176,6 @@ mod tests {
         }
     }
 
-    // Go: TestWriteFileOverwritesAtomically
     #[test]
     fn overwrites_and_leaves_no_temp_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -190,7 +188,7 @@ mod tests {
         assert_eq!(names_in(dir.path()), ["config.toml"]);
     }
 
-    // Go: TestWriteFileReplacesRatherThanTruncatesInPlace. The test that
+    // The test that
     // separates an atomic implementation from a naive one without any
     // fault injection: temp+rename points the path at a new file, so a
     // handle opened on the old one still reads the old bytes. An in-place
@@ -218,7 +216,7 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), b"current = \"work\"\n");
     }
 
-    // Go: TestFailedWriteLeavesPreviousFileIntact. A real failure, not a
+    // A real failure, not a
     // simulated one: the directory is made unwritable so creating the temp
     // file fails before the destination is touched.
     #[cfg(unix)]
@@ -256,7 +254,7 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), b"current = \"personal\"\n");
     }
 
-    // Go: TestWriteFileFailedRenameLeavesNoTempFileBehind. Renaming onto a
+    // Renaming onto a
     // directory fails at the last step on every platform, after the temp
     // file exists, which is what the cleanup has to handle.
     #[test]
@@ -271,7 +269,7 @@ mod tests {
         assert_eq!(names_in(dir.path()), ["config.toml"]);
     }
 
-    // `--recovery-key-out`'s backstop (Q-RECOVERY-NOCLOBBER): a file that
+    // `--recovery-key-out`'s backstop (ADR-0028): a file that
     // appears between the CLI's up-front check and the write is refused,
     // never replaced, and its own error kind says why.
     #[test]
@@ -315,7 +313,6 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
     }
 
-    // Go: TestWriteFileFailsForMissingDir
     #[test]
     fn fails_for_missing_dir() {
         let dir = tempfile::tempdir().unwrap();

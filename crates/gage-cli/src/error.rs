@@ -3,7 +3,7 @@
 //! Library errors arrive through `From`, carrying the code their
 //! `HasCode` impl gives them. Anything else is Internal unless a handler
 //! says otherwise, so no command can surface an unenumerated status by
-//! accident (Go: `exitcode.CodeOf`).
+//! accident .
 
 use std::fmt;
 
@@ -39,7 +39,7 @@ impl CliError {
     }
 
     /// The first error of type `E` in the chain, so a caller (a test,
-    /// mostly) can match a typed refusal the way Go's `errors.Is` does,
+    /// mostly) can match a typed refusal,
     /// through any context added above it.
     pub fn downcast_ref<E>(&self) -> Option<&E>
     where
@@ -115,14 +115,13 @@ mod tests {
         }
     }
 
-    // Go: TestBareErrorIsInternal
     #[test]
     fn bare_error_is_internal() {
         let err = CliError::internal(anyhow::anyhow!("boom"));
         assert_eq!(err.code(), Code::Internal);
     }
 
-    // Go: TestEveryDefinedCodeRoundTripsThroughConstructors (CLI half):
+    // Every defined code round-trips (CLI half):
     // the constructor, the From conversion, and added context all keep the
     // code.
     #[test]
@@ -176,9 +175,9 @@ mod tests {
         assert_eq!(err.code(), Code::LockedOrAuth);
     }
 
-    // Go: TestWarningsDoNotDoubleGagesOwnPrefix, rendering half. The
+    // Rendering half. The
     // end-to-end half (a real warning through Prompter::warn) waits for
-    // the milestone that adds warn; see the M0b doc.
+    // the milestone that adds warn.
     #[test]
     fn prefix_once_never_doubles() {
         assert_eq!(prefix_once("boom"), "gage: boom");

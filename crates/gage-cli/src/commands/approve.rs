@@ -64,8 +64,8 @@ delete the request directly anyway. It still takes the vault write lock and
 commits, like any other write — and warns if the push fails, since a deny that
 never reached the remote leaves the request live for every other device.";
 
-/// A runaway guard on the code prompt, not a retry policy (Go's
-/// `maxCodePrompts`): the loop ends when the human stops answering, which
+/// A runaway guard on the code prompt, not a retry policy:
+/// the loop ends when the human stops answering, which
 /// at a masked prompt means a bare Enter.
 const MAX_CODE_PROMPTS: usize = 100;
 
@@ -217,7 +217,7 @@ fn approval_scope(
         // Two spellings of one id name one request. Kept twice, it would
         // open twice on the prompted path, show one device as two, and be
         // refused under the lock as a duplicate after the confirmation and
-        // the passphrase (a gap Go's `approvalScope` leaves open).
+        // the passphrase.
         if !scope.iter().any(|r| r.id == request.id) {
             scope.push(request);
         }
@@ -266,7 +266,7 @@ fn keep_first_by_id(opened: &mut Vec<OpenedRequest>, got: Vec<OpenedRequest>) {
 }
 
 /// Reads a code through `Prompter::value` (no new prompter method,
-/// D-ENROLL-PROMPTER) and retries a wrong one. The loop keys on
+/// ADR-0038) and retries a wrong one. The loop keys on
 /// `CodeWrong` and only on it: a wrong-vault, malformed, expired or skewed
 /// request exits with its own advice, since retyping a code that already
 /// worked can't fix it. A blank answer cancels.
@@ -307,7 +307,7 @@ fn prompt_for_code(
 /// read everything, including what is already there) rather than naming
 /// re-encryption, which is how that happens.
 ///
-/// Not M10's question, and never collapsed into it: "should this device be
+/// Not the trust-the-list question, and never collapsed into it: "should this device be
 /// let in" and "do you trust the list you are about to encrypt to" are
 /// different, and `--yes` answers only the second.
 fn confirm_approval(

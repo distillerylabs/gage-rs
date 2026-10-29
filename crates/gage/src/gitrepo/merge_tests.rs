@@ -1,5 +1,4 @@
-//! gage's file-level merge (Q-FILE-MERGE): Go's `remote_test` merge rows,
-//! plus the recipient-file property `merge_trees` would have lost.
+//! gage's file-level merge (ADR-0019), plus the recipient-file property `merge_trees` would have lost.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -13,7 +12,6 @@ fn fetch_now(dir: &std::path::Path) {
     fetch(dir, &gittest::remote_options()).unwrap();
 }
 
-// Go: TestMergeRemoteMergesDisjointChanges
 #[test]
 fn merge_remote_merges_disjoint_changes() {
     let (dir, remote) = published_repo();
@@ -48,7 +46,6 @@ fn merge_remote_merges_disjoint_changes() {
     assert_eq!(compare(dir.path()).unwrap(), RemoteState::Ahead);
 }
 
-// Go: TestMergeRemoteConflictsAndChangesNothing
 #[test]
 fn merge_remote_conflicts_and_changes_nothing() {
     let (dir, remote) = published_repo();
@@ -65,7 +62,7 @@ fn merge_remote_conflicts_and_changes_nothing() {
     assert!(is_clean(dir.path()).unwrap());
 }
 
-// Go: TestMergeRemoteTakesADeletionAndConflictsOnDeleteModify: the two
+// The two
 // deletion shapes of "What \"diverged\" actually means".
 #[test]
 fn merge_remote_takes_a_deletion_and_conflicts_on_delete_modify() {
@@ -110,7 +107,7 @@ fn identical_changes_on_both_sides_are_not_a_conflict() {
     assert!(matches!(merged, MergeResult::Merged { .. }), "{merged:?}");
 }
 
-// Q-FILE-MERGE, beyond Go's rows: two devices that each add a recipient
+// ADR-0019: two devices that each add a recipient
 // line conflict on `.age-recipients`, with no `.gitattributes` in the
 // repository at all. A line-level merge (`git2::merge_trees`) would union
 // them into a list neither device wrote, held back only by that file's
@@ -147,7 +144,7 @@ fn two_added_recipients_conflict_without_gitattributes() {
     );
 }
 
-// Q-FILE-MERGE: a merge that fails partway rolls back, removing what it
+// ADR-0019: a merge that fails partway rolls back, removing what it
 // created and reaching the hard reset even past a path it never managed
 // to write. Here the remote adds `a.txt` (written first) and `x/y.txt`,
 // while this side committed a *file* `x`: creating the directory fails.
@@ -210,7 +207,7 @@ fn a_pending_merge_with_conflicts_refuses_to_commit() {
 }
 
 /// `dir` diverged from its remote on `seed.txt` (both sides edited it),
-/// fetched, with the merge computed and nothing written: the seam M8b's
+/// fetched, with the merge computed and nothing written: the seam interactive
 /// resolution lives in.
 fn prepared_conflict() -> (tempfile::TempDir, BareRemote, PendingMerge) {
     let (dir, remote) = published_repo();
@@ -229,7 +226,6 @@ fn add(path: &str, content: &str) -> BTreeMap<String, Vec<u8>> {
     BTreeMap::from([(path.to_string(), content.as_bytes().to_vec())])
 }
 
-// Go: TestPrepareMergeDecidesWithoutWriting
 #[test]
 fn prepare_merge_decides_without_writing() {
     let (dir, remote) = published_repo();
@@ -249,7 +245,6 @@ fn prepare_merge_decides_without_writing() {
     assert!(is_clean(dir.path()).unwrap());
 }
 
-// Go: TestPendingMergeContentReadsBothSidesFromTheObjects
 #[test]
 fn pending_merge_content_reads_both_sides_from_the_objects() {
     let (dir, _remote, merge) = prepared_conflict();
@@ -273,7 +268,6 @@ fn pending_merge_content_reads_both_sides_from_the_objects() {
     assert!(is_clean(dir.path()).unwrap());
 }
 
-// Go: TestPendingMergeContentReportsAnAbsentSide
 #[test]
 fn pending_merge_content_reports_an_absent_side() {
     let (dir, remote) = published_repo();
@@ -296,7 +290,6 @@ fn pending_merge_content_reports_an_absent_side() {
     );
 }
 
-// Go: TestCommitRefusesAnUnansweredConflict
 #[test]
 fn commit_refuses_an_unanswered_conflict() {
     let (dir, _remote, merge) = prepared_conflict();
@@ -319,7 +312,6 @@ fn commit_refuses_an_unanswered_conflict() {
     assert!(is_clean(dir.path()).unwrap());
 }
 
-// Go: TestCommitAppliesEachChoice
 #[test]
 fn commit_applies_each_choice() {
     for (side, want) in [
@@ -348,7 +340,6 @@ fn commit_applies_each_choice() {
     }
 }
 
-// Go: TestCommitCreatesTheAddsItIsGiven
 #[test]
 fn commit_creates_the_adds_it_is_given() {
     let (dir, _remote, merge) = prepared_conflict();
@@ -373,7 +364,6 @@ fn commit_creates_the_adds_it_is_given() {
     assert!(tree.get_path(Path::new("entries/new.age")).is_ok());
 }
 
-// Go: TestCommitRefusesAnAddThatWouldOverwrite
 #[test]
 fn commit_refuses_an_add_that_would_overwrite() {
     let (dir, _remote, merge) = prepared_conflict();
@@ -414,7 +404,6 @@ fn commit_refuses_an_add_that_would_overwrite() {
     assert!(is_clean(dir.path()).unwrap());
 }
 
-// Go: TestMergeCreatedFilesAre0600
 #[cfg(unix)]
 #[test]
 fn merge_created_files_are_0600() {
@@ -445,7 +434,7 @@ fn merge_created_files_are_0600() {
     }
 }
 
-// Go: TestCommitRollsBackAPartialFailure. The add lands under a path that
+// The add lands under a path that
 // is a *file*, after the remote's own new file and its edit of a tracked
 // file have been applied: the rollback removes the first by name and
 // restores the second with the hard reset, even though the add's own path
@@ -483,7 +472,6 @@ fn commit_rolls_back_a_partial_failure() {
     );
 }
 
-// Go: TestMergeRemoteAndPrepareMergeCannotDrift
 #[test]
 fn merge_remote_and_prepare_merge_cannot_drift() {
     let (dir, remote) = published_repo();

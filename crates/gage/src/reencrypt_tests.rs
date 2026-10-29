@@ -1,5 +1,4 @@
-//! M9b's atomicity and dirty-tree tests: Go's `reencrypt_test.go`. Each
-//! test names its Go row.
+//! Atomicity and dirty-tree tests for re-encryption.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,14 +20,14 @@ use crate::vaultconfig::Recipient;
 // --- the crash seam ---------------------------------------------------------
 
 /// The panic payload the crash seam raises. A panic rather than an error,
-/// and that is the point (Q-CRASH-SEAM): an error would run the write's own
+/// and that is the point: an error would run the write's own
 /// error path, and a test would then prove that cleanup works rather than
 /// that an interrupted run is invisible. Unwinding runs only `Drop`s, the
 /// lock's included, which is what a killed process leaves behind.
 pub(crate) struct SimulatedCrash;
 
 /// `vault`, dying once `n` entries have been re-encrypted into the working
-/// tree (Go's `crashAfter`).
+/// tree.
 pub(crate) fn crashing_after(vault: &Vault, n: usize) -> Vault {
     vault.clone().with_reencrypt_hook(move |done| {
         if done >= n {
@@ -39,7 +38,7 @@ pub(crate) fn crashing_after(vault: &Vault, n: usize) -> Vault {
 
 /// Runs `f` and reports whether it died on the simulated crash. Any other
 /// panic is re-raised, so a real bug is not swallowed as "the crash we
-/// asked for" (Go's `runAndRecoverCrash`).
+/// asked for".
 pub(crate) fn crashed(f: impl FnOnce()) -> bool {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(()) => false,
@@ -69,7 +68,7 @@ fn insert(f: &Fixture, title: &str, p: &FakePrompter) -> Uuid {
         .unwrap()
 }
 
-// --- the dirty-tree reset (task 1) -----------------------------------------
+// --- the dirty-tree reset -----------------------------------------
 
 /// One write verb, driven over a vault whose `existing` entry it may touch.
 type Write = fn(&Fixture, &Identity, Uuid, &FakePrompter);
@@ -108,7 +107,7 @@ fn write_verbs() -> Vec<(&'static str, Write)> {
     ]
 }
 
-// Go: TestDirtyWorkTreeIsResetBeforeAnySubsequentWrite. Every write verb,
+// Every write verb,
 // since the requirement is that the precondition runs on all of them.
 // `generate` writes through `insert`. The dirtied entry is one the write
 // never touches, so a surviving change can only be the stale one folded in.
@@ -136,7 +135,7 @@ fn dirty_work_tree_is_reset_before_any_subsequent_write() {
     }
 }
 
-// Go: TestDirtyWorkTreeResetWarnsNamingTheDiscardedPaths. One line,
+// One line,
 // through the prompter, naming the path; a clean tree stays silent.
 #[test]
 fn dirty_work_tree_reset_warns_naming_the_discarded_paths() {
@@ -167,7 +166,7 @@ fn dirty_work_tree_reset_warns_naming_the_discarded_paths() {
     );
 }
 
-// Not a Go row (Rust's session index is keyed off the pull observer): a
+// A
 // reset that discarded something moved the working tree, so it raises the
 // observer, and a write over a clean tree doesn't.
 #[test]
@@ -196,9 +195,9 @@ fn a_reset_that_discards_something_tells_the_pull_observer() {
     assert!(flag.load(Ordering::SeqCst));
 }
 
-// --- re-encryption atomicity (task 3) ---------------------------------------
+// --- re-encryption atomicity ---------------------------------------
 
-// Go: TestInterruptedReencryptLeavesHEADUntouched. HEAD right after the
+// HEAD right after the
 // crash (a commit id is a hash of its content, so equal ids are
 // byte-identical commits), and the tree after the next write, which is
 // where the leftover goes away.
@@ -230,7 +229,7 @@ fn interrupted_reencrypt_leaves_head_untouched() {
     assert!(f.is_clean(), "the next write left entries/ dirty");
 }
 
-// Go: TestRetryingReencryptAfterAnInterruptionSucceeds. The retry starts
+// The retry starts
 // from scratch, and the abandoned attempt contributed nothing to history.
 #[test]
 fn retrying_reencrypt_after_an_interruption_succeeds() {
@@ -256,7 +255,7 @@ fn retrying_reencrypt_after_an_interruption_succeeds() {
     }
 }
 
-// Go: TestReencryptAbortsWholeOperationWhenOneEntryFails. Produced
+// Produced
 // honestly: one entry's ciphertext replaced and committed, so the reset
 // can't undo the setup. The error names it, nothing is committed, and no
 // intact entry is half-migrated to the never-added key.
@@ -299,7 +298,6 @@ fn reencrypt_aborts_whole_operation_when_one_entry_fails() {
     }
 }
 
-// Go: TestReencryptLandsEverythingInExactlyOneCommit
 #[test]
 fn reencrypt_lands_everything_in_exactly_one_commit() {
     let f = Fixture::new();
@@ -320,7 +318,7 @@ fn reencrypt_lands_everything_in_exactly_one_commit() {
     assert!(f.is_clean());
 }
 
-// Go: TestReencryptHoldsTheVaultLockThroughout. From inside the pass, at
+// From inside the pass, at
 // every point an interleaving implementation would have let go, another
 // process finds the lock taken.
 #[test]
@@ -348,7 +346,7 @@ fn reencrypt_holds_the_vault_lock_throughout() {
     assert!(!lock_is_held_elsewhere(&lock));
 }
 
-// Go: TestInterruptedRecipientWriteLeavesNoHalfMigratedState. The window
+// The window
 // the entry hook can't reach: after the recipient files are written, before
 // the commit. Reproduced through the real `write_recipient_files`. Both
 // shapes, since they fail differently: a re-encryption's leaves entries
@@ -412,7 +410,7 @@ fn interrupted_recipient_write_leaves_no_half_migrated_state() {
     }
 }
 
-// Go: TestDirtyWorkTreeResetIsAlsoRunByReencrypt. The next re-encryption
+// The next re-encryption
 // cleans up after the last: the dirtied entry is in its commit, as every
 // entry is, but freshly re-encrypted, not as the half-written bytes.
 #[test]

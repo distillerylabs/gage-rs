@@ -10,11 +10,10 @@
 //! methods in both modes, handed a `&Identity` borrowed from here: what
 //! differs is only how long the identity lives.
 //!
-//! Go holds `*Identity` pointers and needs a closed-identity contract so a
-//! re-lock can't pull a key out from under a command still using it. Here
-//! a command's `&Identity` borrows the session, and every way to lock
-//! needs `&mut Session`, so that overlap doesn't compile (Q-SESSION-SHAPE).
-//! What survives of Go's call-depth rule is *when* the idle timeout runs:
+//! A re-lock can't pull a key out from under a command still using it: a
+//! command's `&Identity` borrows the session, and every way to lock
+//! needs `&mut Session`, so that overlap doesn't compile.
+//! What matters is *when* the idle timeout runs:
 //! on entering a call, never between the calls of one command.
 //!
 //! Each vault a session has unlocked can also carry a metadata index

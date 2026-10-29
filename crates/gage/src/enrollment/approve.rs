@@ -49,7 +49,7 @@ const CLEARED_COMMIT_MESSAGE: &str = "gage: enrollment request cleared (already 
 
 /// An opened request and the name the approver chose for it. `None` keeps
 /// the sealed name; a label overrides it, which is how a device-name
-/// collision is resolved without a new round trip (D-ENROLL-COLLISIONS).
+/// collision is resolved without a new round trip (ADR-0043).
 ///
 /// The label rides here, not on [`OpenedRequest`], because every field of
 /// that type is authenticated and a label the approver typed is not.
@@ -168,7 +168,7 @@ impl Vault {
     ///    diverges in every entry rather than one.
     /// 4. The re-verification, under the lock.
     /// 5. Keys already listed are dropped: a success that does no work.
-    /// 6. One E1b write: one trust question, one pass, one commit. Not
+    /// 6. One batch write: one trust question, one pass, one commit. Not
     ///    `add_recipient`, which would take N locks and make N commits.
     pub fn approve_enrollments(
         &self,
@@ -184,7 +184,7 @@ impl Vault {
         // entries off disk, and on a tree an interrupted re-encryption
         // left dirty it would judge ciphertext the reset is about to
         // discard. There it moves to just after the reset, still before
-        // the first byte and before M10's question.
+        // the first byte and before the trust question.
         let clean = gitrepo::is_clean(&self.path)?;
         if clean {
             self.require_full_access(identity)?;

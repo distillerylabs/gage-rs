@@ -74,6 +74,9 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0035](0035-clipboard.md) Clipboard and its clear
 - [0036](0036-editor.md) `edit`: finding `$EDITOR` and the scratch file
 - [0037](0037-exit-code-taxonomy.md) Exit codes 0–7
+- [0049](0049-qr-crate.md) The QR crate: encode-only, no decoder
+- [0050](0050-line-editor.md) The line editor and the history file
+- [0051](0051-recovery-key-out-refusals.md) What `--recovery-key-out` refuses
 
 ### Device enrollment
 
@@ -86,3 +89,8 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0044](0044-enroll-print-only.md) No offline enrollment path
 - [0045](0045-enroll-remote.md) When enroll touches the network
 - [0046](0046-enroll-verbs.md) Enrollment command names
+
+### Locking and dependencies
+
+- [0047](0047-two-vault-lock-order.md) Two vaults are locked in vault-id order
+- [0048](0048-yaml-crate.md) The YAML crate

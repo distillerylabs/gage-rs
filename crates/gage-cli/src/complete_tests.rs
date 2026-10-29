@@ -1,12 +1,11 @@
 //! Tab completion and command abbreviation, below the terminal: the
 //! candidate functions are plain and typed, so everything about *which*
-//! candidates are right at a position is tested here, in-process. Ports
-//! Go's `complete_test.go`; each test names its Go row. The one adapter
+//! candidates are right at a position is tested here, in-process.
+//! The one adapter
 //! test is the last one here; the real-terminal one is
 //! `tests/complete_pty.rs`.
 //!
-//! The `vault` parent keeps its own coverage beside the `identity` form
-//! (M13's substitution, undone in P5 · M9a).
+//! The `vault` parent keeps its own coverage beside the `identity` form.
 
 use std::sync::Arc;
 
@@ -43,7 +42,7 @@ fn root(reg: &Registry) -> Command {
 }
 
 /// A session over `env`'s registered vaults, built the way `run_session`
-/// builds one (as Go's `newSessionApp` does): global config's current
+/// builds one: global config's current
 /// vault is current from the start, named but still locked.
 fn session<'a>(env: &'a Env, prompter: &'a FakePrompter) -> Session<'a> {
     let dirs = env.dirs.clone();
@@ -94,21 +93,19 @@ fn complete_at(
 
 // --- prefix_matches --------------------------------------------------------------
 
-// Go: TestPrefixMatchesReturnsEveryPrefixHit
 #[test]
 fn prefix_matches_returns_every_prefix_hit() {
     let got = prefix_matches(&strs(&["lock", "log", "ls", "use"]), "l");
     assert_eq!(got, ["lock", "log", "ls"]);
 }
 
-// Go: TestPrefixMatchesRejectsSubstring. Pins "prefix only" against
+// Pins "prefix only" against
 // drifting toward the title resolver's substring rule.
 #[test]
 fn prefix_matches_rejects_substring() {
     assert!(prefix_matches(&strs(&["identity"]), "enti").is_empty());
 }
 
-// Go: TestPrefixMatchesDedupesAndSorts
 #[test]
 fn prefix_matches_dedupes_and_sorts() {
     assert_eq!(
@@ -119,7 +116,6 @@ fn prefix_matches_dedupes_and_sorts() {
 
 // --- top_level_session_names -------------------------------------------------------
 
-// Go: TestTopLevelSessionNamesIncludesGroupsAndAliases.
 #[test]
 fn top_level_session_names_includes_groups_and_aliases() {
     let names = top_level_session_names(&registry());
@@ -139,7 +135,7 @@ fn top_level_session_names_includes_groups_and_aliases() {
     }
 }
 
-// Go: TestTopLevelSessionNamesExcludesInitAndClone (Q-CMD-AVAILABILITY).
+// Init and clone are not session commands (ADR-0032).
 #[test]
 fn top_level_session_names_excludes_init_and_clone() {
     let names = top_level_session_names(&registry());
@@ -148,7 +144,6 @@ fn top_level_session_names_excludes_init_and_clone() {
     }
 }
 
-// Go: TestCompletingPartialSessionCommandsMatchesExactly
 #[test]
 fn completing_partial_session_commands_matches_exactly() {
     let names = top_level_session_names(&registry());
@@ -163,27 +158,23 @@ fn resolved(word: &str) -> String {
     resolve_session_command_name(&registry(), word).unwrap()
 }
 
-// Go: TestResolveSessionCommandNameExactNameUnchanged
 #[test]
 fn resolve_session_command_name_exact_name_unchanged() {
     assert_eq!(resolved("use"), "use");
 }
 
-// Go: TestResolveSessionCommandNameExactAliasUnchanged
 #[test]
 fn resolve_session_command_name_exact_alias_unchanged() {
     assert_eq!(resolved("whoami"), "whoami");
 }
 
-// Go: TestResolveSessionCommandNameUnambiguousAbbreviation
 #[test]
 fn resolve_session_command_name_unambiguous_abbreviation() {
     assert_eq!(resolved("ident"), "identity");
     assert_eq!(resolved("vau"), "vault");
 }
 
-// Go: TestResolveSessionCommandNameAmbiguousAbbreviationReportsCandidates.
-// Go's `l` matches lock, log and ls (`log` is M12a's).
+// `l` matches lock, log and ls.
 #[test]
 fn resolve_session_command_name_ambiguous_abbreviation_reports_candidates() {
     let err = resolve_session_command_name(&registry(), "l").unwrap_err();
@@ -194,19 +185,17 @@ fn resolve_session_command_name_ambiguous_abbreviation_reports_candidates() {
     }
 }
 
-// Go: TestResolveSessionCommandNameSubstringNotAbbreviation
 #[test]
 fn resolve_session_command_name_substring_not_abbreviation() {
     assert_eq!(resolved("enti"), "enti");
 }
 
-// Go: TestResolveSessionCommandNameUnknownWordUnchanged
 #[test]
 fn resolve_session_command_name_unknown_word_unchanged() {
     assert_eq!(resolved("nope"), "nope");
 }
 
-// Go: TestResolveSessionCommandNameNeverReachesInitOrClone. `ini` is a
+// `ini` is a
 // prefix of the one-shot-only `init`, and must not expand to it.
 #[test]
 fn resolve_session_command_name_never_reaches_init_or_clone() {
@@ -215,7 +204,7 @@ fn resolve_session_command_name_never_reaches_init_or_clone() {
     }
 }
 
-// Go: TestResolveSessionCommandNameOnAnEmptyWord. Every name is a prefix
+// Every name is a prefix
 // match for "", which would turn a stray empty token into
 // ambiguous-everything instead of the ordinary unknown-command error.
 #[test]
@@ -225,7 +214,6 @@ fn resolve_session_command_name_on_an_empty_word() {
 
 // --- completion_words ----------------------------------------------------------------
 
-// Go: TestCompletionWordsOnNothingTyped
 #[test]
 fn completion_words_on_nothing_typed() {
     for head in ["", " ", "   ", "\t", " \t "] {
@@ -233,13 +221,11 @@ fn completion_words_on_nothing_typed() {
     }
 }
 
-// Go: TestCompletionWordsMidWord
 #[test]
 fn completion_words_mid_word() {
     assert_eq!(completion_words("vau"), (vec![], "vau".to_string()));
 }
 
-// Go: TestCompletionWordsAfterASpace
 #[test]
 fn completion_words_after_a_space() {
     assert_eq!(
@@ -248,7 +234,6 @@ fn completion_words_after_a_space() {
     );
 }
 
-// Go: TestCompletionWordsMultipleWordsPartialLast
 #[test]
 fn completion_words_multiple_words_partial_last() {
     assert_eq!(
@@ -259,7 +244,7 @@ fn completion_words_multiple_words_partial_last() {
 
 // --- flag_candidates / subcommand_candidates -----------------------------------------
 
-// Go: TestFlagCandidatesMatchesTheRealCobraCommand, against the real
+// Against the real
 // clap command built from the registry.
 #[test]
 fn flag_candidates_matches_the_real_clap_command() {
@@ -287,7 +272,7 @@ fn flag_candidates_matches_the_real_clap_command() {
     assert!(got.iter().all(|g| g.starts_with('-')), "{got:?}");
 }
 
-// Go: TestFlagCandidatesSkipsHiddenFlags. gage registers no hidden flag
+// Gage registers no hidden flag
 // today, so this builds one: the rule has to hold the first time one is
 // added.
 #[test]
@@ -301,7 +286,6 @@ fn flag_candidates_skips_hidden_flags() {
     assert!(!got.contains(&"--secret-debug".to_string()), "{got:?}");
 }
 
-// Go: TestSubcommandCandidatesListsIdentityChildren
 #[test]
 fn subcommand_candidates_lists_identity_children() {
     let reg = registry();
@@ -313,7 +297,7 @@ fn subcommand_candidates_lists_identity_children() {
     );
 }
 
-// P7 · E4: the three enrollment verbs reach `recipient <Tab>` from the
+// The three enrollment verbs reach `recipient <Tab>` from the
 // registry, with no list of their own to keep in step.
 #[test]
 fn subcommand_candidates_lists_the_enrollment_verbs() {
@@ -328,11 +312,10 @@ fn subcommand_candidates_lists_the_enrollment_verbs() {
     );
 }
 
-// P7 · E4, M13's obligation: Go completes no request ids (`approve` and
+// Completion offers no request ids (`approve` and
 // `deny` are not entry-query commands, and nothing in its completer reads
 // `pending/`), so their positionals offer nothing, and above all not the
-// unlocked vault's titles, which name entries rather than requests
-// (Q-APPROVE-SURFACE).
+// unlocked vault's titles, which name entries rather than requests.
 #[test]
 fn request_id_positionals_complete_nothing() {
     let env = Env::new();
@@ -351,7 +334,7 @@ fn request_id_positionals_complete_nothing() {
     }
 }
 
-// The same function on the `vault` parent M13 used before `identity`
+// The same function on the `vault` parent that was used before `identity`
 // existed.
 #[test]
 fn subcommand_candidates_lists_the_parents_children() {
@@ -364,7 +347,7 @@ fn subcommand_candidates_lists_the_parents_children() {
     );
 }
 
-// Go: TestSubcommandCandidatesSkipsHiddenChildren. The child has no
+// The child has no
 // registry entry, which counts as visible: only the hidden one is left
 // out.
 #[test]
@@ -380,7 +363,6 @@ fn subcommand_candidates_skips_hidden_children() {
 
 // --- vault and entry sources -----------------------------------------------------------
 
-// Go: TestVaultNameCandidatesListsRegisteredVaults
 #[test]
 fn vault_name_candidates_lists_registered_vaults() {
     let env = Env::new();
@@ -395,7 +377,6 @@ fn vault_name_candidates_with_no_config_is_empty() {
     assert!(vault_name_candidates(&Env::new().dirs).is_empty());
 }
 
-// Go: TestEntryTitleCandidatesNoSessionIsNil
 #[test]
 fn entry_title_candidates_with_no_session_is_empty() {
     assert!(entry_title_candidates(None).is_empty());
@@ -403,9 +384,8 @@ fn entry_title_candidates_with_no_session_is_empty() {
 
 // --- leaf_positional_candidates ----------------------------------------------------------
 
-// Go: TestLeafPositionalCandidatesOffersNothingForACommandWithNoQuery.
 // Only use/lock and the entry-query commands have a first positional
-// worth completing; Go's `sync` joins the list in P4. Against a
+// worth completing; Against a
 // registered vault and an unlocked one with titles, so a command routed
 // to either source by mistake would have something to offer.
 #[test]
@@ -424,7 +404,7 @@ fn leaf_positional_candidates_offers_nothing_for_a_command_with_no_query() {
     }
 }
 
-// Go: TestLeafPositionalCandidatesStopAfterTheFirstArgument. `rename
+// `rename
 // <title> <new-title>` is why: completing the new title against existing
 // ones would suggest the very collisions rename exists to avoid.
 #[test]
@@ -450,7 +430,7 @@ fn leaf_positional_candidates_stop_after_the_first_argument() {
 
 // --- completion_candidates ------------------------------------------------------------------
 
-// Go: TestCompletingTopLevelListsSessionVisibleNames. The whole set, even
+// The whole set, even
 // with `us` typed: narrowing to the partial word is the caller's
 // `prefix_matches`, not this function's.
 #[test]
@@ -464,7 +444,6 @@ fn completing_top_level_lists_session_visible_names() {
     }
 }
 
-// Go: TestCompletingABareDashAtTheTopLevelOffersRootFlags
 #[test]
 fn completing_a_bare_dash_at_the_top_level_offers_root_flags() {
     let (reg, env) = (registry(), Env::new());
@@ -474,7 +453,6 @@ fn completing_a_bare_dash_at_the_top_level_offers_root_flags() {
     assert_eq!(got, flag_candidates(&root(&reg)));
 }
 
-// Go: TestCompletingFlagPositionListsCommandFlags
 #[test]
 fn completing_flag_position_lists_command_flags() {
     let (reg, env) = (registry(), Env::new());
@@ -482,7 +460,6 @@ fn completing_flag_position_lists_command_flags() {
     assert!(got.contains(&"--force".to_string()), "{got:?}");
 }
 
-// Go: TestCompletingSubcommandListsIdentityChildren
 #[test]
 fn completing_subcommand_lists_identity_children() {
     let (reg, env) = (registry(), Env::new());
@@ -501,7 +478,6 @@ fn completing_subcommand_lists_the_parents_children() {
     );
 }
 
-// Go: TestCompletingUseArgumentListsVaultNames
 #[test]
 fn completing_use_argument_lists_vault_names() {
     let (reg, env) = (registry(), Env::new());
@@ -510,7 +486,6 @@ fn completing_use_argument_lists_vault_names() {
     assert_eq!(complete_at(&reg, &env, None, "use "), ["personal", "work"]);
 }
 
-// Go: TestCompletingLockArgumentListsVaultNames
 #[test]
 fn completing_lock_argument_lists_vault_names() {
     let (reg, env) = (registry(), Env::new());
@@ -519,7 +494,6 @@ fn completing_lock_argument_lists_vault_names() {
     assert_eq!(complete_at(&reg, &env, None, "lock "), ["personal", "work"]);
 }
 
-// Go: TestCompletingUseFlagValueListsVaultNames
 #[test]
 fn completing_use_flag_value_lists_vault_names() {
     let (reg, env) = (registry(), Env::new());
@@ -531,7 +505,7 @@ fn completing_use_flag_value_lists_vault_names() {
     );
 }
 
-// Go: TestCompletingUseArgumentIsIndependentOfUnlockState. The set comes
+// The set comes
 // from global config, never from which vaults are unlocked.
 #[test]
 fn completing_use_argument_is_independent_of_unlock_state() {
@@ -547,7 +521,6 @@ fn completing_use_argument_is_independent_of_unlock_state() {
     );
 }
 
-// Go: TestCompletingAnEntryQueryListsCurrentVaultTitles
 #[test]
 fn completing_an_entry_query_lists_current_vault_titles() {
     let (reg, env) = (registry(), Env::new());
@@ -563,7 +536,7 @@ fn completing_an_entry_query_lists_current_vault_titles() {
     );
 }
 
-// Go: TestCompletingAnEntryQueryWhenLockedNeverUnlocks, with a prompter
+// With a prompter
 // that answers nothing: an unlock would fail the test. `personal` is
 // current (from global config) but locked, so this is the locked path,
 // not the no-current-vault one.
@@ -580,7 +553,7 @@ fn completing_an_entry_query_when_locked_never_unlocks() {
     assert!(p.unlock_requests().is_empty(), "completion asked to unlock");
 }
 
-// Go: TestCompletingQueryAfterAUseFlagStillOffersEntryTitles. `show --use
+// `show --use
 // work <Tab>` is still the query at position 0, and still the *current*
 // vault's titles: personal's, not work's.
 #[test]
@@ -599,7 +572,7 @@ fn completing_query_after_a_use_flag_still_offers_entry_titles() {
     );
 }
 
-// Not Go rows: the other spellings of `--use`. `-u` takes a vault name
+// The other spellings of `--use`. `-u` takes a vault name
 // like `--use` does, and both step over their value, attached or not,
 // when counting positionals.
 #[test]
@@ -618,7 +591,7 @@ fn completing_the_use_flags_other_spellings() {
     assert!(at(&mut s, "rename --use=work AWS ").is_empty());
 }
 
-// Not a Go row: a first word that names no command has no position to
+// A first word that names no command has no position to
 // complete, so nothing is offered rather than some other command's set.
 #[test]
 fn completing_after_an_unknown_command_offers_nothing() {
@@ -628,7 +601,7 @@ fn completing_after_an_unknown_command_offers_nothing() {
     assert!(complete_at(&reg, &env, Some(&mut s), "nope ").is_empty());
 }
 
-// Not a Go row: the registry's session filter one level down. A child the
+// The registry's session filter one level down. A child the
 // registry marks one-shot-only is left out, as session help leaves it out.
 #[test]
 fn subcommand_candidates_skip_children_not_available_in_a_session() {
@@ -677,7 +650,6 @@ fn run_line(env: &Env, s: &mut Session, line: &str) -> (Result<bool, CliError>, 
     (res, String::from_utf8(out).unwrap())
 }
 
-// Go: TestRunSessionCommandDispatchesAnUnambiguousAbbreviation
 #[test]
 fn run_session_command_dispatches_an_unambiguous_abbreviation() {
     let env = Env::new();
@@ -692,7 +664,7 @@ fn run_session_command_dispatches_an_unambiguous_abbreviation() {
     );
 }
 
-// Not a Go row: `status` above is a session verb, handled before clap;
+// `status` above is a session verb, handled before clap;
 // this is the other path, where the expanded word goes on to clap with
 // the rest of the line. `vau list` runs `vault list`.
 #[test]
@@ -706,7 +678,7 @@ fn run_session_command_dispatches_an_abbreviation_through_clap() {
     assert!(out.contains("personal"), "`vau list` didn't list:\n{out}");
 }
 
-// Go: TestRunSessionCommandRejectsAnAmbiguousAbbreviation. Candidates
+// Candidates
 // reported, nothing run, and the session still usable.
 #[test]
 fn run_session_command_rejects_an_ambiguous_abbreviation() {
@@ -725,7 +697,7 @@ fn run_session_command_rejects_an_ambiguous_abbreviation() {
     assert!(res.is_ok(), "the session didn't survive it");
 }
 
-// Go: TestAbbreviationDoesNotReachSubcommands. Only the first token is
+// Only the first token is
 // rewritten, so `vault inf` is not `vault info`: it falls to clap's own
 // unknown-subcommand handling, never running `info`.
 #[test]
@@ -741,7 +713,7 @@ fn abbreviation_does_not_reach_subcommands() {
 
 // --- the rustyline adapter ----------------------------------------------------------------
 
-// Go: TestSessionCompleterDoWiresCandidatesIntoReadlinesContract. The one
+// The one
 // thin test of the adapter: `complete` returns where the partial word
 // starts and the full candidates, across a single match, several, none
 // (a substring that isn't a prefix), a later word, and a quoted title.

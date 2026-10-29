@@ -4,10 +4,10 @@
 //! future GUI/TUI against dialogs. See "Library architecture" and
 //! "Interactive decisions become data, not printed text" in the design doc.
 //!
-//! M0b fixed the shape; M2 adds the unlock purpose and `warn`. Each later
+//! The shape is fixed; the unlock purpose and `warn` are its first uses. Each later
 //! question (a free-form secret value, a default-yes confirmation, choosing
 //! among ambiguous candidates, which version of a conflicted entry to keep,
-//! a recipient-change warning) is added as a method by the milestone that
+//! a recipient-change warning) is added as a method by the feature that
 //! first asks it.
 
 use uuid::Uuid;
@@ -72,8 +72,7 @@ pub struct UnlockRequest {
 ///
 /// Its variants mirror [`Kind`]'s one to one, so a response of a different
 /// kind than the request asked for can't be built today; the library's
-/// match on it becomes a refusal the day a second kind exists (Go's
-/// `TestUnlockRejectsAPrompterAnsweringTheWrongKind`).
+/// match on it becomes a refusal the day a second kind exists.
 #[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum UnlockResponse {
@@ -133,7 +132,7 @@ pub enum PromptError {
     /// `--stdin` session, CI. Which version of a conflicted entry to keep
     /// (gage never picks a side on its own; a silent choice is the
     /// last-write-wins outcome the sync model exists to refuse), or whether
-    /// to trust a changed recipient list (Go's `ErrNotInteractive`).
+    /// to trust a changed recipient list.
     #[error("gage: this question needs someone to ask, and nobody is at a terminal")]
     NotInteractive,
     /// The frontend's retry policy ended a conflict question without an
@@ -152,8 +151,8 @@ pub enum PromptError {
 }
 
 impl HasCode for PromptError {
-    // No answer to an unlock is an authentication failure, as Go's prompter
-    // reports end of input; a broken terminal or a request this build can't
+    // No answer to an unlock is an authentication failure, as end of input
+    // is reported; a broken terminal or a request this build can't
     // render is not.
     fn code(&self) -> Code {
         match self {
@@ -186,7 +185,7 @@ pub trait Prompter {
     /// is why it is not a flag on [`Prompter::confirm`], whose default-no
     /// every other caller relies on. There is deliberately no default body:
     /// every wrapper must delegate, and none may answer yes for a human
-    /// (Q-CONFIRM-DEFAULT-YES).
+    /// (ADR-0033).
     fn confirm_default_yes(&self, prompt: &str) -> Result<bool, PromptError>;
 
     /// Asks for the secret value of the entry titled `title`, without
@@ -209,7 +208,7 @@ pub trait Prompter {
     ///
     /// The default refuses with [`PromptError::NotInteractive`]: a
     /// frontend with nobody to ask implements nothing and refuses, rather
-    /// than every caller remembering a flag (Q-CONFLICT-PROMPTER). Only a
+    /// than every caller remembering a flag (ADR-0021). Only a
     /// frontend that really can ask a human overrides it.
     fn resolve_conflict(&self, conflict: &EntryConflict) -> Result<Resolution, PromptError> {
         let _ = conflict;
@@ -223,7 +222,7 @@ pub trait Prompter {
     /// a dialog. `false` refuses the write.
     ///
     /// The default refuses with [`PromptError::NotInteractive`], as
-    /// [`Prompter::resolve_conflict`]'s does (Q-RECIPIENT-PROMPT): a
+    /// [`Prompter::resolve_conflict`]'s does (ADR-0033): a
     /// frontend with nobody to ask can't approve, and an unapproved list is
     /// exactly what the check won't encrypt to. What confirming *means*
     /// (regenerate the cache, or only note a mismatch was seen) is decided

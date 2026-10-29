@@ -113,13 +113,12 @@ mod tests {
         }
     }
 
-    // Go: TestSuccessIsZero
     #[test]
     fn success_is_zero() {
         assert_eq!(Code::Success.as_i32(), 0);
     }
 
-    // Go: TestAllCodesAreDistinct. Exit codes 0-7 are a script-facing
+    // Exit codes 0-7 are a script-facing
     // contract owned by doc/cli/exit-codes.md; renumbering one breaks every
     // caller that branches on it.
     #[test]
@@ -130,15 +129,14 @@ mod tests {
         assert_eq!(distinct.len(), all().len());
     }
 
-    // Go: TestNilErrorIsSuccess
     #[test]
     fn ok_is_success() {
         assert_eq!(code_of::<(), Coded>(&Ok(())), Code::Success);
     }
 
-    // Go: TestEveryDefinedCodeRoundTripsThroughConstructors (library half;
+    // Every defined code round-trips through its constructors (library half;
     // the CLI half, through CliError and added context, is in gage-cli).
-    // Like Go's, this round-trips the conversion; it does not show that
+    // This round-trips the conversion; it does not show that
     // any command reaches each code. That becomes checkable as the
     // commands that produce NotFound, Ambiguous, Conflict, ... land.
     #[test]
@@ -148,12 +146,10 @@ mod tests {
         }
     }
 
-    // Go: TestWrapNilIsNil is excused as a runtime test: it is a
-    // compile-time property here. Go's Wrap(code, nil) must return nil;
-    // in Rust a code is attached only by converting an error value
+    // Wrapping nil is a compile-time property: in Rust a code is attached only by converting an error value
     // (gage-cli's CliError: From<E: HasCode>), so there is no nil to wrap.
 
-    // Go: TestUnregisteredCodeStringsAsItsNumber. An out-of-range Code
+    // An out-of-range Code
     // can't be constructed in Rust, so what's left to prove is that every
     // variant renders as its stable, non-empty name.
     #[test]

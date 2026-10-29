@@ -1,8 +1,8 @@
 //! The metadata index through `Session`, against real vaults: built once,
 //! updated incrementally, discarded with the key, never holding a secret
-//! and never written anywhere. Ports Go's `index_test.go` rows that go
+//! and never written anywhere. These go
 //! through a session; the arena's own rows (growth, discard) are in
-//! `index`. Each test names its Go row. Decrypts are counted on the real
+//! `index`. Decrypts are counted on the real
 //! path (`Vault::decrypt_count`).
 
 use std::collections::BTreeSet;
@@ -61,7 +61,7 @@ fn insert(s: &mut Session, title: &str, description: &str, value: &str) -> Uuid 
 
 // --- build once -----------------------------------------------------------------
 
-// Go: TestFirstListBuildsIndexWithOneDecryptPass. The first list decrypts
+// The first list decrypts
 // every entry once; a second decrypts nothing; a resolve decrypts only
 // the entry it returns.
 #[test]
@@ -112,7 +112,7 @@ fn a_first_resolve_builds_the_index_and_writes_do_not() {
     );
 }
 
-// Go: TestSearchFirstCallBuildsIndexWithoutADoubleDecrypt. The index is
+// The index is
 // built from the same pass the body check needs.
 #[test]
 fn search_first_call_builds_index_without_a_double_decrypt() {
@@ -127,7 +127,7 @@ fn search_first_call_builds_index_without_a_double_decrypt() {
     assert!(s.has_index("personal"));
 }
 
-// Go: TestSearchBodyHalfRedecryptsButTitleHalfDoesNot. Body text is never
+// Body text is never
 // cached: a second search decrypts again, a list in between doesn't.
 #[test]
 fn search_body_half_redecrypts_but_title_half_does_not() {
@@ -145,7 +145,6 @@ fn search_body_half_redecrypts_but_title_half_does_not() {
     assert_eq!(d.decrypts("personal") - base, 4, "a fresh body pass");
 }
 
-// Go: TestMultiVaultSessionsHaveSeparateIndexes
 #[test]
 fn multi_vault_sessions_have_separate_indexes() {
     let d = Device::new(&["personal", "work"]);
@@ -171,7 +170,7 @@ fn multi_vault_sessions_have_separate_indexes() {
 
 // --- incremental updates ------------------------------------------------------------
 
-// Go: TestNoteEntryUpdatesIndexWithoutFullRebuild. Insert pays its own
+// Insert pays its own
 // decrypts (the duplicate-title check); noting the entry and listing
 // after it add none.
 #[test]
@@ -233,7 +232,6 @@ fn refresh_entry_reads_one_entry_only_when_indexed() {
     assert_eq!(s.list(None).unwrap().len(), 3, "rebuilt from the vault");
 }
 
-// Go: TestSessionResolveSeesARenameAfterNoteEntry
 #[test]
 fn session_resolve_sees_a_rename_after_note_entry() {
     let d = Device::new(&["personal"]);
@@ -266,7 +264,6 @@ fn session_resolve_sees_a_rename_after_note_entry() {
     );
 }
 
-// Go: TestForgetEntryRemovesFromIndex
 #[test]
 fn forget_entry_removes_from_index() {
     let d = Device::new(&["personal"]);
@@ -290,7 +287,7 @@ fn forget_entry_removes_from_index() {
     );
 }
 
-// Go: TestReindexForcesFullRebuildAndPicksUpOutOfBandChanges. A change the
+// A change the
 // session wasn't told about (a manual `git pull`, here a write with no
 // note) is invisible until reindex.
 #[test]
@@ -314,7 +311,7 @@ fn reindex_forces_full_rebuild_and_picks_up_out_of_band_changes() {
 
 // --- agreement with one-shot ------------------------------------------------------------
 
-// Go: TestListAgreesBetweenOneShotAndSession. Two implementations, one
+// Two implementations, one
 // renderer: the rows must match field for field, ties included.
 #[test]
 fn list_agrees_between_one_shot_and_session() {
@@ -352,7 +349,6 @@ fn search_fixture(s: &mut Session) -> [Uuid; 6] {
     ]
 }
 
-// Go: TestSearchMatchesTitleDescriptionAndBody
 #[test]
 fn search_matches_title_description_and_body() {
     let d = Device::new(&["personal"]);
@@ -374,7 +370,7 @@ fn search_matches_title_description_and_body() {
     assert!(!rendered.contains("secret key is here"), "{rendered}");
 }
 
-// Go: TestSearchAgreesBetweenOneShotAndSession. The overlap entries are
+// The overlap entries are
 // the ones that once came back classified differently by the two paths.
 #[test]
 fn search_agrees_between_one_shot_and_session() {
@@ -394,7 +390,7 @@ fn search_agrees_between_one_shot_and_session() {
 
 // --- discard ----------------------------------------------------------------------------
 
-// Go: TestLockDiscardsIndex. The index doesn't outlive the key; the next
+// The index doesn't outlive the key; the next
 // list after re-unlocking rebuilds from scratch.
 #[test]
 fn lock_discards_index() {
@@ -415,7 +411,6 @@ fn lock_discards_index() {
     assert_eq!(d.decrypts("personal") - base, 1, "rebuilt");
 }
 
-// Go: TestIdleTimeoutDiscardsIndexLikeAnExplicitLock
 #[test]
 fn idle_timeout_discards_index_like_an_explicit_lock() {
     let d = Device::new(&["personal"]);
@@ -471,7 +466,7 @@ fn closing_a_session_releases_its_indexes() {
 
 // --- what the arena holds ---------------------------------------------------------------
 
-// Go: TestIndexArenaNeverHoldsASecretValue. After ls, show (the one path
+// After ls, show (the one path
 // that decrypts a whole entry to return it) and search, the arena holds
 // the title and none of the value or fields.
 #[test]
@@ -547,7 +542,7 @@ impl Locker for FailsAfter {
     }
 }
 
-// Go: TestIndexArenaLocksThroughTheSameLockerAsTheIdentity. The vault's
+// The vault's
 // own seam, not a second one: building the index locks through it again.
 #[test]
 fn index_arena_locks_through_the_same_locker_as_the_identity() {
@@ -574,7 +569,7 @@ fn index_warnings(p: &FakePrompter) -> Vec<String> {
         .collect()
 }
 
-// Go: TestIndexPageLockFailureWarnsOnceAndProceeds. The key locks, the
+// The key locks, the
 // arena doesn't: one warning, however often the index is read or grows.
 #[test]
 fn index_page_lock_failure_warns_once_and_proceeds() {
@@ -600,7 +595,7 @@ fn index_page_lock_failure_warns_once_and_proceeds() {
     assert_eq!(index_warnings(&p).len(), 1, "warned again");
 }
 
-// Go: TestIndexDoesNotWarnAgainWhenUnlockAlreadyWarned. The key itself
+// The key itself
 // couldn't be locked and the unlock said so; the index doesn't try, and
 // doesn't say it twice.
 #[test]
@@ -665,7 +660,7 @@ fn files_under(root: &Path) -> BTreeSet<PathBuf> {
     out
 }
 
-// Go: TestIndexNeverWrittenToDisk. Building and using the index (list,
+// Building and using the index (list,
 // search, reindex) creates no file under the config, data or state roots
 // or the vault.
 #[test]

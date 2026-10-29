@@ -64,7 +64,7 @@ expect_exit 0
 expect_out '^s3cret$'
 
 step "bob's first write asks to confirm the new recipient list"
-# No terminal: refused before reading anything (Q-RECIPIENT-PROMPT), so a
+# No terminal: refused before reading anything (ADR-0033), so a
 # piped answer can't be spent on it. Nothing is written.
 g bob -i "$(unlock bob)"$'\nv' -- insert FromBob --value-stdin
 expect_exit 1

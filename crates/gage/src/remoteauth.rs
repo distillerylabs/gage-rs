@@ -1,5 +1,5 @@
 //! How gage authenticates to a git remote, and the tokens it does that
-//! with (Q-REMOTE-AUTH, Q-SSH).
+//! with (ADR-0020, ADR-0015).
 //!
 //! The supported path is HTTPS with a token the user issued themselves,
 //! held per *host* (two vaults on one host share one token) at

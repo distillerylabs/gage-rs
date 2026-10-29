@@ -1,9 +1,9 @@
-//! E1b: the N-recipient form of the recipient write, and the two options
+//! The N-recipient form of the recipient write, and the two options
 //! its commit gained (paths to delete, the failed-push clause). The push
 //! clause rows live with the other push tests in `remotesync_tests`.
 //!
-//! Nothing here goes through a command: the form is crate-private and E4's
-//! approval is its only other caller.
+//! Nothing here goes through a command: the form is crate-private and
+//! enrollment's approval is its only other caller.
 
 use uuid::Uuid;
 
@@ -32,8 +32,8 @@ fn member(device: &str) -> (Recipient, age::x25519::Identity) {
     (r, key)
 }
 
-/// The batch form under the lock and the dirty-tree reset, as E4's
-/// approval will call it.
+/// The batch form under the lock and the dirty-tree reset, as enrollment's
+/// approval calls it.
 fn batch(
     vault: &Vault,
     adds: &[Recipient],
@@ -60,7 +60,7 @@ fn plain(
     )
 }
 
-/// An ordinary tracked file, standing in for E2's pending request.
+/// An ordinary tracked file, standing in for a pending request.
 fn track(f: &Fixture, rel: &str) {
     let full = f.vault.path.join(rel);
     std::fs::create_dir_all(full.parent().unwrap()).unwrap();
@@ -97,9 +97,8 @@ fn insert_one(f: &Fixture, p: &FakePrompter) -> Result<Uuid, crate::entry::Write
     )
 }
 
-// --- the N-recipient form (task 1) ------------------------------------------
+// --- the N-recipient form ------------------------------------------
 
-// Go: TestSeveralRecipientsLandInOneCommit
 #[test]
 fn several_recipients_land_in_one_commit() {
     let f = Fixture::new();
@@ -132,7 +131,7 @@ fn several_recipients_land_in_one_commit() {
     assert!(f.is_clean());
 }
 
-// Go: TestOneReencryptionPassForTheBatch. Counted through the hook: the
+// Counted through the hook: the
 // number of entry rewrites, not wall-clock time.
 #[test]
 fn one_reencryption_pass_for_the_batch() {
@@ -151,7 +150,6 @@ fn one_reencryption_pass_for_the_batch() {
     assert_eq!(writes.load(std::sync::atomic::Ordering::SeqCst), 3);
 }
 
-// Go: TestOneTrustQuestionForTheBatch
 #[test]
 fn one_trust_question_for_the_batch() {
     let f = Fixture::new();
@@ -171,7 +169,6 @@ fn one_trust_question_for_the_batch() {
     assert_eq!(p.recipient_changes().len(), 1, "asked once for the batch");
 }
 
-// Go: TestBatchTakesOneLockAndOneDirtyTreeReset
 #[test]
 fn batch_takes_one_lock_and_one_dirty_tree_reset() {
     let f = Fixture::new();
@@ -196,7 +193,6 @@ fn batch_takes_one_lock_and_one_dirty_tree_reset() {
     assert_eq!(discards.len(), 1, "{discards:?}");
 }
 
-// Go: TestADuplicateWithinTheBatchIsRefused
 #[test]
 fn a_duplicate_within_the_batch_is_refused() {
     let f = Fixture::new();
@@ -224,7 +220,6 @@ fn a_duplicate_within_the_batch_is_refused() {
     }
 }
 
-// Go: TestABatchMemberAlreadyInTheVaultIsRefused
 #[test]
 fn a_batch_member_already_in_the_vault_is_refused() {
     let f = Fixture::new();
@@ -247,7 +242,6 @@ fn a_batch_member_already_in_the_vault_is_refused() {
     still.assert_still(&f);
 }
 
-// Go: TestAddRecipientsLockedRevalidatesEveryBatchMember
 #[test]
 fn add_recipients_locked_revalidates_every_batch_member() {
     let f = Fixture::new();
@@ -279,7 +273,6 @@ fn add_recipients_locked_revalidates_every_batch_member() {
     assert!(f.is_clean());
 }
 
-// Go: TestAddRecipientIsTheOneRecipientCaller
 #[test]
 fn add_recipient_is_the_one_recipient_caller() {
     let f = Fixture::new();
@@ -304,7 +297,6 @@ fn add_recipient_is_the_one_recipient_caller() {
     insert_one(&f, &FakePrompter::new()).unwrap();
 }
 
-// Go: TestExtraPathsAreDeletedInTheSameCommit
 #[test]
 fn extra_paths_are_deleted_in_the_same_commit() {
     let f = Fixture::new();
@@ -357,9 +349,8 @@ fn an_unsafe_delete_path_is_refused_before_anything_is_written() {
     assert!(f.is_clean(), "something was written before the refusal");
 }
 
-// --- atomicity (task 3) ------------------------------------------------------
+// --- atomicity ------------------------------------------------------
 
-// Go: TestInterruptedBatchLeavesHEADUntouched
 #[test]
 fn interrupted_batch_leaves_head_untouched() {
     let f = Fixture::new();
@@ -401,7 +392,7 @@ fn interrupted_batch_leaves_head_untouched() {
     assert!(f.is_clean());
 }
 
-// Go: TestABatchWhoseDeletionFailsCommitsNothing. The second path is a
+// The second path is a
 // directory, which cannot be removed as a file: the first deletion has
 // already happened when this one fails.
 #[test]
@@ -448,7 +439,7 @@ fn a_batch_whose_deletion_fails_commits_nothing() {
     assert!(f.is_clean());
 }
 
-// Go: TestABatchThatFailsAfterDeletingCommitsNothing. The deletion is
+// The deletion is
 // uncommitted, not undone; the next write's reset restores the path rather
 // than folding the deletion into that write's commit.
 #[test]
@@ -511,7 +502,6 @@ fn a_batch_that_fails_after_deleting_commits_nothing() {
     assert_eq!(paths, vec![format!("entries/{id}.age")], "{paths:?}");
 }
 
-// Go: TestADeclinedTrustQuestionAbortsTheWholeBatch
 #[test]
 fn a_declined_trust_question_aborts_the_whole_batch() {
     let f = Fixture::new();

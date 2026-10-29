@@ -13,7 +13,7 @@ pub struct RecoveryKey {
     /// The `age1...` recipient to register.
     pub pubkey: String,
     /// The `AGE-SECRET-KEY-1...` line, zeroed on drop
-    /// (Q-RECOVERY-SECRET-MEMORY).
+    /// (ADR-0027).
     pub secret: Zeroizing<String>,
 }
 

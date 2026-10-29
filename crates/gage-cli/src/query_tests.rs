@@ -1,7 +1,7 @@
-//! P3 · M5 through the real CLI, in-process: the full query resolution
+//! Queries through the real CLI, in-process: the full query resolution
 //! order across every query-taking command, `show`, `edit`, `rename`,
-//! `generate` and `insert -e`. The Go row each test ports is named above
-//! it. `$EDITOR` is a fake (the test binary re-executed, see
+//! `generate` and `insert -e`.
+//! `$EDITOR` is a fake (the test binary re-executed, see
 //! `editor::fake`) set on the [`Env`].
 
 use gage::entry::{self, Entry, Timestamp};
@@ -43,8 +43,8 @@ impl Env {
         id
     }
 
-    /// Rewrites `title`'s created/updated to a day ago (Go's
-    /// `backdateEntry`), so a re-stamp is observably later even when both
+    /// Rewrites `title`'s created/updated to a day ago,
+    /// so a re-stamp is observably later even when both
     /// commands land in the same wall-clock second.
     fn backdate(&self, title: &str) {
         let vault = self.vault("personal");
@@ -56,8 +56,7 @@ impl Env {
         vault.update(id, &e, &FakePrompter::new()).unwrap();
     }
 
-    /// Inserts `title` with a value and fields, through `insert -e` (Go's
-    /// `insertEntryWithFields`).
+    /// Inserts `title` with a value and fields, through `insert -e`.
     fn insert_with_fields(&self, title: &str, value: &str, fields: &[(&str, &str)]) {
         let fake = FakeEditor::new(Action::Set(&[Set::Value(value), Set::Fields(fields)]));
         self.set_editor(&fake);
@@ -65,8 +64,7 @@ impl Env {
     }
 }
 
-/// Two entries whose titles both contain "aws", neither exactly (Go's
-/// `twoAWSEntries`).
+/// Two entries whose titles both contain "aws", neither exactly.
 fn two_aws_entries(env: &Env) {
     env.insert_ok("v1", &["AWS root account"]);
     env.insert_ok("v2", &["AWS IAM backup admin"]);
@@ -87,7 +85,7 @@ fn short(id: Uuid) -> String {
 
 // --- task 3: one resolver behind every query-taking command ----------------
 
-// Go: TestShowCatRmResolveIdenticallyAcrossQueryForms. rm goes last in each
+// Rm goes last in each
 // case (it deletes), so every form gets a fresh vault.
 #[test]
 fn show_cat_rm_resolve_identically_across_query_forms() {
@@ -119,7 +117,7 @@ fn show_cat_rm_resolve_identically_across_query_forms() {
     }
 }
 
-// Go: TestCatResolvesByExactTitleEvenWhenQueryIsAlsoAUUIDSubstring. The
+// The
 // second entry is titled with a real substring of the first's id, so the
 // cross-stage collision happens on every run. Compared parsed, not as
 // text: an all-digit title is quoted in the YAML.
@@ -136,9 +134,8 @@ fn cat_resolves_by_exact_title_even_when_query_is_also_a_uuid_substring() {
     assert_eq!(got.value, "some-other-secret");
 }
 
-// Go: TestAmbiguousQueryListsCandidatesAndFailsWithoutPromptingForEveryCommand.
 // The prompter answers the unlock and nothing else, so any prompt would
-// panic (there is no candidate picker to call until M6); the editor fails
+// panic (there is no candidate picker to call); the editor fails
 // if it is ever run, and records that it was.
 #[test]
 fn ambiguous_query_lists_candidates_and_fails_without_prompting_for_every_command() {
@@ -164,7 +161,6 @@ fn ambiguous_query_lists_candidates_and_fails_without_prompting_for_every_comman
     }
 }
 
-// Go: TestAmbiguousRmAndRenameLeaveEveryCandidateUntouched
 #[test]
 fn ambiguous_rm_and_rename_leave_every_candidate_untouched() {
     for args in [&["rm", "aws"][..], &["rename", "aws", "Whatever"]] {
@@ -184,7 +180,7 @@ fn ambiguous_rm_and_rename_leave_every_candidate_untouched() {
     }
 }
 
-// Go: TestAmbiguousUUIDSubstringFailsAtTheCLIWithCandidates. The ids are
+// The ids are
 // written through the library (insert can't be asked for two that share a
 // chosen substring); the behavior under test is the real CLI.
 #[test]
@@ -200,7 +196,6 @@ fn ambiguous_uuid_substring_fails_at_the_cli_with_candidates() {
     assert_eq!(r.stdout, "");
 }
 
-// Go: TestUnknownQueryIsDistinguishableFromAmbiguousAtTheCLI
 #[test]
 fn unknown_query_is_distinguishable_from_ambiguous_at_the_cli() {
     let env = env_with_vault();
@@ -220,7 +215,6 @@ fn unknown_query_is_distinguishable_from_ambiguous_at_the_cli() {
 
 // --- task 5: show -------------------------------------------------------------
 
-// Go: TestShowPrintsOnlyValue
 #[test]
 fn show_prints_only_value() {
     let env = env_with_vault();
@@ -230,7 +224,6 @@ fn show_prints_only_value() {
     assert_eq!(r.stderr, "");
 }
 
-// Go: TestShowMultilineValueHasNoExtraTrailingBlankLine
 #[test]
 fn show_multiline_value_has_no_extra_trailing_blank_line() {
     let env = env_with_vault();
@@ -246,7 +239,6 @@ fn show_multiline_value_has_no_extra_trailing_blank_line() {
     );
 }
 
-// Go: TestCatPrintsFullYAMLDistinctFromShow
 #[test]
 fn cat_prints_full_yaml_distinct_from_show() {
     let env = env_with_vault();
@@ -258,7 +250,6 @@ fn cat_prints_full_yaml_distinct_from_show() {
     assert_ne!(env.cmd_ok(&["cat", "GitHub"]).stdout, "hunter2\n");
 }
 
-// Go: TestShowUnknownQueryFailsNotFound
 #[test]
 fn show_unknown_query_fails_not_found() {
     let env = env_with_vault();
@@ -267,7 +258,6 @@ fn show_unknown_query_fails_not_found() {
     assert_eq!(r.stdout, "");
 }
 
-// Go: TestShowAmbiguousQueryListsCandidatesAndFails
 #[test]
 fn show_ambiguous_query_lists_candidates_and_fails() {
     let env = env_with_vault();
@@ -275,7 +265,6 @@ fn show_ambiguous_query_lists_candidates_and_fails() {
     assert_lists_both_aws_candidates(&env.cmd(&["show", "aws"]));
 }
 
-// Go: TestShowFieldExtractsNamedField
 #[test]
 fn show_field_extracts_named_field() {
     let env = env_with_vault();
@@ -296,7 +285,6 @@ fn show_field_extracts_named_field() {
     }
 }
 
-// Go: TestShowUnknownFieldFailsClearly
 #[test]
 fn show_unknown_field_fails_clearly() {
     let env = env_with_vault();
@@ -308,7 +296,6 @@ fn show_unknown_field_fails_clearly() {
     assert_eq!(r.stdout, "");
 }
 
-// Go: TestShowFieldOnEntryWithNoFields
 #[test]
 fn show_field_on_entry_with_no_fields() {
     let env = env_with_vault();
@@ -321,7 +308,6 @@ fn show_field_on_entry_with_no_fields() {
 
 // --- task 5: edit -------------------------------------------------------------
 
-// Go: TestEditChangesValueAndLeavesOtherFieldsUntouched
 #[test]
 fn edit_changes_value_and_leaves_other_fields_untouched() {
     let env = env_with_vault();
@@ -345,7 +331,7 @@ fn edit_changes_value_and_leaves_other_fields_untouched() {
     assert_eq!(got.title, "ProtonMail");
 }
 
-// Go: TestEditRestampsUpdatedAndUpdatedByAndCommits. Edit has no
+// Edit has no
 // "unchanged" abort: an untouched file still re-stamps and commits.
 #[test]
 fn edit_restamps_updated_and_updated_by_and_commits() {
@@ -373,7 +359,7 @@ fn edit_restamps_updated_and_updated_by_and_commits() {
     assert_eq!(env.commits("personal"), commits + 1);
 }
 
-// Go: TestEditRestampIsAuthoritativeOverTheEditedFile. The editor rewrites
+// The editor rewrites
 // the stamps gage owns; gage's own win.
 #[test]
 fn edit_restamp_is_authoritative_over_the_edited_file() {
@@ -398,7 +384,6 @@ fn edit_restamp_is_authoritative_over_the_edited_file() {
     );
 }
 
-// Go: TestEditUnparseableYAMLAbortsWithNoCommitAndOriginalUnchanged
 #[test]
 fn edit_unparseable_yaml_aborts_with_no_commit_and_original_unchanged() {
     let env = env_with_vault();
@@ -418,7 +403,6 @@ fn edit_unparseable_yaml_aborts_with_no_commit_and_original_unchanged() {
     assert_eq!(env.entries("personal"), before);
 }
 
-// Go: TestEditAmbiguousQueryListsCandidatesAndFails
 #[test]
 fn edit_ambiguous_query_lists_candidates_and_fails() {
     let env = env_with_vault();
@@ -429,7 +413,7 @@ fn edit_ambiguous_query_lists_candidates_and_fails() {
     assert!(fake.scratch_path().is_none(), "the editor was opened");
 }
 
-// Not a Go row: with no usable $EDITOR, edit fails before writing anything.
+// With no usable $EDITOR, edit fails before writing anything.
 #[test]
 fn edit_without_an_editor_fails_and_changes_nothing() {
     let env = env_with_vault();
@@ -443,7 +427,6 @@ fn edit_without_an_editor_fails_and_changes_nothing() {
 
 // --- task 5: rename -----------------------------------------------------------
 
-// Go: TestRenameChangesOnlyTitleThroughTheCLI
 #[test]
 fn rename_changes_only_title_through_the_cli() {
     let env = env_with_vault();
@@ -465,7 +448,6 @@ fn rename_changes_only_title_through_the_cli() {
     assert_eq!(env.cmd(&["cat", "ProtonMail"]).code, Code::NotFound);
 }
 
-// Go: TestRenameToExistingTitleRejectedUnlessForcedThroughTheCLI
 #[test]
 fn rename_to_existing_title_rejected_unless_forced_through_the_cli() {
     let env = env_with_vault();
@@ -480,7 +462,6 @@ fn rename_to_existing_title_rejected_unless_forced_through_the_cli() {
     assert_eq!(ls.stdout.matches("Entry A").count(), 2, "{}", ls.stdout);
 }
 
-// Go: TestRenameAmbiguousQueryListsCandidatesAndFails
 #[test]
 fn rename_ambiguous_query_lists_candidates_and_fails() {
     let env = env_with_vault();
@@ -490,7 +471,7 @@ fn rename_ambiguous_query_lists_candidates_and_fails() {
 
 // --- task 6: generate ---------------------------------------------------------
 
-// Go: TestGenerateInsertsEntryWithRandomValueOfSaneDefaultLength. The
+// The
 // confirmation names the entry and never the value.
 #[test]
 fn generate_inserts_entry_with_random_value_of_sane_default_length() {
@@ -505,7 +486,6 @@ fn generate_inserts_entry_with_random_value_of_sane_default_length() {
     assert!(!r.stdout.contains(&e.value) && !r.stderr.contains(&e.value));
 }
 
-// Go: TestGenerateProducesDifferentValuesAcrossEntries
 #[test]
 fn generate_produces_different_values_across_entries() {
     let env = env_with_vault();
@@ -514,7 +494,6 @@ fn generate_produces_different_values_across_entries() {
     assert_ne!(env.cat_entry("Zeta").value, env.cat_entry("Yolk").value);
 }
 
-// Go: TestGenerateProducesExactlyOneCommitAndSetsTimestamps
 #[test]
 fn generate_produces_exactly_one_commit_and_sets_timestamps() {
     let env = env_with_vault();
@@ -527,7 +506,6 @@ fn generate_produces_exactly_one_commit_and_sets_timestamps() {
     assert_eq!(env.commits("personal"), commits + 1);
 }
 
-// Go: TestGenerateDuplicateTitleRejectedUnlessForced
 #[test]
 fn generate_duplicate_title_rejected_unless_forced() {
     let env = env_with_vault();
@@ -537,7 +515,6 @@ fn generate_duplicate_title_rejected_unless_forced() {
     assert_eq!(env.entries("personal").len(), 2);
 }
 
-// Go: TestGenerateRespectsLengthAndNoSymbols
 #[test]
 fn generate_respects_length_and_no_symbols() {
     let env = env_with_vault();
@@ -549,7 +526,7 @@ fn generate_respects_length_and_no_symbols() {
     assert!(v.chars().all(|c| c.is_ascii_alphanumeric()), "{v}");
 }
 
-// Go: TestGenerateRejectsAnUnreasonablySmallLength, before any unlock (the
+// Before any unlock (the
 // prompter has nothing scripted). A negative length is a parse error, also
 // Usage.
 #[test]
@@ -570,7 +547,6 @@ fn generate_rejects_an_unreasonably_small_length() {
 
 // --- task 6: insert -e --------------------------------------------------------
 
-// Go: TestInsertEditOpensTemplateAndInsertsEditedValueAndFields
 #[test]
 fn insert_edit_opens_template_and_inserts_edited_value_and_fields() {
     let env = env_with_vault();
@@ -593,7 +569,7 @@ fn insert_edit_opens_template_and_inserts_edited_value_and_fields() {
     assert!(got.created.is_some() && got.created == got.updated);
 }
 
-// Go: TestInsertEditOpensAPreFilledTemplateWithEmptyValueAndFields: what the
+// What the
 // editor was handed, recorded by the fake before it changed anything.
 #[test]
 fn insert_edit_opens_a_pre_filled_template_with_empty_value_and_fields() {
@@ -619,7 +595,6 @@ fn insert_edit_opens_a_pre_filled_template_with_empty_value_and_fields() {
     assert!(!text.contains("fields:"), "an empty fields: key:\n{text}");
 }
 
-// Go: TestInsertEditSetsFieldsAtCreation
 #[test]
 fn insert_edit_sets_fields_at_creation() {
     let env = env_with_vault();
@@ -634,7 +609,6 @@ fn insert_edit_sets_fields_at_creation() {
     assert_eq!(got.field("username").unwrap(), "me@example.com");
 }
 
-// Go: TestInsertEditAbortsWithNoEntryWrittenAndNoCommitIfUnchanged
 #[test]
 fn insert_edit_aborts_with_no_entry_written_and_no_commit_if_unchanged() {
     let env = env_with_vault();
@@ -651,7 +625,7 @@ fn insert_edit_aborts_with_no_entry_written_and_no_commit_if_unchanged() {
     assert!(env.entries("personal").is_empty());
 }
 
-// Go: TestInsertEditAbortsIfValueAndFieldsBothStillEmpty. A changed
+// A changed
 // description alone is not something to save.
 #[test]
 fn insert_edit_aborts_if_value_and_fields_both_still_empty() {
@@ -668,7 +642,6 @@ fn insert_edit_aborts_if_value_and_fields_both_still_empty() {
     assert!(env.entries("personal").is_empty());
 }
 
-// Go: TestInsertEditChangedTitleUsedForSavedEntryAndDuplicateCheck
 #[test]
 fn insert_edit_changed_title_used_for_saved_entry_and_duplicate_check() {
     let env = env_with_vault();
@@ -687,11 +660,8 @@ fn insert_edit_changed_title_used_for_saved_entry_and_duplicate_check() {
     assert!(!ls.stdout.contains("OriginalTitle"), "{}", ls.stdout);
 }
 
-// Go: TestInsertEditRejectedAlongsideMultilineOrValueStdinBeforeAnyIO, and
-// (task 7) insert_field's TestInsertFieldWithEditFlagRejectedAsMutuallyExclusive.
 // Rejected at parse time: nothing is prompted for, read, unlocked or
-// opened. clap's wording ("cannot be used with") stands in for Go's
-// "mutually exclusive".
+// opened. The refusal is clap's own ("cannot be used with").
 #[test]
 fn insert_edit_rejected_alongside_multiline_value_stdin_or_field_before_any_io() {
     let env = env_with_vault();
@@ -712,11 +682,10 @@ fn insert_edit_rejected_alongside_multiline_value_stdin_or_field_before_any_io()
     assert!(env.entries("personal").is_empty());
 }
 
-// --- task 7: rows deferred by P2 ---------------------------------------------
+// --- field flags and a vault without an id -----------------------------------
 
-// Go: TestInsertFieldRoundTripsThroughShow and
-// TestInsertMultipleFieldFlagsEachIndependentlyReadable, the `show --field`
-// halves.
+// The `show --field` halves of the insert-field
+// round-trip tests in entry_tests.
 #[test]
 fn insert_fields_are_each_readable_through_show_field() {
     let env = env_with_vault();
@@ -736,7 +705,7 @@ fn insert_fields_are_each_readable_through_show_field() {
     }
 }
 
-// The `show` half of Go's TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath
+// The `show` half of "a vault without an id fails loudly on every derived path"
 // (the insert half is in entry_tests): a registration with an empty id
 // fails `show` before anything is prompted for or any path is built.
 #[test]
@@ -764,7 +733,7 @@ fn a_registration_without_an_id_fails_show_before_any_path_is_built() {
 
 // --- registration and error prefixes ------------------------------------------
 
-// Go: TestNoCommandDoublesGagesOwnPrefix, M5's rows: every failure the new
+// Every failure the new
 // commands add, prefixed exactly once.
 #[test]
 fn no_m5_command_doubles_gages_own_prefix() {

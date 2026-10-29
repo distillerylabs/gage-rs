@@ -33,7 +33,7 @@ Walks one entry's revisions and decrypts each, so old values — including
 passwords already rotated away — are printed. --decrypt is required and
 names exactly that. Use `gage log` for timestamps without any plaintext.";
 
-/// Local time with its offset, as Go's `logTimeFormat`.
+/// Local time with its offset.
 const TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";
 
 /// How many characters of a commit hash a line shows.
@@ -174,7 +174,7 @@ fn short_hash(hash: &str) -> &str {
 
 pub fn history(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
     // Before any unlock: the flag is the whole confirmation this command
-    // asks for (there is no prompt, as in Go), so it is checked first.
+    // asks for (there is no prompt), so it is checked first.
     if !matches.get_flag("decrypt") {
         return Err(fail(
             Code::Usage,

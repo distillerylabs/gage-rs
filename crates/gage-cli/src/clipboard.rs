@@ -1,11 +1,11 @@
 //! The system clipboard behind `-c/--clip`, and the keeper that makes sure
 //! a copied secret doesn't stay on it.
 //!
-//! Every part that touches the OS sits behind a seam (Go's
-//! `clipboardPort`, `newClipboardTimer`, `ClipboardWait`), so every test
+//! Every part that touches the OS sits behind a seam (the clipboard port,
+//! the timer and the wait), so every test
 //! exercises the copy and the clear against fakes. No test touches the
 //! developer's real clipboard or needs one to exist, which on a headless
-//! CI runner it does not (Q-CLIPBOARD).
+//! CI runner it does not (ADR-0035).
 
 use std::io::Write;
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -31,8 +31,8 @@ pub trait ClipboardPort: Send {
 ///
 /// Opened on first use, not at startup, so a command that never copies
 /// never needs a clipboard to exist. Held open after that: on Linux the
-/// contents last only while a `Clipboard` lives, which is Go's decision
-/// that the clear happens in the process that wrote the value.
+/// contents last only while a `Clipboard` lives, which is by design:
+/// the clear happens in the process that wrote the value.
 #[derive(Default)]
 pub struct SystemClipboard {
     clipboard: Option<arboard::Clipboard>,
@@ -54,9 +54,9 @@ impl ClipboardPort for SystemClipboard {
             clipboard.clear()?;
             return Ok(());
         }
-        // Beyond Go: each platform's "this is a password" hint, so a
+        // Each platform's "this is a password" hint, so a
         // clipboard-history manager doesn't keep its own copy of the value
-        // long after gage has cleared the clipboard (Q-CLIPBOARD).
+        // long after gage has cleared the clipboard (ADR-0035).
         let set = clipboard.set();
         #[cfg(target_os = "macos")]
         let set = arboard::SetExtApple::exclude_from_history(set);
@@ -332,8 +332,8 @@ pub fn wait_for_clipboard(timeout: Duration) {
 
 #[cfg(test)]
 pub(crate) mod fake {
-    //! The clipboard seams' test doubles (Go's `fakeClipboard`,
-    //! `fakeTimer`). Shared handles, so a test keeps one while a keeper
+    //! The clipboard seams' test doubles. Shared handles, so a test keeps
+    //! one while a keeper
     //! owns the other.
 
     use super::*;
@@ -516,8 +516,7 @@ pub(crate) mod fake {
     }
 
     impl Harness {
-        /// A fresh keeper per run, over this machine's clipboard, as Go
-        /// builds one per `App`.
+        /// A fresh keeper per run, over this machine's clipboard.
         pub(crate) fn keeper(&self) -> ClipboardKeeper {
             ClipboardKeeper::new(
                 Box::new(self.cb.clone()),

@@ -1,9 +1,7 @@
-//! M9b's recipient writes, as library tests: Go's `recipient_test.go` rows
-//! that M9a left (the write side). Each test names its Go row.
+//! Recipient writes (`recipient add` and `remove`), as library tests.
 //!
 //! [`Fixture`] is shared with `reencrypt_tests`: one local vault and the
-//! key that created it. A second device is just another key here, as in
-//! Go's tests, which switch XDG roots on one vault path; the full
+//! key that created it. A second device is just another key here, the full
 //! two-install fixture (`twodevice_tests`) is used where a second
 //! machine's own identity file matters.
 
@@ -82,7 +80,7 @@ impl Fixture {
     }
 
     /// Inserts `n` entries titled `entry-a`, `entry-b`, … and returns their
-    /// ids in insertion order (Go's `seedEntries`).
+    /// ids in insertion order.
     pub(crate) fn seed(&self, n: usize) -> Vec<Uuid> {
         (0..n)
             .map(|i| {
@@ -104,7 +102,7 @@ impl Fixture {
 
     /// Overwrites `id`'s file with bytes nobody committed, the way an
     /// interrupted re-encryption leaves one, and returns its vault-relative
-    /// path (Go's `dirtyEntries`).
+    /// path.
     pub(crate) fn dirty_entry(&self, id: Uuid) -> String {
         let rel = format!("entries/{id}.age");
         std::fs::write(self.vault.path.join(&rel), b"half-written ciphertext").unwrap();
@@ -155,7 +153,7 @@ pub(crate) fn head_hash(dir: &Path) -> String {
 
 /// The vault-relative paths `hash` changed against its first parent: the
 /// only way to assert "exactly one commit, holding both files" rather than
-/// merely "one new commit" (Go's `commitPaths`).
+/// merely "one new commit".
 pub(crate) fn commit_paths(dir: &Path, hash: &str) -> Vec<String> {
     let repo = git2::Repository::open(dir).unwrap();
     let commit = repo
@@ -187,12 +185,11 @@ pub(crate) fn new_key() -> age::x25519::Identity {
     age::x25519::Identity::generate()
 }
 
-// --- shared setup for the A19 refusal -------------------------------------
+// --- shared setup for the full-access refusal -------------------------------------
 
 /// Rewrites both recipient files from `list` and commits them, as a hand
 /// edit followed by `git commit` would. Through the real
-/// `write_recipient_files`, so the two can't be left disagreeing (Go's
-/// `commitRecipientFiles`).
+/// `write_recipient_files`, so the two can't be left disagreeing.
 pub(crate) fn commit_recipient_files(vault: &Vault, list: &[vaultconfig::Recipient]) {
     vault.write_recipient_files(list).unwrap();
     gitrepo::commit_all(&vault.path, "test: hand-edited recipient list").unwrap();
@@ -200,8 +197,8 @@ pub(crate) fn commit_recipient_files(vault: &Vault, list: &[vaultconfig::Recipie
 
 /// Leaves the vault holding one entry this fixture's key can't read, while
 /// both recipient files still agree and still list it: the state a
-/// recipient admitted before A19 lives in, built by the only other route
-/// into it (Go's `hideOneEntryFrom`). Returns the hidden entry's id.
+/// recipient admitted before the full-access rule (ADR-0009) lives in, built by the only other route
+/// into it. Returns the hidden entry's id.
 pub(crate) fn hide_one_entry(f: &Fixture) -> Uuid {
     let original = f.vault.recipients().unwrap();
     commit_recipient_files(
@@ -213,7 +210,7 @@ pub(crate) fn hide_one_entry(f: &Fixture) -> Uuid {
     );
     // force, so the duplicate-title check doesn't decrypt anything. The
     // list just changed under this device, so the insert asks, and is
-    // told yes, as Go's trust prompter answers.
+    // told yes.
     let hidden = f
         .vault
         .insert(
@@ -267,9 +264,9 @@ impl Untouched {
     }
 }
 
-// --- require_full_access and add_recipient (task 2) ------------------------
+// --- require_full_access and add_recipient ------------------------
 
-// Go: TestRequireFullAccessIsCallableOnItsOwn. The shape E4 depends on: a
+// The shape enrollment approval depends on: a
 // pass a caller places itself.
 #[test]
 fn require_full_access_is_callable_on_its_own() {
@@ -307,7 +304,7 @@ fn require_full_access_does_not_count_a_corrupt_entry() {
     f.vault.require_full_access(&f.identity()).unwrap();
 }
 
-// Go: TestRecipientAddRefusesAnActorThatCannotReadEveryEntry. The count is
+// The count is
 // the diagnosis; the id is not, and nothing changes.
 #[test]
 fn recipient_add_refuses_an_actor_that_cannot_read_every_entry() {
@@ -338,7 +335,7 @@ fn recipient_add_refuses_an_actor_that_cannot_read_every_entry() {
     assert!(f.is_clean());
 }
 
-// Go: TestFullAccessPreflightRunsBeforeTheVaultLock. Another process holds
+// Another process holds
 // the lock for the whole call: an add that reached it would wait out the
 // timeout and fail as contention, so a prompt refusal proves the pass ran
 // outside it.
@@ -372,7 +369,7 @@ fn full_access_preflight_runs_before_the_vault_lock() {
     );
 }
 
-// Go: TestAddIsStillRefusedOnADirtyTreeWhenAccessIsGenuinelyPartial. On a
+// On a
 // dirty tree the refusal moves past the reset, never away: the unreadable
 // entry is committed, so the reset can't make it go.
 #[test]
@@ -406,7 +403,7 @@ fn add_is_still_refused_on_a_dirty_tree_when_access_is_genuinely_partial() {
     before.assert_still(&f);
 }
 
-// Go: TestAddRecipientRejectsInvalidDeviceNameOrPubkey. Checked first,
+// Checked first,
 // ahead of the tree check and the lock.
 #[test]
 fn add_recipient_rejects_invalid_device_name_or_pubkey() {
@@ -434,7 +431,7 @@ fn add_recipient_rejects_invalid_device_name_or_pubkey() {
     before.assert_still(&f);
 }
 
-// Go: TestRecipientAddRejectsADuplicateKey, and its device-name twin: a
+// Adding a duplicate key is rejected, and so is its device-name twin: a
 // list naming one key (or one label) twice buys nothing and muddies verify.
 #[test]
 fn recipient_add_rejects_a_duplicate_key() {
@@ -473,7 +470,7 @@ fn recipient_add_rejects_a_duplicate_key() {
     before.assert_still(&f);
 }
 
-// Go: TestRecipientAddCommitsBothFilesTogether. One commit holds both
+// One commit holds both
 // recipient files and every re-encrypted entry.
 #[test]
 fn recipient_add_commits_both_files_together() {
@@ -507,7 +504,7 @@ fn recipient_add_commits_both_files_together() {
     assert_eq!(added.last().unwrap().pubkey, phone);
 }
 
-// Go: TestRecipientAddHasNoPartialForm (A19). Entries from before the add
+// Adding a recipient has no partial form (ADR-0009). Entries from before the add
 // and after it are equally readable by the new key, proven by a real
 // decrypt with it.
 #[test]
@@ -528,10 +525,10 @@ fn recipient_add_has_no_partial_form() {
     let as_phone = Identity::for_tests(&phone);
     f.read(after, &as_phone).unwrap();
     f.read(before, &as_phone)
-        .expect("A19: no add may leave a recipient reading only part of the vault");
+        .expect("no add may leave a recipient reading only part of the vault");
 }
 
-// Go: TestRecipientAddMakesHistoryReadable, on the two-device fixture:
+// Adding a recipient makes history readable, on the two-device fixture:
 // device B registers its own identity, A adds it, and B, after the pull
 // on its own unlock, reads every entry A wrote before.
 #[test]
@@ -579,7 +576,7 @@ fn recipient_add_makes_history_readable() {
     assert_eq!(read, titles);
 }
 
-// --- remove_recipient (task 4) ----------------------------------------------
+// --- remove_recipient ----------------------------------------------
 
 /// The fixture with a second recipient, so removing either isn't the
 /// last-recipient refusal.
@@ -605,7 +602,7 @@ fn not_a_recipient(r: Result<Entry, crate::entry::Error>) -> bool {
     )
 }
 
-// Go: TestRecipientRemoveWithoutReencryptIsRejected. A rejection of the
+// A rejection of the
 // command line: before the lock and before anything is read or asked.
 #[test]
 fn recipient_remove_without_reencrypt_is_rejected() {
@@ -632,7 +629,7 @@ fn recipient_remove_without_reencrypt_is_rejected() {
     assert!(f.recipients_file().contains(&phone.to_public().to_string()));
 }
 
-// Go: TestRecipientRemoveWithReencryptExcludesTheRemovedKey. Proven from
+// Proven from
 // the removed device's side: it read the entry before, and can't after.
 #[test]
 fn recipient_remove_with_reencrypt_excludes_the_removed_key() {
@@ -661,7 +658,7 @@ fn recipient_remove_with_reencrypt_excludes_the_removed_key() {
     assert!(f.is_clean());
 }
 
-// Go: TestRecipientRemoveWarnsThatRevocationIsFutureOnly. Through the
+// Through the
 // prompter; the library never prints.
 #[test]
 fn recipient_remove_warns_that_revocation_is_future_only() {
@@ -677,7 +674,6 @@ fn recipient_remove_warns_that_revocation_is_future_only() {
     }
 }
 
-// Go: TestRecipientRemoveAcceptsEitherADeviceNameOrAPublicKey
 #[test]
 fn recipient_remove_accepts_either_a_device_name_or_a_public_key() {
     for by_key in [false, true] {
@@ -698,7 +694,7 @@ fn recipient_remove_accepts_either_a_device_name_or_a_public_key() {
     }
 }
 
-// Go: TestRecipientRemoveOfAnUnknownRecipientIsRejected. A typo must not
+// A typo must not
 // read as a completed revocation.
 #[test]
 fn recipient_remove_of_an_unknown_recipient_is_rejected() {
@@ -717,7 +713,7 @@ fn recipient_remove_of_an_unknown_recipient_is_rejected() {
     before.assert_still(&f);
 }
 
-// Go: TestRecipientRemoveRefusesTheLastRecipient. Refused outright, and
+// Refused outright, and
 // before the self-removal question: the only recipient is this device, and
 // an unscripted confirm would panic the fake, so a "yes" never meets it.
 #[test]
@@ -740,7 +736,7 @@ fn recipient_remove_refuses_the_last_recipient() {
     assert_eq!(f.recipients_file().len(), 1);
 }
 
-// Go: TestRecipientRemoveOfThisDeviceNeedsConfirmation. Declined (which is
+// Declined (which is
 // also every non-interactive prompter's answer) writes nothing; confirmed
 // works, because every entry is decrypted with the still-valid identity
 // before the list shrinks.
@@ -781,7 +777,7 @@ fn recipient_remove_of_this_device_needs_confirmation() {
     f.read(id, &Identity::for_tests(&phone)).unwrap();
 }
 
-// Go: TestAddIsNotRefusedOverATreeTheResetDiscards. An interrupted
+// An interrupted
 // self-removal leaves entries/ unreadable by this device while HEAD lists
 // it and is entirely readable: the pre-flight must not refuse over a tree
 // the reset is about to discard.

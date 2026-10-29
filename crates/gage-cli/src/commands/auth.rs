@@ -1,5 +1,5 @@
 //! `gage auth login|status|logout`: per-host tokens for HTTPS remotes
-//! (Q-REMOTE-AUTH). Under the git group because a token for a git host
+//! (ADR-0020). Under the git group because a token for a git host
 //! means nothing to a different backing store. See "Git-specific
 //! commands" and "Authentication" in the design doc.
 //!

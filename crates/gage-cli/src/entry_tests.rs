@@ -1,6 +1,6 @@
 //! `insert`, `cat`, `rm` and `ls` through the real CLI, in-process, against
-//! a fresh temp directory standing in for gage's roots. The Go row each
-//! test ports is named above it. Real-binary properties (two processes
+//! a fresh temp directory standing in for gage's roots. Real-binary
+//! properties (two processes| properties (two processes
 //! contending, a real terminal) live in `tests/`.
 
 use std::sync::Arc;
@@ -100,7 +100,6 @@ fn ls_lines(r: &CliResult) -> Vec<&str> {
 
 // --- the one-shot handler and --use ----------------------------------------
 
-// Go: TestNoUseFlagOperatesAgainstCurrentVault
 #[test]
 fn no_use_flag_operates_against_current_vault() {
     let env = Env::new();
@@ -115,7 +114,6 @@ fn no_use_flag_operates_against_current_vault() {
     assert_eq!(ls_lines(&env.cmd_ok(&["ls"])).len(), 1);
 }
 
-// Go: TestUseFlagTargetsNamedVaultNotCurrent
 #[test]
 fn use_flag_targets_named_vault_not_current() {
     let env = Env::new();
@@ -135,7 +133,7 @@ fn use_flag_targets_named_vault_not_current() {
     assert_eq!(env.entries("second").len(), 1);
 }
 
-// Go: TestUseUnregisteredVaultFailsBeforePromptingForAPassphrase. The
+// The
 // prompter has nothing scripted, so any prompt at all would panic.
 #[test]
 fn use_unregistered_vault_fails_before_prompting_for_a_passphrase() {
@@ -187,7 +185,6 @@ impl Locker for Counting {
     }
 }
 
-// Go: TestOneShotHandlerClosesIdentityOnEveryExitPathIncludingError
 #[test]
 fn one_shot_handler_closes_identity_on_every_exit_path_including_error() {
     let env = env_with_vault();
@@ -214,7 +211,6 @@ fn one_shot_handler_closes_identity_on_every_exit_path_including_error() {
 
 // --- insert -----------------------------------------------------------------
 
-// Go: TestInsertThenCatRoundTripsValueThroughTheCLI
 #[test]
 fn insert_then_cat_round_trips_value_through_the_cli() {
     let env = env_with_vault();
@@ -233,7 +229,6 @@ fn insert_then_cat_round_trips_value_through_the_cli() {
     assert_eq!(by_id.stdout, cat.stdout);
 }
 
-// Go: TestInsertDefaultPromptsForValueViaPrompter
 #[test]
 fn insert_default_prompts_for_value_via_prompter() {
     let env = env_with_vault();
@@ -258,7 +253,6 @@ fn a_failed_unlock_never_asks_for_the_value() {
     assert!(env.entries("personal").is_empty());
 }
 
-// Go: TestInsertValueStdinTrimsExactlyOneNewline
 #[test]
 fn insert_value_stdin_trims_exactly_one_newline() {
     let env = env_with_vault();
@@ -283,7 +277,6 @@ fn insert_value_stdin_trims_exactly_one_newline() {
     }
 }
 
-// Go: TestInsertValueStdinTrimsOneTrailingNewlineAndRoundTrips
 #[test]
 fn insert_value_stdin_trims_one_trailing_newline_and_round_trips() {
     let env = env_with_vault();
@@ -305,7 +298,6 @@ fn insert_value_stdin_trims_one_trailing_newline_and_round_trips() {
     );
 }
 
-// Go: TestValueStdinAndPromptPathsStoreIdenticalEntries
 #[test]
 fn value_stdin_and_prompt_paths_store_identical_entries() {
     let env = env_with_vault();
@@ -325,7 +317,6 @@ fn value_stdin_and_prompt_paths_store_identical_entries() {
     assert_eq!(a.updated_by, b.updated_by);
 }
 
-// Go: TestTrimOneTrailingNewline
 #[test]
 fn trim_one_trailing_newline_cases() {
     let trim = |s: &str| trim_one_trailing_newline(s.to_string().into()).to_string();
@@ -341,7 +332,6 @@ fn trim_one_trailing_newline_cases() {
     assert_eq!(trim("a\nb"), "a\nb");
 }
 
-// Go: TestInsertMutuallyExclusiveValueFlagsRejectedBeforeAnyIO
 #[test]
 fn insert_mutually_exclusive_value_flags_rejected_before_any_io() {
     let env = env_with_vault();
@@ -406,7 +396,6 @@ fn a_value_on_stdin_that_is_not_utf8_is_a_usage_error() {
     assert_eq!(env.commits("personal"), before);
 }
 
-// Go: TestInsertDescriptionStoredAndShownByCat
 #[test]
 fn insert_description_stored_and_shown_by_cat() {
     let env = env_with_vault();
@@ -419,7 +408,6 @@ fn insert_description_stored_and_shown_by_cat() {
     );
 }
 
-// Go: TestInsertDuplicateTitleRejectedUnlessForced
 #[test]
 fn insert_duplicate_title_rejected_unless_forced() {
     let env = env_with_vault();
@@ -437,7 +425,6 @@ fn insert_duplicate_title_rejected_unless_forced() {
     assert_eq!(env.entries("personal").len(), 3);
 }
 
-// Go: TestInsertSetsTimestampsAndUpdatedBy
 #[test]
 fn insert_sets_timestamps_and_updated_by() {
     let env = env_with_vault();
@@ -452,7 +439,6 @@ fn insert_sets_timestamps_and_updated_by() {
     assert_eq!(e.updated_by, DEVICE);
 }
 
-// Go: TestInsertProducesExactlyOneCommit
 #[test]
 fn insert_produces_exactly_one_commit() {
     let env = env_with_vault();
@@ -476,7 +462,6 @@ fn today() -> String {
     entry::Timestamp::from_unix(now_unix()).unwrap().to_string()[..10].to_string()
 }
 
-// Go: TestInsertCommitMessageIsUUIDOnly
 #[test]
 fn insert_commit_message_is_uuid_only() {
     let env = env_with_vault();
@@ -511,7 +496,7 @@ fn assert_anonymous_author(vault: &std::path::Path, after: &str) {
     }
 }
 
-// Go: TestCommitAuthorIgnoresTheUsersGitConfig. As Go: the vault's own
+// The vault's own
 // `.git/config` names a real person, which is the config git consults
 // first, and neither an insert nor a removal is authored as them.
 #[test]
@@ -585,7 +570,6 @@ fn commit_author_ignores_a_global_git_config() {
 
 // --- cat / rm ---------------------------------------------------------------
 
-// Go: TestCatUnknownFailsWithNotFound
 #[test]
 fn cat_unknown_fails_with_not_found() {
     let env = env_with_vault();
@@ -594,11 +578,10 @@ fn cat_unknown_fails_with_not_found() {
     assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
     assert_eq!(r.stdout, "");
     assert!(r.stderr.contains("nope"), "{}", r.stderr);
-    // A title substring resolves since P3 · M5; this one is in no title.
+    // A title substring resolves; this one is in no title.
     assert_eq!(env.cmd(&["cat", "exis"]).code, Code::Success);
 }
 
-// Go: TestRmDeletesFileAndCommitsThenCatAndLsNoLongerShowIt
 #[test]
 fn rm_deletes_file_and_commits_then_cat_and_ls_no_longer_show_it() {
     let env = env_with_vault();
@@ -648,7 +631,6 @@ fn an_ambiguous_cat_or_rm_lists_the_candidates_and_exits_ambiguous() {
 
 // --- ls ---------------------------------------------------------------------
 
-// Go: TestLsListsInsertedTitleAlongsidePartialUUID
 #[test]
 fn ls_lists_inserted_title_alongside_partial_uuid() {
     let env = env_with_vault();
@@ -666,8 +648,8 @@ fn ls_lists_inserted_title_alongside_partial_uuid() {
     assert_eq!(cols[4], DEVICE);
 }
 
-// Go: TestLsEmptyVaultNoOutput, and the ls half of
-// TestLsAndSearchPrintNothingWhenThereIsNothing (the search half is in
+// And the ls half of
+// printing nothing when there is nothing to list (the search half is in
 // search_tests).
 #[test]
 fn ls_empty_vault_no_output() {
@@ -688,7 +670,6 @@ fn row(title: &str, created: Option<i64>, updated_by: &str) -> gage::entry::List
     }
 }
 
-// Go: TestLsPlaceholdersForMissingColumns
 #[test]
 fn ls_placeholders_for_missing_columns() {
     let lines = render_ls(&[row("bare", None, "")]);
@@ -732,7 +713,7 @@ fn ls_is_sorted_by_title_and_shows_the_real_writer() {
     assert_eq!(titles, ["Apple", "banana", "cherry"]);
 }
 
-// Go: TestLsDefaultOutputUnchangedByHeaderFeature. Plain `ls` is
+// Plain `ls` is
 // byte-for-byte what it was before `-H` existed.
 #[test]
 fn ls_default_output_unchanged_by_header_feature() {
@@ -755,7 +736,6 @@ fn ls_default_output_unchanged_by_header_feature() {
     );
 }
 
-// Go: TestLsHeaderPrintsLabelledPipeDelimitedTable
 #[test]
 fn ls_header_prints_labelled_pipe_delimited_table() {
     let env = env_with_vault();
@@ -794,7 +774,7 @@ fn ls_header_prints_labelled_pipe_delimited_table() {
     }
 }
 
-// Not a Go row: the exact shape. Every column but the last is padded to its
+// The exact shape. Every column but the last is padded to its
 // widest cell (header included), and the last column's dashes are sized by
 // its label, since nothing follows it.
 #[test]
@@ -815,7 +795,6 @@ fn ls_table_pads_all_but_the_last_column_and_sizes_its_dashes_from_the_label() {
     assert!(render_ls_table(&[]).is_empty(), "no rows, no table");
 }
 
-// Go: TestLsHeaderEmptyVaultNoOutput
 #[test]
 fn ls_header_empty_vault_no_output() {
     let env = env_with_vault();
@@ -823,7 +802,6 @@ fn ls_header_empty_vault_no_output() {
     assert_eq!((r.stdout.as_str(), r.stderr.as_str()), ("", ""));
 }
 
-// Go: TestShortEntryIDLeavesShortStringsAlone
 #[test]
 fn short_entry_id_leaves_short_strings_alone() {
     assert_eq!(short_id("0123456789abcdef"), "01234567");
@@ -839,13 +817,11 @@ fn strings(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
 }
 
-// Go: TestInsertFieldMissingEqualsIsUsageErrorBeforeUnlock,
-// TestInsertFieldEmptyNameIsUsageErrorBeforeUnlock and
-// TestInsertFieldWhitespaceOnlyNameIsUsageErrorBeforeUnlock (the first
-// loop), TestInsertDuplicateFieldNameIsUsageErrorBeforeUnlock and
-// TestInsertFieldNamesEqualAfterStrippingAreDuplicates (the second),
-// through the CLI: nothing scripted, so an unlock would panic. As Go's
-// rows do, each case also checks the message says which mistake it was,
+// Bad field flags are usage errors, before any unlock:
+// a missing `=`, an empty name and a whitespace-only name (the first
+// loop), a duplicate name and names equal after stripping (the second),
+// through the CLI: nothing scripted, so an unlock would panic. Each case
+// also checks the message says which mistake it was,
 // and a duplicate is named after stripping.
 #[test]
 fn bad_field_flags_are_usage_errors_before_unlock() {
@@ -891,7 +867,6 @@ fn parse_field_flags_rejects_what_it_must() {
     assert!(parse_field_flags(&[]).unwrap().is_empty());
 }
 
-// Go: TestInsertFieldNameWhitespaceIsStripped
 #[test]
 fn insert_field_name_whitespace_is_stripped() {
     let f = parse_field_flags(&strings(&["  user name\t=me", "tot p=1"])).unwrap();
@@ -899,14 +874,12 @@ fn insert_field_name_whitespace_is_stripped() {
     assert_eq!(f["totp"], "1");
 }
 
-// Go: TestInsertFieldValueWhitespaceIsPreserved
 #[test]
 fn insert_field_value_whitespace_is_preserved() {
     let f = parse_field_flags(&strings(&["note=  padded \t value  "])).unwrap();
     assert_eq!(f["note"], "  padded \t value  ");
 }
 
-// Go: TestInsertFieldValueContainingEqualsIsPreservedVerbatim
 #[test]
 fn insert_field_value_containing_equals_is_preserved_verbatim() {
     let f = parse_field_flags(&strings(&["token=a=b==c", "url=x?y=z"])).unwrap();
@@ -914,7 +887,6 @@ fn insert_field_value_containing_equals_is_preserved_verbatim() {
     assert_eq!(f["url"], "x?y=z");
 }
 
-// Go: TestInsertFieldEmptyValueIsStored
 #[test]
 fn insert_field_empty_value_is_stored() {
     let env = env_with_vault();
@@ -923,7 +895,7 @@ fn insert_field_empty_value_is_stored() {
     assert_eq!(e.field("pin").unwrap(), "", "an empty value is a field");
 }
 
-// Go: TestInsertFieldWithMultilineSetsBothValueAndFields. The stdin here
+// The stdin here
 // is not a terminal, so the "terminal" read is the same stream.
 #[test]
 fn insert_field_with_multiline_sets_both_value_and_fields() {
@@ -940,7 +912,6 @@ fn insert_field_with_multiline_sets_both_value_and_fields() {
     assert_eq!(e.field("user").unwrap(), "me");
 }
 
-// Go: TestInsertFieldWithValueStdinSetsBothValueAndFields
 #[test]
 fn insert_field_with_value_stdin_sets_both_value_and_fields() {
     let env = env_with_vault();
@@ -955,7 +926,6 @@ fn insert_field_with_value_stdin_sets_both_value_and_fields() {
     assert_eq!(e.field("user").unwrap(), "me");
 }
 
-// Go: TestInsertFieldWithoutValueModeStillPromptsOnceAndStoresFields
 #[test]
 fn insert_field_without_value_mode_still_prompts_once_and_stores_fields() {
     let env = env_with_vault();
@@ -968,8 +938,8 @@ fn insert_field_without_value_mode_still_prompts_once_and_stores_fields() {
     assert_eq!(e.field("user").unwrap(), "me");
 }
 
-// Go: TestInsertFieldRoundTripsThroughShow and
-// TestInsertMultipleFieldFlagsEachIndependentlyReadable, through the stored
+// A field round-trips through the stored entry and `cat`, and several
+// `--field` flags are each independently readable;
 // entry and `cat`; the `show --field` halves are in query_tests.
 #[test]
 fn insert_fields_round_trip_and_are_each_independently_readable() {
@@ -998,7 +968,7 @@ fn insert_fields_round_trip_and_are_each_independently_readable() {
 
 // --- error prefix -----------------------------------------------------------
 
-// Go: TestNoCommandDoublesGagesOwnPrefix, M4's rows: every failure the
+// Every failure the
 // entry commands added, prefixed exactly once.
 #[test]
 fn no_entry_command_doubles_gages_own_prefix() {
@@ -1068,10 +1038,10 @@ fn no_entry_command_doubles_gages_own_prefix() {
     }
 }
 
-// --- rows moved from P1 ------------------------------------------------------
+// --- a registration with no vault id -----------------------------------------
 
-// The insert half of Go's TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath
-// (the `show` half is in query_tests, `identity list` is P5): a registration with
+// The insert half of "a vault without an id fails loudly on every derived path"
+// (the `show` half is in query_tests, `identity list` has its own test): a registration with
 // an empty id fails `insert` before any path is built from it.
 #[test]
 fn a_registration_without_an_id_fails_insert_before_any_path_is_built() {
@@ -1085,7 +1055,7 @@ fn a_registration_without_an_id_fails_insert_before_any_path_is_built() {
     let r = env.run_with(&["insert", "x"], &prompter);
 
     // The vault's own config still carries its id, so the empty one is
-    // caught as a registration that doesn't match the vault, as Go's.
+    // caught as a registration that doesn't match the vault.
     assert_eq!(r.code, Code::Conflict, "{}", r.stderr);
     assert!(
         r.stderr.contains("points at a different vault"),
@@ -1128,7 +1098,7 @@ fn lock_holder_trampoline() {
     lock.release().unwrap();
 }
 
-// Go: TestTwoRegistrationsOfOneRepositoryShareOneLock. Two registrations
+// Two registrations
 // of one repository, under different local names, contend on one lock: it
 // is keyed by the vault's id, not the name. A child process holds the lock
 // (a real process, since a thread-held lock would prove nothing about the
@@ -1240,7 +1210,6 @@ fn with_fields(mut e: Entry, fields: &[(&str, &str)]) -> Entry {
     e
 }
 
-// Go: TestAlignCatOutputInsertsIDLineAfterTitle
 #[test]
 fn align_cat_output_inserts_id_line_after_title() {
     let out = aligned(&simple("ProtonMail", "v"));
@@ -1251,7 +1220,7 @@ fn align_cat_output_inserts_id_line_after_title() {
     assert_eq!(value, format!(" {CAT_ID}"));
 }
 
-// Go: TestAlignCatOutputAlignsTopLevelColumn. The column follows the
+// The column follows the
 // widest label present, not a fixed one.
 #[test]
 fn align_cat_output_aligns_top_level_column() {
@@ -1273,7 +1242,6 @@ fn align_cat_output_aligns_top_level_column() {
     }
 }
 
-// Go: TestAlignCatOutputAlignsFieldsIndependently
 #[test]
 fn align_cat_output_aligns_fields_independently() {
     let e = with_fields(simple("X", "v"), &[("username", "u"), ("totp_seed", "t")]);
@@ -1292,7 +1260,7 @@ fn align_cat_output_aligns_fields_independently() {
     assert_eq!(cols[0], 2 + "totp_seed".len());
 }
 
-// Go: TestAlignCatOutputRoundTrips. Without the synthetic id line, what is
+// Without the synthetic id line, what is
 // printed parses back to the same entry.
 #[test]
 fn align_cat_output_round_trips() {
@@ -1313,7 +1281,6 @@ fn align_cat_output_round_trips() {
     assert_eq!(entry::unmarshal(stripped.as_bytes()).unwrap(), want);
 }
 
-// Go: TestAlignCatOutputDedentsMultilineValue
 #[test]
 fn align_cat_output_dedents_multiline_value() {
     let value = "line one\nline two\nline three";
@@ -1324,7 +1291,6 @@ fn align_cat_output_dedents_multiline_value() {
     assert_eq!(&lines[at + 1..], ["line one", "line two", "line three"]);
 }
 
-// Go: TestAlignCatOutputDedentsFieldsSubValue
 #[test]
 fn align_cat_output_dedents_fields_sub_value() {
     let e = with_fields(simple("X", "v"), &[("note", "a\nb\nc")]);
@@ -1335,7 +1301,7 @@ fn align_cat_output_dedents_fields_sub_value() {
     assert_eq!(&lines[at + 1..], ["a", "b", "c"]);
 }
 
-// Go: TestAlignCatOutputDedentsValueFollowedByMoreKeys. The span ends at
+// The span ends at
 // its own content: `fields` follows right after, found and aligned.
 #[test]
 fn align_cat_output_dedents_value_followed_by_more_keys() {
@@ -1349,7 +1315,6 @@ fn align_cat_output_dedents_value_followed_by_more_keys() {
     assert_eq!(lines[fields + 1], "  k: v");
 }
 
-// Go: TestAlignCatOutputSkipsAlignmentForQuotedKeys
 #[test]
 fn align_cat_output_skips_alignment_for_quoted_keys() {
     let e = with_fields(
@@ -1370,7 +1335,7 @@ fn align_cat_output_skips_alignment_for_quoted_keys() {
     assert_eq!(entry::unmarshal(stripped.as_bytes()).unwrap(), e);
 }
 
-// Go: TestAlignCatOutputLeavesMultilineValueContentAlone. Content that
+// Content that
 // looks like `key: value` is never padded or taken for a key, and its span
 // does not bleed into the `fields` block after it.
 #[test]
@@ -1389,14 +1354,13 @@ fn align_cat_output_leaves_multiline_value_content_alone() {
     assert_eq!(lines[fields + 1], "  username: u");
 }
 
-// Not a Go row: `id` is a key in the column, even when it is the widest.
+// `id` is a key in the column, even when it is the widest.
 #[test]
 fn align_cat_output_counts_the_id_line_toward_the_column() {
     let out = String::from_utf8(align_cat_output(CAT_ID, b"a: 1\nb: 2\n")).unwrap();
     assert_eq!(out, format!("a : 1\nid: {CAT_ID}\nb : 2\n"));
 }
 
-// Go: TestAlignCatOutputLeavesNonMappingInputAlone
 #[test]
 fn align_cat_output_leaves_non_mapping_input_alone() {
     for input in [
@@ -1409,7 +1373,6 @@ fn align_cat_output_leaves_non_mapping_input_alone() {
     }
 }
 
-// Go: TestPadKeyLinesWithNoKeysIsANoOp
 #[test]
 fn pad_key_lines_with_no_keys_is_a_no_op() {
     let mut lines = vec!["one".to_string(), "two".to_string()];
@@ -1417,7 +1380,6 @@ fn pad_key_lines_with_no_keys_is_a_no_op() {
     assert_eq!(lines, ["one", "two"]);
 }
 
-// Go: TestCatCommandPrintsIDLineThroughTheCLI
 #[test]
 fn cat_command_prints_id_line_through_the_cli() {
     let env = env_with_vault();

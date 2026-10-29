@@ -1,11 +1,10 @@
 //! `gage identity add/list` and `gage recipient list/verify` through the
-//! real CLI, in-process: Go's `identity_cli_test.go` and the read-side rows
-//! of `recipient_cli_test.go`. Each test names its Go row.
+//! real CLI, in-process.
 //!
 //! [`TwoDevices`] is the CLI's two-machine fixture: two [`Env`]s, each with
 //! its own roots and hostname, over one bare origin. Device A ran
 //! `gage init --remote`; device B ran `gage clone` and holds no identity.
-//! M9b and M10 build on it: B's `identity add` prints the key A's
+//! The tests build on it: B's `identity add` prints the key A's
 //! `recipient add` takes, and a recipient change pushed by A is what B
 //! pulls.
 
@@ -94,7 +93,7 @@ pub(crate) fn identity_files(env: &Env) -> Vec<String> {
 
 // --- identity add -----------------------------------------------------------
 
-// Go: TestIdentityAddRegistersADeviceAndPrintsItsPublicKey. The device
+// The device
 // name, method and key land in global config; the output carries the key
 // and the next command to run elsewhere.
 #[test]
@@ -124,7 +123,6 @@ fn identity_add_registers_a_device_and_prints_its_public_key() {
     assert_eq!(requests[0].device, B_DEVICE);
 }
 
-// Go: TestIdentityAddDeviceFlagOverridesTheHostnameDefault.
 #[test]
 fn identity_add_device_flag_overrides_the_hostname_default() {
     let t = TwoDevices::new();
@@ -142,9 +140,9 @@ fn identity_add_device_flag_overrides_the_hostname_default() {
     assert_eq!(identity_files(&t.b).len(), 2);
 }
 
-// Go: TestIdentityAddMethodDefaultsToTheVaultsAndStaysLocal. The method is
+// The method is
 // this device's, recorded in global config and never in the vault
-// (Q-METHOD-SCOPE): the vault's working tree and history don't move.
+// (ADR-0011): the vault's working tree and history don't move.
 #[test]
 fn identity_add_method_defaults_to_the_vaults_and_stays_local() {
     let t = TwoDevices::new();
@@ -184,7 +182,6 @@ fn identity_add_method_defaults_to_the_vaults_and_stays_local() {
     t2.b.ok(&["identity", "add", "--method", "passphrase"]);
 }
 
-// Go: TestIdentityAddRejectsAHostnameCollisionWithoutAnyoneTypingTheName.
 // B's hostname normalizes to the name device A already holds as a
 // recipient; the refusal names the flag that fixes it, and nothing is
 // asked or written.
@@ -204,7 +201,6 @@ fn identity_add_rejects_a_hostname_collision_without_anyone_typing_the_name() {
     assert!(t.b.entry(VAULT).pubkey.is_empty());
 }
 
-// Go: TestIdentityAddRejectsANameTheVaultAlreadyLists.
 #[test]
 fn identity_add_rejects_a_name_the_vault_already_lists() {
     let t = TwoDevices::new();
@@ -233,7 +229,6 @@ fn identity_add_rejects_an_invalid_device_name_as_usage() {
 
 // --- identity list ----------------------------------------------------------
 
-// Go: TestIdentityListReportsThisDevicesIdentities.
 #[test]
 fn identity_list_reports_this_devices_identities() {
     let t = TwoDevices::new();
@@ -263,7 +258,7 @@ fn listed(stdout: &str) -> Vec<(bool, String)> {
         .collect()
 }
 
-// Go: TestIdentityListOnADeviceHoldingNoneSaysSo. Cloned, not yet added.
+// Cloned, not yet added.
 #[test]
 fn identity_list_on_a_device_holding_none_says_so() {
     let t = TwoDevices::new();
@@ -299,7 +294,7 @@ fn recipient_list_prints_every_device_and_key_as_the_config_lists_them() {
     );
 }
 
-// Go: TestRecipientVerifyExitCodesAndDifferences. In sync: 0. Diverged: 1
+// In sync: 0. Diverged: 1
 // (the taxonomy's Conflict), with both directions' differences named.
 #[test]
 fn recipient_verify_exit_codes_and_differences() {
@@ -318,7 +313,7 @@ fn recipient_verify_exit_codes_and_differences() {
     assert!(r.stderr.contains(".age-recipients"), "{}", r.stderr);
 }
 
-// Go: TestRecipientVerifyNamesAKeyMissingFromTheRecipientsFile. The other
+// The other
 // direction: config lists a key the file lacks. The device label is named
 // too, since that is what a human recognizes.
 #[test]
@@ -341,7 +336,7 @@ fn recipient_verify_names_a_key_missing_from_the_recipients_file() {
     assert!(r.stderr.contains("config.toml"), "{}", r.stderr);
 }
 
-// Go: TestRecipientVerifyRunsWithNoIdentityAndNoPrompter. Device B holds
+// Device B holds
 // no identity; the prompter records any question, and none is asked.
 #[test]
 fn recipient_verify_runs_with_no_identity_and_no_prompter() {
@@ -359,8 +354,7 @@ fn recipient_verify_runs_with_no_identity_and_no_prompter() {
 
 // --- inbound rows -------------------------------------------------------------
 
-// Go: vaultid_keying TestInitAndIdentityAddRecordThePubkeyAndCloneDoesNot.
-// The init half was P2 · M2's; this adds the identity add and clone halves.
+// The init half is in init_identity_tests; this adds the identity add and clone halves.
 #[test]
 fn init_and_identity_add_record_the_pubkey_and_clone_does_not() {
     let t = TwoDevices::new();
@@ -375,8 +369,8 @@ fn init_and_identity_add_record_the_pubkey_and_clone_does_not() {
     assert_ne!(t.b.entry(VAULT).pubkey, init_key);
 }
 
-// The identity list half of Go's
-// TestAVaultWithoutAnIDFailsLoudlyOnEveryDerivedPath: a registration with
+// The identity list half of "a vault without an id fails loudly on every derived path":
+// a registration with
 // an empty id fails before any path is built from it.
 #[test]
 fn a_registration_without_an_id_fails_identity_list_before_any_path_is_built() {

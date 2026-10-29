@@ -1,7 +1,7 @@
 //! A loopback HTTP server that records what libgit2's own HTTP transport
-//! sends (Q-REMOTE-AUTH). libgit2 hands credentials only to its built-in
-//! transport, never to a registered custom one, so Go's `gagetest://`
-//! recording transport has no equivalent; this observes the token on the
+//! sends (ADR-0020). libgit2 hands credentials only to its built-in
+//! transport, never to a registered custom one, so a recording
+//! transport can't stand in; this observes the token on the
 //! wire instead, which is the stronger check. `std::net` only, no new
 //! dependency, and nothing listens beyond 127.0.0.1.
 //!

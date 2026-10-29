@@ -1,7 +1,6 @@
 //! Test-only git fixtures: ephemeral local bare repositories that stand in
 //! for a real remote, so sync-related tests exercise the git crate's real
-//! code paths with no network. First used by M1's `git set-remote` tests;
-//! M8a1 adds the second half of the sync harness: a [`Device`] playing
+//! code paths with no network. The sync harness adds a [`Device`] playing
 //! "another machine", and an [`HttpRecorder`] that observes what libgit2
 //! sends over HTTP on a loopback port.
 //!
@@ -208,7 +207,6 @@ impl Device {
 mod tests {
     use super::*;
 
-    // Go: TestNewBareRemoteIsABareRepo
     #[test]
     fn new_bare_remote_is_a_bare_repo() {
         let remote = new_bare_remote();
@@ -224,7 +222,6 @@ mod tests {
         );
     }
 
-    // Go: TestNewBareRemoteProducesIndependentRepos
     #[test]
     fn new_bare_remote_produces_independent_repos() {
         let (first, second) = (new_bare_remote(), new_bare_remote());

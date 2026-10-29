@@ -81,7 +81,7 @@ mod tests {
     use crate::prompter::FakePrompter;
     use crate::session_tests::{Device, unlocks};
 
-    // Go: TestSearchMatchesFieldValueAndReportsMatchedBody. A match only in
+    // A match only in
     // a field value counts, is flagged as a body match, and carries no
     // matched text.
     #[test]
@@ -122,7 +122,6 @@ mod tests {
         assert!(!format!("{results:?}").contains("AKIA"), "leaked the match");
     }
 
-    // Go: TestSortSearchResultsTiesByID
     #[test]
     fn sort_search_results_ties_by_id() {
         let lo = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();

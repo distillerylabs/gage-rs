@@ -1,5 +1,4 @@
-//! E2 task 1: the enrollment code (Go's `enrollcode_test.go`). Each test
-//! names its Go row.
+//! The enrollment code.
 
 use std::collections::HashSet;
 
@@ -9,7 +8,7 @@ fn code() -> String {
     generate_code().unwrap().to_string()
 }
 
-// Go: TestGeneratedCodeHasTheDocumentedShape. A cosmetic GAGE- prefix
+// A cosmetic GAGE- prefix
 // over four hyphenated groups of four: what a human copies off one screen
 // and types into another.
 #[test]
@@ -27,7 +26,7 @@ fn generated_code_has_the_documented_shape() {
     assert_eq!(CODE_LENGTH * 5, 80, "the code is 80 bits");
 }
 
-// Go: TestGeneratedCodesAvoidTheAmbiguousLetters. Over many generations,
+// Over many generations,
 // since any one code probably lacks them by chance.
 #[test]
 fn generated_codes_avoid_the_ambiguous_letters() {
@@ -41,7 +40,7 @@ fn generated_codes_avoid_the_ambiguous_letters() {
     }
 }
 
-// Go: TestGeneratedCodesNormalizeToThemselves. What this build generates,
+// What this build generates,
 // this build accepts, prefix and hyphens included.
 #[test]
 fn generated_codes_normalize_to_themselves() {
@@ -54,7 +53,7 @@ fn generated_codes_normalize_to_themselves() {
     }
 }
 
-// Go: TestSuccessiveCodesDiffer. The entropy smoke test: a fixed seed, a
+// The entropy smoke test: a fixed seed, a
 // counter or the clock's seconds would pass every other row here. It
 // samples, so a short period is caught as well as none.
 #[test]
@@ -69,7 +68,7 @@ fn successive_codes_differ() {
     }
 }
 
-// Beyond Go (E2's second review): the code's entropy, which no other row
+// The code's entropy, which no other test
 // sees. Filling half the random bytes (40 bits) or reading four bits per
 // character (64 bits, alphabet 0-F) passes the shape, the alphabet and
 // successive_codes_differ. Every position must take every character: at
@@ -96,7 +95,7 @@ fn generated_codes_use_every_character_in_every_position() {
 
 const CANONICAL: &str = "7K4M9QX2P3RH8WVN";
 
-// Go: TestCodeNormalizationAcceptsHowPeopleRetypeCodes. Against the
+// Against the
 // canonical form, so a failure points at the normalizer rather than the
 // seal; seal_tests asserts the same spellings open a request.
 #[test]
@@ -116,7 +115,7 @@ fn code_normalization_accepts_how_people_retype_codes() {
     }
 }
 
-// Go: TestCodeNormalizationMapsCrockfordSubstitutions. I and L read as 1,
+// I and L read as 1,
 // O as 0: a transcription of a code gage generated, not another code.
 #[test]
 fn code_normalization_maps_crockford_substitutions() {
@@ -135,7 +134,7 @@ fn code_normalization_maps_crockford_substitutions() {
     }
 }
 
-// Go: TestCodeValidationRejectsWrongLengthAndAlphabet. What makes a typo
+// What makes a typo
 // cost nothing. U is the excluded letter Crockford maps to nothing.
 #[test]
 fn code_validation_rejects_wrong_length_and_alphabet() {

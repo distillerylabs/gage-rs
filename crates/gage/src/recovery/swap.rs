@@ -1,7 +1,6 @@
 //! The recovery key's one power inside gage, and the swap it shares with
 //! `recovery rotate`: one atomic change to the recipient list, some labels
-//! removed and some recipients added, re-encrypted and committed once. Go:
-//! `internal/gage/recovery_enroll.go`.
+//! removed and some recipients added, re-encrypted and committed once.
 //!
 //! A recovery-scoped [`Identity`] exists only inside this module. It is
 //! built by the private `recovery_identity`, and `Identity` can't be
@@ -102,7 +101,7 @@ impl Vault {
     /// permanent one.
     ///
     /// `secret` is taken by value and dropped once parsed, on every path
-    /// (Q-RECOVERY-SECRET-MEMORY).
+    /// (ADR-0027).
     pub fn recover_device(
         &self,
         spec: &RecoverSpec,
@@ -245,12 +244,12 @@ impl Vault {
         prompter: &dyn Prompter,
     ) -> Result<(usize, String), RecoveryError> {
         self.with_vault_write(WRITE_LOCK_TIMEOUT, prompter, || {
-            // A19's pre-flight. Always inside the lock, unlike add's: the
+            // The full-access pre-flight (ADR-0009). Always inside the lock, unlike add's: the
             // reset has just run, so this reads exactly what the
             // re-encryption will, and there is no clean/dirty case to get
             // wrong. Still ahead of every question and the first byte.
             self.require_full_access(identity)?;
-            // M10's precondition, then its question, in add's order and for
+            // The trust precondition, then its question, in add's order and for
             // add's reasons: this rebuilds .age-recipients from config.toml,
             // and a declined answer must leave nothing to undo.
             self.require_recipients_in_sync()

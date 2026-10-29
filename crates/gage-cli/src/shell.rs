@@ -11,6 +11,7 @@ use gage::exitcode::Code;
 use gage::xdgpaths::Dirs;
 use gage::{gitrepo, paths, vault};
 
+use crate::duration;
 use crate::error::CliError;
 
 /// Renders as a bare `gage> ` until a vault is selected and
@@ -64,10 +65,10 @@ pub fn resolve(
         Some(DEFAULT_IDLE_TIMEOUT)
     } else {
         let raw = &shell.idle_timeout;
-        match parse_duration(raw) {
+        match duration::parse(raw) {
             Ok(d) if d.is_zero() => None,
             Ok(d) => Some(d),
-            Err(DurationError::Negative) => {
+            Err(duration::DurationError::Negative) => {
                 return Err(CliError::new(
                     Code::Usage,
                     format!(
@@ -75,7 +76,7 @@ pub fn resolve(
                     ),
                 ));
             }
-            Err(DurationError::Malformed) => {
+            Err(duration::DurationError::Malformed) => {
                 return Err(CliError::new(
                     Code::Usage,
                     format!("gage: [shell].idle_timeout {raw:?} is not a duration (e.g. \"10m\")"),
@@ -86,23 +87,23 @@ pub fn resolve(
     // Refused rather than clamped, and with no "0 disables it": a clear
     // that silently never fired, or one rounded up from what the human
     // chose, would weaken the one guarantee -c makes. Turning the clear
-    // off is left un-takeable, as in Go; adding it later is additive.
+    // off is left un-takeable; adding it later is additive.
     let clipboard_timeout = if shell.clipboard_timeout.is_empty() {
         DEFAULT_CLIPBOARD_TIMEOUT
     } else {
         let raw = &shell.clipboard_timeout;
-        match parse_duration(raw) {
+        match duration::parse(raw) {
             Ok(d) if d >= MIN_CLIPBOARD_TIMEOUT => d,
-            Ok(_) | Err(DurationError::Negative) => {
+            Ok(_) | Err(duration::DurationError::Negative) => {
                 return Err(CliError::new(
                     Code::Usage,
                     format!(
                         "gage: [shell].clipboard_timeout {raw:?} is below the {} minimum",
-                        go_duration_string(MIN_CLIPBOARD_TIMEOUT)
+                        duration::format(MIN_CLIPBOARD_TIMEOUT)
                     ),
                 ));
             }
-            Err(DurationError::Malformed) => {
+            Err(duration::DurationError::Malformed) => {
                 return Err(CliError::new(
                     Code::Usage,
                     format!(
@@ -125,29 +126,6 @@ pub fn resolve(
         history_file,
         clipboard_timeout,
     })
-}
-
-/// A duration as Go's `Duration.String` spells one at second scale and
-/// above: `45s`, `1m30s`, `1h0m0s`, `1.5s`.
-pub fn go_duration_string(d: Duration) -> String {
-    let secs = d.as_secs();
-    let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
-    let mut out = String::new();
-    if h > 0 {
-        out.push_str(&format!("{h}h"));
-    }
-    if h > 0 || m > 0 {
-        out.push_str(&format!("{m}m"));
-    }
-    out.push_str(&s.to_string());
-    let nanos = d.subsec_nanos();
-    if nanos > 0 {
-        let frac = format!("{nanos:09}");
-        out.push('.');
-        out.push_str(frac.trim_end_matches('0'));
-    }
-    out.push('s');
-    out
 }
 
 /// Expands the `$GAGE_CONFIG`, `$GAGE_DATA` and `$GAGE_STATE` names the
@@ -195,84 +173,6 @@ pub fn expand_gage_path(
             })
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DurationError {
-    Malformed,
-    Negative,
-}
-
-/// Go's `time.ParseDuration` grammar, which is what the setting is
-/// documented in: an optional sign, then one or more `<decimal><unit>`
-/// terms (`1h30m`, `1.5h`), with units `ns`, `us`/`µs`, `ms`, `s`, `m`,
-/// `h`; or a bare `0`. `humantime` is not used because it also accepts
-/// `10min`, which Go rejects.
-pub fn parse_duration(s: &str) -> Result<Duration, DurationError> {
-    const UNITS: [(&str, u128); 8] = [
-        ("ns", 1),
-        ("us", 1_000),
-        ("µs", 1_000),
-        ("μs", 1_000),
-        ("ms", 1_000_000),
-        ("s", 1_000_000_000),
-        ("m", 60_000_000_000),
-        ("h", 3_600_000_000_000),
-    ];
-    let (negative, mut rest) = match s.as_bytes().first() {
-        Some(b'-') => (true, &s[1..]),
-        Some(b'+') => (false, &s[1..]),
-        _ => (false, s),
-    };
-    if rest == "0" {
-        return Ok(Duration::ZERO);
-    }
-    if rest.is_empty() {
-        return Err(DurationError::Malformed);
-    }
-    let mut total: u128 = 0;
-    while !rest.is_empty() {
-        let int_len = rest.bytes().take_while(u8::is_ascii_digit).count();
-        let (int, after) = rest.split_at(int_len);
-        let (frac, after) = match after.strip_prefix('.') {
-            Some(after) => {
-                let len = after.bytes().take_while(u8::is_ascii_digit).count();
-                after.split_at(len)
-            }
-            None => ("", after),
-        };
-        if int.is_empty() && frac.is_empty() {
-            return Err(DurationError::Malformed);
-        }
-        let unit_len = after
-            .find(|c: char| c.is_ascii_digit() || c == '.')
-            .unwrap_or(after.len());
-        let (unit, after) = after.split_at(unit_len);
-        let scale = UNITS
-            .iter()
-            .find(|(name, _)| *name == unit)
-            .map(|(_, scale)| *scale)
-            .ok_or(DurationError::Malformed)?;
-        let whole: u128 = if int.is_empty() {
-            0
-        } else {
-            int.parse().map_err(|_| DurationError::Malformed)?
-        };
-        let mut term = whole.checked_mul(scale).ok_or(DurationError::Malformed)?;
-        // Digits past nanosecond precision change nothing.
-        let mut place = scale;
-        for digit in frac.bytes() {
-            place /= 10;
-            term += u128::from(digit - b'0') * place;
-        }
-        total = total.checked_add(term).ok_or(DurationError::Malformed)?;
-        rest = after;
-    }
-    if negative && total > 0 {
-        return Err(DurationError::Negative);
-    }
-    let secs = u64::try_from(total / 1_000_000_000).map_err(|_| DurationError::Malformed)?;
-    Ok(Duration::new(secs, (total % 1_000_000_000) as u32))
 }
 
 /// Everything the prompt template can show.
@@ -350,7 +250,6 @@ mod tests {
         resolve(&shell, &dirs_in(root.path()), &no_home)
     }
 
-    // Go: TestResolveShellSettingsDefaults
     #[test]
     fn resolve_shell_settings_defaults() {
         let root = tempfile::tempdir().unwrap();
@@ -362,7 +261,6 @@ mod tests {
         assert_eq!(got.history_file, dirs.state.join("history"));
     }
 
-    // Go: TestResolveShellSettingsParsesIdleTimeout
     #[test]
     fn resolve_shell_settings_parses_idle_timeout() {
         let got = resolve_with(Shell {
@@ -373,7 +271,7 @@ mod tests {
         assert_eq!(got.idle_timeout, Some(Duration::from_secs(45)));
     }
 
-    // Go: TestResolveShellSettingsRejectsAMalformedIdleTimeout. A typo must
+    // A typo must
     // not silently mean "never re-lock".
     #[test]
     fn resolve_shell_settings_rejects_a_malformed_idle_timeout() {
@@ -388,7 +286,7 @@ mod tests {
         }
     }
 
-    // Go: TestResolveShellSettingsClipboardTimeout. The default, a
+    // The default, a
     // configured value, and a malformed one. There is no "0 disables it":
     // anything under the minimum is refused, not clamped.
     #[test]
@@ -422,22 +320,7 @@ mod tests {
         }
     }
 
-    // The clipboard notice says how long in Go's spelling, as Go's does.
-    #[test]
-    fn go_duration_string_matches_gos_spelling() {
-        for (d, want) in [
-            (Duration::from_secs(45), "45s"),
-            (Duration::from_secs(1), "1s"),
-            (Duration::from_secs(90), "1m30s"),
-            (Duration::from_secs(3600), "1h0m0s"),
-            (Duration::from_millis(1500), "1.5s"),
-            (Duration::from_millis(61_250), "1m1.25s"),
-        ] {
-            assert_eq!(go_duration_string(d), want, "{d:?}");
-        }
-    }
-
-    // Go: TestZeroIdleTimeoutDisablesTheRelock. "0" turns it off, distinct
+    // "0" turns it off, distinct
     // from leaving the field unset (the default).
     #[test]
     fn zero_idle_timeout_disables_the_relock() {
@@ -449,41 +332,7 @@ mod tests {
         assert_eq!(got.idle_timeout, None);
     }
 
-    #[test]
-    fn durations_follow_gos_grammar() {
-        let secs = Duration::from_secs;
-        for (input, want) in [
-            ("10m", secs(600)),
-            ("90s", secs(90)),
-            ("1h", secs(3600)),
-            ("1h30m", secs(5400)),
-            ("1.5h", secs(5400)),
-            (".5m", secs(30)),
-            ("1.m", secs(60)),
-            ("+5m", secs(300)),
-            ("-0", Duration::ZERO),
-            ("0", Duration::ZERO),
-            ("0s", Duration::ZERO),
-            ("250ms", Duration::from_millis(250)),
-            ("3us", Duration::from_micros(3)),
-            ("3µs", Duration::from_micros(3)),
-            ("7ns", Duration::from_nanos(7)),
-        ] {
-            assert_eq!(parse_duration(input), Ok(want), "{input:?}");
-        }
-        for bad in [
-            "", "5", "m", ".", "10min", "1d", "1 h", "h1", "1h-5m", "--5m", "later",
-        ] {
-            assert_eq!(
-                parse_duration(bad),
-                Err(DurationError::Malformed),
-                "{bad:?}"
-            );
-        }
-        assert_eq!(parse_duration("-5m"), Err(DurationError::Negative));
-    }
-
-    // Go: TestHistoryPathExpandsGageRoots. The design doc writes
+    // The design doc writes
     // `$GAGE_STATE/history`, so the names resolve rather than becoming a
     // directory literally called `$GAGE_STATE`.
     #[test]
@@ -506,7 +355,7 @@ mod tests {
         }
     }
 
-    // Go: TestHistoryFileHonoursAnAbsolutePath. A named path is used
+    // A named path is used
     // exactly, and opening it creates the directory it's in.
     #[test]
     fn history_file_honours_an_absolute_path() {
@@ -526,7 +375,7 @@ mod tests {
         assert_eq!(reread.lines(), ["show something"]);
     }
 
-    // Go: TestHistoryDisabledWithoutAPath. A no-op history is a usable one,
+    // A no-op history is a usable one,
     // so a session can carry on when the file can't be opened.
     #[test]
     fn history_disabled_without_a_path() {
@@ -535,7 +384,7 @@ mod tests {
         assert!(h.lines().is_empty());
     }
 
-    // Go: TestExpandGagePathExpandsTilde. Home is injected rather than set
+    // Home is injected rather than set
     // through $HOME, so the test touches no process state.
     #[test]
     fn expand_gage_path_expands_tilde() {
@@ -563,7 +412,7 @@ mod tests {
         assert_eq!(err.code(), Code::Internal);
     }
 
-    // Go: TestVaultIsDirtyIsBestEffort. Anything the {dirty} token can't
+    // Anything the {dirty} token can't
     // answer reads as clean.
     #[test]
     fn vault_is_dirty_is_best_effort() {
@@ -582,7 +431,6 @@ mod tests {
         assert!(!vault_is_dirty("personal", &env.dirs), "files gone");
     }
 
-    // Go: TestRenderPromptTokens
     #[test]
     fn render_prompt_tokens() {
         let vault = |unlocked, dirty| PromptState {

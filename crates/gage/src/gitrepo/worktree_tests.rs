@@ -1,5 +1,4 @@
-//! The dirty-tree guard and `reset_hard`: Go's `gitrepo_test` (1 row),
-//! `reset_test` and `worktree_state_test`.
+//! The dirty-tree guard and `reset_hard`.
 
 use std::path::Path;
 
@@ -17,7 +16,6 @@ pub(super) fn read(dir: &Path, rel: &str) -> String {
     std::fs::read_to_string(dir.join(rel)).unwrap()
 }
 
-// Go: TestRequireCleanWorkTreeTruncatesTheNamedPaths
 #[test]
 fn require_clean_work_tree_truncates_the_named_paths() {
     let dir = tempfile::tempdir().unwrap();
@@ -56,7 +54,7 @@ fn dirty_paths_lists_modified_and_untracked_files_sorted() {
     assert_eq!(dirty_paths(dir.path()).unwrap(), ["b.txt", "entries/a.age"]);
 }
 
-// Go: TestMergeRemoteRefusesADirtyWorkTree. Go's correction: a merge
+// A merge
 // stages the whole tree, so without this guard a human's half-finished
 // edit was swept into "gage: merge origin" and pushed everywhere.
 #[test]
@@ -77,7 +75,7 @@ fn merge_remote_refuses_a_dirty_work_tree() {
     assert_eq!(head_id(dir.path()), before);
 }
 
-// Go: TestFastForwardAndMergeShareOneDirtyTreeSentinel. One variant, so
+// One variant, so
 // the layer above matches either refusal in one place.
 #[test]
 fn fast_forward_and_merge_share_one_dirty_tree_sentinel() {
@@ -115,7 +113,7 @@ fn seeded_repo() -> tempfile::TempDir {
     dir
 }
 
-// Go: TestResetHardDiscardsModifiedAndUntrackedFiles. The untracked half
+// The untracked half
 // is the one worth pinning: a hard reset leaves untracked files alone, so
 // an interrupted insert's orphan must be removed explicitly or it is
 // folded into the next write's commit.
@@ -137,7 +135,6 @@ fn reset_hard_discards_modified_and_untracked_files() {
     assert!(is_clean(dir.path()).unwrap());
 }
 
-// Go: TestResetHardOnACleanTreeDiscardsNothing
 #[test]
 fn reset_hard_on_a_clean_tree_discards_nothing() {
     let dir = seeded_repo();
@@ -145,7 +142,6 @@ fn reset_hard_on_a_clean_tree_discards_nothing() {
     assert!(is_clean(dir.path()).unwrap());
 }
 
-// Go: TestResetHardLeavesHEADWhereItWas
 #[test]
 fn reset_hard_leaves_head_where_it_was() {
     let dir = seeded_repo();
@@ -156,7 +152,7 @@ fn reset_hard_leaves_head_where_it_was() {
     assert_eq!(commit_count(dir.path()).unwrap(), 1);
 }
 
-// Go: TestResetHardDiscardsChangesOutsideEntries. An interrupted
+// An interrupted
 // `recipient add` dirties only the recipient pair; a reset keyed off
 // entries/ would find nothing and let the next write commit an abandoned
 // recipient list.
@@ -173,7 +169,6 @@ fn reset_hard_discards_changes_outside_entries() {
     assert!(is_clean(dir.path()).unwrap());
 }
 
-// Go: TestSafeJoinRefusesPathsThatEscapeTheVault
 #[test]
 fn safe_join_refuses_paths_that_escape_the_vault() {
     let dir = tempfile::tempdir().unwrap();

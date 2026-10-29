@@ -1,5 +1,5 @@
 //! `gage recipient pending`, `approve` and `deny` through the real CLI,
-//! in-process: Go's `approve_cli_test.go`. Each test names its Go row.
+//! in-process.
 //! [`Enrolled`] is the state an approval starts from: device A owns the
 //! vault, device B has published a request with `identity enroll`, and A
 //! has pulled it.
@@ -81,7 +81,7 @@ pub(crate) fn pending_ids(vault: &Path) -> Vec<String> {
     ids
 }
 
-/// A hex digit every id carries (Go's `commonHexDigit`).
+/// A hex digit every id carries.
 pub(crate) fn common_hex_digit(ids: &[String]) -> String {
     "0123456789abcdef"
         .chars()
@@ -130,7 +130,6 @@ impl Env {
     }
 }
 
-// Go: TestRecipientPendingNeedsNoUnlockAndShowsNoDeviceNames
 #[test]
 fn recipient_pending_needs_no_unlock_and_shows_no_device_names() {
     let e = Enrolled::new("phone-1");
@@ -144,7 +143,6 @@ fn recipient_pending_needs_no_unlock_and_shows_no_device_names() {
     assert!(r.stdout.contains(&id[..8]), "{}", r.stdout);
 }
 
-// Go: TestRecipientPendingWithNothingPendingExitsZero
 #[test]
 fn recipient_pending_with_nothing_pending_exits_zero() {
     let env = Env::new();
@@ -154,7 +152,7 @@ fn recipient_pending_with_nothing_pending_exits_zero() {
     assert!(r.stdout.contains("no pending"), "{}", r.stdout);
 }
 
-// Go: TestApproveEndToEndLetsTheDeviceRead. Enrolled and approved, the new
+// Enrolled and approved, the new
 // device reads an entry written before it was approved.
 #[test]
 fn approve_end_to_end_lets_the_device_read() {
@@ -170,7 +168,7 @@ fn approve_end_to_end_lets_the_device_read() {
     assert!(cat.stdout.contains("s3cret"), "{}", cat.stdout);
 }
 
-// Go: TestApproveCostsNoUnlockOnAWrongCode. The same holds for a request
+// The same holds for a request
 // expired by its seal: refused before any passphrase is asked for.
 #[test]
 fn approve_costs_no_unlock_on_a_wrong_code() {
@@ -194,7 +192,6 @@ fn approve_costs_no_unlock_on_a_wrong_code() {
     assert!(p.unlock_requests().is_empty());
 }
 
-// Go: TestDecliningTheApprovalCostsNoUnlock
 #[test]
 fn declining_the_approval_costs_no_unlock() {
     let e = Enrolled::new("phone-1");
@@ -210,7 +207,7 @@ fn declining_the_approval_costs_no_unlock() {
     assert!(still_pending(e.a()));
 }
 
-// Go: TestApproveRefusesAWrongCodeWithoutRetryingWhenItCameFromAFlag. A
+// A
 // code that opens nothing fails the whole run, before any confirmation.
 #[test]
 fn approve_refuses_a_wrong_code_without_retrying_when_it_came_from_a_flag() {
@@ -230,7 +227,7 @@ fn approve_refuses_a_wrong_code_without_retrying_when_it_came_from_a_flag() {
     assert!(still_pending(e.a()));
 }
 
-// Go: TestApproveReadsTheCodeThroughThePrompterWhenNoFlagIsGiven. The CLI,
+// The CLI,
 // not the library, owns the retry around a wrong one.
 #[test]
 fn approve_reads_the_code_through_the_prompter_when_no_flag_is_given() {
@@ -247,7 +244,7 @@ fn approve_reads_the_code_through_the_prompter_when_no_flag_is_given() {
     assert!(asked[0].to_lowercase().contains("code"), "{asked:?}");
 }
 
-// Go: TestApproveWithAnEmptyPromptedCodeApprovesNothing. A bare Enter
+// A bare Enter
 // cancels.
 #[test]
 fn approve_with_an_empty_prompted_code_approves_nothing() {
@@ -262,7 +259,6 @@ fn approve_with_an_empty_prompted_code_approves_nothing() {
     assert!(still_pending(e.a()));
 }
 
-// Go: TestApproveDeduplicatesARequestOpenedByTwoCodes
 #[test]
 fn approve_deduplicates_a_request_opened_by_two_codes() {
     let e = Enrolled::new("phone-1");
@@ -282,7 +278,6 @@ fn approve_deduplicates_a_request_opened_by_two_codes() {
     assert!(!still_pending(e.a()));
 }
 
-// Go: TestApproveNarrowsToAPositionalID
 #[test]
 fn approve_narrows_to_a_positional_id() {
     let e = Enrolled::new("phone-1");
@@ -297,7 +292,7 @@ fn approve_narrows_to_a_positional_id() {
     assert!(!pending_ids(&e.vault_path()).contains(&id));
 }
 
-// Beyond Go's rows, found in E4's review: one request named twice (two
+// One request named twice (two
 // spellings of its id) is one device on the prompted path too, where no
 // per-code dedupe runs.
 #[test]
@@ -317,7 +312,7 @@ fn approve_naming_one_request_twice_is_one_device() {
     assert!(!still_pending(e.a()));
 }
 
-// Beyond Go's rows, found in E4's second review: one request filed twice
+// One request filed twice
 // (a git writer's copy under another live epoch) opens twice for one code.
 // The prompted path deduplicates by id as `--code` does, so it shows one
 // device and approves it, rather than refusing a duplicate after the
@@ -345,7 +340,6 @@ fn approve_with_a_prompted_code_opens_one_request_filed_twice_once() {
     assert_eq!(p.unlock_requests().len(), 1);
 }
 
-// Go: TestApproveWithADeviceFlagRelabels
 #[test]
 fn approve_with_a_device_flag_relabels() {
     let e = Enrolled::new("phone-1");
@@ -361,7 +355,7 @@ fn approve_with_a_device_flag_relabels() {
     assert!(!list.contains("phone-1"), "{list}");
 }
 
-// Go: TestApproveRejectsADeviceFlagAgainstSeveralRequests. One flag can't
+// One flag can't
 // say which request it relabels; the way out is the ID form.
 #[test]
 fn approve_rejects_a_device_flag_against_several_requests() {
@@ -379,7 +373,7 @@ fn approve_rejects_a_device_flag_against_several_requests() {
     assert!(p.confirm_prompts().is_empty());
 }
 
-// Go: TestApproveRejectsAnInvalidDeviceNameBeforeAnythingElse. A rejection
+// A rejection
 // of the command line costs neither a confirmation nor a passphrase.
 #[test]
 fn approve_rejects_an_invalid_device_name_before_anything_else() {
@@ -395,7 +389,7 @@ fn approve_rejects_an_invalid_device_name_before_anything_else() {
     assert!(p.unlock_requests().is_empty());
 }
 
-// Go: TestApproveSurfacesAWrongVaultRequestWithoutRetrying. A request for
+// A request for
 // another vault names the vault it is for, renders nothing, and never
 // enters the wrong-code loop: on the prompted path, one value is asked
 // for and not a second.
@@ -427,8 +421,8 @@ fn approve_surfaces_a_wrong_vault_request_without_retrying() {
     }
 }
 
-// Go: TestApproveUnderScriptStaysARealQuestion. --yes answers only M10's
-// question; approve's own [y/N] is still asked, and still defaults to no.
+// --yes answers only the recipient-list question;
+// approve's own [y/N] is still asked, and still defaults to no.
 #[test]
 fn approve_under_script_stays_a_real_question() {
     let e = Enrolled::new("phone-1");
@@ -449,7 +443,7 @@ fn approve_under_script_stays_a_real_question() {
     assert!(!r.stderr.is_empty());
 }
 
-// Go: TestDenyRemovesARequestAndNeedsNothing. No code and no unlock, by the
+// No code and no unlock, by the
 // eight-character prefix the listing shows.
 #[test]
 fn deny_removes_a_request_and_needs_nothing() {
@@ -466,7 +460,6 @@ fn deny_removes_a_request_and_needs_nothing() {
     assert!(!e.a().ok(&["recipient", "list"]).stdout.contains("phone-1"));
 }
 
-// Go: TestDenyOnAnAmbiguousIDRendersTheCandidates
 #[test]
 fn deny_on_an_ambiguous_id_renders_the_candidates() {
     let e = Enrolled::new("phone-1");
@@ -486,7 +479,6 @@ fn deny_on_an_ambiguous_id_renders_the_candidates() {
     assert_eq!(pending_ids(&e.vault_path()).len(), 2);
 }
 
-// Go: TestDenyOnAnUnmatchedIDIsNotFound
 #[test]
 fn deny_on_an_unmatched_id_is_not_found() {
     let e = Enrolled::new("phone-1");
@@ -497,7 +489,7 @@ fn deny_on_an_unmatched_id_is_not_found() {
     assert!(still_pending(e.a()));
 }
 
-// Go: TestPendingAndDenyWorkUnderScript. Neither asks anything a script
+// Neither asks anything a script
 // can't answer.
 #[test]
 fn pending_and_deny_work_under_script() {
@@ -510,8 +502,7 @@ fn pending_and_deny_work_under_script() {
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
 }
 
-// Beyond Go's rows: Go E4's bullet with no row of its own, and the point of
-// E2's validation. A sealed device name carrying escape sequences is
+// A sealed device name carrying escape sequences is
 // refused before anything is rendered: the approve screen is the one
 // whose correctness depends on a human reading it, and the name sits
 // directly above its question.

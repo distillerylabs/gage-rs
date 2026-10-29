@@ -1,4 +1,4 @@
-//! E2 task 5, the filename and TTL half (Go's `enrollname_test.go`).
+//! The filename and TTL half.
 
 use std::time::Duration;
 
@@ -10,7 +10,7 @@ use super::{DEFAULT_ENROLLMENT_TTL, EnrollmentError, MAX_ENROLLMENT_TTL};
 use crate::exitcode::Code;
 use crate::vault::METHOD_PASSPHRASE;
 
-// Go: TestPendingFileNameRoundTrips. <request-id>-<expires-epoch>.age,
+// <request-id>-<expires-epoch>.age,
 // to the second, which is the resolution the name carries.
 #[test]
 fn pending_file_name_round_trips() {
@@ -22,7 +22,7 @@ fn pending_file_name_round_trips() {
     assert_eq!(parse_pending_file_name(&name), Some((id, expires)));
 }
 
-// Go: TestPendingFileNameParserSkipsStrays. A name gage didn't write is
+// A name gage didn't write is
 // skipped, and each half is validated on its own.
 #[test]
 fn pending_file_name_parser_skips_strays() {
@@ -57,7 +57,7 @@ fn pending_file_name_parser_skips_strays() {
     }
 }
 
-// Go: TestDefaultTTLIsWithinTheCeiling. A default gage couldn't seal would
+// A default gage couldn't seal would
 // be found by every user and no test.
 #[test]
 fn default_ttl_is_within_the_ceiling() {
@@ -66,10 +66,10 @@ fn default_ttl_is_within_the_ceiling() {
     assert_eq!(MAX_ENROLLMENT_TTL, Duration::from_secs(7 * 24 * 3600));
 }
 
-// Go: TestSealRejectsTTLsOutsideTheCeiling. At Usage, a rejection of what
-// was asked for, and before anything is generated. Go's negative case
-// can't be built as a std Duration; E3 refuses a negative --ttl when it
-// parses one.
+// At Usage, a rejection of what
+// was asked for, and before anything is generated. A negative
+// TTL can't be built as a std Duration; `enroll` refuses a negative --ttl
+// when it parses one.
 #[test]
 fn seal_rejects_ttls_outside_the_ceiling() {
     let f = vault();

@@ -1,7 +1,7 @@
 //! Normalizes and validates the device names gage uses to label recipients
 //! and identity files: lowercase, hostname-derived strings restricted to a
 //! small filename-safe character set. See "Local identity storage" in the
-//! design doc and Q-DEVICE-NAME.
+//! design doc and ADR-0010.
 //!
 //! Device names become path components, and some are read back from a
 //! vault's committed, git-writable config, so [`valid`] is a security
@@ -25,8 +25,8 @@ fn allowed(c: char) -> bool {
 /// survives: callers should ask for an explicit name rather than invent
 /// one.
 pub fn normalize(hostname: &str) -> Option<String> {
-    // One char to one char, as Go's strings.ToLower does: `İ` lowercases
-    // to `i` there, where str::to_lowercase gives `i` plus a combining dot.
+    // One char to one char: `İ` lowercases
+    // to `i`, where str::to_lowercase gives `i` plus a combining dot.
     let lower: String = hostname
         .chars()
         .map(|c| c.to_lowercase().next().unwrap_or(c))
@@ -71,7 +71,6 @@ fn all_dots(name: &str) -> bool {
 mod tests {
     use super::*;
 
-    // Go: TestNormalizeHostname
     #[test]
     fn normalize_hostname() {
         for (input, want) in [
@@ -84,14 +83,12 @@ mod tests {
         }
     }
 
-    // Go: TestNormalizeCollapsesRuns
     #[test]
     fn normalize_collapses_runs() {
         assert_eq!(normalize("a!!!!!b").as_deref(), Some("a-b"));
         assert_eq!(normalize("a--!-b").as_deref(), Some("a-b"));
     }
 
-    // Go: TestNormalizeNothingUsable
     #[test]
     fn normalize_nothing_usable() {
         for input in ["", "...", "!!!", "---"] {
@@ -99,7 +96,6 @@ mod tests {
         }
     }
 
-    // Go: TestNormalizeCapsLength
     #[test]
     fn normalize_caps_length() {
         let got = normalize(&"a".repeat(200)).unwrap();
@@ -114,16 +110,14 @@ mod tests {
         assert_eq!(normalize("Zoë's Mac").as_deref(), Some("zo-s-mac"));
     }
 
-    // Lowercasing matches Go's strings.ToLower, which maps one rune to one
-    // rune: `İ` is `i` (Rust's full mapping would add a combining dot,
+    // Lowercasing maps one char to one char: `İ` is `i` (Rust's full mapping would add a combining dot,
     // which then becomes a `-`), and the Kelvin sign is `k`.
     #[test]
-    fn normalize_lowercases_like_go() {
+    fn normalize_lowercases() {
         assert_eq!(normalize("İstanbul").as_deref(), Some("istanbul"));
         assert_eq!(normalize("\u{212A}elvin").as_deref(), Some("kelvin"));
     }
 
-    // Go: TestValidAccepts
     #[test]
     fn valid_accepts() {
         for name in ["laptop-1", "andrews-macbook-pro", "recovery.key_1", "a"] {
@@ -132,7 +126,6 @@ mod tests {
         assert!(valid(&"a".repeat(MAX_LENGTH)));
     }
 
-    // Go: TestValidRejectsPathTraversalAndSeparators
     #[test]
     fn valid_rejects_path_traversal_and_separators() {
         for name in [
@@ -151,13 +144,11 @@ mod tests {
         }
     }
 
-    // Go: TestValidRejectsOverLength
     #[test]
     fn valid_rejects_over_length() {
         assert!(!valid(&"a".repeat(MAX_LENGTH + 1)));
     }
 
-    // Go: TestValidRejectsAllDotsNames
     #[test]
     fn valid_rejects_all_dots_names() {
         for name in [".", "..", "...", "....."] {
@@ -165,7 +156,6 @@ mod tests {
         }
     }
 
-    // Go: TestValidStillAcceptsNamesContainingDots
     #[test]
     fn valid_still_accepts_names_containing_dots() {
         for name in ["laptop.1", "a.b.c", ".hidden", "trailing."] {
@@ -173,7 +163,7 @@ mod tests {
         }
     }
 
-    // Go: TestNormalizeNeverProducesAnAllDotsName. Whatever a hostname
+    // Whatever a hostname
     // looks like, normalization never manufactures a name valid() rejects.
     #[test]
     fn normalize_never_produces_a_name_valid_rejects() {

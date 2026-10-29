@@ -1,6 +1,4 @@
-//! E2 task 4: the sealed payload is untrusted input (Go's
-//! `enrollpayload_test.go`, and the coverage rows at the end of
-//! `enrollseal_test.go`). Authenticated is not well-formed: the seal proves
+//! The sealed payload is untrusted input. Authenticated is not well-formed: the seal proves
 //! the bytes are unaltered, not that the fields mean anything, and a git
 //! writer or any code-holder can seal a bad one. So each payload here is
 //! hand-sealed with one field spoiled, and must be refused as malformed,
@@ -17,7 +15,7 @@ use super::{EnrollmentError, MAX_PENDING_REQUEST_BYTES, PendingRequest};
 use crate::exitcode::Code;
 use crate::vault::METHOD_PASSPHRASE;
 
-// Go: TestMalformedPayloadsAreRefusedAsMalformed. Each is MalformedRequest
+// Each is MalformedRequest
 // at Conflict, and never CodeWrong, which a retry loop would sit
 // re-prompting on against a file no code can make valid.
 #[test]
@@ -111,7 +109,7 @@ fn absent_payload_fields_are_malformed_not_unparseable() {
     );
 }
 
-// Go: TestMalformedPayloadDoesNotPoisonTheRun. One bad file anyone can
+// One bad file anyone can
 // commit must not take approval down with it.
 #[test]
 fn malformed_payload_does_not_poison_the_run() {
@@ -134,10 +132,9 @@ fn malformed_payload_does_not_poison_the_run() {
     ));
 }
 
-// Beyond Go's row, which can't see this: there the bad file never opens
-// with the good code, so nothing is refused. With two codes in one run,
+// With two codes in one run,
 // one opening a malformed request and one a good request, the refusal must
-// not displace what opened (found by E2's mutation review).
+// not displace what opened (found by a mutation review).
 #[test]
 fn a_refusal_does_not_displace_a_request_that_opened() {
     let f = vault();
@@ -158,7 +155,7 @@ fn a_refusal_does_not_displace_a_request_that_opened() {
     assert_eq!(opened[0].id, good.id);
 }
 
-// Go: TestValidateSealedPayloadRejectsNonTOML. Authenticated bytes that
+// Authenticated bytes that
 // aren't TOML at all.
 #[test]
 fn validate_sealed_payload_rejects_non_toml() {
@@ -178,7 +175,7 @@ fn validate_sealed_payload_rejects_non_toml() {
     }
 }
 
-// Go: TestSealEnrollmentRejectsInvalidInput. Sealing's own checks, each at
+// Sealing's own checks, each at
 // its exit code.
 #[test]
 fn seal_enrollment_rejects_invalid_input() {
@@ -215,7 +212,7 @@ fn seal_enrollment_rejects_invalid_input() {
     );
 }
 
-// Go: TestRequestSealedForAnotherVaultIsRefused. Built the way it actually
+// Built the way it actually
 // happens, as a file copy; refused as neither of its neighbours, and named
 // by the vault it is for, which is the whole content of the mistake.
 #[test]
@@ -251,7 +248,7 @@ fn request_sealed_for_another_vault_is_refused() {
     assert!(err.to_string().contains(&work.vault.id), "{err}");
 }
 
-// Go: TestOversizedPendingFileIsNeverOpened. "Never opened", not "opened
+// "Never opened", not "opened
 // and rejected", so it counts attempts; and skipped, never deleted.
 #[test]
 fn oversized_pending_file_is_never_opened() {
@@ -276,7 +273,7 @@ fn oversized_pending_file_is_never_opened() {
     assert!(f.vault.pending_dir().join(&huge).exists(), "it was deleted");
 }
 
-// Go: TestOversizedFileIsSkippedEvenWhenHandedInDirectly. The open path is
+// The open path is
 // handed a scope, so the bound lives there too. age ignores trailing
 // bytes, so without the check this padded real request would open.
 #[test]
@@ -301,7 +298,7 @@ fn oversized_file_is_skipped_even_when_handed_in_directly() {
     assert_eq!(f.vault.enrollment_decrypt_count(), 0);
 }
 
-// Go: TestDecryptedPayloadIsBoundedToo. Against the function that owns the
+// Against the function that owns the
 // bound, since today the file-size check would catch this first: the
 // bound stays real rather than incidental to age's framing.
 #[test]
@@ -332,10 +329,10 @@ fn decrypted_payload_is_bounded_too() {
     }
 }
 
-// Go: TestGeneratedCodeIsReturnedAndNowhereElse. Scoped to the generating
-// side, as Go's is: the code is in the return value and in no file under
+// Scoped to the generating
+// side: the code is in the return value and in no file under
 // the vault or this device's config, data and state roots
-// (Q-ENROLLMENT-CODE-HISTORY covers the approving side).
+// (the approving side is covered elsewhere).
 #[test]
 fn generated_code_is_returned_and_nowhere_else() {
     let f = vault();

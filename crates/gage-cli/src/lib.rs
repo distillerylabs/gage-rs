@@ -24,6 +24,7 @@ pub mod clipboard;
 mod commands;
 mod complete;
 pub mod coredump;
+mod duration;
 mod editor;
 pub mod error;
 mod history;
@@ -54,8 +55,7 @@ pub struct Io<'a> {
     /// Whether stderr is a terminal. Showing a recovery key needs both
     /// this and `stdin_is_terminal`: the key goes to stderr and its
     /// re-type comes from stdin, and `gage init foo 2>build.log` has only
-    /// the second. Neither flag stands in for the other
-    /// (Q-RECOVERY-TERMINAL).
+    /// the second. Neither flag stands in for the other.
     pub stderr_is_terminal: bool,
     /// Whether a session reads its command lines through the terminal
     /// line editor. `main` sets it when stdin is a terminal; in-process
@@ -93,7 +93,7 @@ pub struct Io<'a> {
     /// The zone local times render in: `recipient pending`'s expiries and
     /// the approve screen. `main` passes the system zone; in-process
     /// tests, which share one process environment, set it here rather than
-    /// `TZ` (Q-PENDING-TZ).
+    /// `TZ`.
     pub time_zone: jiff::tz::TimeZone,
 }
 

@@ -1,10 +1,10 @@
-//! Tab completion over a real terminal: the one M13 test that needs one.
+//! Tab completion over a real terminal: the one completion test that needs one.
 //! Which candidates are right at a position is tested in-process
 //! (`complete_tests` in the crate); this only proves a literal Tab
 //! reaches that logic through `rustyline`, and that completing records
 //! nothing in the history.
 //!
-//! A pty is a POSIX object, so Unix only, as Go's is (`linux || darwin`).
+//! A pty is a POSIX object, so Unix only (`linux || darwin`).
 #![cfg(unix)]
 
 use std::io::{Read, Write};
@@ -26,8 +26,8 @@ fn xdg(root: &std::path::Path) -> [(&'static str, PathBuf); 3] {
     ]
 }
 
-// Go: TestTabCompletionAtThePromptExpandsAPartialCommand. A literal Tab
-// expands `stat` to `status`, which then runs. It also re-asserts M6's
+// A literal Tab
+// expands `stat` to `status`, which then runs. It also re-asserts the
 // rule on this path: a Tab, and a line abandoned after one, never reach
 // the history; only the submitted lines do.
 #[test]

@@ -1,4 +1,4 @@
-//! `doc/cli/command-reference.md` is hand-written (Go's is too), so this
+//! `doc/cli/command-reference.md` is hand-written, so this
 //! keeps it honest: every registered command path and every alias appears
 //! in it, as an inline code span in a heading or table row. A command added
 //! to the registry without a line in the page fails here.

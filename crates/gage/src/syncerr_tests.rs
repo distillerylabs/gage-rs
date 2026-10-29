@@ -52,7 +52,6 @@ fn assert_class(err: &git2::Error, classes: &[git2::ErrorClass], code: git2::Err
     assert_eq!(err.code(), code, "{err}");
 }
 
-// Go: TestClassifyPushSortsTheThreeBuckets
 #[test]
 fn classify_push_sorts_the_three_buckets() {
     use git2::{ErrorClass as Class, ErrorCode as C};
@@ -125,7 +124,7 @@ fn classify_push_sorts_the_three_buckets() {
     assert_eq!(deadline.code(), Code::Unreachable);
 }
 
-// Go: TestClassifyPushCatchesGoGitsRealRejection, as libgit2's: a real
+// A real
 // non-fast-forward push is typed (`NotFastForward`), so divergence is
 // detected positively rather than only by elimination. The rejection a
 // server reports through `push_update_reference` is gitrepo's
@@ -138,7 +137,6 @@ fn classify_push_catches_libgit2s_real_rejection() {
     assert_eq!(classify_push(&rejection).kind(), Kind::Diverged);
 }
 
-// Go: TestClassifyFetchNeverInventsADivergence
 #[test]
 fn classify_fetch_never_invents_a_divergence() {
     let repo_dir = tempfile::tempdir().unwrap();
@@ -159,11 +157,10 @@ fn classify_fetch_never_invents_a_divergence() {
     assert_eq!(classify_fetch(&unauthorized).unwrap().kind(), Kind::Auth);
 }
 
-// Go: TestClassifyPassesNilThrough is excused: the classifiers take an
+// Nothing classifies nil: the classifiers take an
 // error, not an `Option` of one, so there is no nil to pass; an `Ok` never
 // reaches them.
 
-// Go: TestOfflineAndDivergedDoNotShareAnExitCode
 #[test]
 fn offline_and_diverged_do_not_share_an_exit_code() {
     let offline = classify_push(&connect_error(&refused_url()));
@@ -178,7 +175,6 @@ fn offline_and_diverged_do_not_share_an_exit_code() {
 #[error("gage: retrying: {0}")]
 struct Retrying(#[source] Error);
 
-// Go: TestClassifyIsIdempotentOnAnAlreadyClassifiedUnreachable
 #[test]
 fn classify_is_idempotent_on_an_already_classified_unreachable() {
     let already = Retrying(Error::new(Kind::Unreachable, "connection refused"));

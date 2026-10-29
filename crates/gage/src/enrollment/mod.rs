@@ -1,12 +1,12 @@
 //! Device enrollment, library side: the code, the seal, the filename
-//! scheme, listing, opening, resolution and pruning (P7 · E2), and the
-//! joining device's `enroll` (E3), and the approving device's `approve`
-//! and `deny` (E4), through the same primitives.
+//! scheme, listing, opening, resolution and pruning, and the
+//! joining device's `enroll`, and the approving device's `approve`
+//! and `deny`, through the same primitives.
 //!
 //! Listing, resolution and pruning are built from filenames alone (no git
-//! history, no unlock, no code), which is what D-ENROLL-EXPIRY-IN-NAME
+//! history, no unlock, no code), which is what ADR-0042
 //! exists to buy. Opening is keyed by the code, never an identity, which is
-//! what lets E4 unlock after the human has said yes. See "Expiry,
+//! what lets `approve` unlock after the human has said yes. See "Expiry,
 //! revocation, and pruning" and "The load-bearing invariant: `pending/` is
 //! inert".
 
@@ -43,7 +43,7 @@ pub(crate) use seal::Payload;
 
 /// How long a request lives when nobody says otherwise: long enough for a
 /// request made in one timezone and approved the next morning in another,
-/// short enough that blobs don't sit in the tree for weeks (D-ENROLL-TTL).
+/// short enough that blobs don't sit in the tree for weeks (ADR-0041).
 pub const DEFAULT_ENROLLMENT_TTL: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// The ceiling on a request's lifetime, with two jobs: it bounds the TTL at
@@ -55,7 +55,7 @@ pub const MAX_ENROLLMENT_TTL: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// How many requests one code-trying run will attempt: a bound on work,
 /// not on how many devices may enrol. The count comes from a directory any
-/// git writer can fill, and each attempt is a KDF run (D-ENROLL-SEAL-COST).
+/// git writer can fill, and each attempt is a KDF run (ADR-0040).
 /// Far above anything legitimate, and recoverable in place by naming an id.
 pub const MAX_ENROLLMENT_ATTEMPTS: usize = 32;
 
@@ -74,7 +74,7 @@ pub const PENDING_DIR: &str = ".gage/pending";
 /// secret: the one field a frontend must display and the library must
 /// never persist.
 ///
-/// `published` is false in exactly one case, which E3's `enroll` owns: this
+/// `published` is false in exactly one case, which `enroll` owns: this
 /// device's key is already a recipient, so there was nothing to ask for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnrollmentRequest {
@@ -118,7 +118,7 @@ pub struct OpenedRequest {
 
 /// The requests an id matched when it matched more than one: data a
 /// frontend renders, never a guess, because deny deletes
-/// (Q-ENROLL-AMBIGUOUS).
+/// (ADR-0043).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestCandidates {
     pub id: String,
@@ -126,7 +126,7 @@ pub struct RequestCandidates {
 }
 
 /// Every way enrollment fails, at the exit code the TDD's "Library
-/// surface" table gives it. E3 and E4 add their own.
+/// surface" table gives it.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum EnrollmentError {
@@ -266,7 +266,7 @@ pub enum EnrollmentError {
     #[error("gage: {summary} — nothing was approved, and the request is still pending")]
     ApprovalDiverged { summary: String },
     /// The recipient write's own refusals and failures, unchanged:
-    /// `CannotGrantFullAccess`, `RecipientExists`, M10's trust question.
+    /// `CannotGrantFullAccess`, `RecipientExists`, the trust question.
     #[error(transparent)]
     Recipient(#[from] RecipientError),
     #[error(transparent)]
@@ -624,7 +624,7 @@ pub(crate) fn file_unchecked_request(
 ///
 /// Only a regular file, not followed through a link, for the same reason:
 /// a git writer can commit a symlink, and one pointing at a FIFO would
-/// block the open forever (a hang Go's listing doesn't rule out).
+/// block the open forever (a hang a bare listing wouldn't rule out).
 fn read_pending_file(path: &Path) -> Option<Vec<u8>> {
     if !std::fs::symlink_metadata(path).ok()?.is_file() {
         return None;

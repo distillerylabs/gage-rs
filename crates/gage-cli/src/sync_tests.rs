@@ -1,8 +1,6 @@
 //! `gage pull`, `push`, `sync`, `clone` and `init --remote` through the
 //! real CLI, in-process, against bare repositories standing in for the
-//! remote and a [`Device`] for the other machine: Go's `sync_cli_test.go`,
-//! `clone_test.go` and `init_remote_auth_test.go`. Each test names its Go
-//! row.
+//! remote and a [`Device`] for the other machine.
 
 use std::path::{Path, PathBuf};
 
@@ -24,7 +22,7 @@ use crate::repl_tests::passphrase_prompts;
 
 impl Env {
     /// A real `gage init <name> --remote <fresh bare repo>`: a vault that
-    /// exists on both sides (Go's `initVaultWithRemote`). Nothing pushes by
+    /// exists on both sides. Nothing pushes by
     /// hand: init publishing its own first commit is part of what a remote
     /// at creation means.
     fn init_with_remote(&self, name: &str) -> (PathBuf, BareRemote) {
@@ -56,7 +54,6 @@ fn entry_files(dir: &Path) -> Vec<String> {
 
 // --- init --remote ----------------------------------------------------------
 
-// Go: TestInitPublishesTheNewVault
 #[test]
 fn init_publishes_the_new_vault() {
     let env = Env::new();
@@ -74,7 +71,7 @@ fn init_publishes_the_new_vault() {
     assert_eq!(env.entry("personal").git.origin, url(&remote));
 }
 
-// Go: TestInitAgainstAMissingRepositorySaysToCreateIt. gage never creates
+// Gage never creates
 // a repository for you, and says so; the local vault stays.
 #[test]
 fn init_against_a_missing_repository_says_to_create_it() {
@@ -136,7 +133,7 @@ fn init_against_an_unreachable_remote_succeeds_and_says_so() {
 
 const HOST: &str = "127.0.0.1";
 
-// Go: TestInitSolicitsATokenWhenNoneIsStored. Checked at the recorder: the
+// Checked at the recorder: the
 // token typed at the prompt is what the push presented.
 #[test]
 fn init_solicits_a_token_when_none_is_stored() {
@@ -172,7 +169,7 @@ fn init_solicits_a_token_when_none_is_stored() {
     assert!(!r.stdout.contains("tok_from_prompt") && !r.stderr.contains("tok_from_prompt"));
 }
 
-// Go: TestInitSkipsTheTokenWhenTheAnswerIsBlank. Not every remote needs a
+// Not every remote needs a
 // token; a blank answer stores nothing and the push goes anonymously.
 #[test]
 fn init_skips_the_token_when_the_answer_is_blank() {
@@ -197,7 +194,7 @@ fn init_skips_the_token_when_the_answer_is_blank() {
     assert!(recorder.authorizations().is_empty(), "not anonymous");
 }
 
-// Go: TestInitDoesNotPromptWhenATokenAlreadyExists. The FakePrompter has
+// The FakePrompter has
 // no value scripted, so a prompt would fail the test outright.
 #[test]
 fn init_does_not_prompt_when_a_token_already_exists() {
@@ -224,7 +221,6 @@ fn init_does_not_prompt_when_a_token_already_exists() {
     );
 }
 
-// Go: TestInitDoesNotPromptForALocalRemote
 #[test]
 fn init_does_not_prompt_for_a_local_remote() {
     let env = Env::new();
@@ -247,7 +243,6 @@ fn init_does_not_prompt_for_a_local_remote() {
 
 // --- pull / push / sync -----------------------------------------------------
 
-// Go: TestPushPublishesAndPullCatchesUp
 #[test]
 fn push_publishes_and_pull_catches_up() {
     let env = Env::new();
@@ -266,7 +261,7 @@ fn push_publishes_and_pull_catches_up() {
     assert!(Device::clone(remote.path()).exists("mine.txt"));
 }
 
-// Go: TestOneShotCommandPullsOnItsImplicitUnlock. `show` knows nothing of
+// `show` knows nothing of
 // remotes, but it unlocks, and unlocking pulls.
 #[test]
 fn one_shot_command_pulls_on_its_implicit_unlock() {
@@ -284,7 +279,6 @@ fn one_shot_command_pulls_on_its_implicit_unlock() {
     );
 }
 
-// Go: TestWriteReachesTheRemoteWithoutAnyoneAskingIt
 #[test]
 fn write_reaches_the_remote_without_anyone_asking_it() {
     let env = Env::new();
@@ -303,7 +297,7 @@ fn write_reaches_the_remote_without_anyone_asking_it() {
     assert_eq!(entry_files(Device::clone(remote.path()).path()).len(), 1);
 }
 
-// Beyond Go's one row: every write command pushes.
+// Every write command pushes.
 #[test]
 fn every_write_command_pushes() {
     let env = Env::new();
@@ -331,7 +325,6 @@ fn every_write_command_pushes() {
     }
 }
 
-// Go: TestPullReportsADivergenceRatherThanMergingIt
 #[test]
 fn pull_reports_a_divergence_rather_than_merging_it() {
     let env = Env::new();
@@ -345,7 +338,7 @@ fn pull_reports_a_divergence_rather_than_merging_it() {
     assert!(!vault.join("notes.txt").exists(), "pull merged");
 }
 
-// Go: TestSyncMergesADisjointDivergenceWithoutPrompting. Sync unlocks
+// Sync unlocks
 // lazily: nothing here is decrypted, so nothing asks for a passphrase.
 #[test]
 fn sync_merges_a_disjoint_divergence_without_prompting() {
@@ -364,7 +357,6 @@ fn sync_merges_a_disjoint_divergence_without_prompting() {
     assert!(fresh.exists("local.txt") && fresh.exists("notes.txt"));
 }
 
-// Go: TestSyncReportsAConflictingDivergenceAndNamesTheVault
 #[test]
 fn sync_reports_a_conflicting_divergence_and_names_the_vault() {
     let env = Env::new();
@@ -382,7 +374,7 @@ fn sync_reports_a_conflicting_divergence_and_names_the_vault() {
     );
 }
 
-// Go: TestSyncOnAVaultWithNoRemoteSaysSoAndSucceeds. Not "in sync with
+// Not "in sync with
 // origin": there is no origin.
 #[test]
 fn sync_on_a_vault_with_no_remote_says_so_and_succeeds() {
@@ -396,7 +388,7 @@ fn sync_on_a_vault_with_no_remote_says_so_and_succeeds() {
     }
 }
 
-// Go: TestOfflineExitsUnreachableAndDivergedExitsConflict. The same failed
+// The same failed
 // push needs different things from a script: retry later, or a human.
 #[test]
 fn offline_exits_unreachable_and_diverged_exits_conflict() {
@@ -447,7 +439,6 @@ fn an_auth_failure_exits_locked_or_auth_with_the_hint() {
     }
 }
 
-// Go: TestPushNamesTheConflictingPathsJustLikeSync
 #[test]
 fn push_names_the_conflicting_paths_just_like_sync() {
     let env = Env::new();
@@ -460,7 +451,7 @@ fn push_names_the_conflicting_paths_just_like_sync() {
     assert!(r.stderr.contains("shared.txt"), "{}", r.stderr);
 }
 
-// Go: TestSyncRefusesOverUncommittedChanges. Merging over them would
+// Merging over them would
 // publish half-typed work in an automatic merge commit.
 #[test]
 fn sync_refuses_over_uncommitted_changes() {
@@ -476,9 +467,7 @@ fn sync_refuses_over_uncommitted_changes() {
     assert!(!Device::clone(remote.path()).exists("scratch.txt"));
 }
 
-// Go: TestSyncLineSaysAlreadyInSyncWhenThereWasNothingToDo, end to end as
-// Go's comment asks once F2 is fixed (Q-SYNC-PUSHED), and on the line
-// itself.
+// End to end (ADR-0017), and on the line itself.
 #[test]
 fn sync_line_says_already_in_sync_when_there_was_nothing_to_do() {
     let env = Env::new();
@@ -500,9 +489,7 @@ fn sync_line_says_already_in_sync_when_there_was_nothing_to_do() {
     }
 }
 
-// Go: TestSyncReportsAPushEvenWhenNothingWasSent, ported with its
-// assertion flipped (Q-SYNC-PUSHED): Go pinned a known bug, F2, and said
-// fixing it would turn the test red. A push returns whether anything was
+// ADR-0017: a push returns whether anything was
 // sent, so an in-sync `sync` claims no push.
 #[test]
 fn sync_reports_no_push_when_nothing_was_sent() {
@@ -513,7 +500,6 @@ fn sync_reports_no_push_when_nothing_was_sent() {
     assert!(!r.stdout.contains("pushed"), "{}", r.stdout);
 }
 
-// Go: TestReportConflictsSaysRecipientFilesAreNeverMerged
 #[test]
 fn report_conflicts_says_recipient_files_are_never_merged() {
     let env = Env::new();
@@ -535,8 +521,7 @@ fn report_conflicts_says_recipient_files_are_never_merged() {
         "{recipients}"
     );
     assert!(recipients.contains(path.to_str().unwrap()), "{recipients}");
-    // What to do next, since `gage sync` refuses these too (M10's settling
-    // of P4's follow-up).
+    // What to do next, since `gage sync` refuses these too.
     assert!(recipients.contains("reconcile"), "{recipients}");
     assert!(recipients.contains("gage recipient verify"), "{recipients}");
     assert!(!recipients.contains("run `gage sync`"), "{recipients}");
@@ -573,7 +558,7 @@ fn sync_verbs_in_a_session_need_no_unlock() {
 // --- conflict resolution ----------------------------------------------------
 
 /// A vault genuinely diverged on one entry, both versions real ciphertext
-/// this device can read (Go's `conflictingVault`). The other device's
+/// this device can read. The other device's
 /// version of Alpha is a copy of Beta's file: a real entry for this
 /// vault's recipients, now at Alpha's path. Returns the vault's path,
 /// Alpha's id, and the remote, which lives as long as the test holds it.
@@ -606,7 +591,7 @@ fn head(dir: &Path) -> (usize, String) {
     )
 }
 
-// Go: TestSyncResolvesAConflictInteractivelyAndPushes. The milestone's
+// The milestone's
 // definition of done through the CLI: two devices edited one entry, a
 // human answered, and the result reached the remote.
 #[test]
@@ -662,7 +647,7 @@ fn sync_in_a_session_resolves_with_the_held_key() {
     assert_eq!(e.value, "beta-secret");
 }
 
-// Go: TestSyncWithoutATerminalRefusesRatherThanChoosing. The real
+// The real
 // terminal prompter, with no terminal: a script or CI.
 #[test]
 fn sync_without_a_terminal_refuses_rather_than_choosing() {
@@ -683,7 +668,7 @@ fn sync_without_a_terminal_refuses_rather_than_choosing() {
     assert_eq!(entry_files(&path).len(), 2);
 }
 
-// Go: TestYesDoesNotResolveConflicts. Since M10, `--yes` is a real root
+// `--yes` is a real root
 // flag: the run is accepted, reaches the conflict, and must refuse rather
 // than answer it. `--yes` answers the recipient-change question only, and
 // passes the conflict to the prompter underneath, which here has nobody
@@ -721,7 +706,7 @@ fn sync_with_a_skip_exits_conflict_and_pushes_nothing() {
     assert_eq!(head(&path), before);
 }
 
-// Go: TestPluralEntries (sync_cli_test.go), moved from M8a2: the
+// Plural entries: the
 // "resolved N entries" line is its only caller. "1 entry", not "1 entries".
 #[test]
 fn plural_entries() {
@@ -773,8 +758,8 @@ impl std::io::Write for SharedOut {
 // --- clone ------------------------------------------------------------------
 
 /// A vault initialized and seeded on one machine, published to a bare
-/// remote; then a second, empty machine to clone from it (Go's
-/// `publishedVault`). The first machine is returned so its files outlive
+/// remote; then a second, empty machine to clone from it.
+/// The first machine is returned so its files outlive
 /// the test body.
 fn published_vault() -> (Env, BareRemote, Env) {
     let first = Env::new();
@@ -793,7 +778,6 @@ impl Env {
     }
 }
 
-// Go: TestCloneProducesARegisteredWorkingVault
 #[test]
 fn clone_produces_a_registered_working_vault() {
     let (_first, remote, env) = published_vault();
@@ -818,10 +802,9 @@ fn clone_produces_a_registered_working_vault() {
     Vault::from_registration(&env.dirs, "personal", &entry).unwrap();
 }
 
-// Go: vaultid_keying TestCloneCopiesTheVaultsIDIntoGlobalConfig. The id
+// The id
 // travels inside the vault, so a clone inherits it rather than minting one:
 // that is why two clones of one vault agree however they are named locally.
-// Ported late, in P9 · S1.
 #[test]
 fn clone_copies_the_vaults_id_into_global_config() {
     let (first, remote, env) = published_vault();
@@ -840,7 +823,6 @@ fn clone_copies_the_vaults_id_into_global_config() {
     );
 }
 
-// Go: TestCloneInfersTheNameFromTheURLAndNameOverridesIt
 #[test]
 fn clone_infers_the_name_from_the_url_and_name_overrides_it() {
     let (_first, remote, env) = published_vault();
@@ -854,7 +836,6 @@ fn clone_infers_the_name_from_the_url_and_name_overrides_it() {
     assert!(!env.global().vaults.contains_key("remote"));
 }
 
-// Go: TestCloneWithoutDirLandsUnderGageData
 #[test]
 fn clone_without_dir_lands_under_gage_data() {
     let (_first, remote, env) = published_vault();
@@ -871,7 +852,7 @@ fn clone_without_dir_lands_under_gage_data() {
     assert!(dir.join(".age-recipients").exists());
 }
 
-// Go: TestCloneSaysSoWhenThisDeviceCannotDecryptAnything. Cloning does not
+// Cloning does not
 // grant access, and says so plainly instead of leaving a vault that
 // silently decrypts nothing.
 #[test]
@@ -884,7 +865,7 @@ fn clone_says_so_when_this_device_cannot_decrypt_anything() {
     assert_eq!(env.entry("personal").device, "phone");
 }
 
-// Go: TestCloneRefusesAnUnrecognizedFormatVersion. And beyond Go's row: a
+// And a
 // refused clone leaves no registration and no half-made directory.
 #[test]
 fn clone_refuses_an_unrecognized_format_version() {
@@ -914,7 +895,7 @@ fn clone_refuses_an_unrecognized_format_version() {
     );
 }
 
-// Beyond Go's rows: a clone that fails in git leaves nothing either, and
+// A clone that fails in git leaves nothing either, and
 // one into a --dir that already existed (empty) leaves it existing and
 // empty rather than deleting it.
 #[test]
@@ -1003,7 +984,6 @@ fn offline_warnings_reach_the_terminal() {
     );
 }
 
-// Go: TestCloneRefusesAnAlreadyRegisteredName
 #[test]
 fn clone_refuses_an_already_registered_name() {
     let (_first, remote, env) = published_vault();
@@ -1016,7 +996,6 @@ fn clone_refuses_an_already_registered_name() {
     assert!(r.stderr.contains("--name"), "{}", r.stderr);
 }
 
-// Go: TestCloneIsOneShotOnly
 #[test]
 fn clone_is_one_shot_only() {
     let clone = registry()
@@ -1042,7 +1021,6 @@ fn clone_refuses_a_name_that_escapes_the_vaults_directory() {
     assert!(!paths::vaults_dir(&env.dirs).exists());
 }
 
-// Go: TestCurrentFormatVersionIsWhatCloneChecks
 #[test]
 fn current_format_version_is_what_clone_checks() {
     assert_ne!(vaultconfig::CURRENT_FORMAT_VERSION, 99);
@@ -1050,7 +1028,7 @@ fn current_format_version_is_what_clone_checks() {
 
 // --- error prefixes ---------------------------------------------------------
 
-// Go: TestNoCommandDoublesGagesOwnPrefix, for the sync verbs and the
+// For the sync verbs and the
 // warnings a write's push or an unlock's pull add (ledger `ddce8b1`). A
 // warning reaches the prompter, so each case's warnings are checked with
 // its output; the real prompter prints them as they are.

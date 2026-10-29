@@ -76,8 +76,7 @@ impl Vault {
     }
 
     /// `e` encrypted to every recipient currently listed in
-    /// `.age-recipients`, without writing it anywhere (Go's
-    /// `encryptEntry`): what [`Vault::write_entry`] writes, and what a
+    /// `.age-recipients`, without writing it anywhere: what [`Vault::write_entry`] writes, and what a
     /// conflict resolution's keep-both hands the merge to create. Stamps
     /// nothing: the entry is encrypted exactly as given.
     pub fn encrypt_entry(&self, e: &Entry) -> Result<Vec<u8>, Error> {
@@ -240,7 +239,6 @@ mod tests {
         }
     }
 
-    // Go: TestWriteEntryThenReadEntryRoundTrips
     #[test]
     fn write_entry_then_read_entry_round_trips() {
         let f = Fixture::new(1);
@@ -255,7 +253,7 @@ mod tests {
         assert_eq!(f.vault.entry_ids().unwrap(), vec![id]);
     }
 
-    // Go: TestEncryptDecryptEntryRoundTripIsByteIdentical. Every string
+    // Every string
     // gage owns survives encrypt and decrypt unchanged.
     #[test]
     fn entry_survives_encryption_byte_for_byte() {
@@ -276,7 +274,6 @@ mod tests {
         assert_eq!(back, e);
     }
 
-    // Go: TestEntryDecryptableByEveryRecipient
     #[test]
     fn entry_is_decryptable_by_every_recipient() {
         let f = Fixture::new(3);
@@ -291,7 +288,6 @@ mod tests {
         }
     }
 
-    // Go: TestWriteEntryFilePermissions
     #[cfg(unix)]
     #[test]
     fn write_entry_file_permissions() {
@@ -319,7 +315,7 @@ mod tests {
         );
     }
 
-    // Go: TestWriteEntryIsAtomic. The write goes through atomicfile (whose
+    // The write goes through atomicfile (whose
     // own tests prove the temp-and-rename); what is checked here is that
     // nothing but the finished file is left behind, and that a failed
     // write leaves the previous ciphertext untouched.
@@ -352,7 +348,6 @@ mod tests {
         assert_eq!(names(), vec![format!("{id}.age")]);
     }
 
-    // Go: TestEntryFileRevealsNothingInPlaintext
     #[test]
     fn entry_file_reveals_nothing_in_plaintext() {
         let f = Fixture::new(1);
@@ -378,7 +373,6 @@ mod tests {
         }
     }
 
-    // Go: TestWriteEntryRejectsARecipientItCannotEncryptTo
     #[test]
     fn write_entry_rejects_a_recipient_it_cannot_encrypt_to() {
         let f = Fixture::new(1);
@@ -394,7 +388,6 @@ mod tests {
         assert!(!f.vault.entries_dir().exists(), "nothing is written");
     }
 
-    // Go: TestWriteEntryWithoutARecipientsFileFails
     #[test]
     fn write_entry_without_a_recipients_file_fails() {
         let f = Fixture::new(1);
@@ -411,7 +404,6 @@ mod tests {
         );
     }
 
-    // Go: TestReadEntryUnknownIDFails
     #[test]
     fn read_entry_unknown_id_fails_not_found() {
         let f = Fixture::new(1);
@@ -425,7 +417,6 @@ mod tests {
         assert!(err.to_string().contains(&id.to_string()));
     }
 
-    // Go: TestReadEntryWithNonRecipientIdentityFailsWithTypedError
     #[test]
     fn read_entry_with_a_non_recipient_identity_fails_typed() {
         let f = Fixture::new(1);
@@ -440,7 +431,6 @@ mod tests {
         assert_eq!(err.code(), Code::LockedOrAuth);
     }
 
-    // Go: TestReadEntryOnCorruptCiphertextFails
     #[test]
     fn read_entry_on_corrupt_ciphertext_fails() {
         let f = Fixture::new(1);
@@ -481,7 +471,6 @@ mod tests {
         assert_eq!(err.code(), Code::Conflict);
     }
 
-    // Go: TestEntryIDsListsFilesInEntriesDir
     #[test]
     fn entry_ids_lists_files_in_the_entries_dir_sorted() {
         let f = Fixture::new(1);
@@ -493,7 +482,6 @@ mod tests {
         assert_eq!(f.vault.entry_ids().unwrap(), ids);
     }
 
-    // Go: TestEntryIDsSkipsSubdirectoriesAndStrayFiles
     #[test]
     fn entry_ids_skips_subdirectories_and_stray_files() {
         let f = Fixture::new(1);

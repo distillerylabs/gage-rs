@@ -3,8 +3,8 @@
 //! A commit is a change when its version of the path differs from *every*
 //! parent's. Diffing against the previous commit in the walk instead would
 //! invent changes and deletions on any vault that has synced, because a
-//! walk interleaves both sides of every merge (the bug Go's first `Log`
-//! shipped with). "Absent" and "present but empty" are different versions,
+//! walk interleaves both sides of every merge (a bug an earlier `log` shipped
+//! with). "Absent" and "present but empty" are different versions,
 //! so presence is compared along with content.
 
 use std::collections::HashMap;
@@ -17,7 +17,7 @@ use super::{Error, fail, open};
 pub struct Revision {
     /// The commit id, in full.
     pub id: String,
-    /// The author time, as Go's `c.Author.When`.
+    /// The author time.
     pub when: jiff::Timestamp,
     /// The commit message. gage's are an entry's UUID and nothing else.
     pub message: String,

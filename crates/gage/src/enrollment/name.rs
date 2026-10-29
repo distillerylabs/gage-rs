@@ -1,5 +1,5 @@
 //! The pending filename, `<request-id>-<expires-epoch>.age`, and the expiry
-//! rule shared by everything that reads one. See D-ENROLL-EXPIRY-IN-NAME.
+//! rule shared by everything that reads one. See ADR-0042.
 
 use jiff::{SignedDuration, Timestamp};
 
@@ -36,7 +36,7 @@ pub(crate) fn parse_pending_file_name(name: &str) -> Option<(String, Timestamp)>
     {
         return None;
     }
-    // Past i64 doesn't parse, and is a stray, as in Go: never listed or
+    // Past i64 doesn't parse, and is a stray: never listed or
     // counted, just never pruned either.
     let seconds: i64 = epoch.parse().ok()?;
     // Past what a timestamp can hold is past the ceiling too: a forged

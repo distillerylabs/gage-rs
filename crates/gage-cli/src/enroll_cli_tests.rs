@@ -1,5 +1,5 @@
-//! `gage identity enroll` through the real CLI, in-process: Go's
-//! `enroll_cli_test.go`. Each test names its Go row. [`TwoDevices`] gives
+//! `gage identity enroll` through the real CLI, in-process.
+//! [`TwoDevices`] gives
 //! device A (the owner, `init --remote`) and device B (cloned, no
 //! identity), the state a joining machine starts from.
 
@@ -57,7 +57,6 @@ fn stray_key() -> String {
     age::x25519::Identity::generate().to_public().to_string()
 }
 
-// Go: TestIdentityEnrollPublishesARequestAndPrintsTheCode
 #[test]
 fn identity_enroll_publishes_a_request_and_prints_the_code() {
     let t = TwoDevices::new();
@@ -68,7 +67,7 @@ fn identity_enroll_publishes_a_request_and_prints_the_code() {
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
 }
 
-// Go: TestIdentityEnrollRecordsThisDevicesPubkey. Without it the orphan
+// Without it the orphan
 // check keeps the file on every enrolled device, and enroll's own
 // already-a-recipient check has nothing to compare next time.
 #[test]
@@ -83,8 +82,8 @@ fn identity_enroll_records_this_devices_pubkey() {
     assert!(r.stdout.contains(&entry.pubkey), "{}", r.stdout);
 }
 
-// Go: TestIdentityEnrollTheSecondTimeIsANoOpOnceApproved. The key is added
-// by `recipient add`, since approve is E4's.
+// The key is added
+// by `recipient add`, since approve is not the subject here.
 #[test]
 fn identity_enroll_the_second_time_is_a_no_op_once_approved() {
     let t = TwoDevices::new();
@@ -104,7 +103,6 @@ fn identity_enroll_the_second_time_is_a_no_op_once_approved() {
     assert!(pending_on_remote(&t._origin).is_empty());
 }
 
-// Go: TestIdentityEnrollRefusesANameThatLabelsSomeoneElse
 #[test]
 fn identity_enroll_refuses_a_name_that_labels_someone_else() {
     let t = TwoDevices::new();
@@ -122,7 +120,6 @@ fn identity_enroll_refuses_a_name_that_labels_someone_else() {
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
 }
 
-// Go: TestIdentityEnrollRefusesAnUnusableTTL
 #[test]
 fn identity_enroll_refuses_an_unusable_ttl() {
     for ttl in ["0", "-1h", "8d", "169h", "soon"] {
@@ -149,7 +146,6 @@ fn request_lifetime(remote: &BareRemote) -> i64 {
     epoch - jiff::Timestamp::now().as_second()
 }
 
-// Go: TestIdentityEnrollHonorsTTLAndDefaultsTo24h
 #[test]
 fn identity_enroll_honors_ttl_and_defaults_to_24h() {
     for (extra, want) in [(&[][..], 24 * 3600), (&["--ttl", "2h"][..], 2 * 3600)] {
@@ -161,7 +157,6 @@ fn identity_enroll_honors_ttl_and_defaults_to_24h() {
     }
 }
 
-// Go: TestIdentityEnrollRefusesAnInvalidDeviceName
 #[test]
 fn identity_enroll_refuses_an_invalid_device_name() {
     let t = TwoDevices::new();
@@ -172,7 +167,6 @@ fn identity_enroll_refuses_an_invalid_device_name() {
     assert!(identity_files(&t.b).is_empty());
 }
 
-// Go: TestIdentityEnrollRemoteErrorsCarryTheirExitCodes
 #[test]
 fn identity_enroll_remote_errors_carry_their_exit_codes() {
     // No remote: its own error, naming the command that configures one.
@@ -193,7 +187,6 @@ fn identity_enroll_remote_errors_carry_their_exit_codes() {
     assert!(pending_on_remote(&t._origin).is_empty());
 }
 
-// Go: TestIdentityEnrollSelectsAVaultWithUse
 #[test]
 fn identity_enroll_selects_a_vault_with_use() {
     let t = TwoDevices::new();
@@ -225,7 +218,6 @@ fn identity_enroll_selects_a_vault_with_use() {
     );
 }
 
-// Go: TestTheTwoSecretsNeverCross
 #[test]
 fn the_two_secrets_never_cross() {
     let t = TwoDevices::new();
@@ -261,7 +253,7 @@ fn the_two_secrets_never_cross() {
     }
 }
 
-// Go: TestBothSecretsAreLabelledAtTheirPointOfUse. The passphrase half is
+// The passphrase half is
 // rendered by the real terminal prompter, so it is asserted there.
 #[test]
 fn both_secrets_are_labelled_at_their_point_of_use() {
@@ -301,7 +293,6 @@ fn both_secrets_are_labelled_at_their_point_of_use() {
     assert!(said.contains("stays on this device"), "{said}");
 }
 
-// Go: TestHumanDurationReadsLikeAPersonSaidIt
 #[test]
 fn human_duration_reads_like_a_person_said_it() {
     let h = |h: u64, m: u64| Duration::from_secs(h * 3600 + m * 60);
@@ -331,7 +322,6 @@ fn stdin_script(env: &Env, lines: &[&str], passphrase: Option<&str>, tty: bool) 
     )
 }
 
-// Go: TestIdentityEnrollWorksInASessionAgainstAVaultThatWasNeverUnlocked.
 // On the reuse path, the one a script can answer.
 #[test]
 fn identity_enroll_works_in_a_session_against_a_vault_that_was_never_unlocked() {
@@ -350,8 +340,6 @@ fn identity_enroll_works_in_a_session_against_a_vault_that_was_never_unlocked() 
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
 }
 
-// Go: TestUseStillFailsOnAVaultThisDeviceCannotDecrypt. The hint is M6's
-// obligation.
 #[test]
 fn use_still_fails_on_a_vault_this_device_cannot_decrypt() {
     let t = TwoDevices::new();
@@ -360,7 +348,7 @@ fn use_still_fails_on_a_vault_this_device_cannot_decrypt() {
     assert!(r.stderr.contains("identity enroll"), "{}", r.stderr);
 }
 
-// Go: TestScriptedEnrollRefusesTheCreatePath. A new identity's passphrase
+// A new identity's passphrase
 // is a Create answer, and GAGE_PASSPHRASE deliberately never answers one.
 #[test]
 fn scripted_enroll_refuses_the_create_path() {
@@ -378,7 +366,7 @@ fn scripted_enroll_refuses_the_create_path() {
     }
 }
 
-// Go: TestScriptedEnrollSucceedsOnTheReusePath: the retry-after-a-failed-
+// The retry-after-a-failed-
 // push path, and the reason enroll is scriptable at all.
 #[test]
 fn scripted_enroll_succeeds_on_the_reuse_path() {
@@ -395,7 +383,7 @@ fn scripted_enroll_succeeds_on_the_reuse_path() {
     assert_eq!(pending_on_remote(&t._origin).len(), 1);
 }
 
-// Go: TestARefusedScriptedEnrollLeavesTheFastForwardInPlace. The refusal
+// The refusal
 // lands after the catch-up, with the lock released and nothing to undo.
 #[test]
 fn a_refused_scripted_enroll_leaves_the_fast_forward_in_place() {
@@ -421,7 +409,6 @@ fn a_refused_scripted_enroll_leaves_the_fast_forward_in_place() {
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
 }
 
-// Go: TestScriptFileAtATerminalTakesTheCreatePathNormally
 #[test]
 fn script_file_at_a_terminal_takes_the_create_path_normally() {
     let t = TwoDevices::new();

@@ -4,8 +4,8 @@
 //! included, to a core file. A policy for the whole process, so it belongs
 //! to the binary, and `main` calls it before anything else.
 //!
-//! Linux `prctl(PR_SET_DUMPABLE)` is deliberately not added: Go doesn't,
-//! and it also blocks debuggers and `/proc` access, which is a behavior
+//! Linux `prctl(PR_SET_DUMPABLE)` is deliberately not added: it blocks
+//! debuggers and `/proc` access, which is a behavior
 //! change rather than a hardening of this one.
 
 #![allow(unsafe_code)]
@@ -192,7 +192,7 @@ mod tests {
             .to_string()
     }
 
-    // Go: TestCoreDumpsAreDisabled: the effect, read back from the OS after
+    // The effect, read back from the OS after
     // first undoing whatever suppression the environment already applied;
     // irrevocability only where the platform offers it.
     #[test]
@@ -207,13 +207,12 @@ mod tests {
         }
     }
 
-    // Go: TestDisablingCoreDumpsIsIdempotent
     #[test]
     fn disabling_core_dumps_is_idempotent() {
         assert_eq!(run_child("idempotent"), "ok");
     }
 
-    // Go: TestMainDisablesCoreDumpsAtStartup. Guards the wiring: the call
+    // Guards the wiring: the call
     // can be correct and never made, and a missing call is silent. It must
     // be main's first statement, before anything that could hold a key.
     #[test]

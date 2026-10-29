@@ -19,8 +19,8 @@ use super::init::resolve_device_name;
 use super::sync::with_resolved_vault;
 use super::{Keys, fail, out};
 use crate::Io;
+use crate::duration::{self, DurationError};
 use crate::error::CliError;
-use crate::shell::{DurationError, go_duration_string, parse_duration};
 
 pub const LONG_ABOUT: &str = "Register this device's identity and publish a request to join.
 
@@ -45,8 +45,8 @@ pub fn flags() -> Vec<Arg> {
             .value_name("duration")
             .help(format!(
                 "how long the request stays open (max {}) (default {})",
-                go_duration_string(MAX_ENROLLMENT_TTL),
-                go_duration_string(DEFAULT_ENROLLMENT_TTL)
+                duration::format(MAX_ENROLLMENT_TTL),
+                duration::format(DEFAULT_ENROLLMENT_TTL)
             )),
         use_flag(),
     ]
@@ -75,7 +75,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cli
 }
 
 fn parse_ttl(typed: &str) -> Result<Duration, CliError> {
-    parse_duration(typed).map_err(|e| {
+    duration::parse(typed).map_err(|e| {
         let why = match e {
             DurationError::Malformed => "not a duration such as 24h or 90m",
             DurationError::Negative => "a request cannot live for a negative time",

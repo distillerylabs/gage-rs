@@ -12,12 +12,12 @@ use crate::syncerr::{self, Kind};
 use crate::xdgpaths::Dirs;
 
 /// How long one fetch, push or clone may take before it is abandoned as
-/// unreachable (Q-REMOTE-TIMEOUT). libgit2's connect and read timeouts are
+/// unreachable (ADR-0018). libgit2's connect and read timeouts are
 /// set to it once, in [`isolate`]; the whole operation is bounded by a
 /// deadline its progress callbacks check.
 pub const REMOTE_OP_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Which redirects a remote operation follows (Q-REMOTE-AUTH).
+/// Which redirects a remote operation follows (ADR-0020).
 ///
 /// libgit2's own HTTP client honors `Initial` as named: only the first
 /// request's redirect, and the token is offered only through the
@@ -262,8 +262,7 @@ pub fn compare(dir: &Path) -> Result<RemoteState, Error> {
 /// in the walk. Stopping at the merge-base *commit* instead is wrong once
 /// a merge sits between the local head and the base: the walk descends
 /// the merge's other parent into shared history and counts the vault's
-/// whole history as pending (Go's correction,
-/// `TestAheadCountIsNotFooledByAMergeCommit`).
+/// whole history as pending.
 pub fn ahead_count(dir: &Path) -> Result<usize, Error> {
     let repo = open(dir)?;
     let (local, Some(remote)) = head_and_tracking(&repo, dir)? else {

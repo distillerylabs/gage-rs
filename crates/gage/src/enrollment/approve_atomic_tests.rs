@@ -1,5 +1,5 @@
-//! E4 task 2: approval's atomicity and its two questions, and how it meets
-//! the trust cache (Go's `enrollapproveatomic_test.go`).
+//! Approval's atomicity and its two questions, and how it meets
+//! the trust cache.
 
 use super::approve_tests::{
     approve_as, approve_one, at_head, authorize, codes_of, enrolled, head, insert_as,
@@ -31,7 +31,7 @@ fn list_by_hand(a: &SyncVault, device: &str, pubkey: &str) {
 }
 
 /// Commits a request nobody will honour, under a filename expiring at
-/// `expires`, and returns its name (Go's `layStaleRequest`).
+/// `expires`, and returns its name.
 pub(crate) fn lay_stale_request(v: &Vault, expires: jiff::Timestamp) -> String {
     let name = pending_file_name(&uuid::Uuid::new_v4().to_string(), expires);
     super::fixtures_tests::write_pending(v, &name, b"not a seal anyone will ever open");
@@ -39,7 +39,6 @@ pub(crate) fn lay_stale_request(v: &Vault, expires: jiff::Timestamp) -> String {
     name
 }
 
-// Go: TestApprovalWritesWhatItVerifiedUnderTheLockNotWhatWasDisplayed.
 // The same filename and code, a different key under the seal, swapped in
 // after the open. An approval that trusted what it was handed would admit
 // a key nobody saw; one that writes from the re-open refuses.
@@ -111,7 +110,7 @@ fn reseal_as(a: &SyncVault, req: &EnrollmentRequest, name: &str, payload: &Paylo
     .unwrap();
 }
 
-// Beyond Go's rows, found in the review (task 9). The swap above changes
+// Found in review. The swap above changes
 // the key; this one keeps it and changes only the name, which a check
 // comparing keys alone would pass and then record under a name nobody was
 // shown. Consent was given for what was rendered, every field of it.
@@ -146,7 +145,7 @@ fn approval_refuses_a_request_whose_device_name_changed_after_it_was_shown() {
     assert_eq!(head(&a.vault), before);
 }
 
-// Beyond Go's rows, found in the review (task 9). The commit deletes the
+// Found in review. The commit deletes the
 // file the re-open read, not the name the sealed expiry implies: the
 // filename's epoch is unauthenticated, so a rebuilt path can miss, and an
 // approval that missed would grant access and leave the request pending.
@@ -184,7 +183,7 @@ fn approval_deletes_the_file_it_verified_not_the_name_its_seal_implies() {
     assert!(!at_head(&a.vault, &format!("{PENDING_DIR}/{refiled}")));
 }
 
-// Beyond Go's rows, found in the review (task 9). A code that opens the
+// Found in review. A code that opens the
 // request under the lock and is refused there answers with that refusal,
 // not `NoLongerPending`: "approve it in the other vault" and "another
 // device resolved it" send a human to different places.
@@ -225,7 +224,7 @@ fn a_refusal_under_the_lock_is_reported_as_itself() {
     assert_eq!(head(&a.vault), before);
 }
 
-// Beyond Go's rows, found in the review (task 9). The re-open finds the
+// Found in review. The re-open finds the
 // file by its id without the liveness filter, so a request that expired
 // between the open and the lock is `Expired`, as its seal says, rather
 // than missing.
@@ -260,7 +259,7 @@ fn a_request_that_expired_in_the_window_is_reported_as_expired() {
     assert_eq!(head(&a.vault), before);
 }
 
-// Go: TestInterruptedApprovalLeavesHEADUntouchedAndRequestsPending. A crash
+// A crash
 // mid-re-encryption commits nothing and clears nothing, on disk or at
 // HEAD, which is what another device would see.
 #[test]
@@ -296,7 +295,7 @@ fn interrupted_approval_leaves_head_untouched_and_requests_pending() {
     assert_eq!(key_listed_as(&a.vault, &opened.pubkey), None);
 }
 
-// Go: TestTheAuthoritativeDuplicateCheckStillFiresUnderTheLock. The
+// The
 // pre-check is UX; the check under the lock is the one that has to be
 // right against a concurrent writer, and it is `recipient add`'s
 // `RecipientExists`, not enrollment's `NameTaken`.
@@ -320,9 +319,9 @@ fn the_authoritative_duplicate_check_still_fires_under_the_lock() {
     );
 }
 
-// Go: TestDecliningTheTrustPromptAbortsWithNothingCommitted. "Let this
+// "Let this
 // device in" is the CLI's question; "do you trust the list you are about
-// to encrypt to" is M10's, asked when someone else changed the list.
+// to encrypt to" is the trust check's, asked when someone else changed the list.
 // Declining the second leaves the request pending.
 #[test]
 fn declining_the_trust_prompt_aborts_with_nothing_committed() {
@@ -342,7 +341,7 @@ fn declining_the_trust_prompt_aborts_with_nothing_committed() {
     assert_eq!(pending_names(&a.vault).len(), 1);
 }
 
-// Go: TestApprovalRefusesAnEmptyBatch. A caller bug, not a success that
+// A caller bug, not a success that
 // did no work: the no-op has an outcome and a cleared request.
 #[test]
 fn approval_refuses_an_empty_batch() {
@@ -355,7 +354,7 @@ fn approval_refuses_an_empty_batch() {
     assert!(err.to_string().contains("approve"), "{err}");
 }
 
-// Go: TestApprovalPrunesExpiredRequestsInTheSameCommit. Both kinds gage
+// Both kinds gage
 // will never honour: expired by filename, and beyond the ceiling.
 #[test]
 fn approval_prunes_expired_requests_in_the_same_commit() {
@@ -378,9 +377,8 @@ fn approval_prunes_expired_requests_in_the_same_commit() {
     assert_eq!(super::approve_tests::commits(&a.vault), before + 1);
 }
 
-// Go: TestASecondDeviceGetsTheOrdinaryWarningAfterSomeoneElseApproves.
 // From any other device, an approval is a recipient change made elsewhere:
-// exactly what M10's warning is for.
+// exactly what the recipient-change warning is for.
 #[test]
 fn a_second_device_gets_the_ordinary_warning_after_someone_else_approves() {
     let a = SyncVault::new();
@@ -419,7 +417,7 @@ fn a_second_device_gets_the_ordinary_warning_after_someone_else_approves() {
     );
 }
 
-// Go: TestTheApprovingDeviceDoesNotWarnItselfAboutItsOwnApproval. The
+// The
 // operator just reviewed this list by approving; warning them at their
 // next write teaches them to stop reading the warning.
 #[test]
@@ -445,7 +443,7 @@ fn the_approving_device_does_not_warn_itself_about_its_own_approval() {
     );
 }
 
-// Go: TestAPendingRequestAloneTriggersNoWarning. pending/ is inert:
+// Pending/ is inert:
 // nothing in it changes who can read the vault.
 #[test]
 fn a_pending_request_alone_triggers_no_warning() {

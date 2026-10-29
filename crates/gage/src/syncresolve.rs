@@ -1,5 +1,4 @@
-//! `gage sync` with interactive conflict resolution (Go's
-//! `syncresolve.go`): for each entry both sides of a divergence changed,
+//! `gage sync` with interactive conflict resolution: for each entry both sides of a divergence changed,
 //! decrypt both versions, ask, and land every answer as one real
 //! two-parent merge commit. See "Resolving an entry conflict" in the
 //! design doc.
@@ -13,7 +12,7 @@
 //!   local version, and skip would have become keep-local.
 //! - **Keep both loses nothing.** The other side's version is re-encrypted
 //!   under a fresh id with its own title, `created`, `updated` and
-//!   `updated_by`, and M5's resolver already handles two entries with one
+//!   `updated_by`, and the resolver already handles two entries with one
 //!   title.
 //! - **Unlocking is lazy.** A fast-forward and a disjoint merge decrypt
 //!   nothing, so they never reach the unlock; neither does a conflict on a
@@ -177,7 +176,7 @@ impl Vault {
             // Everything resolution might do is first something the
             // automatic paths do alone, decrypting nothing.
             //
-            // M10's opportunistic check has its own hook here, not only on
+            // The opportunistic trust check has its own hook here, not only on
             // unlock: a clean fast-forward never unlocks anything, so a
             // recipient change it pulled in would otherwise arrive in
             // silence. After the pull, as the unlock hook runs after
@@ -191,8 +190,7 @@ impl Vault {
             };
             // Only an entry conflict is ours. A recipient-file conflict is
             // refused exactly as the automatic push refuses it: the merged
-            // file would be an access list neither device wrote. Go keeps
-            // the refusal after M10 too; once a human has reconciled the
+            // file would be an access list neither device wrote. The refusal stands; once a human has reconciled the
             // files by hand, the trust cache's check before the next
             // encrypt is what reviews the result. A push rejected twice, with no
             // conflict found, is the remote moving again.

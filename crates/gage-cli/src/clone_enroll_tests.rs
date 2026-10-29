@@ -1,4 +1,4 @@
-//! `clone`'s offer to enroll: Go's `clone_enroll_test.go`. Interactive
+//! `clone`'s offer to enroll. Interactive
 //! rows drive the *real* terminal prompter over a scripted stdin, which is
 //! what lets a test see the prompt as rendered rather than only the answer
 //! a fake gave.
@@ -66,7 +66,7 @@ fn assert_access_lines(out: &str) {
     }
 }
 
-// Go: TestInteractiveCloneOffersToEnrollAndYesPublishes. The same end
+// The same end
 // state as `clone` then `identity enroll`.
 #[test]
 fn interactive_clone_offers_to_enroll_and_yes_publishes() {
@@ -83,7 +83,7 @@ fn interactive_clone_offers_to_enroll_and_yes_publishes() {
     assert!(!b.entry(VAULT).pubkey.is_empty(), "no pubkey was recorded");
 }
 
-// Go: TestCloneOfferDefaultsToYes. A `confirm_default_yes` wired to
+// A `confirm_default_yes` wired to
 // `confirm` still compiles and still passes a yes-answering test, so the
 // bare Enter and the `[Y/n]` are asserted together.
 #[test]
@@ -98,7 +98,7 @@ fn clone_offer_defaults_to_yes() {
     assert_eq!(pending_on_remote(&origin).len(), 1, "a bare Enter enrolls");
 }
 
-// Go: TestConfirmsDefaultIsUnchangedEverywhereElse. Adding a default-yes
+// Adding a default-yes
 // question must not have changed the default of the one that was already
 // there: removing this device's own key still declines on Enter.
 #[test]
@@ -127,7 +127,6 @@ fn confirms_default_is_unchanged_everywhere_else() {
     );
 }
 
-// Go: TestCloneOfferDeclinedLeavesTheVaultCloned
 #[test]
 fn clone_offer_declined_leaves_the_vault_cloned() {
     let (_owner, origin, url) = owned_vault();
@@ -147,7 +146,7 @@ fn clone_offer_declined_leaves_the_vault_cloned() {
     assert_eq!(pending_on_remote(&origin).len(), 1);
 }
 
-// Go: TestCloneAndSessionPointAtRecoveryEnroll. A sole owner holding a
+// A sole owner holding a
 // paper key was told only to publish an enrollment request, which needs
 // somebody else to approve it: for them, a dead end. Both places a device
 // with no identity lands say so: clone's message, and the session's `use`.
@@ -201,7 +200,7 @@ fn clone_and_session_point_at_recovery_enroll() {
     assert!(named.iter().any(|c| c == "recovery enroll"), "{named:?}");
 }
 
-// Go: TestNonInteractiveCloneNeverOffersAndExitsZero. The message is the
+// The message is the
 // reworded one, naming `identity enroll` beside the manual path.
 #[test]
 fn non_interactive_clone_never_offers_and_exits_zero() {
@@ -219,7 +218,7 @@ fn non_interactive_clone_never_offers_and_exits_zero() {
     assert_access_lines(&r.stdout);
 }
 
-// Go: TestTheOfferTracksWhereACreateCanBeAnswered. `clone` is one-shot
+// `clone` is one-shot
 // only here, so `--stdin` and `--script` cannot reach it at all: the rule
 // is the terminal, and a script's clone is refused before it could offer.
 #[test]
@@ -267,7 +266,7 @@ fn the_offer_tracks_where_a_create_can_be_answered() {
     assert!(pending_on_remote(&origin).is_empty());
 }
 
-// Go: TestCloneDoesNotOfferWhenThisDeviceAlreadyHoldsAnIdentity. A local
+// A local
 // identity was set up deliberately, and clone can't cheaply tell whether
 // it is already a recipient, so it is left alone and no unlock is tried.
 #[test]
@@ -307,7 +306,7 @@ fn clone_does_not_offer_when_this_device_already_holds_an_identity() {
     assert!(pending_on_remote(&origin).is_empty());
 }
 
-// Go: TestCloneDeviceFlagCarriesThroughToTheOffer. The offer uses the
+// The offer uses the
 // name clone resolved, not a second one derived from the hostname, and
 // the sealed request agrees with the printed line.
 #[test]

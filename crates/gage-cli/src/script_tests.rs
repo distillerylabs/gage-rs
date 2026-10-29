@@ -1,8 +1,7 @@
 //! `--script FILE` and `--stdin` through the real CLI, in-process: one
 //! session driven by a list of commands instead of a human at a prompt, and
-//! where its unlocks get a passphrase from. Ports Go's `script_test.go`
-//! (the wrapper rows are `scriptprompt`'s own tests); each test names its
-//! Go row.
+//! where its unlocks get a passphrase from..
+//! (the wrapper rows are `scriptprompt`'s own tests).
 //!
 //! Most runs inject a [`FakePrompter`], which answers without reading
 //! anything, so a prompt that reaches it is an unscripted-question panic.
@@ -149,7 +148,7 @@ fn ok(r: CliResult) -> CliResult {
 
 // --- the mode itself ---------------------------------------------------------
 
-// Go: TestScriptRunsCommandsNonInteractively. A list of lines runs against
+// A list of lines runs against
 // one session, with no prompt anywhere.
 #[test]
 fn script_runs_commands_non_interactively() {
@@ -168,7 +167,7 @@ fn script_runs_commands_non_interactively() {
     );
 }
 
-// Go: TestStdinRunsCommandsNonInteractively. The same, piped.
+// The same, piped.
 #[test]
 fn stdin_runs_commands_non_interactively() {
     let env = with_github();
@@ -177,7 +176,7 @@ fn stdin_runs_commands_non_interactively() {
     assert!(!r.stdout.contains("gage> "), "{}", r.stdout);
 }
 
-// Go: TestScriptUnlocksEachVaultAtMostOnce. What makes the mode worth
+// What makes the mode worth
 // having over a shell loop of one-shot runs: the key is held across the
 // whole run, not re-derived per command.
 #[test]
@@ -219,7 +218,7 @@ fn script_unlocks_each_vault_at_most_once() {
     );
 }
 
-// Go: TestScriptAbortsOnTheFirstFailingCommand. A script has nobody to
+// A script has nobody to
 // notice a line that failed halfway down: later lines don't run, the exit
 // code is the failing command's, and the message says where.
 #[test]
@@ -253,7 +252,7 @@ fn a_failed_stdin_line_names_the_stream_and_keeps_an_ambiguous_list() {
     assert!(r.stderr.contains("GitHub backup"), "{}", r.stderr);
 }
 
-// Beyond Go's rows (M12d's ambiguity decision): the picker is a prompt too.
+// The picker is a prompt too.
 // With the real prompter over the command stream, an ambiguous query must
 // fail with its list and leave the next line unread, not take it for the
 // pick and ask again.
@@ -308,7 +307,7 @@ fn script_on_a_terminal_still_lets_a_human_pick() {
     assert_eq!(inner.choose_lists().len(), 1);
 }
 
-// Go: TestScriptWritesNothingToTheHistoryFile. The history file records
+// The history file records
 // what a human typed at a prompt; a script's lines were never typed.
 #[test]
 fn script_writes_nothing_to_the_history_file() {
@@ -321,7 +320,7 @@ fn script_writes_nothing_to_the_history_file() {
     );
 }
 
-// Go: TestScriptSkipsBlankLinesAndComments. So a checked-in file can be
+// So a checked-in file can be
 // commented like any other.
 #[test]
 fn script_skips_blank_lines_and_comments() {
@@ -338,7 +337,7 @@ fn script_skips_blank_lines_and_comments() {
     assert!(r.stdout.contains("hunter2"), "{}", r.stdout);
 }
 
-// Go: TestScriptExitEndsTheRunEarly. Remaining lines unrun, success.
+// Remaining lines unrun, success.
 #[test]
 fn script_exit_ends_the_run_early() {
     let env = with_github();
@@ -373,7 +372,7 @@ fn script_runs_the_session_verbs_and_stops_on_a_usage_error() {
 
 // --- the flags ---------------------------------------------------------------
 
-// Go: TestScriptAndStdinAreMutuallyExclusive. Two command streams have no
+// Two command streams have no
 // meaning together.
 #[test]
 fn script_and_stdin_are_mutually_exclusive() {
@@ -388,7 +387,7 @@ fn script_and_stdin_are_mutually_exclusive() {
     assert!(r.stderr.contains("mutually exclusive"), "{}", r.stderr);
 }
 
-// Go: TestScriptFlagsRejectASubcommand. They choose where a whole
+// They choose where a whole
 // session's lines come from, so combining one with a one-shot command asks
 // for two different things at once.
 #[test]
@@ -418,7 +417,7 @@ fn script_flags_reject_a_subcommand() {
     }
 }
 
-// Go: TestScriptFlagsAreRefusedInsideASession. They *start* a session, so
+// They *start* a session, so
 // asking for one from inside a session is a category error. Unreachable
 // from the prompt as a bare flag (a line of only flags is an unknown
 // command), so the contract is pinned at the runner a parsed line reaches.
@@ -450,7 +449,7 @@ fn script_flags_are_refused_inside_a_session() {
     );
 }
 
-// Go: TestMissingScriptFileIsAUsageError, rather than an internal one: the
+// Rather than an internal one: the
 // path came off the command line.
 #[test]
 fn a_missing_script_file_is_a_usage_error() {
@@ -465,8 +464,8 @@ fn a_missing_script_file_is_a_usage_error() {
     assert!(r.stderr.contains("opening script"), "{}", r.stderr);
 }
 
-// Go: TestScriptAcceptsAssumeYes. A non-interactive session is the case
-// `--yes` exists for. Amends Q-RECIPIENT-PROMPT; the refusal in a session
+// A non-interactive session is the case
+// `--yes` exists for. Amends ADR-0033; the refusal in a session
 // with a human at it is `trustcache_cli_tests`.
 #[test]
 fn script_accepts_assume_yes() {
@@ -548,7 +547,7 @@ fn a_yes_on_a_script_line_is_accepted() {
     assert!(r.stdout.contains("hunter2"), "{}", r.stdout);
 }
 
-// Go: TestSessionCommandArgumentCountsAreChecked, the --stdin half. A wrong
+// The --stdin half. A wrong
 // argument count prints that command's usage and fails the run, at the line
 // that has it.
 #[test]
@@ -578,8 +577,7 @@ fn stdin_session_command_argument_counts_are_checked() {
 }
 
 // A clap rejection inside a script carries the command's own usage, as it
-// does one-shot (Go: usageerror TestSessionWrongArgCountShowsCommandUsage,
-// through --stdin as Go drives it).
+// does one-shot, here through --stdin.
 #[test]
 fn stdin_wrong_arg_count_shows_command_usage() {
     let env = with_github();
@@ -589,7 +587,7 @@ fn stdin_wrong_arg_count_shows_command_usage() {
     assert!(r.stderr.contains("Usage:\n  gage edit"), "{}", r.stderr);
 }
 
-// Beyond Go's rows: M12c's `-c` in a session schedules its clear, and the
+// `-c` in a session schedules its clear, and the
 // session's own end is what keeps a copy from outliving the process. A
 // script run goes through the same exit path.
 #[test]
@@ -635,7 +633,6 @@ fn a_script_does_not_leave_a_key_for_the_next_run() {
 
 // --- where the passphrase comes from ------------------------------------------
 
-// Go: TestGagePassphraseUnlocksWithoutPromptingOrReadingTheCommandStream.
 // Under --stdin the command stream is the prompter's input, so a prompt
 // would eat the next command.
 #[test]
@@ -663,7 +660,7 @@ fn gage_passphrase_unlocks_without_prompting_or_reading_the_command_stream() {
     );
 }
 
-// Go: TestWrongGagePassphraseFailsAfterOneAttempt. The variable gives the
+// The variable gives the
 // same answer every time, so retrying it would only fail identically.
 #[test]
 fn wrong_gage_passphrase_fails_after_one_attempt() {
@@ -714,7 +711,7 @@ fn an_empty_gage_passphrase_is_set_and_is_refused_as_empty() {
     assert_eq!(r.code, Code::LockedOrAuth, "{}", r.stderr);
 }
 
-// Go: TestGagePassphraseIsIgnoredForANewIdentity, end to end: the variable
+// End to end: the variable
 // unlocks the vault, and `identity add`'s new passphrase still reaches the
 // prompter underneath. The run has to get as far as `identity add`, or the
 // request log is empty and proves nothing.
@@ -747,7 +744,7 @@ fn gage_passphrase_is_ignored_for_a_new_identity() {
     assert_eq!(crate::identity_cli_tests::identity_files(&env).len(), 2);
 }
 
-// Go: TestScriptWithNoPassphraseSourceFailsFast. No variable and no
+// No variable and no
 // terminal: there is nowhere a passphrase could come from, and saying so
 // beats a read that can't be answered or an empty passphrase reported as a
 // wrong one. Exit 5, naming the variable, and no read.
@@ -784,7 +781,7 @@ fn script_with_no_passphrase_source_fails_fast() {
     }
 }
 
-// Go: TestScriptOnATerminalStillPrompts. `--script FILE` leaves stdin free,
+// `--script FILE` leaves stdin free,
 // which is why a human can run one and answer the prompt.
 #[test]
 fn script_on_a_terminal_still_prompts() {
@@ -823,7 +820,7 @@ fn script_on_a_terminal_still_prompts() {
     assert!(r.stdout.contains("hunter2"), "{}", r.stdout);
 }
 
-// Go: TestStdinNeverPromptsEvenOnATerminal. Stdin is already the command
+// Stdin is already the command
 // stream, so prompting on it would race the script for the same bytes.
 #[test]
 fn stdin_never_prompts_even_on_a_terminal() {
@@ -843,7 +840,7 @@ fn stdin_never_prompts_even_on_a_terminal() {
     assert!(r.stderr.contains(ENV_VAR), "{}", r.stderr);
 }
 
-// Go: TestStdinRefusesToCreateAnIdentityWithNoHuman. The variable doesn't
+// The variable doesn't
 // answer for a new identity, and under --stdin the human it defers to
 // doesn't exist: the real prompter's input *is* the command stream. The
 // refusal is explicit, names the reason, and consumes nothing.
@@ -871,7 +868,7 @@ fn stdin_refuses_to_create_an_identity_with_no_human() {
     );
 }
 
-// Go: TestStdinIdentityAddDoesNotEatTheCommandStream. Whatever happens, the
+// Whatever happens, the
 // lines after `identity add` are commands, never a passphrase.
 #[test]
 fn stdin_identity_add_does_not_eat_the_command_stream() {
@@ -916,7 +913,7 @@ fn stdin_identity_add_does_not_eat_the_command_stream() {
     );
 }
 
-// Go: TestScriptOnATerminalStillCreatesIdentitiesInteractively. The refusal
+// The refusal
 // is scoped to "there is no human", not to scripts: `--script FILE` leaves
 // stdin free, so a human running one can still answer.
 #[test]
@@ -941,7 +938,7 @@ fn script_on_a_terminal_still_creates_identities_interactively() {
 }
 
 // One-shot commands never read the variable: it is a script-mode source,
-// as in Go, where only the script prompter looks at it.
+// where only the script prompter looks at it.
 #[test]
 fn a_one_shot_command_ignores_gage_passphrase() {
     let env = with_github();
@@ -960,7 +957,7 @@ fn a_one_shot_command_ignores_gage_passphrase() {
 
 // `--script`, `--stdin` and `--yes` are hidden root flags. Script mode is
 // for automation, not discovery, and `--yes` is a deliberate footgun guard
-// (Q-RECIPIENT-PROMPT), so none is advertised in any help surface.
+// (ADR-0033), so none is advertised in any help surface.
 #[test]
 fn the_script_flags_are_hidden_root_flags() {
     let env = Env::new();

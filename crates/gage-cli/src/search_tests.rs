@@ -1,7 +1,6 @@
 //! `search`/`grep`, `reindex`, and the session's metadata index, through
 //! the real CLI in-process: one-shot, and in a session driven by a typed
-//! script. Ports Go's `cmd/gage/search_test.go` and the two P2 rows that
-//! waited for `search` and the index; each test names its Go row.
+//! script.
 
 use gage::exitcode::Code;
 
@@ -39,7 +38,7 @@ fn search_fixture(env: &Env) {
     env.add("personal", "Nothing", "irrelevant");
 }
 
-// Go: TestSearchOneShotMatchesTitleDescriptionAndBody. A title, a
+// A title, a
 // description and a body match, printed as `title  shortid` with no
 // matched text; `grep` is the same command.
 #[test]
@@ -76,8 +75,8 @@ fn search_one_shot_matches_title_description_and_body() {
     }
 }
 
-// Go: TestLsAndSearchPrintNothingWhenThereIsNothing, the search half (the
-// ls half is P2's ls_empty_vault_no_output). No rows means no output at
+// The search half (the
+// ls half is ls_empty_vault_no_output). No rows means no output at
 // all, so `gage search x | wc -l` is 0.
 #[test]
 fn search_printing_nothing_when_there_is_nothing() {
@@ -89,7 +88,7 @@ fn search_printing_nothing_when_there_is_nothing() {
     assert_eq!(r.stdout, "");
 }
 
-// Go: TestReindexOneShotHasNothingToRebuild. One-shot never caches, so
+// One-shot never caches, so
 // reindex says so, after checking the vault resolves, without unlocking.
 #[test]
 fn reindex_one_shot_has_nothing_to_rebuild() {
@@ -106,7 +105,7 @@ fn reindex_one_shot_has_nothing_to_rebuild() {
     assert_eq!(r.code, Code::NotFound, "{}", r.stderr);
 }
 
-// Go: TestSessionLsSearchReindexSeeInsertRenameAndRm. ls and search follow
+// Ls and search follow
 // the vault as it changes, through the real REPL, on one passphrase.
 #[test]
 fn session_ls_search_reindex_see_insert_rename_and_rm() {
@@ -155,7 +154,7 @@ fn session_ls_search_reindex_see_insert_rename_and_rm() {
     assert!(env.entries("personal").is_empty());
 }
 
-// Go: TestSessionEditUpdatesIndexWithoutReindex. A session that already
+// A session that already
 // listed sees an $EDITOR title change in its very next ls.
 #[test]
 fn session_edit_updates_index_without_reindex() {
@@ -210,7 +209,7 @@ fn session_generate_and_use_flag_keep_their_indexes_current() {
     );
 }
 
-// Go: entry TestLsRendersIdenticallyInBothModes. Two implementations
+// Two implementations
 // behind `ls` (a fresh decrypt one-shot, the index in a session), one
 // renderer: the rows match, alignment and the id tie-break included.
 #[test]
@@ -228,7 +227,7 @@ fn ls_renders_identically_in_both_modes() {
     assert_eq!(session_rows(&session.stdout), want);
 }
 
-// Go: entry TestLsHeaderRendersIdenticallyInBothModes: the labelled table
+// The labelled table
 // goes through the same renderer in a session as it does one-shot.
 #[test]
 fn ls_header_renders_identically_in_both_modes() {
@@ -260,7 +259,7 @@ fn search_renders_identically_in_both_modes() {
     assert_eq!(rows[want.len()..], want[..]);
 }
 
-// Go: TestNoCommandDoublesGagesOwnPrefix, search's and reindex's failures.
+// Search's and reindex's failures.
 #[test]
 fn no_search_or_reindex_failure_doubles_gages_own_prefix() {
     let env = env_with_vault();

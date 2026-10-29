@@ -80,7 +80,7 @@ pub(crate) fn plan_recovery_key(
         (true, None) => Ok(KeyPlan::None),
         // Not "unset": a user who typed the flag asked to keep the key off
         // the screen, and an empty path would otherwise name the working
-        // directory (Q-RECOVERY-EMPTY-OUT).
+        // directory (ADR-0051).
         (false, Some("")) => Err(fail(
             Code::Usage,
             "--recovery-key-out needs a file name to write the recovery key to",
@@ -184,7 +184,7 @@ pub(crate) fn check_recovery_key_out_path(
 /// user's only copy of an unencrypted key would go under a message about
 /// discarding an interrupted write. The data dir is the blunt one: it is
 /// gage's to rewrite, and `reset-local-state` deletes all of it
-/// (Q-RECOVERY-DATA-DIR). Both are refused rather than warned about.
+/// (ADR-0051). Both are refused rather than warned about.
 fn check_not_gages(dest: &Path, shown: &str, vault: &Path, dirs: &Dirs) -> Result<(), CliError> {
     const RESET: &str = "gage resets a vault's working tree after an\n\
                          gage: interrupted write, which would delete the key. Write it outside any vault.";
@@ -232,7 +232,7 @@ pub(crate) fn path_is_inside(path: &Path, root: &Path) -> bool {
 }
 
 /// `path` against `cwd` when relative, with `.` and `..` folded away
-/// lexically (Go's `filepath.Abs`). Without that, an ancestor walk from a
+/// lexically. Without that, an ancestor walk from a
 /// bare `recovery.key` never reaches the directories it is really in.
 fn absolute(cwd: &Path, path: &Path) -> PathBuf {
     let joined = if path.is_absolute() {
@@ -258,7 +258,7 @@ fn absolute(cwd: &Path, path: &Path) -> PathBuf {
 
 /// Resolves symlinks in the deepest existing ancestor of `path` and
 /// reattaches the rest, so a file not yet created still compares against
-/// a resolved root (Go's `resolveExisting`). `path` is returned as is if
+/// a resolved root. `path` is returned as is if
 /// no ancestor resolves.
 fn resolve_existing(path: &Path) -> PathBuf {
     let mut rest = Vec::new();
@@ -303,13 +303,13 @@ pub(crate) fn deliver_recovery_key(
 /// unencrypted key has, then the re-type. All on stderr, with the
 /// prompts: stdout is for a value someone asked for and may be
 /// redirecting, and this is a one-time notice for the human at the
-/// terminal (Go's D5).
+/// terminal.
 ///
 /// The secret is written straight from the key's own zeroizing buffer,
 /// never formatted into an intermediate `String`; the QR render is
 /// zeroized on drop like it. What isn't covered is the terminal's own
 /// copy, and that the buffers aren't page-locked
-/// (Q-RECOVERY-SECRET-MEMORY).
+/// (ADR-0027).
 fn show_recovery_key(
     io: &mut Io,
     prompter: &dyn Prompter,

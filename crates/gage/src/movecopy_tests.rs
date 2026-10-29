@@ -1,5 +1,4 @@
-//! M11's library tests: Go's `internal/gage/move_test.go`. Each test names
-//! its Go row.
+//! Library tests for `mv` and `cp` between vaults.
 
 use std::panic::panic_any;
 use std::sync::{Arc, Mutex};
@@ -44,7 +43,7 @@ fn titles(f: &Fixture) -> Vec<String> {
         .collect()
 }
 
-// Go: TestMoveRemovesFromSourceAndDecryptsAtDestination. The destination
+// The destination
 // is never unlocked: nothing in it is decrypted by the move, and a key
 // that is only on the destination's recipient list reads the copy.
 #[test]
@@ -77,7 +76,6 @@ fn move_removes_from_source_and_decrypts_at_destination() {
     assert!(src.is_clean() && dst.is_clean());
 }
 
-// Go: TestCopyLeavesSourceAndAddsDecryptableCopy.
 #[test]
 fn copy_leaves_source_and_adds_decryptable_copy() {
     let (src, dst) = (Fixture::new(), Fixture::new());
@@ -102,7 +100,7 @@ fn copy_leaves_source_and_adds_decryptable_copy() {
     assert_ne!(r.dest_id, id);
 }
 
-// Go: TestMoveProducesOneCommitInEachVault. Each named by that vault's
+// Each named by that vault's
 // entry id, like insert and remove.
 #[test]
 fn move_produces_one_commit_in_each_vault() {
@@ -127,7 +125,7 @@ fn head_message(f: &Fixture) -> String {
     commit.message().unwrap().trim().to_string()
 }
 
-// Go: TestMoveGivesTheDestinationCopyFreshProvenance. A new entry: new id,
+// A new entry: new id,
 // new dates, this device as the last writer; the content carries over.
 #[test]
 fn move_gives_the_destination_copy_fresh_provenance() {
@@ -158,7 +156,6 @@ fn move_gives_the_destination_copy_fresh_provenance() {
     assert_eq!(r.entry.created, got.created);
 }
 
-// Go: TestMoveAllowsATitleCollisionInTheDestination.
 #[test]
 fn move_allows_a_title_collision_in_the_destination() {
     let (src, dst) = (Fixture::new(), Fixture::new());
@@ -175,7 +172,6 @@ fn move_allows_a_title_collision_in_the_destination() {
     );
 }
 
-// Go: TestMoveRejectsTheSourceVaultAsItsOwnDestination.
 #[test]
 fn move_rejects_the_source_vault_as_its_own_destination() {
     let f = Fixture::new();
@@ -193,7 +189,6 @@ fn move_rejects_the_source_vault_as_its_own_destination() {
     assert_eq!(f.commits(), before);
 }
 
-// Go: TestMoveRejectsTwoRegistrationsOfOneVaultAsSourceAndDestination.
 // One id under two names is one vault, and one lock: taking it twice
 // would wait out the whole timeout, so it is refused up front.
 #[test]
@@ -224,7 +219,7 @@ fn with_name(v: &Vault, name: &str) -> Vault {
     v
 }
 
-// Go: TestMoveChecksTheDestinationsTrustCacheNotTheSources. The source's
+// The source's
 // list has an unreviewed change and isn't asked about; the destination's
 // does and is.
 #[test]
@@ -252,7 +247,7 @@ fn move_checks_the_destinations_trust_cache_not_the_sources() {
     assert_eq!(asked[0].vault, "shared");
 }
 
-// Go (the first half of TestMoveChecksTheDestinationsTrustCacheNotTheSources):
+// Move checks the destination's trust cache, not the source's (first half):
 // a destination this device has never looked at has nothing to compare
 // against, so the first move into it asks nothing.
 #[test]
@@ -270,7 +265,7 @@ fn the_first_move_into_an_unseen_destination_asks_nothing() {
     assert_eq!(d.vault.entry_ids().unwrap().len(), 1);
 }
 
-// Go: TestMoveDecliningTheTrustCheckAbortsTheWholeOperation. The source
+// The source
 // is untouched and nothing is written to the destination.
 #[test]
 fn move_declining_the_trust_check_aborts_the_whole_operation() {
@@ -297,7 +292,7 @@ fn move_declining_the_trust_check_aborts_the_whole_operation() {
     assert_eq!(d.cache(), d_cache, "a declined change moved the cache");
 }
 
-// Go: TestTwoVaultLocksAreAcquiredInOneDeterministicOrder. The higher-id
+// The higher-id
 // lock is held by another process, so whichever vault is taken first is
 // the one found held while the call waits. It must be the lower id, in
 // either argument order: that is what kills "order by argument".
@@ -340,8 +335,7 @@ fn two_vault_locks_are_acquired_in_one_deterministic_order() {
     drop(hi_holder);
 }
 
-// Go's version of TestTwoVaultLocksAreAcquiredInOneDeterministicOrder,
-// kept as a second angle: opposite-direction callers racing. Each
+// Two-vault locks are acquired in one deterministic order (ADR-0047), a second angle: opposite-direction callers racing. Each
 // `flock` is on its own open file description, so threads contend as
 // processes do. A pair that took the locks in argument order would each
 // hold one and wait on the other until the (short) timeout, and the
@@ -375,7 +369,7 @@ fn opposite_direction_callers_never_deadlock() {
     });
 }
 
-// Go: TestTwoVaultLocksBothHeldForTheWholeOperation. From the window
+// From the window
 // between the two writes, another process finds both locks taken: that is
 // what kills releasing the first lock early.
 #[test]
@@ -403,7 +397,7 @@ fn two_vault_locks_are_both_held_for_the_whole_operation() {
 
 // --- crash and session ------------------------------------------------------
 
-// Go: TestMoveCrashBetweenTheTwoWritesLeavesARecoverableDuplicate. Dying
+// Dying
 // right after the destination's commit leaves the entry in both: a
 // duplicate to clean up, never a loss. Kills "remove from the source
 // before committing the destination".

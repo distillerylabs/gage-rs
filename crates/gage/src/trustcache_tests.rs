@@ -1,5 +1,4 @@
-//! M10's trust cache, as library tests: Go's `trustcache_test.go`. Each
-//! test names its Go row.
+//! The trust cache, as library tests.
 //!
 //! The trust cache is per-device local state, so nearly every test is a
 //! two-actor story: this device, and whoever changed the recipient list
@@ -34,8 +33,7 @@ pub(crate) const DEVICE: &str = "laptop-1";
 pub(crate) const PASSPHRASE: &str = "correct horse battery staple";
 
 /// A local vault registered on a machine of its own, with this device's
-/// real identity file, so an unlock is a real unlock (Go's
-/// `newRecipientTestVault`). No origin: nothing here is about publishing.
+/// real identity file, so an unlock is a real unlock. No origin: nothing here is about publishing.
 pub(crate) struct TrustVault {
     _root: tempfile::TempDir,
     pub(crate) dirs: Dirs,
@@ -162,7 +160,7 @@ pub(crate) fn unlocking() -> FakePrompter {
 }
 
 /// [`unlocking`], answering the recipient-change question with `answers`,
-/// in order (Go's `newTrustPrompter`).
+/// in order.
 pub(crate) fn trusting(answers: &[bool]) -> FakePrompter {
     unlocking().with_recipient_answers(answers)
 }
@@ -236,7 +234,7 @@ fn config_line_containing(vault: &Vault, want: &str) -> String {
 
 // --- bootstrap and storage --------------------------------------------------
 
-// Go: TestFirstUseWritesTheCacheThenAnUnreviewedChangeWarns. After the first
+// After the first
 // successful use the cache exists; a later unreviewed change is asked
 // about before the next encrypt.
 #[test]
@@ -274,7 +272,7 @@ fn first_use_writes_the_cache_then_an_unreviewed_change_warns() {
     );
 }
 
-// Go: TestTrustCacheStoresBothHalves. The config half is a verbatim copy:
+// The config half is a verbatim copy:
 // a diff of anything re-serialized would be a diff of gage's formatting,
 // not of the change.
 #[test]
@@ -296,7 +294,7 @@ fn trust_cache_stores_both_halves() {
     );
 }
 
-// Go: TestTrustCacheLivesUnderStateAndIsNeverCommitted. A regeneration
+// A regeneration
 // writes under `$GAGE_STATE`, nothing inside the vault, and commits
 // nothing.
 #[test]
@@ -349,7 +347,7 @@ fn trust_cache_lives_under_state_and_is_never_committed() {
     );
 }
 
-// Go: TestTheRecipientWarningIsATypedValueNotPrintedText. The frontend
+// The frontend
 // receives a value: the diff, the verification, who moved, and when this
 // device last confirmed. Its rendering is gage-cli's, tested there.
 #[test]
@@ -395,7 +393,7 @@ fn tamper_config_method_only(vault: &Vault) {
     gitrepo::commit_all(&vault.path, "gage: touch a non-recipient config field").unwrap();
 }
 
-// Go: TestDeltaWithNoRecipientChangeSaysEditedAlone. A routine change whose
+// A routine change whose
 // config diff is real but adds and removes nobody: the summary's fallback
 // line, reached through its non-mismatched branch.
 #[test]
@@ -421,7 +419,7 @@ fn delta_with_no_recipient_change_says_edited_alone() {
     );
 }
 
-// Go: TestLongestCommonSubsequenceHandlesPureInsertionAndEmptyInput. The
+// The
 // one edit-script shape the scenario tests never produce alone, and the
 // empty endpoints a diff of an empty file needs.
 #[test]
@@ -511,7 +509,7 @@ fn an_unparseable_trust_record_is_an_error() {
 
 // --- the blocking check -----------------------------------------------------
 
-// Go: TestBlockingCheckHooksEveryEncryptingVaultMethod. No Session anywhere:
+// No Session anywhere:
 // each call is what a one-shot command makes, and each must ask on its own.
 // `generate` is `insert` with a generated value in both CLIs, so the insert
 // case covers it.
@@ -567,7 +565,7 @@ fn removing_an_entry_asks_nothing() {
     assert!(p.recipient_changes().is_empty());
 }
 
-// Go: TestRecipientsFileEditAloneStillWarns. With `config.toml` untouched
+// With `config.toml` untouched
 // there is no diff to show at all; the hash half is what catches it.
 #[test]
 fn recipients_file_edit_alone_still_warns() {
@@ -598,7 +596,7 @@ fn recipients_file_edit_alone_still_warns() {
     );
 }
 
-// Go: TestDecliningTheRecipientChangeAbortsTheWrite. No commit, no entry,
+// No commit, no entry,
 // the cache as it was, and so the same question next time.
 #[test]
 fn declining_the_recipient_change_aborts_the_write() {
@@ -633,7 +631,7 @@ fn declining_the_recipient_change_aborts_the_write() {
     assert_eq!(p.recipient_changes().len(), 1, "not asked again");
 }
 
-// Go: TestConfirmingARoutineChangeRegeneratesBothHalves. One acknowledgment
+// One acknowledgment
 // per change, not per command.
 #[test]
 fn confirming_a_routine_change_regenerates_both_halves() {
@@ -666,7 +664,7 @@ fn confirming_a_routine_change_regenerates_both_halves() {
     assert!(p.warnings().is_empty(), "{:?}", p.warnings());
 }
 
-// Go: TestConfirmingAMismatchedChangeDoesNotClearTheCache. The write goes
+// The write goes
 // through; silence is not bought. `verify` keeps failing and the next
 // write asks again.
 #[test]
@@ -703,7 +701,7 @@ fn confirming_a_mismatched_change_does_not_clear_the_cache() {
     );
 }
 
-// Go: TestConfirmRecipientTrustWithNoPrompterRefuses. A frontend with
+// A frontend with
 // nobody to ask implements nothing, and the trait's default refuses: an
 // unapproved list is exactly what this check won't encrypt to.
 #[test]
@@ -756,7 +754,7 @@ fn confirm_recipient_trust_with_no_prompter_refuses() {
 
 // --- the opportunistic checks -----------------------------------------------
 
-// Go: TestUnlockWarnsOpportunisticallyWithoutBlocking. A plain read warns
+// A plain read warns
 // and asks nothing, and doesn't launder the unreviewed list into the cache.
 #[test]
 fn unlock_warns_opportunistically_without_blocking() {
@@ -805,7 +803,7 @@ fn a_failed_unlock_does_not_bootstrap_the_cache() {
     assert!(!t.dirs.state.join(&t.vault.id).exists());
 }
 
-// Go: TestSyncWarnsOnACleanFastForward. A fast-forward unlocks nothing, so
+// A fast-forward unlocks nothing, so
 // the warning can't be riding on an unlock: the sync has its own hook.
 #[test]
 fn sync_warns_on_a_clean_fast_forward() {
@@ -858,7 +856,7 @@ fn counting(vault: &Vault) -> (Vault, std::sync::Arc<std::sync::atomic::AtomicUs
     (v, n)
 }
 
-// Go: TestRecipientAddAndRemoveRefuseOverAFailingVerify. Both verbs: the
+// Both verbs: the
 // rebuild that would erase the stray key is the shared tail both commit
 // through. The refusal names the difference, and leaves both files
 // byte-identical, nothing committed or pushed, and the cache as it was:
@@ -917,7 +915,7 @@ fn recipient_add_and_remove_refuse_over_a_failing_verify() {
     }
 }
 
-// Go: TestReencryptRefusalHappensBeforeAnyEntryIsRewritten. The in-sync
+// The in-sync
 // check sits ahead of the re-encryption pass, not beside the
 // recipient-file write: aborting after rewriting entries would be its own
 // half-migrated state.
@@ -945,7 +943,7 @@ fn reencrypt_refusal_happens_before_any_entry_is_rewritten() {
     assert!(t.is_clean());
 }
 
-// Go: TestRecipientAddDoesNotLaunderSomeoneElsesChange. A consistent
+// A consistent
 // change pulled from another device passes `verify`, so only the trust
 // question stands between it and being blessed by a local add's
 // regeneration, after every entry was rewritten to it. Declined: asked
@@ -1020,7 +1018,7 @@ fn commit_routine_change_at(d: &crate::gittest::Device, device: &str, pubkey: &s
     d.commit(&format!("gage: recipient add {device}"));
 }
 
-// Go: TestConfirmingLetsTheAddThroughAndRegeneratesOnce. The pulled change
+// The pulled change
 // is reviewed once, the operator's own add lands, and the cache covers
 // both, so the next write asks nothing.
 #[test]
@@ -1052,7 +1050,7 @@ fn confirming_lets_the_add_through_and_regenerates_once() {
     );
 }
 
-// Go: TestALocalRecipientAddRegeneratesTheCache. A change the operator made
+// A change the operator made
 // here needs no second review: warning about their own add at their next
 // write is the fastest way to teach them to stop reading the warning.
 // `remove` regenerates too.
@@ -1106,7 +1104,7 @@ fn recipient_remove_asks_about_an_unreviewed_change_before_anything_else() {
 
 // --- verify --repair --------------------------------------------------------
 
-// Go: TestRepairRewritesTheRecipientsFileFromConfig. The refusal's exit: a
+// The refusal's exit: a
 // deliberate, visible act, confirmed first, naming what it drops.
 #[test]
 fn repair_rewrites_the_recipients_file_from_config() {
@@ -1137,7 +1135,7 @@ fn repair_rewrites_the_recipients_file_from_config() {
     assert!(t.is_clean(), "the rewrite was left uncommitted");
 }
 
-// Go: TestRepairDeclinedWritesNothing. It has to have asked to have been
+// It has to have asked to have been
 // declined, and the divergence stays exactly where it was.
 #[test]
 fn repair_declined_writes_nothing() {
@@ -1158,7 +1156,7 @@ fn repair_declined_writes_nothing() {
     assert_eq!(t.commits(), commits);
 }
 
-// Go: TestRepairWithNoPrompterRefuses. Nobody to confirm the drop with
+// Nobody to confirm the drop with
 // means no repair, never a silent one.
 #[test]
 fn repair_with_no_prompter_refuses() {
@@ -1181,7 +1179,7 @@ fn repair_with_no_prompter_refuses() {
     assert_eq!(t.commits(), commits);
 }
 
-// Go: TestRepairOnAnAlreadyInSyncVaultDoesNothing. No question nobody
+// No question nobody
 // needs to answer, and no empty commit.
 #[test]
 fn repair_on_an_already_in_sync_vault_does_nothing() {
@@ -1196,7 +1194,7 @@ fn repair_on_an_already_in_sync_vault_does_nothing() {
     assert_eq!(t.commits(), commits);
 }
 
-// Go: TestRepairDoesNotRegenerateTheTrustCache. Repair settles the split
+// Repair settles the split
 // between the two files, not whether the list is one this device
 // approves: regenerating here would launder an unreviewed key the way the
 // old rebuilding add did.
@@ -1238,7 +1236,7 @@ fn tamper_config_file(vault: &Vault, device: &str, pubkey: &str) {
     gitrepo::commit_all(&vault.path, "gage: config-only recipient edit").unwrap();
 }
 
-// Go: TestVerifyAndRepairReportOnlyInConfig. The other direction: a key
+// The other direction: a key
 // only `config.toml` names. Repair adds it, and says so.
 #[test]
 fn verify_and_repair_report_only_in_config() {

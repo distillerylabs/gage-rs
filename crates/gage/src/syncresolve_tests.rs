@@ -1,6 +1,6 @@
 //! Interactive conflict resolution against a real bare remote, with a
 //! [`Device`] playing the other machine and both versions of an entry real
-//! ciphertext: Go's `syncresolve_test.go`. Each test names its Go row.
+//! ciphertext.
 
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -28,9 +28,9 @@ fn at(rfc3339: &str) -> Option<Timestamp> {
     Some(rfc3339.parse().unwrap())
 }
 
-/// The situation this milestone exists for: two devices edited the same
+/// The situation resolution exists for: two devices edited the same
 /// entry, both versions are real ciphertext, and this side's write already
-/// discovered the divergence, as M8a leaves it (Go's `conflictFixture`).
+/// discovered the divergence.
 struct Fixture {
     s: SyncVault,
     identity: Identity,
@@ -74,7 +74,7 @@ fn base() -> Entry {
 }
 
 impl Fixture {
-    /// One entry both sides edited (Go's `newConflictFixture`).
+    /// One entry both sides edited.
     fn new() -> Fixture {
         let s = SyncVault::new();
         let identity = s.unlock();
@@ -119,7 +119,7 @@ impl Fixture {
     }
 
     /// Two entries both sides edited, for the tests that watch what happens
-    /// after one conflict is answered (Go's `newTwoConflictFixture`).
+    /// after one conflict is answered.
     fn two() -> Fixture {
         let s = SyncVault::new();
         let identity = s.unlock();
@@ -172,8 +172,7 @@ impl Fixture {
         }
     }
 
-    /// This device removes an entry the other device edits (Go's
-    /// `newDeleteModifyFixture`).
+    /// This device removes an entry the other device edits.
     fn delete_modify() -> Fixture {
         let s = SyncVault::new();
         let identity = s.unlock();
@@ -211,7 +210,7 @@ impl Fixture {
     }
 
     /// The resolving sync with `p` answering and this fixture's identity
-    /// as the unlock (Go's `resolveWith`).
+    /// as the unlock.
     fn resolve(&self, p: &dyn Prompter) -> Result<SyncReport, SyncError> {
         self.vault()
             .sync_resolving_with(p, &mut || Ok(&self.identity))
@@ -267,7 +266,7 @@ fn answering_by_title(answers: &[(&str, Resolution)]) -> FakePrompter {
 }
 
 /// Every commit reachable from HEAD, through merges: the structural stand-in
-/// for `gage log`, which is P6's (Go's `walkHistory`).
+/// for `gage log`.
 fn walk_history(dir: &Path) -> Vec<(String, usize, String)> {
     let repo = git2::Repository::open(dir).unwrap();
     let mut walk = repo.revwalk().unwrap();
@@ -300,7 +299,6 @@ fn tracking(dir: &Path) -> String {
 
 // --- resolution mechanics ---------------------------------------------------
 
-// Go: TestConflictIsPresentedWithBothSidesDecrypted
 #[test]
 fn conflict_is_presented_with_both_sides_decrypted() {
     let f = Fixture::new();
@@ -324,7 +322,6 @@ fn conflict_is_presented_with_both_sides_decrypted() {
     assert_eq!(remote.updated, f.theirs.updated);
 }
 
-// Go: TestKeepLocalKeepsTheLocalVersion
 #[test]
 fn keep_local_keeps_the_local_version() {
     let f = Fixture::new();
@@ -334,7 +331,6 @@ fn keep_local_keeps_the_local_version() {
     assert!(f.others().is_empty(), "{:?}", f.others());
 }
 
-// Go: TestKeepRemoteReplacesTheLocalVersion
 #[test]
 fn keep_remote_replaces_the_local_version() {
     let f = Fixture::new();
@@ -343,7 +339,7 @@ fn keep_remote_replaces_the_local_version() {
     assert!(f.others().is_empty(), "{:?}", f.others());
 }
 
-// Go: TestKeepBothKeepsBothVersions. No version of a secret is destroyed
+// No version of a secret is destroyed
 // by resolving a conflict.
 #[test]
 fn keep_both_keeps_both_versions() {
@@ -364,7 +360,6 @@ fn keep_both_keeps_both_versions() {
     assert_eq!(kept, f.theirs);
 }
 
-// Go: TestKeepBothPreservesTheLosingSidesProvenance
 #[test]
 fn keep_both_preserves_the_losing_sides_provenance() {
     let f = Fixture::new();
@@ -377,7 +372,6 @@ fn keep_both_preserves_the_losing_sides_provenance() {
     assert_eq!(kept.created, f.theirs.created);
 }
 
-// Go: TestKeepBothLeavesTwoEntriesTheResolverDisambiguates
 #[test]
 fn keep_both_leaves_two_entries_the_resolver_disambiguates() {
     let f = Fixture::new();
@@ -393,7 +387,7 @@ fn keep_both_leaves_two_entries_the_resolver_disambiguates() {
     assert_eq!(err.code(), Code::Ambiguous);
 }
 
-// Go: TestSkipLeavesTheEntryConflictedAndDoesNotPush. Skip is not a
+// Skip is not a
 // silent keep-local.
 #[test]
 fn skip_leaves_the_entry_conflicted_and_does_not_push() {
@@ -413,7 +407,6 @@ fn skip_leaves_the_entry_conflicted_and_does_not_push() {
     assert_eq!(f.s.other().head(), remote_before, "something was pushed");
 }
 
-// Go: TestSkipStillPresentsTheRemainingConflicts
 #[test]
 fn skip_still_presents_the_remaining_conflicts() {
     let f = Fixture::two();
@@ -424,7 +417,7 @@ fn skip_still_presents_the_remaining_conflicts() {
     f.assert_untouched();
 }
 
-// Go: TestOneSkipAppliesNoneOfTheOtherAnswers. A merge carrying only the
+// A merge carrying only the
 // answered conflict would mark the remote's history incorporated with the
 // skipped entry at its local version: skip would become keep-local.
 #[test]
@@ -442,7 +435,6 @@ fn one_skip_applies_none_of_the_other_answers() {
     f.assert_untouched();
 }
 
-// Go: TestTwoConflictsTakeTheirOwnAnswers
 #[test]
 fn two_conflicts_take_their_own_answers() {
     let f = Fixture::two();
@@ -464,7 +456,7 @@ fn two_conflicts_take_their_own_answers() {
     assert!(head_message(&f.vault().path).contains("2 entries"));
 }
 
-// Go: TestAPrompterErrorLeavesTheVaultUntouched. A frontend that fails
+// A frontend that fails
 // mid-resolution is not an answer.
 #[test]
 fn a_prompter_error_leaves_the_vault_untouched() {
@@ -483,7 +475,7 @@ fn a_prompter_error_leaves_the_vault_untouched() {
     f.assert_untouched();
 }
 
-// Go: TestAbortRestoresThePreSyncState. Abort stops asking, and HEAD, the
+// Abort stops asking, and HEAD, the
 // working tree and its cleanliness are as they were, with nothing pushed.
 #[test]
 fn abort_restores_the_pre_sync_state() {
@@ -502,7 +494,6 @@ fn abort_restores_the_pre_sync_state() {
     assert_eq!(f.s.other().head(), remote_before, "something was pushed");
 }
 
-// Go: TestDeleteModifyConflictShowsTheSurvivingVersion
 #[test]
 fn delete_modify_conflict_shows_the_surviving_version() {
     let f = Fixture::delete_modify();
@@ -518,7 +509,6 @@ fn delete_modify_conflict_shows_the_surviving_version() {
     assert_eq!(f.read(f.id).value, f.theirs.value);
 }
 
-// Go: TestDeleteModifyConflictKeepingTheDeletion
 #[test]
 fn delete_modify_conflict_keeping_the_deletion() {
     let f = Fixture::delete_modify();
@@ -530,7 +520,7 @@ fn delete_modify_conflict_keeping_the_deletion() {
 
 // --- delete/modify keep-both, file modes, history ---------------------------
 
-// Go: TestKeepBothOnADeleteModifyConflictKeepsTheSurvivor. The habitual
+// The habitual
 // key never destroys the one surviving copy.
 #[test]
 fn keep_both_on_a_delete_modify_conflict_keeps_the_survivor() {
@@ -543,7 +533,7 @@ fn keep_both_on_a_delete_modify_conflict_keeps_the_survivor() {
     assert_eq!(kept, f.theirs);
 }
 
-// And the mirror case, beyond Go's rows: the remote deleted it, and keep
+// And the mirror case: the remote deleted it, and keep
 // both keeps the local edit where it is without inventing a second copy.
 #[test]
 fn keep_both_when_the_remote_deleted_keeps_the_local_edit() {
@@ -571,7 +561,6 @@ fn keep_both_when_the_remote_deleted_keeps_the_local_edit() {
     assert_eq!(s.vault.read_entry(id, &identity).unwrap().value, "my edit");
 }
 
-// Go: TestEntryFilesAMergeCreatesAre0600
 #[cfg(unix)]
 #[test]
 fn entry_files_a_merge_creates_are_0600() {
@@ -595,7 +584,6 @@ fn entry_files_a_merge_creates_are_0600() {
     assert_eq!(mode(f.vault(), f.id), 0o600, "an entry a merge restored");
 }
 
-// Go: TestResolvedSyncProducesATwoParentMergeCommit
 #[test]
 fn resolved_sync_produces_a_two_parent_merge_commit() {
     let f = Fixture::new();
@@ -612,7 +600,6 @@ fn resolved_sync_produces_a_two_parent_merge_commit() {
     assert_eq!(f.s.other().head(), merge.id().to_string());
 }
 
-// Go: TestLocalCommitGranularitySurvivesTheMerge
 #[test]
 fn local_commit_granularity_survives_the_merge() {
     let f = Fixture::new();
@@ -625,8 +612,8 @@ fn local_commit_granularity_survives_the_merge() {
     );
 }
 
-// Go: TestHistoryWalksThroughAMergeCommit. Structural, through a revwalk:
-// `gitrepo::log` is P6's.
+// Structural, through a revwalk:
+// `gitrepo::log` is tested separately.
 #[test]
 fn history_walks_through_a_merge_commit() {
     let f = Fixture::new();
@@ -643,7 +630,6 @@ fn history_walks_through_a_merge_commit() {
     );
 }
 
-// Go: TestMergeCommitMessageNamesTheCountAndNoPlaintext
 #[test]
 fn merge_commit_message_names_the_count_and_no_plaintext() {
     let f = Fixture::new();
@@ -668,7 +654,7 @@ fn merge_commit_message_names_the_count_and_no_plaintext() {
 
 // --- unlocking, locking and the other milestones ----------------------------
 
-/// An unlock that counts its calls (Go's `countingUnlock`).
+/// An unlock that counts its calls.
 struct Counting<'a> {
     identity: &'a Identity,
     calls: AtomicUsize,
@@ -701,7 +687,6 @@ fn commit_offline(s: &SyncVault, rel: &str, content: &str) {
     gitrepo::commit_all(&s.vault.path, "a local change").unwrap();
 }
 
-// Go: TestCleanFastForwardNeverUnlocks
 #[test]
 fn clean_fast_forward_never_unlocks() {
     let s = SyncVault::new();
@@ -716,7 +701,6 @@ fn clean_fast_forward_never_unlocks() {
     assert!(p.conflicts_presented().is_empty());
 }
 
-// Go: TestDisjointDivergenceNeverUnlocks
 #[test]
 fn disjoint_divergence_never_unlocks() {
     let s = SyncVault::new();
@@ -766,7 +750,6 @@ impl Prompter for Observing<'_> {
     }
 }
 
-// Go: TestUnlockHappensOnlyWhenAConflictIsReached
 #[test]
 fn unlock_happens_only_when_a_conflict_is_reached() {
     let f = Fixture::new();
@@ -819,7 +802,6 @@ fn a_failed_unlock_changes_nothing() {
     f.assert_untouched();
 }
 
-// Go: TestANonEntryConflictIsRefusedWithoutUnlocking
 #[test]
 fn a_non_entry_conflict_is_refused_without_unlocking() {
     let s = SyncVault::new();
@@ -850,8 +832,8 @@ fn a_non_entry_conflict_is_refused_without_unlocking() {
     );
 }
 
-// Go: TestRecipientConflictDoesNotReachTheEntryResolver. M10 owns what does
-// happen to those files; until then the refusal is M8a2's, unchanged.
+// A recipient-file conflict is refused by sync, not routed to the entry
+// resolver; the trust check owns what happens to those files.
 #[test]
 fn recipient_conflict_does_not_reach_the_entry_resolver() {
     let s = SyncVault::new();
@@ -877,7 +859,7 @@ fn recipient_conflict_does_not_reach_the_entry_resolver() {
     assert_eq!(unlock.calls(), 0);
 }
 
-// Go: TestNonInteractivePrompterRefusesOnTheFirstConflict. A prompter that
+// A prompter that
 // doesn't implement resolve_conflict is a script or CI: refused, with
 // nothing chosen on the human's behalf.
 #[test]
@@ -923,7 +905,7 @@ fn non_interactive_prompter_refuses_on_the_first_conflict() {
     f.assert_untouched();
 }
 
-// Go: TestResolutionHoldsTheWriteLockThroughout. A separate process probes
+// A separate process probes
 // the lock while a conflict waits for its answer, and again afterwards:
 // file locks belong to the open file description, so a probe from a
 // thread would prove nothing.
@@ -1008,7 +990,7 @@ impl RemoteSyncer for Recording {
     }
 }
 
-// Beyond Go's rows (Q-REMOTE-TIMEOUT): the push after a resolution starts
+// ADR-0018: the push after a resolution starts
 // a fresh REMOTE_OP_TIMEOUT window from after the last answer. The window
 // a sync starts with bounds network work, and a human weighing up two
 // versions of a password sits in the middle of it: reusing it would fail
@@ -1045,7 +1027,7 @@ fn the_push_after_resolution_starts_a_fresh_deadline() {
     );
 }
 
-// Beyond Go's rows: the resolution report keeps what the pull found.
+// The resolution report keeps what the pull found.
 #[test]
 fn a_resolution_report_says_it_diverged_and_how_much_it_resolved() {
     let f = Fixture::new();

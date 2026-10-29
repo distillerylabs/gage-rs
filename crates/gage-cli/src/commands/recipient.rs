@@ -44,7 +44,7 @@ recipient is refused outright.";
 
 pub fn flags(name: &str) -> Vec<Arg> {
     match name {
-        // No --reencrypt: adding always re-encrypts (A19). The flag is not
+        // No --reencrypt: adding always re-encrypts (ADR-0009). The flag is not
         // accepted and ignored, since a script passing it asked for what
         // used to be optional; clap rejects it as a usage error, the loud
         // version.
@@ -109,7 +109,7 @@ pub fn remove(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
     Ok(())
 }
 
-/// What a completed add or remove did (Go's `recipientChangeLines`). The
+/// What a completed add or remove did. The
 /// count line is unconditional: both verbs always re-encrypt. It says the
 /// commit is local on purpose: the guarantee is about HEAD, while
 /// publishing is the ordinary post-write push, which warns and carries on
