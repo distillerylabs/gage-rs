@@ -1,0 +1,57 @@
+gage session commands
+
+Session:
+  use <vault>               Switch/unlock the active vault for this session
+  lock [vault]              Drop key material for one vault (or all) without exiting
+  status, whoami            List vaults touched this session and their lock state
+  exit, quit                Leave the session
+  help [command]            Show help for gage's commands
+
+Vault lifecycle:
+  vault list                List registered vaults
+  vault info [name]         Show a vault's type, method, recipient count, and (for git) remote/status
+  vault remove <name>       Forget a vault locally, leaving its files untouched
+  vault set-default <name>  Change which vault is used when none is given
+
+Identity:
+  identity add              Register this device's identity and print its public key
+  identity enroll           Register this device's identity and publish a request to join
+  identity list             List the keys this machine holds for a vault
+
+Recipients:
+  recipient add <pubkey>    Authorize a public key and re-encrypt the vault to include it
+  recipient remove <pubkey-or-name>  Revoke a recipient and re-encrypt the vault without its key
+  recipient list            List the keys this vault is encrypted to
+  recipient pending         List enrollment requests waiting to be approved
+  recipient approve [ID...]  Admit an enrolling device and re-encrypt the vault to include it
+  recipient deny <ID>       Remove an enrollment request without granting anything
+  recipient verify          Check .age-recipients and config.toml still agree
+
+Entry CRUD:
+  insert <title>            Create a new entry
+  show <query>              Print an entry's value
+  cat <query>               Print an entry's full decrypted contents
+  edit <query>              Edit an entry's full YAML in $EDITOR
+  rename <query> <new-title>  Change an entry's title
+  generate <title>          Create a new entry with a randomly generated value
+  rm <query>                Delete an entry
+  mv <query>                Move an entry to another vault — the sharing mechanism
+  cp <query>                Copy an entry into another vault, keeping the original
+  ls                        List entries with their ids, dates, and last writer
+  search <pattern>, grep    Find entries by title, description, or body text
+  reindex                   Force a session's cached metadata index to rebuild
+
+Sync:
+  sync                      Pull, merge what can be merged, then push
+  pull                      Fast-forward this vault from its remote
+  push                      Publish this vault's commits to its remote
+  log [query]               Show an entry's commit history — timestamps only, nothing decrypted
+  history <query>           Decrypt every past revision of one entry (surfaces old secret values)
+
+Git-specific:
+  git set-remote <name> <url>  Set or change a vault's git remote (origin)
+  auth login                Store a token for a git host
+  auth status               Show which git hosts have a token
+  auth logout               Forget a git host's token
+
+Type "help <command>" for more information about a command.

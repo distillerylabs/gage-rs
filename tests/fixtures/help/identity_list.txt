@@ -1,0 +1,8 @@
+List the keys this machine holds for a vault
+
+Usage:
+  gage identity list [OPTIONS]
+
+Options:
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

@@ -9,6 +9,8 @@ use jiff::Timestamp;
 use crate::crypt;
 use crate::vault::Vault;
 
+pub mod format_v2;
+
 /// What tests wrap and unlock identities at instead of the shipped,
 /// deliberately expensive factor. Still a real scrypt pass, so every test
 /// that unlocks a vault exercises the real wrap/unwrap path, at a cost too

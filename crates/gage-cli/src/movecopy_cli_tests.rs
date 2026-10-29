@@ -7,7 +7,6 @@ use gage::prompter::FakePrompter;
 
 use crate::entry_tests::unlocks;
 use crate::lifecycle_tests::{Env, PASSPHRASE};
-use crate::registry::{GROUP_ENTRY, registry};
 use crate::repl_tests::passphrase_prompts;
 use crate::trustcache_cli_tests::commit_routine_change;
 
@@ -214,39 +213,4 @@ fn mv_in_a_session_never_unlocks_the_destination() {
     assert!(!second.contains("GitHub  "), "{second}");
     let got = env.cmd_ok(&["show", "GitHub", "--use", "shared"]);
     assert!(got.stdout.contains("hunter2"), "{}", got.stdout);
-}
-
-// Not a Go row: P5's fixture-parity check for `mv` and `cp`, as the other
-// P5 commands have: the Go help's description, flags and group.
-#[test]
-fn p5_mv_and_cp_have_their_go_fixture_flags_and_descriptions() {
-    let env = Env::new();
-    let reg = registry();
-    for (name, fixture) in [
-        ("mv", include_str!("../../../tests/fixtures/go/help/mv.txt")),
-        ("cp", include_str!("../../../tests/fixtures/go/help/cp.txt")),
-    ] {
-        let help = env.ok(&[name, "--help"]).stdout;
-        let first = fixture.lines().next().unwrap();
-        assert!(help.starts_with(first), "{name}:\n{help}");
-        for line in fixture.lines().filter(|l| l.trim_start().starts_with('-')) {
-            let text = line.split("   ").last().unwrap().trim();
-            assert!(help.contains(text), "{name}: {text:?}\n{help}");
-        }
-        for flag in ["--to-vault", "-u", "--use"] {
-            assert!(help.contains(flag), "{name}: {flag}\n{help}");
-        }
-        let info = reg
-            .find(name)
-            .unwrap_or_else(|| panic!("{name} is not registered"));
-        assert_eq!(info.short, fixture.lines().next().unwrap());
-        assert_eq!(info.group, GROUP_ENTRY);
-    }
-    // In the entry group, after `rm`.
-    let root = env.ok(&["--help"]).stdout;
-    let at = |c: &str| {
-        root.find(&format!("  {c} "))
-            .unwrap_or_else(|| panic!("{c}\n{root}"))
-    };
-    assert!(at("rm") < at("mv") && at("mv") < at("cp"), "{root}");
 }

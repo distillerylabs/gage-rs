@@ -11,8 +11,7 @@ build:
 	cargo build --locked -p gage-cli
 
 # Proves version stamping reaches the binary: build with a known tag and
-# commit, then require --version to print both. Go's
-# TestLinkTimeVersionInjection; CI runs it. The variables are overridden on
+# commit, then require --version to print both. CI runs it. The variables are overridden on
 # the cargo command line because this Makefile's own exports would win
 # otherwise.
 STAMP_VERSION := v9.9.9-testtag

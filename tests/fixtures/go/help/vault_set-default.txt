@@ -1,4 +1,0 @@
-Change which vault is used when none is given
-
-Usage:
-  gage vault set-default <name>

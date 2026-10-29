@@ -1,0 +1,16 @@
+Manage who can read this vault
+
+Usage:
+  gage recipient [command]
+
+Available Commands:
+  add      Authorize a public key and re-encrypt the vault to include it
+  remove   Revoke a recipient and re-encrypt the vault without its key
+  list     List the keys this vault is encrypted to
+  pending  List enrollment requests waiting to be approved
+  approve  Admit an enrolling device and re-encrypt the vault to include it
+  deny     Remove an enrollment request without granting anything
+  verify   Check .age-recipients and config.toml still agree
+
+Options:
+  -h, --help  Print help

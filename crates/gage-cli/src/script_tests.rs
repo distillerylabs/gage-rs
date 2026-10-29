@@ -958,19 +958,13 @@ fn a_one_shot_command_ignores_gage_passphrase() {
     assert_eq!(inner.unlock_requests().len(), 1);
 }
 
-// Parity: `--script`, `--stdin` and `--yes` are hidden root flags, as in
-// Go's help, where `root.txt` lists none and no command's help shows them
-// as inherited.
+// `--script`, `--stdin` and `--yes` are hidden root flags. Script mode is
+// for automation, not discovery, and `--yes` is a deliberate footgun guard
+// (Q-RECIPIENT-PROMPT), so none is advertised in any help surface.
 #[test]
 fn the_script_flags_are_hidden_root_flags() {
-    let fixture = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/fixtures/go/help/root.txt"),
-    )
-    .unwrap();
     let env = Env::new();
     for flag in ["--script", "--stdin", "--yes"] {
-        assert!(!fixture.contains(flag), "Go's root help lists {flag}");
         for args in [
             &["--help"][..],
             &["help"],

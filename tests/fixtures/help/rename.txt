@@ -1,0 +1,13 @@
+Change an entry's title
+
+Usage:
+  gage rename [OPTIONS] <query> <new-title>
+
+Arguments:
+  <query>      
+  <new-title>  
+
+Options:
+  -f, --force       allow renaming to a duplicate title
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

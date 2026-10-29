@@ -1,0 +1,12 @@
+Copy an entry into another vault, keeping the original
+
+Usage:
+  gage cp [OPTIONS] --to-vault <string> <query>
+
+Arguments:
+  <query>  
+
+Options:
+      --to-vault <string>  destination vault to share the entry into (required)
+  -u, --use <NAME>         vault to operate on (default: the current vault)
+  -h, --help               Print help

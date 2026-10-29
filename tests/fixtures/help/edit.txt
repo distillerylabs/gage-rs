@@ -1,0 +1,11 @@
+Edit an entry's full YAML in $EDITOR
+
+Usage:
+  gage edit [OPTIONS] <query>
+
+Arguments:
+  <query>  
+
+Options:
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

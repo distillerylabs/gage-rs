@@ -3,7 +3,7 @@
 # never prints, never touches the process's standard streams, and never
 # exits the process: anything needing a human is a typed return value.
 # It also never spawns a subprocess: git runs in-process, never by
-# shelling out (Go's gosec G204 covered the same ground).
+# shelling out.
 #
 # lib.rs denies both lints crate-wide. Tests opt out locally with
 # #[allow(clippy::disallowed_macros)] or

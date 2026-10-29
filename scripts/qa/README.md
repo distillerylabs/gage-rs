@@ -12,7 +12,7 @@ scripts/qa/run-all.sh 04 06   # the same without make
 ```
 
 The whole catalog takes a few minutes. The summary reports assertion
-counts, which commands from Go's root help were never run, which exit
+counts, which commands in the root help were never run, which exit
 codes 0-7 were never asserted, and whether the real `~/.config/gage`,
 `~/.local/share/gage` and `~/.local/state/gage` were left untouched. It
 exits non-zero if any of those fail.

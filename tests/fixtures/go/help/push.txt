@@ -1,7 +1,0 @@
-Publish this vault's commits to its remote
-
-Usage:
-  gage push [flags]
-
-Flags:
-  -u, --use string   vault to operate on (default: the current vault)

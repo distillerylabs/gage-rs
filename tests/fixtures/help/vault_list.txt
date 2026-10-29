@@ -1,0 +1,7 @@
+List registered vaults
+
+Usage:
+  gage vault list
+
+Options:
+  -h, --help  Print help

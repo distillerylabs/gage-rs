@@ -119,6 +119,7 @@ Supporting modules mirror Go's `internal/gage/*` packages and keep their names s
 
 ### Key invariants worth knowing before touching related code
 
+- **The on-disk format is a versioned contract.** [doc/format/v2.md](doc/format/v2.md) specifies every artifact gage reads or writes. Any change to one needs, in the same change, a `format_version` bump, a new spec and a new `tests/fixtures/format-v<N>/` fixture, and an ADR (see [doc/format/README.md](doc/format/README.md)). `tests/fixtures/format-v2/` is never regenerated or edited, and the `format_v2_*` tests may not be edited to make a change pass: a change that needs them edited is a format change.
 - **Entries are opaque.** One `.age` file per entry under `entries/`, named by random UUIDv4 — no human-readable path or directory structure ever encodes vault contents. All metadata (title, etc.) is inside the encrypted payload.
 - **A vault is the unit of trust.** Recipients (who can decrypt) are vault-wide, never per-directory — see "Why no per-directory sharing" in the design doc if you're tempted to add finer-grained sharing.
 - **Decryption method is per-device, not per-vault.** `[method].default` in `.gage/config.toml` is a suggestion for new devices, not a constraint; each device's actual method is local-only config, never committed.

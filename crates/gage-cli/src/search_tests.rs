@@ -260,51 +260,6 @@ fn search_renders_identically_in_both_modes() {
     assert_eq!(rows[want.len()..], want[..]);
 }
 
-// search and reindex join the help-fixture check M5 started: description,
-// positionals, aliases and flags as Go's help shows them.
-#[test]
-fn m7_commands_have_their_go_fixture_flags_and_descriptions() {
-    let env = Env::new();
-    for (name, fixture) in [
-        (
-            "search",
-            include_str!("../../../tests/fixtures/go/help/search.txt"),
-        ),
-        (
-            "reindex",
-            include_str!("../../../tests/fixtures/go/help/reindex.txt"),
-        ),
-    ] {
-        let help = env.ok(&[name, "--help"]).stdout;
-        assert!(
-            help.starts_with(fixture.lines().next().unwrap()),
-            "{name}:\n{help}"
-        );
-        let want_positionals: Vec<&str> = fixture
-            .lines()
-            .nth(3)
-            .unwrap()
-            .split_whitespace()
-            .filter(|w| w.starts_with('<'))
-            .collect();
-        let usage = help
-            .lines()
-            .find(|l| l.trim_start().starts_with("gage "))
-            .unwrap();
-        let got: Vec<&str> = usage
-            .split_whitespace()
-            .filter(|w| w.starts_with('<'))
-            .collect();
-        assert_eq!(got, want_positionals, "{name}: {usage}");
-        for flag in ["-u", "--use"] {
-            assert!(help.contains(flag), "{name}: missing {flag}");
-        }
-    }
-    let search = env.ok(&["search", "--help"]).stdout;
-    assert!(search.contains("grep, search"), "{search}");
-    assert_eq!(env.ok(&["help", "grep"]).stdout, search);
-}
-
 // Go: TestNoCommandDoublesGagesOwnPrefix, search's and reindex's failures.
 #[test]
 fn no_search_or_reindex_failure_doubles_gages_own_prefix() {

@@ -124,14 +124,14 @@ pub(crate) struct TrustCache {
 
 /// `trust.toml`'s shape, Go's field names: everything but the config copy,
 /// which is its own file so it can be read (and diffed) as the TOML it is.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-struct TrustRecord {
-    recipients_hash: String,
+pub(crate) struct TrustRecord {
+    pub(crate) recipients_hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    confirmed_at: Option<toml::value::Datetime>,
+    pub(crate) confirmed_at: Option<toml::value::Datetime>,
     #[serde(skip_serializing_if = "String::is_empty")]
-    mismatch_seen: String,
+    pub(crate) mismatch_seen: String,
 }
 
 /// Why the trust cache couldn't be consulted, or refused a write.

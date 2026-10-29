@@ -1,0 +1,8 @@
+Publish this vault's commits to its remote
+
+Usage:
+  gage push [OPTIONS]
+
+Options:
+  -u, --use <NAME>  vault to operate on (default: the current vault)
+  -h, --help        Print help

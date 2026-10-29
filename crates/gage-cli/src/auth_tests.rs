@@ -231,64 +231,6 @@ fn expired_token_error_names_the_host_and_the_command() {
     }
 }
 
-// The help-fixture check: description, the long help's scoping advice, and
-// the `--host` flag, as Go's help shows them.
-#[test]
-fn p4_auth_commands_have_their_go_fixture_flags_and_descriptions() {
-    let env = Env::new();
-    for (name, fixture) in [
-        (
-            "login",
-            include_str!("../../../tests/fixtures/go/help/auth_login.txt"),
-        ),
-        (
-            "status",
-            include_str!("../../../tests/fixtures/go/help/auth_status.txt"),
-        ),
-        (
-            "logout",
-            include_str!("../../../tests/fixtures/go/help/auth_logout.txt"),
-        ),
-    ] {
-        let help = env.ok(&["auth", name, "--help"]).stdout;
-        assert!(
-            help.starts_with(fixture.lines().next().unwrap()),
-            "{name}:\n{help}"
-        );
-        assert!(help.contains("gage auth"), "{name}:\n{help}");
-        assert!(help.contains("--host"), "{name}:\n{help}");
-        assert!(
-            help.contains(
-                "git host the token belongs to (default: the host of the current vault's origin)"
-            ),
-            "{name}:\n{help}"
-        );
-    }
-    let login = env.ok(&["auth", "login", "--help"]).stdout;
-    assert!(login.contains("fine-grained personal"), "{login}");
-
-    let parent = env.ok(&["auth"]).stdout;
-    let fixture = include_str!("../../../tests/fixtures/go/help/auth.txt");
-    assert!(
-        parent.starts_with(fixture.lines().next().unwrap()),
-        "{parent}"
-    );
-    for line in fixture
-        .lines()
-        .filter(|l| l.starts_with("  ") && !l.contains("gage auth"))
-    {
-        let mut words = line.split_whitespace();
-        let verb = words.next().unwrap();
-        let short: Vec<&str> = words.collect();
-        assert!(parent.contains(verb), "{verb}: {parent}");
-        assert!(parent.contains(&short.join(" ")), "{line}: {parent}");
-    }
-    let root = env.ok(&["help"]).stdout;
-    for short in ["Store a token for a git host", "Forget a git host's token"] {
-        assert!(root.contains(short), "{root}");
-    }
-}
-
 // Go: TestNoCommandDoublesGagesOwnPrefix, auth's failures.
 #[test]
 fn no_auth_failure_doubles_gages_own_prefix() {

@@ -1,0 +1,14 @@
+unrecognized subcommand 'no-such-subcommand'
+
+Work with a vault's offline recovery key
+
+Usage:
+  gage recovery [command]
+
+Available Commands:
+  enroll  Use a recovery key to enroll a fresh identity for this device
+  rotate  Replace this vault's recovery key, or add one if it has none
+  verify  Check a stored recovery key is still one of this vault's recipients
+
+Options:
+  -h, --help  Print help

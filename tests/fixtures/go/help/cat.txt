@@ -1,7 +1,0 @@
-Print an entry's full decrypted contents
-
-Usage:
-  gage cat <query> [flags]
-
-Flags:
-  -u, --use string   vault to operate on (default: the current vault)

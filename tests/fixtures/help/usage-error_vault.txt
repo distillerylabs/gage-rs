@@ -1,0 +1,15 @@
+unrecognized subcommand 'no-such-subcommand'
+
+Manage registered vaults
+
+Usage:
+  gage vault [command]
+
+Available Commands:
+  list         List registered vaults
+  info         Show a vault's type, method, recipient count, and (for git) remote/status
+  remove       Forget a vault locally, leaving its files untouched
+  set-default  Change which vault is used when none is given
+
+Options:
+  -h, --help  Print help

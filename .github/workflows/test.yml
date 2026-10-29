@@ -72,8 +72,7 @@ jobs:
         run: make build
         shell: bash
 
-      # Version stamping reaches the binary (Go's
-      # TestLinkTimeVersionInjection): a stamped build prints the stamped
+      # Version stamping reaches the binary: a stamped build prints the stamped
       # tag and commit.
       - name: make stamp-check
         run: make stamp-check

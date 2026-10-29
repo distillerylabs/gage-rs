@@ -1,7 +1,0 @@
-Force a session's cached metadata index to rebuild
-
-Usage:
-  gage reindex [flags]
-
-Flags:
-  -u, --use string   vault to operate on (default: the current vault)

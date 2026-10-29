@@ -119,10 +119,11 @@ mod tests {
         assert_eq!(Code::Success.as_i32(), 0);
     }
 
-    // Go: TestAllCodesAreDistinct. The exit statuses are the values Go
-    // ships; scripts depend on them.
+    // Go: TestAllCodesAreDistinct. Exit codes 0-7 are a script-facing
+    // contract owned by doc/cli/exit-codes.md; renumbering one breaks every
+    // caller that branches on it.
     #[test]
-    fn all_codes_are_distinct_and_keep_gos_values() {
+    fn all_codes_are_distinct_and_match_the_documented_values() {
         let values: Vec<i32> = all().iter().map(|c| c.as_i32()).collect();
         assert_eq!(values, [0, 1, 2, 3, 4, 5, 6, 7]);
         let distinct: HashSet<i32> = values.iter().copied().collect();
