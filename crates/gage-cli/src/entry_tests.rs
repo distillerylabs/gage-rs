@@ -105,7 +105,7 @@ fn no_use_flag_operates_against_current_vault() {
     let env = Env::new();
     env.init("first", &[]);
     env.init("second", &[]);
-    assert_eq!(env.global().current, "first");
+    assert_eq!(env.global().current, Some("first".into()));
 
     env.insert_ok("v", &["in-current"]);
 
@@ -1047,7 +1047,7 @@ fn no_entry_command_doubles_gages_own_prefix() {
 fn a_registration_without_an_id_fails_insert_before_any_path_is_built() {
     let env = env_with_vault();
     let mut global = env.global();
-    global.vaults.get_mut("personal").unwrap().id.clear();
+    global.vaults.get_mut("personal").unwrap().id = None;
     env.save_global(&global);
     let before = env.tree();
     let prompter = FakePrompter::new();
@@ -1120,7 +1120,8 @@ fn two_registrations_of_one_repository_share_one_lock() {
     assert_eq!(env.entry("alias").id, env.entry("personal").id);
 
     // Held through the "personal" registration's id.
-    let lock_path = gage::paths::lock_file_path(&env.dirs, &env.entry("personal").id).unwrap();
+    let lock_path =
+        gage::paths::lock_file_path(&env.dirs, &env.entry("personal").id.clone().unwrap());
     std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
     let mut holder = Command::new(std::env::current_exe().unwrap())
         .args([

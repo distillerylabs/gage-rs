@@ -21,9 +21,9 @@ fn key() -> String {
 fn spec(root: &tempfile::TempDir, recipients: Vec<String>) -> CreateSpec {
     CreateSpec {
         name: "personal".into(),
-        id: vaultconfig::new_id(),
+        id: vaultconfig::VaultId::new(),
         path: root.path().join("vault"),
-        vault_type: "git".into(),
+        vault_type: crate::vaultconfig::VaultType::Git,
         method: "passphrase".into(),
         device: DEVICE.into(),
         recipients,

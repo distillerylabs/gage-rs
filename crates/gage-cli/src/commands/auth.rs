@@ -53,18 +53,18 @@ fn resolve_host(explicit: Option<&str>, io: &Io) -> Result<String, CliError> {
     let name = global.name_or_current(None).map_err(|_| no_vault())?;
     let entry = global.entry(name).map_err(|_| no_vault())?;
 
-    let mut origin = entry.git.origin.clone();
-    if origin.is_empty() {
-        origin = gitrepo::remote_url(&entry.path)?.unwrap_or_default();
-    }
-    if origin.is_empty() {
+    let origin = match &entry.git.origin {
+        Some(origin) => Some(origin.clone()),
+        None => gitrepo::remote_url(&entry.path)?,
+    };
+    let Some(origin) = origin.filter(|o| !o.is_empty()) else {
         return Err(fail(
             Code::Usage,
             format!(
                 "gage: vault {name:?} has no remote, so there is no host to authenticate to; pass --host"
             ),
         ));
-    }
+    };
     let host = remoteauth::host(&origin)?;
     if host.is_empty() {
         return Err(fail(

@@ -53,7 +53,7 @@ fn session<'a>(env: &'a Env, prompter: &'a FakePrompter) -> Session<'a> {
         }),
         prompter,
         idle_timeout: None,
-        current: Some(env.global().current),
+        current: env.global().current,
         now: None,
     })
 }

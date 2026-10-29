@@ -26,7 +26,7 @@ fn with_github() -> Env {
 
 fn set_clipboard_timeout(env: &Env, raw: &str) {
     env.set_shell(Shell {
-        clipboard_timeout: raw.into(),
+        clipboard_timeout: Some(raw.into()),
         ..Shell::default()
     });
 }

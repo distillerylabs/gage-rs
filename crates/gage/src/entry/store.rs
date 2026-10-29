@@ -202,7 +202,7 @@ mod tests {
                 data: root.path().join("data"),
                 state: root.path().join("state"),
             };
-            let mut vault = Vault::for_tests(&dirs, "work", "vault-id");
+            let mut vault = Vault::for_tests(&dirs, "work", &crate::vaultconfig::VaultId::new());
             vault.path = root.path().join("vault");
             std::fs::create_dir_all(&vault.path).unwrap();
             let keys: Vec<_> = (0..recipient_count)

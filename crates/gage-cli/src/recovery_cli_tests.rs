@@ -291,7 +291,7 @@ fn recovery_verify_tolerates_pasted_whitespace() {
 fn recovery_verify_needs_no_unlock() {
     let env = Env::new();
     let secret = init_vault_with_recovery_key_file(&env, VAULT);
-    let lock = gage::paths::lock_file_path(&env.dirs, &env.entry(VAULT).id).unwrap();
+    let lock = gage::paths::lock_file_path(&env.dirs, &env.entry(VAULT).id.clone().unwrap());
     let _ = std::fs::remove_file(&lock);
 
     let (r, p) = run_verify(&env, &secret);
@@ -745,7 +745,10 @@ fn recovery_enroll_works_on_a_fresh_clone() {
     assert_eq!(read.stdout.trim(), "s3cr3t");
     // Published, so the owner's machine sees the new device too.
     let published = gage::gittest::Device::clone(remote.path()).read(".age-recipients");
-    assert!(published.contains(&env.entry(VAULT).pubkey), "{published}");
+    assert!(
+        published.contains(env.entry(VAULT).pubkey.as_deref().unwrap()),
+        "{published}"
+    );
 }
 
 // The
@@ -758,7 +761,7 @@ fn recovery_enroll_rebuilds_a_device_whose_passphrase_is_forgotten() {
     insert(&env, "api-token", "s3cr3t");
     let file = identity_files(&env).pop().unwrap();
     let original = std::fs::read(&file).unwrap();
-    let old_pubkey = env.entry(VAULT).pubkey;
+    let old_pubkey = env.entry(VAULT).pubkey.unwrap();
 
     let (r, _, p) = run_enroll(
         &env,
@@ -779,7 +782,10 @@ fn recovery_enroll_rebuilds_a_device_whose_passphrase_is_forgotten() {
     assert_eq!(labels(&env), ["laptop-1", RECOVERY_DEVICE_LABEL]);
     let recipients = env.vault_config(VAULT).recipients;
     assert_ne!(recipients[0].pubkey, old_pubkey);
-    assert_eq!(recipients[0].pubkey, env.entry(VAULT).pubkey);
+    assert_eq!(
+        Some(&recipients[0].pubkey),
+        env.entry(VAULT).pubkey.as_ref()
+    );
     let read = show(&env, "api-token");
     assert_eq!(read.code, Code::Success, "{}", read.stderr);
 }
@@ -792,7 +798,7 @@ fn recovery_enroll_rebuilds_under_the_same_name_after_losing_the_file() {
     let env = Env::new();
     let pasted = init_vault_with_recovery_key_file(&env, VAULT);
     insert(&env, "api-token", "s3cr3t");
-    let old_pubkey = env.entry(VAULT).pubkey;
+    let old_pubkey = env.entry(VAULT).pubkey.unwrap();
     lose_the_identity_file(&env);
 
     let (r, _, _) = run_enroll(

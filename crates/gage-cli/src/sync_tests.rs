@@ -68,7 +68,7 @@ fn init_publishes_the_new_vault() {
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
     assert!(r.stdout.contains("published"), "{}", r.stdout);
     assert!(Device::clone(remote.path()).exists(".age-recipients"));
-    assert_eq!(env.entry("personal").git.origin, url(&remote));
+    assert_eq!(env.entry("personal").git.origin, Some(url(&remote).into()));
 }
 
 // Gage never creates
@@ -785,10 +785,10 @@ fn clone_produces_a_registered_working_vault() {
 
     let entry = env.entry("personal");
     assert_eq!(entry.vault_type, "git");
-    assert_eq!(entry.git.origin, url(&remote));
+    assert_eq!(entry.git.origin, Some(url(&remote).into()));
     assert_eq!(entry.device, crate::entry_tests::DEVICE);
-    assert!(!entry.id.is_empty());
-    assert!(entry.pubkey.is_empty(), "a clone holds no identity");
+    assert!(entry.id.is_some());
+    assert!(entry.pubkey.is_none(), "a clone holds no identity");
     for rel in [
         ".gage/config.toml",
         ".age-recipients",
@@ -811,9 +811,8 @@ fn clone_copies_the_vaults_id_into_global_config() {
     env.clone_ok(&[url(&remote), "--name", "cloned"]);
 
     let committed = env.vault_config("cloned").vault.id;
-    assert!(vaultconfig::valid_id(&committed), "{committed}");
     assert_eq!(committed, first.vault_config("personal").vault.id);
-    assert_eq!(env.entry("cloned").id, committed);
+    assert_eq!(env.entry("cloned").id, Some(committed.clone()));
 
     let r = env.ok(&["vault", "info", "cloned"]);
     assert!(

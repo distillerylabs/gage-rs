@@ -29,7 +29,7 @@ fn partially_admitted(e: &Enrolled, device: &str) -> Env {
     assert_eq!(r.code, Code::Success, "clone: {}", r.stderr);
     env.ok(&["identity", "add", "--device", device]);
     let key = env.entry(VAULT).pubkey;
-    commit_routine_change(&e.vault_path(), device, &key);
+    commit_routine_change(&e.vault_path(), device, key.as_deref().unwrap());
     gitrepo::push(&e.vault_path(), &gittest::remote_options()).unwrap();
     env.ok(&["pull"]);
     env

@@ -16,7 +16,8 @@ use gage::recovery::{
     RECOVERY_DEVICE_LABEL, RecoverResult, RecoverSpec, RecoveryError, RotateResult,
     check_device_label_free, new_recovery_key,
 };
-use gage::vault::{self, Vault};
+use gage::vault::Vault;
+use gage::vaultconfig::UnlockMethod;
 
 use super::entry::{open_vault, use_flag};
 use super::identity::record_local_identity;
@@ -309,7 +310,7 @@ pub fn enroll(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
         io,
         &vault.name,
         &device,
-        vault::METHOD_PASSPHRASE,
+        &UnlockMethod::Passphrase,
         &pubkey,
     )
     // The remedy after the cause, on its own line, keeping the

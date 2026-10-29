@@ -713,7 +713,7 @@ fn a_registration_without_an_id_fails_show_before_any_path_is_built() {
     let env = env_with_vault();
     env.insert_ok("v", &["x"]);
     let mut global = env.global();
-    global.vaults.get_mut("personal").unwrap().id.clear();
+    global.vaults.get_mut("personal").unwrap().id = None;
     env.save_global(&global);
     let before = env.tree();
     let prompter = FakePrompter::new();

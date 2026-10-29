@@ -171,7 +171,7 @@ mod tests {
 
     #[test]
     fn a_library_error_keeps_its_own_code() {
-        let err: CliError = gage::paths::Error::InvalidVaultId("x".into()).into();
+        let err: CliError = gage::paths::Error::InvalidDeviceName("x".into()).into();
         assert_eq!(err.code(), Code::LockedOrAuth);
     }
 

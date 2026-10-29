@@ -325,7 +325,7 @@ fn reencrypt_lands_everything_in_exactly_one_commit() {
 fn reencrypt_holds_the_vault_lock_throughout() {
     let f = Fixture::new();
     f.seed(3);
-    let lock = f.vault.lock_file_path().unwrap();
+    let lock = f.vault.lock_file_path();
     let seen = Arc::new(Mutex::new(Vec::new()));
     let record = Arc::clone(&seen);
     let probe = lock.clone();

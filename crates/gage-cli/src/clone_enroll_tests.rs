@@ -80,7 +80,7 @@ fn interactive_clone_offers_to_enroll_and_yes_publishes() {
     assert!(r.stdout.contains("GAGE-"), "{}", r.stdout);
     assert_eq!(pending_on_remote(&origin).len(), 1);
     assert_eq!(identity_files(&b).len(), 1);
-    assert!(!b.entry(VAULT).pubkey.is_empty(), "no pubkey was recorded");
+    assert!(!b.entry(VAULT).pubkey.is_none(), "no pubkey was recorded");
 }
 
 // A `confirm_default_yes` wired to

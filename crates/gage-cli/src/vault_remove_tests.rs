@@ -22,7 +22,8 @@ fn new_key() -> String {
 
 impl Env {
     fn identity_file(&self, name: &str, device: &str) -> PathBuf {
-        paths::identity_file_path(&self.dirs, &self.entry(name).id, device).unwrap()
+        paths::identity_file_path(&self.dirs, self.entry(name).id.as_ref().unwrap(), device)
+            .unwrap()
     }
 
     /// `vault remove <name>` answering the one confirmation with `answer`.
@@ -42,7 +43,7 @@ impl Env {
         let path = config_file(&entry.path);
         let mut file = vaultconfig::read(&path).unwrap();
         for r in &mut file.recipients {
-            if r.pubkey == entry.pubkey {
+            if Some(&r.pubkey) == entry.pubkey.as_ref() {
                 r.pubkey = replacement.clone();
             }
         }
@@ -215,7 +216,7 @@ fn vault_remove_keeps_the_file_when_the_registration_points_at_another_vault() {
     let id_path = env.identity_file("other", "laptop-1");
     env.set_registration("personal", |e| {
         e.id = other.id.clone();
-        e.pubkey = new_key();
+        e.pubkey = Some(new_key());
     });
 
     let p = FakePrompter::new().with_confirm(true);
@@ -343,7 +344,7 @@ fn vault_remove_keeps_the_file_when_no_pubkey_is_recorded() {
     env.init("personal", &["--device", "laptop-1"]);
     let id_path = env.identity_file("personal", "laptop-1");
     env.orphan_this_devices_key("personal");
-    env.set_registration("personal", |e| e.pubkey.clear());
+    env.set_registration("personal", |e| e.pubkey = None);
 
     let p = FakePrompter::new().with_confirm(true);
     let r = env.run_with(&["vault", "remove", "personal"], &p);

@@ -56,12 +56,16 @@ pub enum KeepReason {
 /// Assesses `entry`, the registration being forgotten as `name`. Reads the
 /// vault's recipients fresh from disk and deletes nothing.
 pub fn assess(dirs: &Dirs, name: &str, entry: &VaultEntry) -> OrphanCheck {
-    if entry.device.is_empty() || entry.id.is_empty() {
+    let Some(id) = &entry.id else {
+        return OrphanCheck::Nothing;
+    };
+    if entry.device.is_empty() {
         return OrphanCheck::Nothing;
     }
-    // The id comes from a config file this process did not write: an
-    // unsafe one, or an unsafe device name, builds no path at all.
-    let Ok(path) = paths::identity_file_path(dirs, &entry.id, &entry.device) else {
+    // The device name comes from a config file this process did not write:
+    // an unsafe one builds no path at all. The id was checked as it was
+    // read.
+    let Ok(path) = paths::identity_file_path(dirs, id, &entry.device) else {
         return OrphanCheck::Nothing;
     };
     if !path.is_file() {
@@ -72,11 +76,11 @@ pub fn assess(dirs: &Dirs, name: &str, entry: &VaultEntry) -> OrphanCheck {
         reason,
     };
 
-    if entry.pubkey.is_empty() {
+    let Some(pubkey) = &entry.pubkey else {
         return keep(KeepReason::NoPublicKeyRecorded {
             device: entry.device.clone(),
         });
-    }
+    };
     let vault = match Vault::from_registration(dirs, name, entry) {
         Ok(vault) => vault,
         Err(e) => {
@@ -94,7 +98,7 @@ pub fn assess(dirs: &Dirs, name: &str, entry: &VaultEntry) -> OrphanCheck {
             });
         }
     };
-    if let Some(listed) = recipients.iter().find(|r| r.pubkey == entry.pubkey) {
+    if let Some(listed) = recipients.iter().find(|r| r.pubkey == *pubkey) {
         return keep(KeepReason::StillARecipient {
             label: listed.device.clone(),
         });
@@ -139,9 +143,9 @@ mod tests {
             .unwrap();
             let entry = VaultEntry {
                 path: fx.vault.path.clone(),
-                id: fx.vault.id.clone(),
+                id: Some(fx.vault.id.clone()),
                 device: DEVICE.into(),
-                pubkey,
+                pubkey: Some(pubkey),
                 ..VaultEntry::default()
             };
             Case { fx, entry }
@@ -185,7 +189,7 @@ mod tests {
         c.entry.device.clear();
         assert_eq!(c.assess(), OrphanCheck::Nothing);
         let mut c = Case::new();
-        c.entry.id.clear();
+        c.entry.id = None;
         assert_eq!(c.assess(), OrphanCheck::Nothing);
     }
 
@@ -196,20 +200,19 @@ mod tests {
         assert_eq!(c.assess(), OrphanCheck::Nothing);
     }
 
+    // An unsafe id can't reach here: the global config refuses it as it is
+    // read (ADR-0052).
     #[test]
-    fn an_unsafe_id_or_device_builds_no_path_and_is_nothing() {
+    fn an_unsafe_device_builds_no_path_and_is_nothing() {
         let mut c = Case::new();
         c.entry.device = "../escape".into();
-        assert_eq!(c.assess(), OrphanCheck::Nothing);
-        let mut c = Case::new();
-        c.entry.id = "../../etc".into();
         assert_eq!(c.assess(), OrphanCheck::Nothing);
     }
 
     #[test]
     fn no_recorded_public_key_keeps_the_file() {
         let mut c = Case::new();
-        c.entry.pubkey.clear();
+        c.entry.pubkey = None;
         assert_eq!(
             c.kept(),
             KeepReason::NoPublicKeyRecorded {
@@ -223,7 +226,7 @@ mod tests {
         let mut c = Case::new();
         // The vault lists the fixture's key as DEVICE; the registration
         // holds that key, but the vault might label it anything.
-        c.entry.pubkey = c.fx.pubkey();
+        c.entry.pubkey = Some(c.fx.pubkey());
         assert_eq!(
             c.kept(),
             KeepReason::StillARecipient {
@@ -250,7 +253,7 @@ mod tests {
         // The vault lists a *different* key under this device's name.
         let config = c.fx.vault.recipients().unwrap();
         assert_eq!(config[0].device, DEVICE);
-        assert_ne!(config[0].pubkey, c.entry.pubkey);
+        assert_ne!(Some(&config[0].pubkey), c.entry.pubkey.as_ref());
         assert!(matches!(c.assess(), OrphanCheck::Offer { .. }));
     }
 
@@ -272,7 +275,7 @@ mod tests {
         let mut c = Case::new();
         // Both ids are valid; only the one on disk is this vault's. The
         // identity sits under the registration's id, as it would have.
-        let other = vaultconfig::new_id();
+        let other = vaultconfig::VaultId::new();
         let dirs = c.fx.vault.dirs().clone();
         identityfile::create(
             &dirs,
@@ -282,7 +285,7 @@ mod tests {
             &FakePrompter::new().with_passphrase(PASSPHRASE),
         )
         .unwrap();
-        c.entry.id = other.clone();
+        c.entry.id = Some(other.clone());
         let path = paths::identity_file_path(&dirs, &other, DEVICE).unwrap();
         match c.assess() {
             OrphanCheck::Keep {
@@ -290,7 +293,7 @@ mod tests {
                 reason: KeepReason::RegistrationDoesNotMatch { detail },
             } => {
                 assert_eq!(kept, path);
-                assert!(detail.contains(&other), "{detail}");
+                assert!(detail.contains(other.as_str()), "{detail}");
             }
             other => panic!("{other:?}"),
         }

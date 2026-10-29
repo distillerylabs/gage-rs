@@ -29,10 +29,10 @@ fn deny_removes_the_request_and_grants_nothing() {
 
     let denied = a
         .vault
-        .deny_enrollment(&req.id, &FakePrompter::new())
+        .deny_enrollment(req.id.as_deref().unwrap(), &FakePrompter::new())
         .unwrap();
 
-    assert_eq!(denied.id, req.id);
+    assert_eq!(Some(&denied.id), req.id.as_ref());
     assert!(pending_names(&a.vault).is_empty());
     assert_eq!(a.vault.recipients().unwrap(), before);
     assert_ne!(
@@ -88,7 +88,7 @@ fn deny_resolves_an_eight_character_prefix() {
     let (_m, req) = enrolled(&a, "phone-1");
 
     a.vault
-        .deny_enrollment(&req.id[..8], &FakePrompter::new())
+        .deny_enrollment(&req.id.as_deref().unwrap()[..8], &FakePrompter::new())
         .unwrap();
 
     assert!(pending_names(&a.vault).is_empty());
@@ -103,7 +103,7 @@ fn deny_prunes_expired_requests_in_the_same_commit() {
     let before = commits(&a.vault);
 
     a.vault
-        .deny_enrollment(&req.id, &FakePrompter::new())
+        .deny_enrollment(req.id.as_deref().unwrap(), &FakePrompter::new())
         .unwrap();
 
     for name in [&stale, &beyond] {
@@ -128,7 +128,9 @@ fn deny_warns_when_its_push_fails() {
     }));
     let p = FakePrompter::new();
 
-    offline.deny_enrollment(&req.id, &p).unwrap();
+    offline
+        .deny_enrollment(req.id.as_deref().unwrap(), &p)
+        .unwrap();
 
     let warnings = p.warnings().join("\n");
     assert!(

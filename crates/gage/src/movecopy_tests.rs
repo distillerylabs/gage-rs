@@ -376,10 +376,7 @@ fn opposite_direction_callers_never_deadlock() {
 fn two_vault_locks_are_both_held_for_the_whole_operation() {
     let (src, dst) = (Fixture::new(), Fixture::new());
     put(&src, "GitHub");
-    let (src_lock, dst_lock) = (
-        src.vault.lock_file_path().unwrap(),
-        dst.vault.lock_file_path().unwrap(),
-    );
+    let (src_lock, dst_lock) = (src.vault.lock_file_path(), dst.vault.lock_file_path());
     let seen = Arc::new(Mutex::new(None));
     let record = Arc::clone(&seen);
     let (a, b) = (src_lock.clone(), dst_lock.clone());
@@ -428,12 +425,8 @@ fn move_crash_between_the_two_writes_leaves_a_recoverable_duplicate() {
     );
     assert!(dst.is_clean() && src.is_clean());
     // The locks died with the unwind: a retry is not blocked.
-    assert!(!lock_is_held_elsewhere(
-        &src.vault.lock_file_path().unwrap()
-    ));
-    assert!(!lock_is_held_elsewhere(
-        &dst.vault.lock_file_path().unwrap()
-    ));
+    assert!(!lock_is_held_elsewhere(&src.vault.lock_file_path()));
+    assert!(!lock_is_held_elsewhere(&dst.vault.lock_file_path()));
 }
 
 // A write error on the destination leaves the source alone, too.

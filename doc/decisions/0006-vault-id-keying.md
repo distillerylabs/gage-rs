@@ -31,8 +31,10 @@ nothing reads it to decide anything.
 
 The id is untrusted input: it arrives in a committed file any git writer can
 edit and becomes a path component. It is validated as a UUID before any
-path is built from it, on the way in and out, and a config whose id does not
-parse is refused rather than coerced.
+path is built from it, and a config whose id does not parse is refused
+rather than coerced. Since D3a the validation is a type: an id is checked
+once, where it is read, and the path builders accept only a checked one
+([ADR-0052](0052-vault-id-type.md)).
 
 ## Consequences
 

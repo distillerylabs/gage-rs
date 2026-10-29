@@ -274,7 +274,6 @@ impl HasCode for RecipientError {
 impl From<LockError> for RecipientError {
     fn from(err: LockError) -> RecipientError {
         match err {
-            LockError::Path(e) => RecipientError::Path(e),
             LockError::Lock(e) => RecipientError::Lock(e),
             LockError::Io { path, source } => RecipientError::Io { path, source },
         }

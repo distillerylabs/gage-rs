@@ -16,15 +16,19 @@ use super::{
     OpenedRequest, PendingRequest,
 };
 use crate::crypt::{self, Recipient};
-use crate::vault::{ALLOWED_METHODS, Vault};
-use crate::{agekey, devicename, vaultconfig};
+use crate::vault::Vault;
+use crate::vaultconfig::{self, InvalidVaultId, UnlockMethod, VaultId};
+use crate::{agekey, devicename};
 
 /// The plaintext under the seal, as TOML.
 ///
-/// Every field is a string, timestamps included, and absent means empty:
-/// what arrives is untrusted, so the fields are validated after parsing,
-/// not by it, and a malformed timestamp is a request gage refuses rather
-/// than a parse error it reports as corruption.
+/// Every field is a string, timestamps and the vault id included, and
+/// absent means empty: what arrives is untrusted, so the fields are
+/// validated after parsing, not by it, and a malformed timestamp or id is
+/// a request gage refuses with a reason rather than a parse error it
+/// reports as corruption. The vault id becomes a [`VaultId`] in
+/// [`Vault::validate_payload`]. The method is an [`UnlockMethod`], which
+/// takes any string, so it can't fail the parse either.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub(crate) struct Payload {
@@ -32,7 +36,7 @@ pub(crate) struct Payload {
     pub(crate) vault_id: String,
     pub(crate) device: String,
     pub(crate) pubkey: String,
-    pub(crate) method: String,
+    pub(crate) method: UnlockMethod,
     pub(crate) created: String,
     pub(crate) expires: String,
 }
@@ -81,7 +85,7 @@ impl Vault {
         &self,
         device: &str,
         pubkey: &str,
-        method: &str,
+        method: &UnlockMethod,
         ttl: Duration,
     ) -> Result<(EnrollmentRequest, Vec<u8>), EnrollmentError> {
         if ttl.is_zero() || ttl > MAX_ENROLLMENT_TTL {
@@ -93,13 +97,10 @@ impl Vault {
             });
         }
         agekey::validate_recipient(pubkey).map_err(EnrollmentError::InvalidPubkey)?;
-        if !ALLOWED_METHODS.contains(&method) {
+        if !method.is_supported() {
             return Err(EnrollmentError::UnknownMethod {
                 method: method.to_string(),
             });
-        }
-        if !vaultconfig::valid_id(&self.id) {
-            return Err(EnrollmentError::NoVaultId);
         }
 
         let code = generate_code().map_err(EnrollmentError::Random)?;
@@ -115,11 +116,12 @@ impl Vault {
             .and_then(|ttl| created.checked_add(ttl).ok())
             .map(|t| Timestamp::from_second(t.as_second()).expect("whole seconds"))
             .ok_or(EnrollmentError::InvalidTtl { ttl })?;
+        let id = Uuid::new_v4().to_string();
         let request = EnrollmentRequest {
-            id: Uuid::new_v4().to_string(),
+            id: Some(id.clone()),
             device: device.to_string(),
             pubkey: pubkey.to_string(),
-            method: method.to_string(),
+            method: method.clone(),
             created,
             expires,
             code,
@@ -127,8 +129,8 @@ impl Vault {
         };
         let sealed = seal_payload(
             &Payload {
-                request_id: request.id.clone(),
-                vault_id: self.id.clone(),
+                request_id: id,
+                vault_id: self.id.to_string(),
                 device: request.device.clone(),
                 pubkey: request.pubkey.clone(),
                 method: request.method.clone(),
@@ -205,12 +207,9 @@ impl Vault {
                 p.request_id
             )));
         }
-        if !vaultconfig::valid_id(&p.vault_id) {
-            return Err(malformed(format!(
-                "its sealed vault id {:?} is not a uuid",
-                p.vault_id
-            )));
-        }
+        let vault_id = VaultId::try_from(p.vault_id).map_err(|InvalidVaultId(id)| {
+            malformed(format!("its sealed vault id {id:?} is not a uuid"))
+        })?;
         // What keeps escape sequences and newlines out of a string shown
         // above a prompt granting vault-wide access; so here, not at
         // add_recipient two milestones and one confirmation later.
@@ -224,10 +223,10 @@ impl Vault {
                 "its sealed public key is not an age recipient".into(),
             ));
         }
-        if !ALLOWED_METHODS.contains(&p.method.as_str()) {
+        if !p.method.is_supported() {
             return Err(malformed(format!(
                 "its sealed method {:?} is not one this build performs",
-                p.method
+                p.method.as_str()
             )));
         }
         let created: Timestamp = p.created.parse().map_err(|_| {
@@ -253,9 +252,9 @@ impl Vault {
                 filed: request.id.clone(),
             });
         }
-        if p.vault_id != self.id {
+        if vault_id != self.id {
             return Err(EnrollmentError::WrongVault {
-                vault: self.describe_vault_id(&p.vault_id),
+                vault: self.describe_vault_id(&vault_id),
                 this: self.name.clone(),
             });
         }

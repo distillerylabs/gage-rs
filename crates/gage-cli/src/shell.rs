@@ -8,8 +8,9 @@ use std::time::Duration;
 
 use gage::config::{self, Shell};
 use gage::exitcode::Code;
+use gage::vaultconfig::VaultType;
 use gage::xdgpaths::Dirs;
-use gage::{gitrepo, paths, vault};
+use gage::{gitrepo, paths};
 
 use crate::duration;
 use crate::error::CliError;
@@ -56,16 +57,13 @@ pub fn resolve(
     dirs: &Dirs,
     home: &dyn Fn() -> Option<PathBuf>,
 ) -> Result<ShellSettings, CliError> {
-    let prompt = if shell.prompt.is_empty() {
-        DEFAULT_PROMPT.to_string()
-    } else {
-        shell.prompt.clone()
-    };
-    let idle_timeout = if shell.idle_timeout.is_empty() {
-        Some(DEFAULT_IDLE_TIMEOUT)
-    } else {
-        let raw = &shell.idle_timeout;
-        match duration::parse(raw) {
+    let prompt = shell
+        .prompt
+        .clone()
+        .unwrap_or_else(|| DEFAULT_PROMPT.to_string());
+    let idle_timeout = match &shell.idle_timeout {
+        None => Some(DEFAULT_IDLE_TIMEOUT),
+        Some(raw) => match duration::parse(raw) {
             Ok(d) if d.is_zero() => None,
             Ok(d) => Some(d),
             Err(duration::DurationError::Negative) => {
@@ -82,17 +80,15 @@ pub fn resolve(
                     format!("gage: [shell].idle_timeout {raw:?} is not a duration (e.g. \"10m\")"),
                 ));
             }
-        }
+        },
     };
     // Refused rather than clamped, and with no "0 disables it": a clear
     // that silently never fired, or one rounded up from what the human
     // chose, would weaken the one guarantee -c makes. Turning the clear
     // off is left un-takeable; adding it later is additive.
-    let clipboard_timeout = if shell.clipboard_timeout.is_empty() {
-        DEFAULT_CLIPBOARD_TIMEOUT
-    } else {
-        let raw = &shell.clipboard_timeout;
-        match duration::parse(raw) {
+    let clipboard_timeout = match &shell.clipboard_timeout {
+        None => DEFAULT_CLIPBOARD_TIMEOUT,
+        Some(raw) => match duration::parse(raw) {
             Ok(d) if d >= MIN_CLIPBOARD_TIMEOUT => d,
             Ok(_) | Err(duration::DurationError::Negative) => {
                 return Err(CliError::new(
@@ -111,14 +107,13 @@ pub fn resolve(
                     ),
                 ));
             }
-        }
+        },
     };
     // The design doc writes the path with `$GAGE_STATE` in it, so the
     // default and a configured value go through the same expansion.
-    let history_file = if shell.history_file.is_empty() {
-        dirs.state.join("history")
-    } else {
-        expand_gage_path(&shell.history_file, dirs, home)?
+    let history_file = match &shell.history_file {
+        None => dirs.state.join("history"),
+        Some(path) => expand_gage_path(path, dirs, home)?,
     };
     Ok(ShellSettings {
         prompt,
@@ -219,10 +214,9 @@ pub fn vault_is_dirty(name: &str, dirs: &Dirs) -> bool {
     let Ok(entry) = global.entry(name) else {
         return false;
     };
-    if entry.vault_type != vault::TYPE_GIT {
-        return false;
+    match entry.vault_type {
+        VaultType::Git => gitrepo::is_clean(&entry.path).is_ok_and(|clean| !clean),
     }
-    gitrepo::is_clean(&entry.path).is_ok_and(|clean| !clean)
 }
 
 #[cfg(test)]
@@ -264,7 +258,7 @@ mod tests {
     #[test]
     fn resolve_shell_settings_parses_idle_timeout() {
         let got = resolve_with(Shell {
-            idle_timeout: "45s".into(),
+            idle_timeout: Some("45s".into()),
             ..Shell::default()
         })
         .unwrap();
@@ -277,7 +271,7 @@ mod tests {
     fn resolve_shell_settings_rejects_a_malformed_idle_timeout() {
         for bad in ["10min", "later", "-5m"] {
             let err = resolve_with(Shell {
-                idle_timeout: bad.into(),
+                idle_timeout: Some(bad.into()),
                 ..Shell::default()
             })
             .unwrap_err();
@@ -296,14 +290,14 @@ mod tests {
         assert_eq!(got.clipboard_timeout, Duration::from_secs(45));
 
         let got = resolve_with(Shell {
-            clipboard_timeout: "90s".into(),
+            clipboard_timeout: Some("90s".into()),
             ..Shell::default()
         })
         .unwrap();
         assert_eq!(got.clipboard_timeout, Duration::from_secs(90));
 
         let got = resolve_with(Shell {
-            clipboard_timeout: "1s".into(),
+            clipboard_timeout: Some("1s".into()),
             ..Shell::default()
         })
         .unwrap();
@@ -311,7 +305,7 @@ mod tests {
 
         for bad in ["45sec", "200ms", "0", "-5s"] {
             let err = resolve_with(Shell {
-                clipboard_timeout: bad.into(),
+                clipboard_timeout: Some(bad.into()),
                 ..Shell::default()
             })
             .unwrap_err();
@@ -325,7 +319,7 @@ mod tests {
     #[test]
     fn zero_idle_timeout_disables_the_relock() {
         let got = resolve_with(Shell {
-            idle_timeout: "0".into(),
+            idle_timeout: Some("0".into()),
             ..Shell::default()
         })
         .unwrap();
@@ -341,7 +335,7 @@ mod tests {
         let dirs = dirs_in(root.path());
         let got = resolve(
             &Shell {
-                history_file: "$GAGE_STATE/gage-history".into(),
+                history_file: Some("$GAGE_STATE/gage-history".into()),
                 ..Shell::default()
             },
             &dirs,
@@ -362,7 +356,7 @@ mod tests {
         let elsewhere = tempfile::tempdir().unwrap();
         let want = elsewhere.path().join("elsewhere").join("history");
         let got = resolve_with(Shell {
-            history_file: want.to_str().unwrap().into(),
+            history_file: Some(want.to_str().unwrap().into()),
             ..Shell::default()
         })
         .unwrap();

@@ -22,9 +22,9 @@ fn fixture() -> Fixture {
         &dirs_in(root.path()),
         &CreateSpec {
             name: "personal".into(),
-            id: vaultconfig::new_id(),
+            id: vaultconfig::VaultId::new(),
             path: root.path().join("vault"),
-            vault_type: "git".into(),
+            vault_type: crate::vaultconfig::VaultType::Git,
             method: "passphrase".into(),
             device: "laptop-1".into(),
             recipients: vec![device.to_public().to_string()],

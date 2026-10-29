@@ -18,7 +18,7 @@ use crate::recovery::{RecoveryKey, new_recovery_key};
 use crate::remotesync::tests::{sample, unlocks};
 use crate::testsupport::fast_scrypt;
 use crate::trustcache::TrustError;
-use crate::vault::{self, CreateSpec, LabelledRecipient};
+use crate::vault::{CreateSpec, LabelledRecipient};
 use crate::vaultconfig::Recipient;
 use crate::xdgpaths::Dirs;
 use crate::{gitrepo, identityfile, paths, vaultconfig};
@@ -67,7 +67,7 @@ impl Recover {
             state: root.path().join("state"),
         };
         let remote = gittest::new_bare_remote();
-        let id = vaultconfig::new_id();
+        let id = vaultconfig::VaultId::new();
         let owner_pubkey = identityfile::create(&dirs, &id, NAME, OWNER, &unlocks()).unwrap();
         let key = new_recovery_key().unwrap();
         let path = root.path().join("vault");
@@ -78,8 +78,8 @@ impl Recover {
                 name: NAME.into(),
                 id: id.clone(),
                 path: path.clone(),
-                vault_type: vault::TYPE_GIT.into(),
-                method: vault::METHOD_PASSPHRASE.into(),
+                vault_type: crate::vaultconfig::VaultType::Git,
+                method: crate::vaultconfig::UnlockMethod::Passphrase,
                 device: OWNER.into(),
                 recipients: vec![owner_pubkey.clone()],
                 extra_recipients: extras(&owner_pubkey, &key),
@@ -93,11 +93,13 @@ impl Recover {
                 NAME,
                 VaultEntry {
                     path,
-                    id,
-                    vault_type: vault::TYPE_GIT.into(),
+                    id: Some(id),
+                    vault_type: crate::vaultconfig::VaultType::Git,
                     device: OWNER.into(),
-                    method: vault::METHOD_PASSPHRASE.into(),
-                    git: config::GitMeta { origin },
+                    method: crate::vaultconfig::UnlockMethod::Passphrase,
+                    git: config::GitMeta {
+                        origin: Some(origin),
+                    },
                     ..Default::default()
                 },
             )

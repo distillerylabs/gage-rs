@@ -130,7 +130,7 @@ fn auth_login_reads_the_origin_from_the_repository_when_config_lags() {
     let env = Env::new();
     let path = env.init("personal", &[]);
     gitrepo::set_remote(&path, "https://git.example.com/me/vault.git").unwrap();
-    assert_eq!(env.entry("personal").git.origin, "", "config lags");
+    assert_eq!(env.entry("personal").git.origin, None, "config lags");
 
     let r = env.auth(&["auth", "login"]);
     assert_eq!(r.code, Code::Success, "{}", r.stderr);

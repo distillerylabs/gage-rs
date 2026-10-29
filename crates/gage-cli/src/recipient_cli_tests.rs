@@ -57,7 +57,7 @@ impl Env {
 /// B registers its own identity; returns the key it printed.
 fn b_identity(t: &TwoDevices) -> String {
     let r = t.b.ok(&["identity", "add", "--device", B_DEVICE]);
-    let key = t.b.entry(VAULT).pubkey;
+    let key = t.b.entry(VAULT).pubkey.unwrap();
     assert!(r.stdout.contains(&key), "{}", r.stdout);
     key
 }

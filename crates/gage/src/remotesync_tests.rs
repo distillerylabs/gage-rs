@@ -20,7 +20,7 @@ use crate::identity::Identity;
 use crate::prompter::FakePrompter;
 use crate::syncerr;
 use crate::testsupport::fast_scrypt;
-use crate::vault::{self, CreateSpec};
+use crate::vault::CreateSpec;
 use crate::{identityfile, paths, vaultconfig, vaultlock};
 
 pub(crate) const NAME: &str = "personal";
@@ -46,7 +46,7 @@ impl SyncVault {
             state: root.path().join("state"),
         };
         let remote = gittest::new_bare_remote();
-        let id = vaultconfig::new_id();
+        let id = vaultconfig::VaultId::new();
         let pubkey = identityfile::create(&dirs, &id, NAME, DEVICE, &unlocks()).unwrap();
         let path = root.path().join("vault");
         let origin = remote.path().to_str().unwrap().to_string();
@@ -56,8 +56,8 @@ impl SyncVault {
                 name: NAME.into(),
                 id: id.clone(),
                 path: path.clone(),
-                vault_type: vault::TYPE_GIT.into(),
-                method: vault::METHOD_PASSPHRASE.into(),
+                vault_type: crate::vaultconfig::VaultType::Git,
+                method: crate::vaultconfig::UnlockMethod::Passphrase,
                 device: DEVICE.into(),
                 recipients: vec![pubkey],
                 extra_recipients: Vec::new(),
@@ -71,11 +71,13 @@ impl SyncVault {
                 NAME,
                 VaultEntry {
                     path,
-                    id,
-                    vault_type: vault::TYPE_GIT.into(),
+                    id: Some(id),
+                    vault_type: crate::vaultconfig::VaultType::Git,
                     device: DEVICE.into(),
-                    method: vault::METHOD_PASSPHRASE.into(),
-                    git: config::GitMeta { origin },
+                    method: crate::vaultconfig::UnlockMethod::Passphrase,
+                    git: config::GitMeta {
+                        origin: Some(origin),
+                    },
                     ..Default::default()
                 },
             )
@@ -130,7 +132,7 @@ impl SyncVault {
 
     /// The lock file a write would take.
     fn lock_path(&self) -> std::path::PathBuf {
-        let path = self.vault.lock_file_path().unwrap();
+        let path = self.vault.lock_file_path();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         path
     }
@@ -397,7 +399,7 @@ fn unlock_of_a_local_only_vault_touches_no_lock() {
     assert_eq!(counting.fetches.load(Ordering::SeqCst), 0);
     assert!(p.warnings().is_empty());
     assert!(
-        !s.vault.lock_file_path().unwrap().exists(),
+        !s.vault.lock_file_path().exists(),
         "unlocking a local-only vault created its lock file"
     );
 }

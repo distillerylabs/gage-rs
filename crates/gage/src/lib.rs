@@ -16,6 +16,8 @@ pub mod enrollment;
 pub mod entry;
 pub mod exitcode;
 #[cfg(test)]
+mod format_v2_bytes_tests;
+#[cfg(test)]
 mod format_v2_tests;
 pub mod generate;
 pub mod gitrepo;
@@ -44,6 +46,7 @@ pub mod recovery;
 pub mod remoteauth;
 pub mod remotesync;
 pub mod search;
+mod serde_opt;
 pub mod session;
 #[cfg(test)]
 mod session_tests;

@@ -24,7 +24,7 @@ use crate::trustcache::{
     DiffOp, RecipientChangeWarning, TrustCache, TrustError, longest_common_subsequence,
     split_diff_lines,
 };
-use crate::vault::{self, CreateSpec, Vault};
+use crate::vault::{CreateSpec, Vault};
 use crate::xdgpaths::Dirs;
 use crate::{identityfile, paths, recipients, vaultconfig};
 
@@ -49,7 +49,7 @@ impl TrustVault {
             data: root.path().join("data"),
             state: root.path().join("state"),
         };
-        let id = vaultconfig::new_id();
+        let id = vaultconfig::VaultId::new();
         let pubkey = identityfile::create(&dirs, &id, NAME, DEVICE, &unlocking()).unwrap();
         let path = root.path().join("vault");
         let vault = Vault::create(
@@ -58,8 +58,8 @@ impl TrustVault {
                 name: NAME.into(),
                 id: id.clone(),
                 path: path.clone(),
-                vault_type: vault::TYPE_GIT.into(),
-                method: vault::METHOD_PASSPHRASE.into(),
+                vault_type: crate::vaultconfig::VaultType::Git,
+                method: crate::vaultconfig::UnlockMethod::Passphrase,
                 device: DEVICE.into(),
                 recipients: vec![pubkey.clone()],
                 extra_recipients: Vec::new(),
@@ -73,11 +73,11 @@ impl TrustVault {
                 NAME,
                 VaultEntry {
                     path,
-                    id,
-                    vault_type: vault::TYPE_GIT.into(),
+                    id: Some(id),
+                    vault_type: crate::vaultconfig::VaultType::Git,
                     device: DEVICE.into(),
-                    pubkey,
-                    method: vault::METHOD_PASSPHRASE.into(),
+                    pubkey: Some(pubkey),
+                    method: crate::vaultconfig::UnlockMethod::Passphrase,
                     ..Default::default()
                 },
             )
@@ -388,7 +388,7 @@ fn the_recipient_warning_is_a_typed_value_not_printed_text() {
 /// real config diff with nothing to count from it.
 fn tamper_config_method_only(vault: &Vault) {
     let mut file = vaultconfig::read(&vault.config_path()).unwrap();
-    file.method.plugin = "yubikey".into();
+    file.method.plugin = Some("yubikey".into());
     vaultconfig::write(&vault.config_path(), &file).unwrap();
     gitrepo::commit_all(&vault.path, "gage: touch a non-recipient config field").unwrap();
 }
@@ -684,7 +684,7 @@ fn confirming_a_mismatched_change_does_not_clear_the_cache() {
     assert_eq!(after.known_config, before.known_config);
     assert_eq!(
         after.mismatch_seen,
-        sha256_hex(&t.vault.path.join(".age-recipients")),
+        Some(sha256_hex(&t.vault.path.join(".age-recipients"))),
         "the acknowledged mismatch was not recorded"
     );
 

@@ -52,7 +52,7 @@ fn approval_writes_what_it_verified_under_the_lock_not_what_was_displayed() {
     let swapped = new_pubkey();
     let payload = good_payload(
         &a.vault,
-        &req.id,
+        req.id.as_deref().unwrap(),
         "phone-1",
         &swapped,
         req.created,
@@ -60,7 +60,7 @@ fn approval_writes_what_it_verified_under_the_lock_not_what_was_displayed() {
     );
     super::fixtures_tests::write_pending(
         &a.vault,
-        &pending_file_name(&req.id, req.expires),
+        &pending_file_name(req.id.as_deref().unwrap(), req.expires),
         &hand_seal(&payload, &req.code),
     );
     gitrepo::commit_all(
@@ -100,7 +100,7 @@ fn reseal_as(a: &SyncVault, req: &EnrollmentRequest, name: &str, payload: &Paylo
     let filed = a
         .vault
         .pending_dir()
-        .join(pending_file_name(&req.id, req.expires));
+        .join(pending_file_name(req.id.as_deref().unwrap(), req.expires));
     std::fs::remove_file(filed).unwrap();
     super::fixtures_tests::write_pending(&a.vault, name, &hand_seal(payload, &req.code));
     gitrepo::commit_all(
@@ -122,13 +122,18 @@ fn approval_refuses_a_request_whose_device_name_changed_after_it_was_shown() {
     let opened = opened_for(&a.vault, &req.code);
     let renamed = good_payload(
         &a.vault,
-        &req.id,
+        req.id.as_deref().unwrap(),
         "phone-2",
         &opened.pubkey,
         req.created,
         req.expires,
     );
-    reseal_as(&a, &req, &pending_file_name(&req.id, req.expires), &renamed);
+    reseal_as(
+        &a,
+        &req,
+        &pending_file_name(req.id.as_deref().unwrap(), req.expires),
+        &renamed,
+    );
     let before = head(&a.vault);
 
     assert_enrollment_error!(
@@ -157,14 +162,17 @@ fn approval_deletes_the_file_it_verified_not_the_name_its_seal_implies() {
     let opened = opened_for(&a.vault, &req.code);
     let payload = good_payload(
         &a.vault,
-        &req.id,
+        req.id.as_deref().unwrap(),
         "phone-1",
         &opened.pubkey,
         req.created,
         req.expires,
     );
-    let refiled = pending_file_name(&req.id, hours(1));
-    assert_ne!(refiled, pending_file_name(&req.id, req.expires));
+    let refiled = pending_file_name(req.id.as_deref().unwrap(), hours(1));
+    assert_ne!(
+        refiled,
+        pending_file_name(req.id.as_deref().unwrap(), req.expires)
+    );
     reseal_as(&a, &req, &refiled, &payload);
 
     approve_as(
@@ -195,7 +203,7 @@ fn a_refusal_under_the_lock_is_reported_as_itself() {
     let opened = opened_for(&a.vault, &req.code);
     let mut elsewhere = good_payload(
         &a.vault,
-        &req.id,
+        req.id.as_deref().unwrap(),
         "phone-1",
         &opened.pubkey,
         req.created,
@@ -205,7 +213,7 @@ fn a_refusal_under_the_lock_is_reported_as_itself() {
     reseal_as(
         &a,
         &req,
-        &pending_file_name(&req.id, req.expires),
+        &pending_file_name(req.id.as_deref().unwrap(), req.expires),
         &elsewhere,
     );
     let before = head(&a.vault);
@@ -236,13 +244,18 @@ fn a_request_that_expired_in_the_window_is_reported_as_expired() {
     let opened = opened_for(&a.vault, &req.code);
     let lapsed = good_payload(
         &a.vault,
-        &req.id,
+        req.id.as_deref().unwrap(),
         "phone-1",
         &opened.pubkey,
         hours(-2),
         hours(-1),
     );
-    reseal_as(&a, &req, &pending_file_name(&req.id, hours(-1)), &lapsed);
+    reseal_as(
+        &a,
+        &req,
+        &pending_file_name(req.id.as_deref().unwrap(), hours(-1)),
+        &lapsed,
+    );
     let before = head(&a.vault);
 
     assert_enrollment_error!(

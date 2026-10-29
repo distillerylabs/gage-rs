@@ -12,19 +12,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::atomicfile;
 use crate::exitcode::{Code, HasCode};
+use crate::serde_opt::empty_as_none;
+use crate::vaultconfig::{UnlockMethod, VaultId, VaultType};
 
 /// Git-specific metadata for a vault, namespaced under its own table so a
 /// future vault type only ever adds a table rather than reshaping this one.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct GitMeta {
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub origin: String,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub origin: Option<String>,
 }
 
 impl GitMeta {
     fn is_empty(&self) -> bool {
-        self.origin.is_empty()
+        self.origin.is_none()
     }
 }
 
@@ -37,19 +42,26 @@ pub struct VaultEntry {
     /// A copy of the vault's committed `[vault].id`, so this machine can
     /// find the vault's identities, trust cache and lock without reading
     /// the vault, which is what `vault remove` needs once the vault's
-    /// files have moved or gone (ADR-0006).
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub id: String,
+    /// files have moved or gone (ADR-0006). Validated as it is read, like
+    /// the committed copy: a bad one refuses the whole file (ADR-0052).
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub id: Option<VaultId>,
     #[serde(rename = "type")]
-    pub vault_type: String,
+    pub vault_type: VaultType,
     pub device: String,
     /// This device's own public key for the vault, recorded when the
     /// identity is created, so "is the key I hold still a recipient?" is
     /// answered by comparing keys rather than device names
     /// (ADR-0013). Public and already committed in the vault.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub pubkey: String,
-    pub method: String,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub pubkey: Option<String>,
+    pub method: UnlockMethod,
     #[serde(skip_serializing_if = "GitMeta::is_empty")]
     pub git: GitMeta,
 }
@@ -59,14 +71,26 @@ pub struct VaultEntry {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Shell {
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub prompt: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub idle_timeout: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub history_file: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub clipboard_timeout: String,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt: Option<String>,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub idle_timeout: Option<String>,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub history_file: Option<String>,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub clipboard_timeout: Option<String>,
 }
 
 impl Shell {
@@ -79,8 +103,11 @@ impl Shell {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Global {
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub current: String,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub current: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub vaults: BTreeMap<String, VaultEntry>,
     #[serde(skip_serializing_if = "Shell::is_empty")]
@@ -157,8 +184,8 @@ impl Global {
             return Err(RegistryError::AlreadyRegistered(name.to_string()));
         }
         self.vaults.insert(name.to_string(), entry);
-        if self.current.is_empty() {
-            self.current = name.to_string();
+        if self.current.is_none() {
+            self.current = Some(name.to_string());
         }
         Ok(())
     }
@@ -172,9 +199,9 @@ impl Global {
 
     /// `name` if given, else `current`: the vault a command defaults to.
     pub fn name_or_current<'a>(&'a self, name: Option<&'a str>) -> Result<&'a str, RegistryError> {
-        match name.unwrap_or(&self.current) {
-            "" => Err(RegistryError::NoCurrent),
-            name => Ok(name),
+        match name.or(self.current.as_deref()) {
+            None | Some("") => Err(RegistryError::NoCurrent),
+            Some(name) => Ok(name),
         }
     }
 
@@ -185,8 +212,8 @@ impl Global {
             .vaults
             .remove(name)
             .ok_or_else(|| RegistryError::NotRegistered(name.to_string()))?;
-        if self.current == name {
-            self.current.clear();
+        if self.current.as_deref() == Some(name) {
+            self.current = None;
         }
         Ok(entry)
     }
@@ -194,7 +221,7 @@ impl Global {
     /// Makes `name`, which must be registered, the current vault.
     pub fn set_default(&mut self, name: &str) -> Result<(), RegistryError> {
         self.entry(name)?;
-        self.current = name.to_string();
+        self.current = Some(name.to_string());
         Ok(())
     }
 }
@@ -263,12 +290,12 @@ mod tests {
 
     fn one_vault() -> Global {
         Global {
-            current: "personal".into(),
+            current: Some("personal".into()),
             vaults: BTreeMap::from([(
                 "personal".into(),
                 VaultEntry {
                     path: "/data/vaults/personal".into(),
-                    vault_type: "git".into(),
+                    vault_type: crate::vaultconfig::VaultType::Git,
                     device: "laptop-1".into(),
                     method: "passphrase".into(),
                     ..Default::default()
@@ -283,20 +310,23 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
         let want = Global {
-            current: "personal".into(),
+            current: Some("personal".into()),
             vaults: BTreeMap::from([
                 (
                     "personal".into(),
                     VaultEntry {
                         path: "/data/vaults/personal".into(),
-                        id: "9f3a1c2e-7b41-4d58-a0c6-2e5f81b3d497".into(),
-                        vault_type: "git".into(),
+                        id: Some(
+                            VaultId::try_from("9f3a1c2e-7b41-4d58-a0c6-2e5f81b3d497").unwrap(),
+                        ),
+                        vault_type: crate::vaultconfig::VaultType::Git,
                         device: "laptop-1".into(),
-                        pubkey: "age1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0savhh7m"
-                            .into(),
+                        pubkey: Some(
+                            "age1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0savhh7m".into(),
+                        ),
                         method: "passphrase".into(),
                         git: GitMeta {
-                            origin: "https://github.com/you/personal-vault.git".into(),
+                            origin: Some("https://github.com/you/personal-vault.git".into()),
                         },
                     },
                 ),
@@ -304,21 +334,25 @@ mod tests {
                     "work".into(),
                     VaultEntry {
                         path: "/data/vaults/work".into(),
-                        id: "c41d8e07-52b9-4a36-9f18-7d0ae6c25b83".into(),
-                        vault_type: "git".into(),
+                        id: Some(
+                            VaultId::try_from("c41d8e07-52b9-4a36-9f18-7d0ae6c25b83").unwrap(),
+                        ),
+                        vault_type: crate::vaultconfig::VaultType::Git,
                         device: "laptop-1".into(),
                         method: "passphrase".into(),
                         git: GitMeta {
-                            origin: "https://git.internal.example/secrets/work-vault.git".into(),
+                            origin: Some(
+                                "https://git.internal.example/secrets/work-vault.git".into(),
+                            ),
                         },
                         ..Default::default()
                     },
                 ),
             ]),
             shell: Shell {
-                prompt: "[{vault}{lock}] gage> ".into(),
-                idle_timeout: "10m".into(),
-                history_file: "/state/history".into(),
+                prompt: Some("[{vault}{lock}] gage> ".into()),
+                idle_timeout: Some("10m".into()),
+                history_file: Some("/state/history".into()),
                 ..Default::default()
             },
         };
@@ -365,6 +399,28 @@ mod tests {
         assert!(matches!(err, Error::NotFound { .. }), "{err:?}");
     }
 
+    // Only gage writes this file, so a bad id in it is local corruption:
+    // refused as the file is read, naming the file and the key, rather
+    // than at whichever path builder it would have reached (ADR-0052).
+    #[test]
+    fn read_refuses_an_invalid_vault_id_naming_the_file_and_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(
+            &path,
+            "[vaults.personal]\npath = \"/p\"\nid = \"../../etc\"\ntype = \"git\"\n",
+        )
+        .unwrap();
+
+        let err = read(&path).unwrap_err();
+
+        assert!(matches!(err, Error::Parse { .. }), "{err:?}");
+        let msg = err.to_string();
+        assert!(msg.contains(&path.display().to_string()), "{msg}");
+        assert!(msg.contains("id = \"../../etc\""), "{msg}");
+        assert!(msg.contains("is not a valid id"), "{msg}");
+    }
+
     #[test]
     fn read_rejects_malformed_toml() {
         let dir = tempfile::tempdir().unwrap();
@@ -393,7 +449,7 @@ mod tests {
         let mut old = std::fs::File::open(&path).unwrap();
 
         let work = Global {
-            current: "work".into(),
+            current: Some("work".into()),
             ..Default::default()
         };
         write(&path, &work).unwrap();
@@ -436,7 +492,7 @@ mod tests {
         let err = write(
             &path,
             &Global {
-                current: "work".into(),
+                current: Some("work".into()),
                 ..Default::default()
             },
         )
@@ -454,18 +510,18 @@ mod tests {
         let path = dir.path().join("config.toml");
         for current in ["a", "b"] {
             let g = Global {
-                current: current.into(),
+                current: Some(current.into()),
                 ..Default::default()
             };
             write(&path, &g).unwrap();
         }
-        assert_eq!(read(&path).unwrap().current, "b");
+        assert_eq!(read(&path).unwrap().current, Some("b".into()));
     }
 
     fn entry(path: &str) -> VaultEntry {
         VaultEntry {
             path: path.into(),
-            vault_type: "git".into(),
+            vault_type: crate::vaultconfig::VaultType::Git,
             ..Default::default()
         }
     }
@@ -474,9 +530,9 @@ mod tests {
     fn register_makes_the_first_vault_current_and_only_the_first() {
         let mut g = Global::default();
         g.register("personal", entry("/a")).unwrap();
-        assert_eq!(g.current, "personal");
+        assert_eq!(g.current, Some("personal".into()));
         g.register("work", entry("/b")).unwrap();
-        assert_eq!(g.current, "personal");
+        assert_eq!(g.current, Some("personal".into()));
         assert_eq!(g.entry("work").unwrap(), &entry("/b"));
     }
 
@@ -517,9 +573,9 @@ mod tests {
         g.register("work", entry("/b")).unwrap();
 
         assert_eq!(g.unregister("work").unwrap(), entry("/b"));
-        assert_eq!(g.current, "personal");
+        assert_eq!(g.current, Some("personal".into()));
         g.unregister("personal").unwrap();
-        assert_eq!(g.current, "");
+        assert_eq!(g.current, None);
         assert!(g.vaults.is_empty());
         assert_eq!(
             g.unregister("personal").unwrap_err(),
@@ -532,7 +588,7 @@ mod tests {
         let mut g = one_vault();
         g.register("work", entry("/b")).unwrap();
         g.set_default("work").unwrap();
-        assert_eq!(g.current, "work");
+        assert_eq!(g.current, Some("work".into()));
 
         let before = g.clone();
         let err = g.set_default("nope").unwrap_err();

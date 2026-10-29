@@ -82,6 +82,27 @@ The parent branch `131-divergence-types-errors` (these docs).
 
 ## Decisions to make first
 
+**Settled** (reviewed 2026-10-28). Each item below is now the decision,
+not a proposal, with these refinements:
+
+- Decision 1: `vaultconfig::read` parses in two passes, so the
+  `format_version` check still runs before the id check (v2 §2.2's order),
+  and a bad id still lands in `vaultconfig::Error::InvalidVaultId`.
+- Decision 4: the refusal is a new `ResolveError::NoVaultId { name, path }`,
+  mapped to `LockedOrAuth`, so the exit code stays 5. (`path` was added
+  to the approved `{ name }` so the message can say which vault can't be
+  read.) The `entry/crud.rs` test became
+  `a_registration_without_an_id_resolves_to_no_vault_before_any_path_is_built`,
+  and the CLI half is in
+  `lifecycle_tests::a_vault_without_an_id_fails_loudly_on_every_derived_path`.
+- **The `format_v2_*` tests get type-only edits.** The plan's "unedited"
+  can't hold: `Method.plugin`, `TrustRecord.mismatch_seen` and
+  `Global.current` become `Option`, and the path builders take a
+  `&VaultId`, so the old spellings stop compiling. Edits there are
+  limited to spelling the same value in the new type (`None`,
+  `Some(..)`, a `VaultId` built from `fx::VAULT_ID`). No assertion
+  changes what it checks. The list is under task 1 for review.
+
 1. **Where `VaultId` lives.** Proposed: `vaultconfig/id.rs`, next to
    `new_id`, re-exported as `vaultconfig::VaultId`. D4a regroups modules,
    and D3a doesn't pre-empt that.
@@ -127,60 +148,106 @@ The parent branch `131-divergence-types-errors` (these docs).
 Before any type changes. These are new tests; the existing `format_v2_*`
 tests are not edited.
 
-- [ ] `format_v2_vault_config_reserializes_byte_identically`: read the
+Written in a new file, `crates/gage/src/format_v2_bytes_tests.rs`, so the
+type-only edits to `format_v2_tests.rs` stay a separate, small diff.
+`trustcache::store_trust_cache` became `pub(crate)` so the trust test goes
+through the real store path.
+
+- [x] `format_v2_vault_config_reserializes_byte_identically`: read the
       fixture's committed `.gage/config.toml` (and `known-config.toml`)
       with `vaultconfig::read`, then serialize it the way `vaultconfig::write`
       does. The bytes equal the file.
-- [ ] `format_v2_global_config_reserializes_byte_identically`: the same
+- [x] `format_v2_global_config_reserializes_byte_identically` (from the
+      template with plain paths: a Windows temp path's backslashes would
+      let the serializer pick another string style): the same
       for the installed `config.toml`, through `config::read` and the
       `config::write` serializer.
-- [ ] `format_v2_trust_record_reserializes_byte_identically`: the same for
+- [x] `format_v2_trust_record_reserializes_byte_identically`: the same for
       `trust.toml`.
-- [ ] `format_v2_enrollment_payload_reserializes_byte_identically`: open the
+- [x] `format_v2_enrollment_payload_reserializes_byte_identically`: open the
       pending request at the fixture's clock, serialize the `Payload`, and
       compare it with the decrypted plaintext.
-- [ ] Unit tests for the empty-vs-absent spellings this milestone must
-      keep:
+- [x] Unit tests for the empty-vs-absent spellings this milestone must
+      keep (`format_v2_empty_optional_keys_are_omitted`,
+      `format_v2_empty_required_keys_are_written`, spelled as TOML text so
+      they outlive the type change):
   - an empty `Method.plugin`, `mismatch_seen`, `current`, `pubkey`, git
     `origin` and shell keys are omitted
   - a required empty key, e.g. `device = ""` on a `VaultEntry`, is still
     written as `key = ""`
-- [ ] All green on `main`'s code. If one is red, stop: see the index's
+- [x] All green on `main`'s code. If one is red, stop: see the index's
       process notes.
+
+**Type-only edits to the `format_v2_*` tests**, for review. Each spells
+the same value in the new type; no assertion checks anything different.
+
+- `crates/gage/src/format_v2_tests.rs`:
+  - `paths::identity_file_path(&i.dirs, fx::VAULT_ID, ..)` →
+    `&fx::vault_id()` (twice), and `trust_cache_dir(.., fx::VAULT_ID).unwrap()`
+    → `trust_cache_dir(.., &fx::vault_id())` (twice). `fx::vault_id()` is
+    new in `testsupport/format_v2.rs`.
+  - `Method { plugin: String::new() }` → `plugin: None`
+  - `record.mismatch_seen == ""` → `None`
+  - `global.current == fx::VAULT_NAME` → `Some(fx::VAULT_NAME.into())`
+  - in `CreateSpec`: `vaultconfig::new_id()` → `VaultId::new()`,
+    `vault_type: "git".into()` → `VaultType::Git`
+- `crates/gage-cli/src/format_v2_tests.rs`:
+  - the four `Shell` fields → `Some(..)`, and the same in their asserts
+  - `global.current`, `entry.id`, `entry.pubkey` asserts → `Some(..)`
+  - `entry.git.origin` → `.as_deref().unwrap()`
+  - in the fixture writer (`#[ignore]`d): `registration.id` →
+    `.unwrap()`, and `.as_str()` / `.as_deref().unwrap()` where a `&str`
+    is needed
 
 ### 2. `VaultId`
 
-- [ ] Tests first, in `vaultconfig/id.rs`:
+- [x] Tests first, in `vaultconfig/id.rs`:
   - it accepts exactly what `valid_id` accepts
   - it rejects uppercase, braces, `urn:`, undashed, nil and `""`
   - serde refuses a bad id
   - `Ord` matches `str` order on a sample, as ADR-0047 requires
-- [ ] Implement it, per decision 1.
-- [ ] `paths` builders take `&VaultId`. `check_vault_id` and
-      `paths::Error::InvalidVaultId` go. The `paths.rs:149-162` test
-      table now proves a builder can't be called without one: delete it,
-      or reduce it to a `compile_fail` doctest.
-- [ ] `identityfile::{create, remove, backup}`, `trustcache::remove`,
+- [x] Implement it, per decision 1. `new_id()` is gone in favor of
+      `VaultId::new()`. `AsRef<str>` and `AsRef<Path>` are outward-only
+      conveniences; no constructor skips the check.
+- [x] `paths` builders take `&VaultId`. `check_vault_id` and
+      `paths::Error::InvalidVaultId` go. The test table is deleted and
+      replaced by a `compile_fail` doctest in `paths`, with a twin that
+      compiles with a real `VaultId`, so it fails for the right reason.
+      The three builders that only checked the id now return `PathBuf`.
+      `LockError::Path`, `TrustError::Path` and
+      `ListIdentitiesError::Path` had no other source, so they are gone.
+- [x] `identityfile::{create, remove, backup}`, `trustcache::remove`,
       `describe_vault_id`, `clone::access_lines` and the CLI callers take
       `&VaultId`.
-- [ ] `VaultMeta.id`, `Payload.vault_id`, `Vault.id`, `CreateSpec.id` and
-      `Info.id` are `VaultId`. `vaultconfig::read`'s post-parse id check
-      and `seal.rs:208`'s become serde's.
-      `vaultconfig::Error::InvalidVaultId` stays as the variant serde's
-      refusal maps to, so `format_v2_reader_rejects_what_the_spec_rejects`
-      passes unedited.
-- [ ] `VaultEntry.id: Option<VaultId>`. Test that a global config with a
+- [x] `VaultMeta.id`, `Vault.id`, `CreateSpec.id` and `Info.id` are
+      `VaultId`. `vaultconfig::read` checks the id in its first pass
+      (decision 1), with `VaultId::try_from`, and the full parse checks it
+      again by type. `vaultconfig::Error::InvalidVaultId` stays, and
+      `format_v2_reader_rejects_what_the_spec_rejects` passes.
+      `CreateError::InvalidId` and `EnrollmentError::NoVaultId` are gone:
+      a `VaultId` can't be invalid.
+  - **Deviation: `Payload.vault_id` stays a `String` on the wire.** As a
+    `VaultId` field, a missing or bad id would fail the whole TOML parse
+    as "not valid TOML" instead of "its sealed vault id … is not a
+    uuid". `payload_tests` pins that reason, and `Payload`'s doc says
+    why every field is validated after parsing. `validate_payload`
+    converts it with `VaultId::try_from` before the wrong-vault
+    comparison, so nothing calls `valid_id` on it.
+- [x] `VaultEntry.id: Option<VaultId>`. Test that a global config with a
       bad id fails to load and names the key.
-- [ ] `orphan.rs:59` and `commands/vault.rs:83` match on `Option`.
+- [x] `orphan.rs:59` and `commands/vault.rs:83` match on `Option`.
       `ResolveError::Mismatch.registered_id` becomes `Option<VaultId>`,
       and the message for `None` stays "none recorded".
-- [ ] Decision 4's `from_registration` refusal, test first.
-- [ ] Two-vault ordering (`entry/crud.rs:446-449`, `movecopy.rs:114`)
+- [x] Decision 4's `from_registration` refusal, test first
+      (`from_registration_refuses_when_no_id_is_known_at_all`).
+- [x] Two-vault ordering (`entry/crud.rs:446-449`, `movecopy.rs:114`)
       compares `VaultId`s. Existing ordering tests stay green.
 
 ### 3. `VaultType` and `UnlockMethod`
 
-- [ ] Tests first:
+Both live in `vaultconfig/kind.rs`, re-exported from `vaultconfig`.
+
+- [x] Tests first:
   - `type = "git"` parses to `VaultType::Git`
   - `type = "s3"` is refused at read, and the error names the value
   - `default = "passphrase"` parses to `Passphrase`
@@ -189,29 +256,43 @@ tests are not edited.
   - unlocking an `Other` method still gives
     `UnlockError::UnsupportedMethod` (`unlock_tests.rs:1029` stays
     green)
-- [ ] Implement both enums. `TYPE_GIT`, `METHOD_PASSPHRASE`,
+- [x] Implement both enums. `TYPE_GIT`, `METHOD_PASSPHRASE`,
       `ALLOWED_TYPES` and `ALLOWED_METHODS` go. Help text lists the
       values from the enums, and the help snapshots are unchanged.
-- [ ] Typed fields:
+  - `VaultMeta.vault_type` is required in `.gage/config.toml`. A
+    global-config row's absent `type` reads as the default, `Git`.
+  - An absent method reads as `UnlockMethod::Other("")`, the empty
+    string it always was. Unlock's "records no device/method" check
+    still fires for it.
+  - An unknown `--type` is refused where `init` parses it
+    (`UnknownVaultType`, same message). `CreateSpec` holds a
+    `VaultType`, so `CreateError::UnknownType` is gone.
+- [x] Typed fields:
   - `VaultMeta.vault_type`, `Method.default`
   - `VaultEntry.vault_type`, `VaultEntry.method`
   - `Payload.method`
   - `CreateSpec`, `Info`, `EnrollmentRequest`, `OpenedRequest`,
     `Recorded`
-- [ ] Callers become `match`es:
+- [x] Callers become `match`es:
   - `vault.rs:565`: `Info.git` follows from the type
   - `vault.rs:603`: unlock
   - `shell.rs:222`: is the vault dirty
   - `identity.rs:68`: `--method`
-- [ ] `init --type`/`--method` and `identity add --method`: an unknown
-      value is still `Usage` with today's message (pin it with a test
-      before the change).
+- [x] `init --type`/`--method` and `identity add --method`: an unknown
+      value is still `Usage` with today's message, pinned before the
+      change by `init_unknown_type_and_method_messages_are_pinned` and the
+      exact-stderr assert in
+      `identity_add_method_defaults_to_the_vaults_and_stays_local`.
 
 ### 4. `Option` fields
 
-- [ ] Tests first: each converted field reads `key = ""` as `None`, reads
-      an absent key as `None`, and omits `None` on write.
-- [ ] Convert the fields in the [`Option` rule](index.md#resolved-decisions).
+- [x] Tests first: each converted field reads `key = ""` as `None`, reads
+      an absent key as `None`, and omits `None` on write
+      (`format_v2_empty_and_absent_optional_keys_read_as_none`, plus task
+      1's omission test).
+- [x] Convert the fields in the [`Option` rule](index.md#resolved-decisions).
+      `TrustCache.mismatch_seen`, the in-memory twin of the record's, is
+      `Option` too.
       Callers that tested `.is_empty()` match on the `Option`:
   - `session.rs:215`
   - `config.rs:160-189`
@@ -220,31 +301,33 @@ tests are not edited.
   - `orphan.rs:75`
   - `enroll.rs:87`
   - `trustcache.rs:370,522`
-- [ ] `EnrollmentRequest.id` (`enroll.rs:92`) becomes `Option<String>`.
+- [x] `EnrollmentRequest.id` (`enroll.rs:92`) becomes `Option<String>`.
 
 ### 5. ADRs
 
-- [ ] ADR-0052 *Vault ids are a validated type.* It covers:
+- [x] ADR-0052 *Vault ids are a validated type.* It covers:
   - the `VaultId` contract
   - validation at deserialize and construction, not at each path builder
   - the global-config tightening
   - how the type's `Ord` keeps ADR-0047's order
-- [ ] ADR-0053 *Vault type is closed, unlock method is open.* It says why
+- [x] ADR-0053 *Vault type is closed, unlock method is open.* It says why
       the two differ: a future method must not make an older build refuse
       the vault config.
-- [ ] Link both from `doc/decisions/README.md`. Amend ADR-0006's
+- [x] Link both from `doc/decisions/README.md`. Amend ADR-0006's
       "validated as a UUID before any path is built" to point at ADR-0052.
-- [ ] `doc/format/v2.md`: §2.2's reader checks gain "`vault.type` is
+- [x] `doc/format/v2.md`: §2.2's reader checks gain "`vault.type` is
       `git`", and §3.2 says the reader refuses an invalid `….id`. This is
       a reader-rule clarification, not a format change: no
       `format_version` bump and no new fixture. ADR-0053 says so.
 
 ### 6. Green
 
-- [ ] `cargo check --workspace --all-targets` after each task.
-- [ ] `git diff --stat main -- tests/fixtures` is empty.
-- [ ] The help snapshots and existing `format_v2_*` tests are green and
-      unedited.
+- [x] `cargo check --workspace --all-targets` after each task.
+- [x] `git diff --stat main -- tests/fixtures` is empty.
+- [x] The help snapshots are green and unedited. The existing
+      `format_v2_*` tests are green, with only the type-only edits listed
+      under task 1.
+- [ ] CI green on Linux, macOS and Windows.
 
 ## Definition of done
 

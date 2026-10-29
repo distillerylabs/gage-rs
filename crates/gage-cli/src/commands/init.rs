@@ -17,8 +17,9 @@ use gage::exitcode::{Code, HasCode};
 use gage::prompter::Prompter;
 use gage::recovery::{RECOVERY_DEVICE_LABEL, check_device_label_free, new_recovery_key};
 use gage::syncerr::Kind;
-use gage::vault::{self, CreateSpec, LabelledRecipient, Vault};
-use gage::{devicename, identityfile, paths, remoteauth, vaultconfig};
+use gage::vault::{CreateSpec, LabelledRecipient, Vault};
+use gage::vaultconfig::{UnlockMethod, VaultId, VaultType};
+use gage::{devicename, identityfile, paths, remoteauth};
 
 use super::recoverykey::{
     KeyPlan, check_recovery_key_out_path, deliver_recovery_key, plan_recovery_key,
@@ -47,8 +48,10 @@ none is stored yet, init asks for one on the spot (leave blank to skip and
 try anonymously) — the same prompt as `gage auth login`, so a private repo
 doesn't need a separate auth login round trip before the first push succeeds.";
 
+/// `init`'s default method, as a static so clap can hold its name.
+static DEFAULT_METHOD: UnlockMethod = UnlockMethod::Passphrase;
+
 pub fn flags() -> Vec<Arg> {
-    let accepted = |list: &[&str]| format!("[{}]", list.join(" "));
     vec![
         Arg::new("device")
             .long("device")
@@ -61,10 +64,10 @@ pub fn flags() -> Vec<Arg> {
         Arg::new("method")
             .long("method")
             .value_name("METHOD")
-            .default_value(vault::METHOD_PASSPHRASE)
+            .default_value(DEFAULT_METHOD.as_str())
             .help(format!(
-                "default identity method for devices joining this vault (accepted: {})",
-                accepted(vault::ALLOWED_METHODS)
+                "default identity method for devices joining this vault (accepted: [{}])",
+                UnlockMethod::names(" ")
             )),
         Arg::new("no-recovery-key")
             .long("no-recovery-key")
@@ -86,11 +89,8 @@ pub fn flags() -> Vec<Arg> {
         Arg::new("type")
             .long("type")
             .value_name("TYPE")
-            .default_value(vault::TYPE_GIT)
-            .help(format!(
-                "vault type (accepted: {})",
-                accepted(vault::ALLOWED_TYPES)
-            )),
+            .default_value(VaultType::default().as_str())
+            .help(format!("vault type (accepted: [{}])", VaultType::names(" "))),
     ]
 }
 
@@ -154,10 +154,10 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     // another, with nothing visibly wrong (ADR-0006).
     let mut spec = CreateSpec {
         name: name.to_string(),
-        id: vaultconfig::new_id(),
+        id: VaultId::new(),
         path,
-        vault_type: flag("type").expect("defaulted"),
-        method: flag("method").expect("defaulted"),
+        vault_type: flag("type").expect("defaulted").parse::<VaultType>()?,
+        method: UnlockMethod::from(flag("method").expect("defaulted")),
         device,
         recipients: extra_recipients,
         extra_recipients: Vec::new(),
@@ -209,16 +209,16 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         name,
         VaultEntry {
             path: created.path.clone(),
-            id: created.id.clone(),
-            vault_type: spec.vault_type.clone(),
+            id: Some(created.id.clone()),
+            vault_type: spec.vault_type,
             device: spec.device.clone(),
             // Recorded now, the one moment gage holds this device's key
             // without an unlock, so "is my key still a recipient?" can be
             // answered by comparing keys (ADR-0013).
-            pubkey: pubkey.clone(),
+            pubkey: Some(pubkey.clone()),
             method: spec.method.clone(),
             git: GitMeta {
-                origin: spec.remote.clone().unwrap_or_default(),
+                origin: spec.remote.clone(),
             },
         },
     )?;

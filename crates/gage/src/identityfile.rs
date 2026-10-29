@@ -18,6 +18,7 @@ use crate::exitcode::{Code, HasCode};
 use crate::identity::{KeyLine, SECRET_KEY_PREFIX};
 use crate::paths;
 use crate::prompter::{Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse};
+use crate::vaultconfig::VaultId;
 use crate::xdgpaths::Dirs;
 
 /// The plaintext marker in each identities directory, naming the vault it
@@ -118,11 +119,11 @@ impl HasCode for UnlockError {
 /// marker naming `vault_name`.
 ///
 /// `vault_id` keys the path; `vault_name` is only what a human is shown.
-/// The id is validated as a UUID before any path is built, so passing the
-/// two the wrong way round fails at once.
+/// The two have different types, so they can't be passed the wrong way
+/// round.
 pub fn create(
     dirs: &Dirs,
-    vault_id: &str,
+    vault_id: &VaultId,
     vault_name: &str,
     device: &str,
     p: &dyn Prompter,
@@ -168,7 +169,7 @@ pub fn create(
 /// to its ciphertext. Its callers (rolling back a failed `init`, and later
 /// `vault remove` pruning a key the vault no longer lists) establish first
 /// that nothing is lost; this does not check.
-pub fn remove(dirs: &Dirs, vault_id: &str, device: &str) -> Result<(), UnlockError> {
+pub fn remove(dirs: &Dirs, vault_id: &VaultId, device: &str) -> Result<(), UnlockError> {
     let path = paths::identity_file_path(dirs, vault_id, device)?;
     match std::fs::remove_file(&path) {
         Ok(()) => {}
@@ -228,7 +229,7 @@ impl std::fmt::Debug for IdentityBackup {
 /// with the marker beside it; `None` if there is no file. Only reads.
 pub fn backup(
     dirs: &Dirs,
-    vault_id: &str,
+    vault_id: &VaultId,
     device: &str,
 ) -> Result<Option<IdentityBackup>, UnlockError> {
     let path = paths::identity_file_path(dirs, vault_id, device)?;

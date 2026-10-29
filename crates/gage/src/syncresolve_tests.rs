@@ -912,7 +912,7 @@ fn non_interactive_prompter_refuses_on_the_first_conflict() {
 #[test]
 fn resolution_holds_the_write_lock_throughout() {
     let f = Fixture::new();
-    let lock = f.vault().lock_file_path().unwrap();
+    let lock = f.vault().lock_file_path();
     let seen = Mutex::new(None);
     let p = Observing {
         inner: answering(&[Resolution::KeepLocal]),

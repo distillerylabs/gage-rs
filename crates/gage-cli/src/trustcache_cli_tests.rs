@@ -41,7 +41,7 @@ impl Env {
     fn trust_dir(&self) -> PathBuf {
         // Keyed by the vault's id, spelled out rather than asked of the
         // code under test.
-        self.dirs.state.join(self.entry(VAULT).id)
+        self.dirs.state.join(self.entry(VAULT).id.unwrap())
     }
 
     fn known_config(&self) -> Vec<u8> {
@@ -207,7 +207,7 @@ fn yes_does_not_answer_the_self_removal_confirmation() {
     let env = env_with_vault();
     // A second recipient, so the removal isn't refused as the last one.
     env.cmd_ok(&["recipient", "add", &new_key(), "--device", "phone-1"]);
-    let own = env.entry(VAULT).pubkey;
+    let own = env.entry(VAULT).pubkey.unwrap();
 
     let p = unlocks().with_confirm(false);
     let r = env.run_with(&["recipient", "remove", DEVICE, "--reencrypt", "--yes"], &p);
@@ -446,7 +446,7 @@ fn two_vaults_under_one_local_name_share_neither_directory() {
 
     let env = Env::new();
     env.ok(&["init", VAULT, "--device", "laptop-1", "--no-recovery-key"]);
-    let a_id = env.entry(VAULT).id;
+    let a_id = env.entry(VAULT).id.unwrap();
     let a_identity = gage::paths::identity_file_path(&env.dirs, &a_id, "laptop-1").unwrap();
     let a_trust = env.trust_dir();
     env.insert_ok("hunter2", &["SomethingOfAs"]);
@@ -470,7 +470,7 @@ fn two_vaults_under_one_local_name_share_neither_directory() {
         &FakePrompter::new(),
     );
     assert_eq!(r.code, Code::Success, "{}", r.stderr);
-    let b_id = env.entry(VAULT).id;
+    let b_id = env.entry(VAULT).id.unwrap();
     assert_ne!(b_id, a_id, "two unrelated vaults share an id");
 
     let b_identity = gage::paths::identity_file_path(&env.dirs, &b_id, "laptop-1").unwrap();

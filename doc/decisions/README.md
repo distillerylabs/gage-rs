@@ -41,6 +41,8 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0011](0011-method-scope.md) Decryption method is per-device
 - [0012](0012-method-flag.md) `--method` is optional and allowlisted
 - [0013](0013-orphan-identity-by-pubkey.md) `vault remove` compares public keys and asks
+- [0052](0052-vault-id-type.md) Vault ids are a validated type
+- [0053](0053-vault-type-closed-method-open.md) Vault type is closed, unlock method is open
 
 ### Git and sync
 

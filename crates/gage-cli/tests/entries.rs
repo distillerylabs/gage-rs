@@ -84,13 +84,14 @@ impl Machine {
         self.root.path().join("data/gage/vaults/personal")
     }
 
-    fn vault_id(&self) -> String {
+    fn vault_id(&self) -> gage::vaultconfig::VaultId {
         let out = self.gage(&["vault", "info"]).output().unwrap();
         text(&out.stdout)
             .lines()
             .find_map(|l| l.strip_prefix("id: "))
             .expect("vault info prints the id")
-            .to_string()
+            .try_into()
+            .expect("vault info prints a valid id")
     }
 }
 
@@ -146,7 +147,7 @@ fn concurrent_inserts_through_the_cli_both_succeed() {
 fn concurrent_reads_do_not_block_each_other() {
     let m = Machine::with_vault();
     m.ok(&["insert", "readable"], "v\n");
-    let lock_path = gage::paths::lock_file_path(&m.dirs(), &m.vault_id()).unwrap();
+    let lock_path = gage::paths::lock_file_path(&m.dirs(), &m.vault_id());
     assert!(
         lock_path.parent().unwrap().is_dir(),
         "the insert above made the lock directory, so this is the path writers lock"

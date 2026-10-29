@@ -78,8 +78,12 @@ fn identity_enroll_records_this_devices_pubkey() {
     let entry = t.b.entry(VAULT);
     assert_eq!(entry.device, "phone-1");
     assert_eq!(entry.method, "passphrase");
-    assert!(!entry.pubkey.is_empty());
-    assert!(r.stdout.contains(&entry.pubkey), "{}", r.stdout);
+    assert!(!entry.pubkey.is_none());
+    assert!(
+        r.stdout.contains(entry.pubkey.as_deref().unwrap()),
+        "{}",
+        r.stdout
+    );
 }
 
 // The key is added
@@ -91,7 +95,7 @@ fn identity_enroll_the_second_time_is_a_no_op_once_approved() {
         t.b.identity_add(&["--device", "phone-1"]);
         t.b.entry(VAULT).pubkey
     };
-    t.a.add_recipient(&key, "phone-1");
+    t.a.add_recipient(key.as_deref().unwrap(), "phone-1");
 
     let r =
         t.b.run_with(&enroll_args("phone-1", &[]), &FakePrompter::new());
@@ -237,7 +241,7 @@ fn the_two_secrets_never_cross() {
         assert!(!text.contains(PASSPHRASE), "the passphrase was committed");
     }
     let code = code_in(&r.stdout);
-    let id = t.b.entry(VAULT).id;
+    let id = t.b.entry(VAULT).id.unwrap();
     let identity = gage::paths::identity_file_path(&t.b.dirs, &id, "phone-1").unwrap();
     let wrapped = std::fs::read(identity).unwrap();
     assert!(

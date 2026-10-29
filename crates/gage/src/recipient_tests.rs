@@ -53,9 +53,9 @@ impl Fixture {
             &dirs_in(root.path()),
             &CreateSpec {
                 name: "personal".into(),
-                id: vaultconfig::new_id(),
+                id: vaultconfig::VaultId::new(),
                 path: root.path().join("vault"),
-                vault_type: "git".into(),
+                vault_type: crate::vaultconfig::VaultType::Git,
                 method: "passphrase".into(),
                 device: DEVICE.into(),
                 recipients: vec![key.to_public().to_string()],
@@ -344,7 +344,7 @@ fn full_access_preflight_runs_before_the_vault_lock() {
     let f = Fixture::new();
     f.seed(1);
     hide_one_entry(&f);
-    let lock = f.vault.lock_file_path().unwrap();
+    let lock = f.vault.lock_file_path();
     std::fs::create_dir_all(lock.parent().unwrap()).unwrap();
     let _holder = Holder::spawn(&lock);
 
@@ -609,7 +609,7 @@ fn recipient_remove_without_reencrypt_is_rejected() {
     let f = Fixture::new();
     let phone = with_phone(&f);
     let before = Untouched::of(&f);
-    let lock = f.vault.lock_file_path().unwrap();
+    let lock = f.vault.lock_file_path();
     let _holder = Holder::spawn(&lock);
 
     let start = Instant::now();

@@ -7,23 +7,27 @@
 //! components), and the file is committed, so any git-writer can edit it.
 //! [`read`] therefore validates before returning, in a fixed order: the
 //! format version first (a file this build doesn't understand is never
-//! acted on), then the id, then the device names (ADR-0010, ADR-0006).
+//! acted on), then the id, then the device names (ADR-0010, ADR-0006). The
+//! id's check is [`VaultId`]'s own (ADR-0052).
 //!
 //! The schema (table and field names) is fixed by the format; the bytes are
 //! the `toml` crate's own (ADR-0002).
 
 mod id;
+mod kind;
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-pub use id::{new_id, valid_id};
+pub use id::{InvalidVaultId, VaultId, valid_id};
+pub use kind::{UnknownVaultType, UnlockMethod, VaultType};
 
 use crate::atomicfile;
 use crate::devicename;
 use crate::exitcode::{Code, HasCode};
+use crate::serde_opt::empty_as_none;
 
 /// The only `format_version` this build understands. Bumped when the
 /// file's shape changes in a way an older reader can't safely ignore.
@@ -34,19 +38,25 @@ use crate::exitcode::{Code, HasCode};
 pub const CURRENT_FORMAT_VERSION: i64 = 2;
 
 /// The `[vault]` table.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+///
+/// No `Default`: the id has no zero value. [`read`] has refused a file
+/// without a valid id before this is ever deserialized.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultMeta {
+    #[serde(default)]
     pub name: String,
     /// The vault's own id: minted once by `gage init`, never changed, and
     /// cloned with the vault, so every clone agrees on it however it was
     /// named locally (ADR-0006).
-    pub id: String,
+    pub id: VaultId,
+    /// Refused at parse if this build doesn't know it (ADR-0053).
     #[serde(rename = "type")]
-    pub vault_type: String,
+    pub vault_type: VaultType,
     /// Absent reads as 0, which is "older than this build".
+    #[serde(default)]
     pub format_version: i64,
     /// The UTC creation date, `YYYY-MM-DD`.
+    #[serde(default)]
     pub created: String,
 }
 
@@ -56,9 +66,14 @@ pub struct VaultMeta {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Method {
-    pub default: String,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub plugin: String,
+    /// Kept as written even when this build doesn't perform it
+    /// (ADR-0053).
+    pub default: UnlockMethod,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub plugin: Option<String>,
 }
 
 /// One `[[recipients]]` entry. Deliberately only a device label and a
@@ -72,12 +87,30 @@ pub struct Recipient {
 }
 
 /// The whole of `.gage/config.toml`.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct File {
     pub vault: VaultMeta,
+    #[serde(default)]
     pub method: Method,
+    #[serde(default)]
     pub recipients: Vec<Recipient>,
+}
+
+/// The two keys [`read`] checks before it parses the rest, as plain values:
+/// the version has to be judged before anything else in the file is
+/// trusted, the id's refusal names the id rather than a parse position,
+/// and both have to work on a file the full schema would refuse.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct Preamble {
+    vault: PreambleMeta,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct PreambleMeta {
+    format_version: i64,
+    id: String,
 }
 
 /// Which way an unsupported `format_version` is off. The two need opposite
@@ -127,7 +160,7 @@ pub enum Error {
         found: i64,
         skew: VersionSkew,
     },
-    /// `[vault].id` is absent or not a canonical UUID.
+    /// `[vault].id` is absent or not a canonical UUID (see [`VaultId`]).
     #[error("vaultconfig: {path}: vault id {id:?} is not a valid id")]
     InvalidVaultId { path: PathBuf, id: String },
     /// A recipient's device name fails the filesystem-safe allowlist.
@@ -171,9 +204,10 @@ pub fn read(path: &Path) -> Result<File, Error> {
             Error::Read { path: at(), source }
         }
     })?;
-    let file: File = toml::from_str(&text).map_err(|source| Error::Parse { path: at(), source })?;
+    let preamble: Preamble =
+        toml::from_str(&text).map_err(|source| Error::Parse { path: at(), source })?;
 
-    let found = file.vault.format_version;
+    let found = preamble.vault.format_version;
     if found != CURRENT_FORMAT_VERSION {
         let skew = if found > CURRENT_FORMAT_VERSION {
             VersionSkew::Newer
@@ -186,12 +220,10 @@ pub fn read(path: &Path) -> Result<File, Error> {
             skew,
         });
     }
-    if !valid_id(&file.vault.id) {
-        return Err(Error::InvalidVaultId {
-            path: at(),
-            id: file.vault.id,
-        });
+    if let Err(InvalidVaultId(id)) = VaultId::try_from(preamble.vault.id) {
+        return Err(Error::InvalidVaultId { path: at(), id });
     }
+    let file: File = toml::from_str(&text).map_err(|source| Error::Parse { path: at(), source })?;
     if let Some(bad) = file
         .recipients
         .iter()
@@ -228,8 +260,8 @@ mod tests {
         File {
             vault: VaultMeta {
                 name: "myvault".into(),
-                id: "9f3a1c2e-7b41-4d58-a0c6-2e5f81b3d497".into(),
-                vault_type: "git".into(),
+                id: VaultId::try_from("9f3a1c2e-7b41-4d58-a0c6-2e5f81b3d497").unwrap(),
+                vault_type: crate::vaultconfig::VaultType::Git,
                 format_version: CURRENT_FORMAT_VERSION,
                 created: "2026-08-29".into(),
             },
@@ -254,9 +286,19 @@ mod tests {
 
     /// Writes `file` and reads it back.
     fn write_then_read(file: &File) -> Result<File, Error> {
+        write_then_read_with_id(file, file.vault.id.as_str())
+    }
+
+    /// Writes `file` with its id replaced by `id`, which no `File` can
+    /// hold if it is invalid, and reads it back.
+    fn write_then_read_with_id(file: &File, id: &str) -> Result<File, Error> {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        write(&path, file).unwrap();
+        let text = toml::to_string(file).unwrap();
+        let from = format!("id = \"{}\"", file.vault.id);
+        assert!(text.contains(&from));
+        let to = format!("id = {}", toml::Value::from(id));
+        std::fs::write(&path, text.replace(&from, &to)).unwrap();
         read(&path)
     }
 
@@ -270,7 +312,7 @@ mod tests {
     #[test]
     fn written_with_the_formats_table_and_field_names() {
         let mut file = valid_file();
-        file.method.plugin = "yubikey".into();
+        file.method.plugin = Some("yubikey".into());
         let text = toml::to_string(&file).unwrap();
         for needle in [
             "[vault]",
@@ -435,10 +477,7 @@ mod tests {
             ("a vault name", "personal"),
             ("nil uuid", "00000000-0000-0000-0000-000000000000"),
         ] {
-            let mut file = valid_file();
-            file.vault.id = id.into();
-
-            let err = write_then_read(&file).unwrap_err();
+            let err = write_then_read_with_id(&valid_file(), id).unwrap_err();
 
             match &err {
                 Error::InvalidVaultId { id: got, .. } => assert_eq!(got, id, "{case}"),
@@ -462,6 +501,46 @@ mod tests {
         std::fs::write(&path, text).unwrap();
         let err = read(&path).unwrap_err();
         assert!(matches!(err, Error::InvalidVaultId { .. }), "{err:?}");
+    }
+
+    /// Writes `file` with `from` replaced by `to`, and reads it back.
+    fn write_then_read_replacing(
+        file: &File,
+        from: &str,
+        to: &str,
+    ) -> (String, Result<File, Error>) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        let text = toml::to_string(file).unwrap();
+        assert!(text.contains(from), "{from:?} not in:\n{text}");
+        let text = text.replace(from, to);
+        std::fs::write(&path, &text).unwrap();
+        (text, read(&path))
+    }
+
+    // ADR-0053: an unknown type is refused as the file is read, and the
+    // refusal names it; until D3a it parsed and silently lost git behavior.
+    #[test]
+    fn read_refuses_an_unknown_vault_type_naming_it() {
+        let (_, got) = write_then_read_replacing(&valid_file(), "type = \"git\"", "type = \"s3\"");
+        let err = got.unwrap_err();
+        assert!(matches!(err, Error::Parse { .. }), "{err:?}");
+        assert!(err.to_string().contains("s3"), "{err}");
+    }
+
+    // ADR-0053: an unknown method default is kept, so a vault naming a
+    // method a later build adds still opens here, and is written back
+    // byte for byte.
+    #[test]
+    fn read_keeps_an_unknown_method_default_and_rewrites_it_byte_identically() {
+        let (text, got) = write_then_read_replacing(
+            &valid_file(),
+            "default = \"passphrase\"",
+            "default = \"yubikey\"",
+        );
+        let file = got.unwrap();
+        assert_eq!(file.method.default, UnlockMethod::Other("yubikey".into()));
+        assert_eq!(toml::to_string(&file).unwrap(), text);
     }
 
     // Rejected, never
@@ -517,9 +596,8 @@ mod tests {
     fn format_version_checked_before_the_id() {
         let mut file = valid_file();
         file.vault.format_version = 1;
-        file.vault.id = String::new();
 
-        let err = write_then_read(&file).unwrap_err();
+        let err = write_then_read_with_id(&file, "").unwrap_err();
 
         assert!(
             matches!(err, Error::UnsupportedFormatVersion { .. }),
@@ -531,10 +609,9 @@ mod tests {
     #[test]
     fn the_id_is_checked_before_device_names() {
         let mut file = valid_file();
-        file.vault.id = "../x".into();
         file.recipients[0].device = "../y".into();
 
-        let err = write_then_read(&file).unwrap_err();
+        let err = write_then_read_with_id(&file, "../x").unwrap_err();
 
         assert!(matches!(err, Error::InvalidVaultId { .. }), "{err:?}");
     }

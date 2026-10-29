@@ -51,8 +51,6 @@ impl HasCode for IdentityAddError {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ListIdentitiesError {
-    #[error(transparent)]
-    Path(#[from] paths::Error),
     #[error("reading {}: {source}", path.display())]
     Io {
         path: PathBuf,
@@ -63,7 +61,6 @@ pub enum ListIdentitiesError {
 impl HasCode for ListIdentitiesError {
     fn code(&self) -> Code {
         match self {
-            ListIdentitiesError::Path(e) => e.code(),
             ListIdentitiesError::Io { .. } => Code::Internal,
         }
     }
@@ -115,7 +112,7 @@ impl Vault {
     /// Subdirectories, the marker, and files whose names aren't valid
     /// device names are not identities and are skipped.
     pub fn list_identities(&self) -> Result<Vec<LocalIdentity>, ListIdentitiesError> {
-        let dir = paths::identities_dir(self.dirs(), &self.id)?;
+        let dir = paths::identities_dir(self.dirs(), &self.id);
         let io = |source| ListIdentitiesError::Io {
             path: dir.clone(),
             source,

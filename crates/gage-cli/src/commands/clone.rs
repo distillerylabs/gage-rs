@@ -18,7 +18,8 @@ use gage::enrollment::DEFAULT_ENROLLMENT_TTL;
 use gage::exitcode::Code;
 use gage::gitrepo::{self, RemoteOptions};
 use gage::prompter::Prompter;
-use gage::{paths, vault, vaultconfig};
+use gage::vaultconfig::{self, VaultId};
+use gage::{paths, vault};
 
 use super::enroll::enroll_device;
 use super::init::resolve_device_name;
@@ -110,17 +111,17 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
 
     let entry = VaultEntry {
         path: path.clone(),
-        id: file.vault.id.clone(),
-        vault_type: file.vault.vault_type.clone(),
+        id: Some(file.vault.id.clone()),
+        vault_type: file.vault.vault_type,
         device: device.clone(),
         // A clone holds no identity, so there is no public key to
         // record until `identity add` puts one here.
-        pubkey: String::new(),
+        pubkey: None,
         // The vault's default is a suggestion for joining devices, and
         // what a later `identity add` offers (ADR-0011).
         method: file.method.default.clone(),
         git: GitMeta {
-            origin: url.to_string(),
+            origin: Some(url.to_string()),
         },
     };
     global.register(&name, entry.clone())?;
@@ -172,7 +173,12 @@ fn can_answer_new_passphrase(io: &Io) -> bool {
 /// someone to unlock during a clone only to say the unlock was pointless
 /// would be backwards. An identity that exists was set up deliberately and
 /// is left alone, as is anything that can't be checked.
-fn access_lines(dirs: &gage::xdgpaths::Dirs, id: &str, name: &str, device: &str) -> Vec<String> {
+fn access_lines(
+    dirs: &gage::xdgpaths::Dirs,
+    id: &VaultId,
+    name: &str,
+    device: &str,
+) -> Vec<String> {
     match paths::identity_file_path(dirs, id, device) {
         Ok(path) if !path.exists() => vec![
             format!(

@@ -824,7 +824,7 @@ fn configured_idle_timeout_reaches_the_session() {
     env.init("personal", &[]);
     env.add("personal", "ProtonMail", "correcthorsebatterystaple");
     env.set_shell(Shell {
-        idle_timeout: "10m".into(),
+        idle_timeout: Some("10m".into()),
         ..Shell::default()
     });
 
@@ -864,7 +864,7 @@ fn configured_idle_timeout_is_not_applied_too_eagerly() {
     env.init("personal", &[]);
     env.add("personal", "ProtonMail", "correcthorsebatterystaple");
     env.set_shell(Shell {
-        idle_timeout: "10m".into(),
+        idle_timeout: Some("10m".into()),
         ..Shell::default()
     });
 
@@ -891,7 +891,7 @@ fn a_malformed_idle_timeout_refuses_the_session() {
     let env = Env::new();
     env.init("personal", &[]);
     env.set_shell(Shell {
-        idle_timeout: "10min".into(),
+        idle_timeout: Some("10min".into()),
         ..Shell::default()
     });
     let r = env.session("exit\n");
@@ -908,7 +908,7 @@ fn session_prompt_renders_tokens_and_tracks_lock_state() {
     let env = Env::new();
     env.init("personal", &[]);
     env.set_shell(Shell {
-        prompt: "[{vault}{lock}{dirty}] gage> ".into(),
+        prompt: Some("[{vault}{lock}{dirty}] gage> ".into()),
         ..Shell::default()
     });
 
@@ -985,7 +985,7 @@ fn an_unopenable_history_file_does_not_stop_the_session() {
     let path = env.root.path().join("history-is-a-dir");
     std::fs::create_dir_all(&path).unwrap();
     env.set_shell(Shell {
-        history_file: path.to_str().unwrap().into(),
+        history_file: Some(path.to_str().unwrap().into()),
         ..Shell::default()
     });
     let r = env.session_ok(&["status", "exit"]);

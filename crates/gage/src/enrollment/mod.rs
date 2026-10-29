@@ -33,7 +33,8 @@ use crate::recovery::ReservedLabel;
 use crate::remotesync::SyncError;
 use crate::syncerr::Kind;
 use crate::vault::Vault;
-use crate::{agekey, atomicfile, config, crypt, gitrepo, identityfile, paths, vaultconfig};
+use crate::vaultconfig::{self, UnlockMethod, VaultId};
+use crate::{agekey, atomicfile, config, crypt, gitrepo, identityfile, paths};
 #[cfg(test)]
 pub(crate) use code::normalize_code;
 use name::{expiry_live, parse_pending_file_name};
@@ -78,10 +79,11 @@ pub const PENDING_DIR: &str = ".gage/pending";
 /// device's key is already a recipient, so there was nothing to ask for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EnrollmentRequest {
-    pub id: String,
+    /// `None` when nothing was published, so there is no request.
+    pub id: Option<String>,
     pub device: String,
     pub pubkey: String,
-    pub method: String,
+    pub method: UnlockMethod,
     pub created: Timestamp,
     pub expires: Timestamp,
     pub code: Zeroizing<String>,
@@ -111,7 +113,7 @@ pub struct OpenedRequest {
     pub id: String,
     pub device: String,
     pub pubkey: String,
-    pub method: String,
+    pub method: UnlockMethod,
     pub created: Timestamp,
     pub expires: Timestamp,
 }
@@ -188,11 +190,9 @@ pub enum EnrollmentError {
     InvalidPubkey(agekey::Error),
     #[error(
         "unknown method {method:?}; accepted: {:?}",
-        crate::vault::ALLOWED_METHODS
+        UnlockMethod::SUPPORTED.iter().map(UnlockMethod::as_str).collect::<Vec<_>>()
     )]
     UnknownMethod { method: String },
-    #[error("this vault has no valid id, so a request cannot name the vault it is for")]
-    NoVaultId,
     #[error("generating an enrollment code: {0}")]
     Random(rand_core::Error),
     #[error("generated an enrollment code its own validation rejects")]
@@ -309,8 +309,7 @@ impl HasCode for EnrollmentError {
             InvalidTtl { .. } | InvalidDevice { .. } | InvalidPubkey(_) | UnknownMethod { .. } => {
                 Code::Usage
             }
-            NoVaultId
-            | Random(_)
+            Random(_)
             | CodeMismatch
             | Encode(_)
             | Seal(_)
@@ -562,14 +561,14 @@ impl Vault {
     /// the bare id otherwise. A missing or unreadable registry costs the
     /// name and nothing else; failing to build a message mustn't turn a
     /// refusal into a different error.
-    fn describe_vault_id(&self, id: &str) -> String {
+    fn describe_vault_id(&self, id: &VaultId) -> String {
         config::read(&paths::global_config_file(self.dirs()))
             .ok()
             .and_then(|global| {
                 global
                     .vaults
                     .iter()
-                    .find(|(_, entry)| entry.id == id)
+                    .find(|(_, entry)| entry.id.as_ref() == Some(id))
                     .map(|(name, _)| format!("{name:?} (id {id})"))
             })
             .unwrap_or_else(|| format!("the vault with id {id}"))
@@ -595,10 +594,10 @@ pub(crate) fn file_unchecked_request(
     let normalized = code::normalize_code(&typed).expect("generated codes normalize");
     let payload = seal::Payload {
         request_id: id.clone(),
-        vault_id: vault.id.clone(),
+        vault_id: vault.id.to_string(),
         device: device.to_string(),
         pubkey: pubkey.to_string(),
-        method: crate::vault::METHOD_PASSPHRASE.to_string(),
+        method: UnlockMethod::Passphrase,
         created: created.to_string(),
         expires: expires.to_string(),
     };

@@ -161,15 +161,15 @@ fn write_format_v2_fixture() {
     // [shell], with durations.
     let mut global = laptop.global();
     global.shell = Shell {
-        prompt: fx::SHELL_PROMPT.into(),
-        idle_timeout: fx::SHELL_IDLE_TIMEOUT.into(),
-        history_file: fx::SHELL_HISTORY_FILE.into(),
-        clipboard_timeout: fx::SHELL_CLIPBOARD_TIMEOUT.into(),
+        prompt: Some(fx::SHELL_PROMPT.into()),
+        idle_timeout: Some(fx::SHELL_IDLE_TIMEOUT.into()),
+        history_file: Some(fx::SHELL_HISTORY_FILE.into()),
+        clipboard_timeout: Some(fx::SHELL_CLIPBOARD_TIMEOUT.into()),
     };
     laptop.save_global(&global);
 
     // Export.
-    let id = registration.id.clone();
+    let id = registration.id.clone().unwrap();
     let trust = laptop.dirs.state.join(&id);
     assert!(trust.join("known-config.toml").exists(), "no trust cache");
     assert!(trust.join("trust.toml").exists(), "no trust cache");
@@ -230,8 +230,8 @@ fn write_format_v2_fixture() {
     write(
         &out.join("README.md"),
         &README
-            .replace("@VAULT_ID@", &id)
-            .replace("@DEVICE_PUBKEY@", &laptop_entry.pubkey)
+            .replace("@VAULT_ID@", id.as_str())
+            .replace("@DEVICE_PUBKEY@", laptop_entry.pubkey.as_deref().unwrap())
             .replace("@RECOVERY_PUBKEY@", recovery_pubkey)
             .replace("@REQUEST_ID@", request_id)
             .replace("@ENROLLMENT_CODE@", &code),
@@ -273,21 +273,30 @@ fn format_v2_global_config_parses() {
     let (env, i) = installed();
     let global = env.global();
 
-    assert_eq!(global.current, fx::VAULT_NAME);
+    assert_eq!(global.current, Some(fx::VAULT_NAME.into()));
     assert_eq!(global.vaults.len(), 1);
     let entry = &global.vaults[fx::VAULT_NAME];
     assert_eq!(entry.path, i.vault);
-    assert_eq!(entry.id, fx::VAULT_ID);
+    assert_eq!(entry.id, Some(fx::vault_id()));
     assert_eq!(entry.vault_type, "git");
     assert_eq!(entry.device, fx::DEVICE);
-    assert_eq!(entry.pubkey, fx::DEVICE_PUBKEY);
+    assert_eq!(entry.pubkey, Some(fx::DEVICE_PUBKEY.into()));
     assert_eq!(entry.method, "passphrase");
-    assert_eq!(Path::new(&entry.git.origin), i.remote);
+    assert_eq!(Path::new(entry.git.origin.as_deref().unwrap()), i.remote);
 
-    assert_eq!(global.shell.prompt, fx::SHELL_PROMPT);
-    assert_eq!(global.shell.idle_timeout, fx::SHELL_IDLE_TIMEOUT);
-    assert_eq!(global.shell.history_file, fx::SHELL_HISTORY_FILE);
-    assert_eq!(global.shell.clipboard_timeout, fx::SHELL_CLIPBOARD_TIMEOUT);
+    assert_eq!(global.shell.prompt, Some(fx::SHELL_PROMPT.into()));
+    assert_eq!(
+        global.shell.idle_timeout,
+        Some(fx::SHELL_IDLE_TIMEOUT.into())
+    );
+    assert_eq!(
+        global.shell.history_file,
+        Some(fx::SHELL_HISTORY_FILE.into())
+    );
+    assert_eq!(
+        global.shell.clipboard_timeout,
+        Some(fx::SHELL_CLIPBOARD_TIMEOUT.into())
+    );
     let shell = crate::shell::resolve(&global.shell, &env.dirs, &|| None).unwrap();
     assert_eq!(shell.prompt, fx::SHELL_PROMPT);
     assert_eq!(shell.idle_timeout, Some(Duration::from_secs(15 * 60)));

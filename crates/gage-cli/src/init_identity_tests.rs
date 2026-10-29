@@ -9,6 +9,7 @@ use gage::crypt::{self, Recipient};
 use gage::exitcode::{Code, HasCode};
 use gage::prompter::{FakePrompter, Kind, PromptError, Prompter, Purpose};
 use gage::vault::{UnlockError, Vault};
+use gage::vaultconfig::VaultId;
 use gage::{paths, recipients};
 
 use crate::error::CliError;
@@ -141,7 +142,7 @@ fn unlock_typed_errors_carry_the_right_exit_code() {
     let env = Env::new();
     let entry = VaultEntry {
         path: env.root.path().join("nowhere"),
-        id: "9f3a1c2e-7b41-4d58-a0c6-2e5f81b3d497".into(),
+        id: Some(VaultId::try_from("9f3a1c2e-7b41-4d58-a0c6-2e5f81b3d497").unwrap()),
         ..Default::default()
     };
     let vault = Vault::from_registration(&env.dirs, "never-registered", &entry).unwrap();
@@ -179,7 +180,9 @@ fn every_unlock_failure_keeps_its_exit_code_through_the_cli() {
         (
             "corrupt identity file",
             |env, entry| {
-                let path = paths::identity_file_path(&env.dirs, &entry.id, &entry.device).unwrap();
+                let path =
+                    paths::identity_file_path(&env.dirs, entry.id.as_ref().unwrap(), &entry.device)
+                        .unwrap();
                 let data = std::fs::read(&path).unwrap();
                 std::fs::write(&path, &data[..data.len() / 3]).unwrap();
             },
@@ -329,7 +332,7 @@ fn init_after_vault_remove_generates_a_fresh_key_rather_than_reusing_the_old_one
         "laptop-1",
         "--no-recovery-key",
     ]);
-    let first_id = env.entry("personal").id;
+    let first_id = env.entry("personal").id.unwrap();
     let first_path = paths::identity_file_path(&env.dirs, &first_id, "laptop-1").unwrap();
     let first_file = std::fs::read(&first_path).unwrap();
     let first_pubkey = env.vault_config("personal").recipients[0].pubkey.clone();
@@ -362,7 +365,7 @@ fn init_after_vault_remove_generates_a_fresh_key_rather_than_reusing_the_old_one
 
     assert_ne!(
         env.entry("personal").id,
-        first_id,
+        Some(first_id),
         "a new vault gets a new id"
     );
     assert_ne!(
@@ -384,7 +387,7 @@ fn init_writes_the_wrapped_identity_file() {
     env.ok(&["init", "personal", "--no-recovery-key"]);
     let entry = env.entry("personal");
     let path = identities_root(&env)
-        .join(&entry.id)
+        .join(entry.id.as_ref().unwrap())
         .join(format!("{}.age", entry.device));
     assert!(path.is_file(), "no wrapped identity at {}", path.display());
     #[cfg(unix)]
@@ -439,7 +442,7 @@ fn the_id_init_files_the_identity_under_is_the_id_it_commits() {
         path.parent().unwrap().file_name().unwrap(),
         committed.as_str()
     );
-    assert_eq!(env.entry("personal").id, committed);
+    assert_eq!(env.entry("personal").id, Some(committed));
 }
 
 // The identity
@@ -454,14 +457,14 @@ fn create_device_name_lands_in_recipient_and_identity_path() {
         "custom-device",
         "--no-recovery-key",
     ]);
-    let id = env.entry("myvault").id;
+    let id = env.entry("myvault").id.unwrap();
     assert_eq!(
         env.vault_config("myvault").recipients[0].device,
         "custom-device"
     );
     let path = paths::identity_file_path(&env.dirs, &id, "custom-device").unwrap();
     assert!(
-        path.ends_with(Path::new(&id).join("custom-device.age")),
+        path.ends_with(Path::new(id.as_str()).join("custom-device.age")),
         "{}",
         path.display()
     );
@@ -482,7 +485,7 @@ fn init_records_the_pubkey() {
     ]);
     assert_eq!(
         env.entry("personal").pubkey,
-        env.vault_config("personal").recipients[0].pubkey
+        Some(env.vault_config("personal").recipients[0].pubkey.clone())
     );
 }
 

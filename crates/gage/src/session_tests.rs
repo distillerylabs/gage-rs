@@ -24,7 +24,7 @@ use crate::paths;
 use crate::prompter::{FakePrompter, PromptError};
 use crate::session::{OpenError, Session, SessionConfig, SessionError};
 use crate::testsupport::fast_scrypt;
-use crate::vault::{self, CreateSpec, Vault};
+use crate::vault::{CreateSpec, Vault};
 use crate::xdgpaths::Dirs;
 use crate::{identityfile, vaultconfig};
 
@@ -93,7 +93,7 @@ impl Device {
         let mut global = Global::default();
         let mut vaults = BTreeMap::new();
         for name in names {
-            let id = vaultconfig::new_id();
+            let id = vaultconfig::VaultId::new();
             let path = root.path().join(name);
             let pubkey = identityfile::create(
                 &dirs,
@@ -109,8 +109,8 @@ impl Device {
                     name: name.to_string(),
                     id: id.clone(),
                     path: path.clone(),
-                    vault_type: vault::TYPE_GIT.into(),
-                    method: vault::METHOD_PASSPHRASE.into(),
+                    vault_type: crate::vaultconfig::VaultType::Git,
+                    method: crate::vaultconfig::UnlockMethod::Passphrase,
                     device: DEVICE.into(),
                     recipients: vec![pubkey],
                     extra_recipients: Vec::new(),
@@ -123,10 +123,10 @@ impl Device {
                     name,
                     VaultEntry {
                         path,
-                        id,
-                        vault_type: vault::TYPE_GIT.into(),
+                        id: Some(id),
+                        vault_type: crate::vaultconfig::VaultType::Git,
                         device: DEVICE.into(),
-                        method: vault::METHOD_PASSPHRASE.into(),
+                        method: crate::vaultconfig::UnlockMethod::Passphrase,
                         ..Default::default()
                     },
                 )
@@ -134,7 +134,7 @@ impl Device {
             vaults.insert(name.to_string(), v.with_locker(ledger.clone()));
         }
         // No `current`: each test seeds the session's own.
-        global.current.clear();
+        global.current = None;
         config::save(&paths::global_config_file(&dirs), &global).unwrap();
         Device {
             _root: root,

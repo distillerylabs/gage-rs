@@ -21,8 +21,9 @@ use crate::exitcode::{Code, HasCode};
 use crate::gitrepo;
 use crate::prompter::{PromptError, Prompter};
 use crate::recipient::{RecipientError, RecipientVerification, VerifyError};
+use crate::serde_opt::empty_as_none;
 use crate::vault::Vault;
-use crate::vaultconfig::{self, Recipient};
+use crate::vaultconfig::{self, Recipient, VaultId};
 use crate::xdgpaths::Dirs;
 use crate::{atomicfile, paths};
 
@@ -119,7 +120,7 @@ pub(crate) struct TrustCache {
     /// The hash of an `.age-recipients` acknowledged while it disagreed
     /// with `config.toml`: "the mismatch was seen". It never clears the
     /// inconsistency, and neither half above moves for it.
-    pub(crate) mismatch_seen: String,
+    pub(crate) mismatch_seen: Option<String>,
 }
 
 /// `trust.toml`'s shape: everything but the config copy,
@@ -130,8 +131,11 @@ pub(crate) struct TrustRecord {
     pub(crate) recipients_hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) confirmed_at: Option<toml::value::Datetime>,
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub(crate) mismatch_seen: String,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) mismatch_seen: Option<String>,
 }
 
 /// Why the trust cache couldn't be consulted, or refused a write.
@@ -191,8 +195,6 @@ pub enum TrustError {
     },
     #[error(transparent)]
     Write(#[from] atomicfile::Error),
-    #[error(transparent)]
-    Path(#[from] paths::Error),
     // The TOML and config errors are boxed: inline they make this enum
     // 120 bytes, and on Windows (whose `PathBuf` is larger) every error
     // carrying a `TrustError` crosses clippy's `result_large_err` limit.
@@ -222,7 +224,6 @@ impl HasCode for TrustError {
             | TrustError::Unconfirmable { .. }
             | TrustError::OutOfSync { .. } => Code::Conflict,
             TrustError::Write(e) => e.code(),
-            TrustError::Path(e) => e.code(),
             TrustError::Verify(e) => e.code(),
             TrustError::Config(e) => e.code(),
             TrustError::Read { .. }
@@ -258,8 +259,8 @@ pub fn difference_lines(v: &RecipientVerification) -> String {
 /// delete needs no argument about what else might live there. Anything
 /// added to the cache's on-disk form belongs in this list too. A missing
 /// cache is not an error.
-pub fn remove(dirs: &Dirs, vault_id: &str) -> Result<(), TrustError> {
-    let dir = paths::trust_cache_dir(dirs, vault_id)?;
+pub fn remove(dirs: &Dirs, vault_id: &VaultId) -> Result<(), TrustError> {
+    let dir = paths::trust_cache_dir(dirs, vault_id);
     for name in [KNOWN_CONFIG_FILE, TRUST_FILE] {
         let path = dir.join(name);
         match std::fs::remove_file(&path) {
@@ -301,8 +302,8 @@ fn sha256_hex(data: &[u8]) -> String {
 }
 
 impl Vault {
-    fn trust_cache_dir(&self) -> Result<PathBuf, TrustError> {
-        Ok(paths::trust_cache_dir(self.dirs(), &self.id)?)
+    fn trust_cache_dir(&self) -> PathBuf {
+        paths::trust_cache_dir(self.dirs(), &self.id)
     }
 
     /// This device's record for the vault, or `None` when there is none
@@ -313,7 +314,7 @@ impl Vault {
     /// confirmed; treating it as a first use is the same weak-but-honest
     /// position a new device is in.
     pub(crate) fn load_trust_cache(&self) -> Result<Option<TrustCache>, TrustError> {
-        let dir = self.trust_cache_dir()?;
+        let dir = self.trust_cache_dir();
         let Some(known_config) = read_optional(&dir.join(KNOWN_CONFIG_FILE))? else {
             return Ok(None);
         };
@@ -340,8 +341,8 @@ impl Vault {
     /// order is chosen for the safer torn state: a new config copy beside
     /// an old hash reads as a changed list and warns, which is the
     /// direction a half-finished write should fail in.
-    fn store_trust_cache(&self, cache: &TrustCache) -> Result<(), TrustError> {
-        let dir = self.trust_cache_dir()?;
+    pub(crate) fn store_trust_cache(&self, cache: &TrustCache) -> Result<(), TrustError> {
+        let dir = self.trust_cache_dir();
         std::fs::create_dir_all(&dir).map_err(|source| TrustError::CreateDir {
             path: dir.clone(),
             source,
@@ -367,7 +368,7 @@ impl Vault {
             known_config,
             recipients_hash: sha256_hex(&keys),
             confirmed_at: Some(Timestamp::now()),
-            mismatch_seen: String::new(),
+            mismatch_seen: None,
         })
     }
 
@@ -431,7 +432,7 @@ impl Vault {
         &self,
         cached: &[u8],
     ) -> Result<(Vec<Recipient>, Vec<Recipient>), TrustError> {
-        let path = self.trust_cache_dir()?.join(KNOWN_CONFIG_FILE);
+        let path = self.trust_cache_dir().join(KNOWN_CONFIG_FILE);
         let was: vaultconfig::File =
             toml::from_str(&String::from_utf8_lossy(cached)).map_err(|source| {
                 TrustError::Parse {
@@ -519,7 +520,7 @@ impl Vault {
         let Some(mut cache) = self.load_trust_cache()? else {
             return Ok(());
         };
-        cache.mismatch_seen = self.current_trust_state()?.recipients_hash;
+        cache.mismatch_seen = Some(self.current_trust_state()?.recipients_hash);
         self.store_trust_cache(&cache)
     }
 

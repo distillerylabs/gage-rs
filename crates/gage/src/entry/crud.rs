@@ -545,10 +545,9 @@ impl Vault {
         Ok(vaultlock::Lock::try_acquire(&self.prepare_lock_file()?)?)
     }
 
-    /// The lock file's path, with its directory created. The path (and
-    /// with it the vault id) is validated before anything is created.
+    /// The lock file's path, with its directory created.
     pub(crate) fn prepare_lock_file(&self) -> Result<std::path::PathBuf, LockError> {
-        let path = self.lock_file_path()?;
+        let path = self.lock_file_path();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|source| LockError::Io {
                 path: parent.to_path_buf(),
@@ -565,8 +564,6 @@ impl Vault {
 #[non_exhaustive]
 pub enum LockError {
     #[error(transparent)]
-    Path(#[from] paths::Error),
-    #[error(transparent)]
     Lock(#[from] vaultlock::Error),
     #[error("gage: creating {path}: {source}")]
     Io {
@@ -578,7 +575,6 @@ pub enum LockError {
 impl HasCode for LockError {
     fn code(&self) -> Code {
         match self {
-            LockError::Path(e) => e.code(),
             LockError::Lock(e) => e.code(),
             LockError::Io { .. } => Code::Internal,
         }
@@ -588,7 +584,6 @@ impl HasCode for LockError {
 impl From<LockError> for WriteError {
     fn from(err: LockError) -> WriteError {
         match err {
-            LockError::Path(e) => WriteError::Path(e),
             LockError::Lock(e) => WriteError::Lock(e),
             LockError::Io { path, source } => WriteError::Io {
                 action: "creating",
@@ -612,7 +607,7 @@ mod tests {
     use crate::testsupport::fast_scrypt;
     use crate::vault::CreateSpec;
     use crate::xdgpaths::Dirs;
-    use crate::{vaultconfig, vaultlock};
+    use crate::{config, vaultconfig, vaultlock};
 
     /// A real vault (git repository, recipients file) and the identity
     /// that can read it.
@@ -641,9 +636,9 @@ mod tests {
                 &dirs,
                 &CreateSpec {
                     name: "work".into(),
-                    id: vaultconfig::new_id(),
+                    id: vaultconfig::VaultId::new(),
                     path: root.path().join("vault"),
-                    vault_type: "git".into(),
+                    vault_type: crate::vaultconfig::VaultType::Git,
                     method: "passphrase".into(),
                     device: "laptop-1".into(),
                     recipients: vec![key.to_public().to_string()],
@@ -1444,22 +1439,29 @@ mod tests {
         assert!(rows.iter().all(|r| r.updated_by == "test-device"));
     }
 
+    // A Vault can't hold an empty or unsafe id any more, so the refusal
+    // moved to where one would have been made: resolving a registration
+    // that has no id when the vault's own config can't supply one. Still
+    // exit code 5, and still before any path is built.
     #[test]
-    fn a_vault_with_an_unsafe_id_fails_insert_before_any_path_is_built() {
+    fn a_registration_without_an_id_resolves_to_no_vault_before_any_path_is_built() {
         let f = Fixture::new();
-        let mut vault = f.vault.clone();
-        vault.id = String::new();
-        let err = vault
-            .insert(
-                &f.identity(),
-                new_entry("x", "v"),
-                false,
-                &FakePrompter::new(),
-            )
-            .unwrap_err();
-        assert!(matches!(err, WriteError::Path(_)), "{err}");
+        let entry = config::VaultEntry {
+            path: f.dirs.data.join("gone"),
+            vault_type: crate::vaultconfig::VaultType::Git,
+            device: "test-device".into(),
+            method: "passphrase".into(),
+            ..Default::default()
+        };
+
+        let err = Vault::from_registration(&f.dirs, "work", &entry).unwrap_err();
+
+        assert!(
+            matches!(err, crate::vault::ResolveError::NoVaultId { .. }),
+            "{err}"
+        );
+        assert_eq!(err.code(), Code::LockedOrAuth);
         assert!(!f.dirs.state.exists(), "no lock directory was created");
-        assert!(vault.entry_ids().unwrap().is_empty());
     }
 
     // --- process-level lock tests ----------------------------------------
@@ -1484,7 +1486,7 @@ mod tests {
         let vault = child_vault(&root);
         match mode.as_str() {
             "hold" => {
-                let path = vault.lock_file_path().unwrap();
+                let path = vault.lock_file_path();
                 std::fs::create_dir_all(path.parent().unwrap()).unwrap();
                 let lock = vaultlock::Lock::acquire(&path, Duration::from_secs(5)).unwrap();
                 eprintln!("ACQUIRED");
@@ -1512,7 +1514,11 @@ mod tests {
     /// The fixture's vault as a child sees it: same dirs, path and id.
     fn child_vault(root: &Path) -> Vault {
         let id = std::env::var("GAGE_CRUD_TEST_VAULT_ID").unwrap();
-        let mut v = Vault::for_tests(&dirs_in(root), "work", &id);
+        let mut v = Vault::for_tests(
+            &dirs_in(root),
+            "work",
+            &vaultconfig::VaultId::try_from(id).unwrap(),
+        );
         v.path = root.join("vault");
         v
     }
@@ -1527,7 +1533,7 @@ mod tests {
             ])
             .env(CHILD_ENV, mode)
             .env("GAGE_CRUD_TEST_ROOT", f._root.path())
-            .env("GAGE_CRUD_TEST_VAULT_ID", &f.vault.id)
+            .env("GAGE_CRUD_TEST_VAULT_ID", f.vault.id.as_str())
             .env("GAGE_CRUD_TEST_TITLE", title)
             .env(
                 "GAGE_CRUD_TEST_KEY",

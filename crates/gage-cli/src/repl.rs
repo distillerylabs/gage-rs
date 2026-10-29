@@ -61,7 +61,7 @@ fn open<'a>(
         idle_timeout: settings.idle_timeout,
         // A session starts pointed where a one-shot command would, so
         // `show foo` works before any `use`. Naming it doesn't unlock it.
-        current: Some(global.current),
+        current: global.current,
         now: Some(Box::new(now)),
     })));
     Ok(Opened {

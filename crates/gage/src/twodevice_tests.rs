@@ -54,12 +54,14 @@ impl Machine {
         let file = vaultconfig::read(&path.join(".gage").join("config.toml")).unwrap();
         let entry = VaultEntry {
             path: path.clone(),
-            id: file.vault.id.clone(),
-            vault_type: file.vault.vault_type.clone(),
+            id: Some(file.vault.id.clone()),
+            vault_type: file.vault.vault_type,
             device: device.into(),
-            pubkey: String::new(),
+            pubkey: None,
             method: file.method.default.clone(),
-            git: config::GitMeta { origin },
+            git: config::GitMeta {
+                origin: Some(origin),
+            },
         };
         let mut global = Global::default();
         global.register(NAME, entry.clone()).unwrap();
@@ -82,7 +84,7 @@ impl Machine {
         let mut global = config::load(&path).unwrap();
         let entry = global.vaults.get_mut(NAME).unwrap();
         entry.device = device.into();
-        entry.pubkey = pubkey.clone();
+        entry.pubkey = Some(pubkey.clone());
         config::save(&path, &global).unwrap();
         pubkey
     }
@@ -219,11 +221,7 @@ fn verify_reports_in_sync_and_the_specific_differences() {
 fn verify_needs_no_identity_file_or_prompter() {
     let a = SyncVault::new();
     let b = Machine::cloned_from(&a, B_DEVICE);
-    assert!(
-        !paths::identities_dir(&b.dirs, &b.vault.id)
-            .unwrap()
-            .exists()
-    );
+    assert!(!paths::identities_dir(&b.dirs, &b.vault.id).exists());
 
     assert!(b.vault.verify_recipients().unwrap().in_sync);
     assert_eq!(b.vault.recipients().unwrap(), a.vault.recipients().unwrap());
@@ -324,9 +322,7 @@ fn add_identity_rejects_a_name_already_registered_as_a_recipient() {
     );
     assert_eq!(err.code(), Code::Conflict);
     assert!(
-        !paths::identities_dir(&b.dirs, &b.vault.id)
-            .unwrap()
-            .exists(),
+        !paths::identities_dir(&b.dirs, &b.vault.id).exists(),
         "a refused name must leave no directory behind"
     );
 }
@@ -343,11 +339,7 @@ fn add_identity_rejects_an_invalid_device_name() {
         );
         assert_eq!(err.code(), Code::Usage);
     }
-    assert!(
-        !paths::identities_dir(&b.dirs, &b.vault.id)
-            .unwrap()
-            .exists()
-    );
+    assert!(!paths::identities_dir(&b.dirs, &b.vault.id).exists());
 }
 
 // `current`
@@ -381,7 +373,7 @@ fn list_identities_reports_this_devices_registered_identities() {
 #[test]
 fn list_identities_skips_subdirectories_and_invalidly_named_files() {
     let a = SyncVault::new();
-    let dir = paths::identities_dir(a.vault.dirs(), &a.vault.id).unwrap();
+    let dir = paths::identities_dir(a.vault.dirs(), &a.vault.id);
     std::fs::create_dir(dir.join("subdir.age")).unwrap();
     std::fs::write(dir.join("Bad Name.age"), b"x").unwrap();
     std::fs::write(dir.join("..age"), b"x").unwrap();

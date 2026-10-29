@@ -80,7 +80,7 @@ fn forged_filename_epoch_is_pruned_as_expired() {
 
     let pending = f.vault.pending_enrollments().unwrap();
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].id, live.id);
+    assert_eq!(Some(&pending[0].id), live.id.as_ref());
 
     let mut want = vec![forged, unrepresentable];
     want.sort();
@@ -88,7 +88,7 @@ fn forged_filename_epoch_is_pruned_as_expired() {
     assert!(
         f.vault
             .pending_dir()
-            .join(pending_file_name(&live.id, live.expires))
+            .join(pending_file_name(live.id.as_deref().unwrap(), live.expires))
             .exists(),
         "pruning removed the live request"
     );

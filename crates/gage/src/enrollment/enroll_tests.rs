@@ -121,7 +121,7 @@ fn enroll_creates_an_identity_on_a_device_that_holds_none() {
     assert_eq!(asked[0].purpose, Purpose::Create);
     let pending = origin_pending(&a);
     assert_eq!(pending.len(), 1);
-    assert_eq!(pending[0].id, req.id);
+    assert_eq!(Some(&pending[0].id), req.id.as_ref());
 }
 
 #[test]
@@ -185,10 +185,10 @@ fn enroll_seals_the_passphrase_method_whatever_config_records() {
 
     let req = b.vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap();
 
-    assert_eq!(req.method, crate::vault::METHOD_PASSPHRASE);
+    assert_eq!(req.method, "passphrase");
     a.vault.pull().unwrap();
     let opened = open_all(&a.vault, &req.code).unwrap();
-    assert_eq!(opened[0].method, crate::vault::METHOD_PASSPHRASE);
+    assert_eq!(opened[0].method, "passphrase");
 }
 
 // The commit message names no device and no
@@ -202,7 +202,7 @@ fn enroll_commits_under_a_message_that_names_nothing() {
     let head = repo.head().unwrap().peel_to_commit().unwrap();
     let message = head.message().unwrap();
     assert_eq!(message.trim_end(), "gage: enrollment request");
-    assert!(!message.contains(&req.id), "{message}");
+    assert!(!message.contains(req.id.as_deref().unwrap()), "{message}");
     assert!(!message.contains(B_DEVICE), "{message}");
 }
 
@@ -567,7 +567,11 @@ fn enroll_after_a_failed_push_reuses_the_identity_and_succeeds() {
 
     assert_eq!(p.unlock_requests()[0].purpose, Purpose::Unlock);
     assert!(req.published);
-    assert_ne!(req.id, first[0].id, "a fresh request and code");
+    assert_ne!(
+        req.id,
+        Some(first[0].id.clone()),
+        "a fresh request and code"
+    );
     assert_eq!(origin_pending(&a).len(), 2, "the first request rode along");
 }
 
@@ -679,7 +683,9 @@ fn the_next_write_discards_a_stray_pending_file() {
 
     let warnings = p.warnings();
     assert!(
-        warnings.iter().any(|w| w.contains(&stray.id)),
+        warnings
+            .iter()
+            .any(|w| w.contains(stray.id.as_deref().unwrap())),
         "the warning names it: {warnings:?}"
     );
     let ids: Vec<String> = b
@@ -689,14 +695,21 @@ fn the_next_write_discards_a_stray_pending_file() {
         .into_iter()
         .map(|r| r.id)
         .collect();
-    assert_eq!(ids, vec![req.id], "only this enroll's request is committed");
+    assert_eq!(
+        ids,
+        vec![req.id.unwrap()],
+        "only this enroll's request is committed"
+    );
 }
 
 #[test]
 fn pending_enrollments_lists_a_stray_locally_and_nowhere_else() {
     let (a, b) = pair();
     let stray = seal_into(&b.vault, "phone", &super::fixtures_tests::new_pubkey(), DAY);
-    assert_eq!(b.vault.pending_enrollments().unwrap()[0].id, stray.id);
+    assert_eq!(
+        Some(&b.vault.pending_enrollments().unwrap()[0].id),
+        stray.id.as_ref()
+    );
     assert!(origin_pending(&a).is_empty());
 }
 
@@ -779,7 +792,7 @@ fn a_divergence_involving_pending_is_reported_honestly() {
     let req = b.vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap();
     let name = format!(
         "{PENDING_DIR}/{}",
-        name::pending_file_name(&req.id, req.expires)
+        name::pending_file_name(req.id.as_deref().unwrap(), req.expires)
     );
     // Clones before the approver publishes, so the sides truly diverge.
     let denier = Machine::cloned_from(&a, "phone");

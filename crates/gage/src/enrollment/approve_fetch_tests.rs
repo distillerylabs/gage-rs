@@ -41,7 +41,10 @@ fn remote_has(a: &SyncVault, rel: &str) -> bool {
 }
 
 fn request_path(req: &EnrollmentRequest) -> String {
-    format!("{PENDING_DIR}/{}", pending_file_name(&req.id, req.expires))
+    format!(
+        "{PENDING_DIR}/{}",
+        pending_file_name(req.id.as_deref().unwrap(), req.expires)
+    )
 }
 
 /// A local commit here and an unrelated one on the remote.
@@ -265,7 +268,7 @@ fn reapproval_after_a_failed_push_is_the_no_op() {
     // The request as another device still sees it.
     let payload = good_payload(
         &a.vault,
-        &req.id,
+        req.id.as_deref().unwrap(),
         &req.device,
         &req.pubkey,
         req.created,
@@ -273,7 +276,7 @@ fn reapproval_after_a_failed_push_is_the_no_op() {
     );
     write_pending(
         &a.vault,
-        &pending_file_name(&req.id, req.expires),
+        &pending_file_name(req.id.as_deref().unwrap(), req.expires),
         &hand_seal(&payload, &req.code),
     );
     gitrepo::commit_all(&a.vault.path, "test: the request, still pending elsewhere").unwrap();

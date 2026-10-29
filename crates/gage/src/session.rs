@@ -212,7 +212,7 @@ impl<'a> Session<'a> {
             prompter: cfg.prompter,
             idle_timeout: cfg.idle_timeout.filter(|t| !t.is_zero()),
             now: cfg.now.unwrap_or_else(|| Box::new(Instant::now)),
-            current: cfg.current.filter(|c| !c.is_empty()),
+            current: cfg.current,
             vaults: BTreeMap::new(),
             depth: 0,
         }

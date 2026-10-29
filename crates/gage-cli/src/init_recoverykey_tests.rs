@@ -211,7 +211,7 @@ fn init_refuses_to_write_the_recovery_key_where_gage_will_delete_it() {
     env.init("other", &["--dir", existing.to_str().unwrap()]);
     let mut global = env.global();
     global.vaults.remove("other");
-    global.current = String::new();
+    global.current = None;
     env.save_global(&global);
 
     let target = env.root.path().join("personal");
