@@ -168,3 +168,5 @@ vendored:
 - CI is green on all three OSes.
 - The D1b help snapshots and the D1a fixtures are unchanged.
 - The D1 index and the divergence plan's status columns are `[x]`.
+
+**Done** (Opus review of the security ADRs and the full-tree grep excepted, above). `make lint`, `make test` and `make qa` clean locally; CI green on Linux, macOS and Windows on PR #122.
