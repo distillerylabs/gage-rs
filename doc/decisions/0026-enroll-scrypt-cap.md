@@ -17,11 +17,15 @@ file's cap (22) suits a local file gage wrote at 19, not this.
 `ENROLLMENT_SCRYPT_MAX_WORK_FACTOR = 18`: four doublings above
 `SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR` (14), the headroom age's own default
 cap leaves. One hostile file then costs 256 MiB and about 0.35 s.
-`crypt::scrypt_identity` takes the cap as a parameter, and its single
-construction site may pass only one of the two named cap constants.
+There is one scrypt identity constructor, `crypt::capped_scrypt_identity`,
+which takes the cap. It has two callers: `scrypt_identity` (identity files,
+22) and `enrollment_scrypt_identity` (requests, 18). A guard test requires
+that every call passes one of the two named cap constants.
 
 ## Consequences
 
-- A file gage never writes, claiming 19–22, is skipped rather than tried.
+- age refuses a request claiming more than 18 before running any KDF. It is
+  then "not opened" by that code, the same as a wrong code. gage never
+  writes such a file, so only a hostile or damaged one gets here.
 - Raising the seal factor later must keep it at or below this cap. A guard
   test pins `SHIPPED_ENROLLMENT_SCRYPT_WORK_FACTOR <= ENROLLMENT_SCRYPT_MAX_WORK_FACTOR`.

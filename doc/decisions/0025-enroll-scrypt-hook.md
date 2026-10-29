@@ -14,8 +14,11 @@
   `set_enrollment_work_factor_for_tests` (`cfg(test)` / `test-support`).
   `fast_scrypt()` lowers both factors.
 - Sealing goes through `crypt::Recipient::passphrase_at` at that factor.
-  Opening goes through the one scrypt identity constructor, which takes a
-  cap ([ADR-0026](0026-enroll-scrypt-cap.md)).
+  Opening goes through `enrollment_scrypt_identity`, a wrapper over the one
+  scrypt identity constructor with the enrollment cap
+  ([ADR-0026](0026-enroll-scrypt-cap.md)). Sealing never reads the identity
+  file's live factor, so a suite that lowers one cannot silently lower the
+  other.
 
 ## Consequences
 

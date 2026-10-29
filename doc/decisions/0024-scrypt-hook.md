@@ -15,6 +15,11 @@
   fixtures that create or unlock vaults; a test that forgets it is slow, not
   wrong.
 
+The read side has a cap: `SCRYPT_MAX_WORK_FACTOR = 22` is set explicitly on
+every scrypt identity, because age's own ceiling is calibrated per machine
+and a damaged or hostile identity file claiming 2^30 must cost a bounded
+wait, not a hang.
+
 Three guard tests stay:
 
 1. the constant is 19;
@@ -26,6 +31,8 @@ Three guard tests stay:
 
 ## Consequences
 
-Every scrypt recipient is built at one site and every scrypt identity at one
-site; the guard scans enforce it. [ADR-0025](0025-enroll-scrypt-hook.md) and
+Every scrypt recipient is built at one site (`Recipient::passphrase_at`) and
+every scrypt identity at one site (`capped_scrypt_identity`), which always
+sets a cap; source-scan guards (`every_scrypt_identity_caps_its_work_factor`
+among them) enforce both. [ADR-0025](0025-enroll-scrypt-hook.md) and
 [ADR-0026](0026-enroll-scrypt-cap.md) extend the same pattern.

@@ -19,7 +19,12 @@ The first two are supplied by whoever can write to the repository.
    infeasible to guess at any work factor, so the KDF adds almost nothing
    there; the realistic cost driver is a mistyped code, which must try every
    request before concluding it opens none.
-3. One run attempts at most 32 live requests; more is refused.
+3. One run attempts at most 32 live requests (`MAX_ENROLLMENT_ATTEMPTS`);
+   more is refused, and naming a request id narrows the run in place.
+4. A file in `pending/` larger than 16 KiB (`MAX_PENDING_REQUEST_BYTES`) is
+   not read, and a payload larger than that after decrypting is refused as
+   malformed: a code-holder is trusted to be granted access, not to be handed
+   an unbounded allocation.
 
 The factor removes the cost at its root, and the bound still holds if the
 factor is ever raised.

@@ -12,8 +12,13 @@ precedes). It is not kept as a parsed `age::x25519::Identity`, which
 zeroizes itself but lives wherever its owner puts it, and a global-allocator
 `Box` shares pages.
 
+The page lock goes through the vault's `Locker`. If it fails (a restricted
+`ulimit -l`, a locked-down container or Windows policy), the unlock warns
+once and proceeds unprotected rather than refusing to work.
+
 `Drop` order is zeroize, then unlock (only if the lock took), then
-deallocate. `Identity` is not `Clone`. Use after release and shared release
+deallocate. Zeroing happens whatever the unlock does. `Debug` never prints
+the key. `Identity` is not `Clone`. Use after release and shared release
 are unrepresentable; they are proved by `compile_fail` doctests.
 
 ## Consequences

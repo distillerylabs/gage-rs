@@ -13,8 +13,12 @@
   reallocates and leaves an unzeroed copy.
 - The library parses a pasted key with `KeyLine::parse` into the same
   page-locked `LockedBuf` an identity file uses ([ADR-0023](0023-identity-secret.md)).
-- `recover_device` takes the secret **by value**, so it is dropped (and
-  zeroed) on every return. This is pinned by a signature test and a no-copy
+- `recover_device` takes the secret **by value**. It is dropped (and zeroed)
+  as soon as `KeyLine::parse` has copied it into the locked buffer, rather
+  than staying alive across the lock, re-encryption and push, and it is
+  dropped on every return.
+- A parse failure is reported as a malformed recovery key, with age's error
+  dropped rather than wrapped: age's parse errors can quote their input. This is pinned by a signature test and a no-copy
   source scan.
 - The stderr text is written from the key's own buffer, never formatted into
   an intermediate `String`.

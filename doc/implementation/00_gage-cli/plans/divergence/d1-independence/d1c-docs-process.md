@@ -110,9 +110,25 @@ vendored:
       divergence plan. This is the one document outside the archive
       that names Go gage.
 - [x] One ADR per decision-2 entry, each with its origin anchors.
-- [ ] Opus review of the security ADRs listed in the model note. *Not done:
-      the ADRs were written in a Sonnet session. Review ADR-0023, 0024,
-      0025, 0026, 0027 and 0010 before merging.*
+- [x] Opus review of the security ADRs listed in the model note.
+      *Done*, against the code, covering 0010, 0023–0028 and 0040.
+      Corrected:
+      - 0010 said gage prompts when the hostname normalizes to nothing
+        (it fails with Usage, naming `--device`) and that `clone` records
+        `pubkey` (it records none). It also omitted the all-dots rule,
+        which is what stops `..` and which the allowlist alone admits.
+      - 0026 said `scrypt_identity` takes the cap (one private
+        constructor does, with two named wrappers), and that an
+        over-cap request is "skipped" (age refuses it before the KDF, and
+        it reads as not opened).
+      - 0024 lacked the identity file's read cap (22).
+      - 0023 lacked the warn-once on page-lock failure.
+      - 0027 lacked the early drop and the dropped parse error.
+      - 0028 lacked the temp file's 0600 creation, and Windows' ACL
+        inheritance.
+      - 0040 lacked the 16 KiB request size limit.
+      No code change was needed; every corrected statement was the ADR
+      misdescribing correct code.
 - [x] `doc/design/lint-rationale.md`: the gosec/golangci → clippy and
       cargo-deny mapping table, moved out of
       `p9-parity-signoff/s2-ledger-and-help.md`.
@@ -150,15 +166,15 @@ vendored:
 
 ### 6. Check
 
-- [ ] `grep -rn 'Go gage\|GO_GAGE_SHA\|parity'` outside `doc/archive/`
+- [x] `grep -rn 'Go gage\|GO_GAGE_SHA\|parity'` outside `doc/archive/`
       hits only ADR-0001 and the "Retired" history line in
       `doc/decisions/README.md`, if one is kept.
-
-      *Status.* Hits remain in places this milestone does not own: four
-      source-comment mentions in `crates/gage-cli/src/` (D2's sweep), the
-      divergence and D1 plan documents (they describe this change), and
-      one unrelated use of "parity" in `doc/design/gage-cli-design.md`
-      ("parity with POSIX").
+      *Done*, with one recorded exception: the plan docs under
+      `plans/divergence/` describe this very change (and quote the
+      pattern), so they match by construction. Outside them, only ADR-0001
+      matches. Five unrelated uses of "parity" were reworded (four comment
+      headings in `crates/gage-cli/src/`, one in the core design doc). No
+      "Retired" line was added to the decisions README; ADR-0001 carries it.
 
 ## Definition of done
 
@@ -169,4 +185,4 @@ vendored:
 - The D1b help snapshots and the D1a fixtures are unchanged.
 - The D1 index and the divergence plan's status columns are `[x]`.
 
-**Done** (Opus review of the security ADRs and the full-tree grep excepted, above). `make lint`, `make test` and `make qa` clean locally; CI green on Linux, macOS and Windows on PR #122.
+**Done.** `make lint`, `make test` and `make qa` clean locally; CI green on Linux, macOS and Windows on PR #122.

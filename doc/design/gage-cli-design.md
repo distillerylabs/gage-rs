@@ -2030,7 +2030,7 @@ here" — by construction, nothing would replace it.
   dumps (`RLIMIT_CORE`) has no real Windows equivalent a non-elevated
   process can rely on; `gage` suppresses the Windows Error Reporting
   crash dialog but documents this as a narrower guarantee rather than
-  pretending parity with POSIX. If page-locking itself fails (restricted
+  pretending equivalence with POSIX. If page-locking itself fails (restricted
   `ulimit -l`, a locked-down container or Windows policy), `gage` warns
   once and proceeds unlocked-but-unprotected rather than refusing to
   work — the same "warn and proceed" posture as an unreachable network in
