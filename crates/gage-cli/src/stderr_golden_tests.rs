@@ -6,7 +6,6 @@
 
 use crate::exitcode::ExitCode;
 use gage::gittest::{self, Answer, Device, HttpRecorder};
-use gage::prompter::FakePrompter;
 
 use crate::entry_tests::unlocks;
 use crate::lifecycle_tests::{CliResult, Env, config_file};
@@ -288,6 +287,8 @@ fn a_script_error_names_its_line() {
 #[cfg(unix)]
 #[test]
 fn an_atomic_write_failure() {
+    use gage::prompter::FakePrompter;
+
     let env = env_with_vault();
     // A directory where the token file goes: the rename onto it fails.
     let tokens = env.dirs.state.join("tokens");
