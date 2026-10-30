@@ -802,8 +802,36 @@ dependencies = [
 ]
 
 [[package]]
-name = "gage"
-version = "0.0.0"
+name = "gage-cli"
+version = "0.1.0"
+dependencies = [
+ "age",
+ "anyhow",
+ "arboard",
+ "assert_cmd",
+ "clap",
+ "ctrlc",
+ "gage-core",
+ "hostname",
+ "jiff",
+ "libc",
+ "portable-pty",
+ "qrcode",
+ "rpassword",
+ "rustyline",
+ "sha2 0.11.1",
+ "subtle",
+ "tempfile",
+ "thiserror 2.0.21",
+ "uuid",
+ "which",
+ "windows-sys",
+ "zeroize",
+]
+
+[[package]]
+name = "gage-core"
+version = "0.1.0"
 dependencies = [
  "age",
  "git2",
@@ -823,34 +851,6 @@ dependencies = [
  "toml 1.1.8+spec-1.1.0",
  "url",
  "uuid",
- "windows-sys",
- "zeroize",
-]
-
-[[package]]
-name = "gage-cli"
-version = "0.0.0"
-dependencies = [
- "age",
- "anyhow",
- "arboard",
- "assert_cmd",
- "clap",
- "ctrlc",
- "gage",
- "hostname",
- "jiff",
- "libc",
- "portable-pty",
- "qrcode",
- "rpassword",
- "rustyline",
- "sha2 0.11.1",
- "subtle",
- "tempfile",
- "thiserror 2.0.21",
- "uuid",
- "which",
  "windows-sys",
  "zeroize",
 ]
@@ -1948,9 +1948,9 @@ checksum = "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"
 
 [[package]]
 name = "reset-local-state"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
- "gage",
+ "gage-core",
  "tempfile",
 ]
 

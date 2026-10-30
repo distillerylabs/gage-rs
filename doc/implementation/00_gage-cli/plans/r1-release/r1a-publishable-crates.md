@@ -154,35 +154,52 @@ decisions":
 
 ## Settled decisions
 
-None yet.
+Decisions 1-8 above were taken as proposed, with these outcomes found in
+the build:
+
+- **3 (LICENSE).** Cargo does not take `../../LICENSE` in `include`, so the
+  fallback applies: a per-crate `LICENSE` copy, guarded by
+  `crates/gage/tests/license_copies.rs`.
+- **7 (MSRV).** 1.89 fails: `rustyline` 19 needs `cfg_select!`, stable in
+  1.95, and 1.94 fails too. `rust-version` is now 1.95, recorded in
+  ADR-0058.
+- **Makefile.** The stamp check target is `stamp-check` (not
+  `build-stamp-check`). A mis-tagged checkout is treated as untagged
+  (`dev`) for stamping and refused by `make tag-check`, which `build` and
+  `stamp-check` depend on, so `make lint` and `make test` still run.
+- **`no_frontend_deps.rs`.** Only one of its four `offenders` calls reads
+  real metadata; the other three use the synthetic fixture and stay
+  `"gage"`.
+- **`shipped_features.rs`.** It also looked the library up by name
+  (`gage v` in `cargo tree`); now `gage-core v`.
 
 ## Tasks
 
 ### 1. Rename the package
 
-- [ ] Tests first: point `no_frontend_deps.rs`'s four
+- [x] Tests first: point `no_frontend_deps.rs`'s four
       `offenders(&metadata, "gage")` calls at `"gage-core"`. They go red
       (panic: package not found).
-- [ ] `crates/gage/Cargo.toml`: `name = "gage-core"`, `[lib] name =
+- [x] `crates/gage/Cargo.toml`: `name = "gage-core"`, `[lib] name =
       "gage"`. Update the three path dependencies to `gage = { package =
       "gage-core", path = "../gage", version = "0.1.0" }`, keeping
       `features = ["test-support"]` on the dev-dependency. Green.
-- [ ] Update `scripts/lint-selftest.sh`, CLAUDE.md and CONTRIBUTING.md
+- [x] Update `scripts/lint-selftest.sh`, CLAUDE.md and CONTRIBUTING.md
       (`-p gage` → `-p gage-core`). `make lint-selftest` still fires.
 
 ### 2. Version and metadata
 
-- [ ] Workspace version `0.1.0`. Move `publish = false` from
+- [x] Workspace version `0.1.0`. Move `publish = false` from
       `[workspace.package]` to `reset-local-state` only.
-- [ ] Per decisions 3, 4 and 6: per-crate `README.md`, `readme`,
+- [x] Per decisions 3, 4 and 6: per-crate `README.md`, `readme`,
       `keywords`, `categories`, `homepage`, `documentation`, `include`.
-- [ ] `cargo package --list -p gage-core` and `-p gage-cli` show exactly
+- [x] `cargo package --list -p gage-core` and `-p gage-cli` show exactly
       the intended files; paste both lists in the PR description.
-- [ ] `#[doc(hidden)]` on `gittest` and `testsupport` (decision 5).
+- [x] `#[doc(hidden)]` on `gittest` and `testsupport` (decision 5).
 
 ### 3. Version stamping
 
-- [ ] Tests first in `version.rs`:
+- [x] Tests first in `version.rs`:
       - unset version → `CARGO_PKG_VERSION`
       - the dev marker → `<pkg>-dev`
       - a `.cargo_vcs_info.json` body → its 7-char sha
@@ -190,28 +207,28 @@ None yet.
       - an override still wins
 
       Red.
-- [ ] Implement decisions 1 and 2 in `build.rs`/`build_env.rs`/`version.rs`
+- [x] Implement decisions 1 and 2 in `build.rs`/`build_env.rs`/`version.rs`
       and the Makefile. Green.
-- [ ] Update `make build-stamp-check` (it stamps `v9.9.9-testtag`) to the
+- [x] Update `make build-stamp-check` (it stamps `v9.9.9-testtag`) to the
       new shape, and add a Makefile check that a tag that isn't
       `v$CARGO_PKG_VERSION` fails.
-- [ ] `real_binary_version_flag` stays green unedited.
-- [ ] `cargo install --path crates/gage-cli --root <tmp>`, then
+- [x] `real_binary_version_flag` stays green unedited.
+- [x] `cargo install --path crates/gage-cli --root <tmp>`, then
       `<tmp>/bin/gage --version`, prints `gage 0.1.0 (commit <sha>)`.
 
 ### 4. CI
 
-- [ ] `lint.yml`, ubuntu leg only: `cargo publish --dry-run --locked -p
+- [x] `lint.yml`, ubuntu leg only: `cargo publish --dry-run --locked -p
       gage-core` and `cargo package --list --locked -p gage-cli`.
-- [ ] `lint.yml`: the `msrv` job (decision 7), with its toolchain
+- [x] `lint.yml`: the `msrv` job (decision 7), with its toolchain
       installed explicitly and actions SHA-pinned like the rest.
 
 ### 5. ADR and green
 
-- [ ] ADR-0058: release and versioning policy (decision 8). Link it from
+- [x] ADR-0058: release and versioning policy (decision 8). Link it from
       `doc/decisions/README.md`.
-- [ ] `make lint` and `make test` are clean.
-- [ ] `git diff --stat main -- tests/fixtures` is empty.
+- [x] `make lint` and `make test` are clean.
+- [x] `git diff --stat main -- tests/fixtures` is empty.
 
 ## Definition of done
 

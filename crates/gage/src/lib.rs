@@ -25,6 +25,7 @@ pub mod enrollment;
 pub mod entry;
 pub mod error;
 #[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
 pub mod gittest;
 pub mod prompter;
 pub mod recovery;
@@ -32,6 +33,7 @@ pub mod session;
 pub mod storage;
 pub mod sync;
 #[cfg(any(test, feature = "test-support"))]
+#[doc(hidden)]
 pub mod testsupport;
 pub mod trust;
 pub mod vault;

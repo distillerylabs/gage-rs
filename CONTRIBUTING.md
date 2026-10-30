@@ -19,7 +19,7 @@ make cover       # test run with coverage; then `make cover-check` for the 80% f
 make install-hooks  # pre-commit hook that runs `make lint`
 ```
 
-Run a single test with `cargo test -p gage <test_name> -- --nocapture` (or `-p gage-cli`).
+Run a single test with `cargo test -p gage-core <test_name> -- --nocapture` (or `-p gage-cli`).
 
 ## Before opening a PR
 

@@ -1,27 +1,54 @@
 EXE := $(if $(filter Windows_NT,$(OS)),.exe,)
 
-# Version stamping. crates/gage-cli/build.rs reads both variables (their
-# names are defined once, in crates/gage-cli/src/build_env.rs, and a test
-# checks these lines export exactly those) and rebuilds when they change.
-export GAGE_VERSION := $(shell git describe --tags --exact-match 2>/dev/null || echo dev)
-export GAGE_COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
+# Version stamping (ADR-0058). The version is the crate's own, so a tagged
+# checkout needs no stamp at all and an untagged one is marked `dev`
+# (printing `<version>-dev`). crates/gage-cli/build.rs reads both variables
+# (their names are defined once, in crates/gage-cli/src/build_env.rs, and a
+# test checks these lines export exactly those) and rebuilds when they change.
+# A tag that isn't v<version> is treated as untagged here and refused by
+# `tag-check`, which build and stamp-check depend on.
+PKG_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+GAGE_TAG    := $(shell git describe --tags --exact-match 2>/dev/null)
+export GAGE_VERSION := $(if $(filter v$(PKG_VERSION),$(GAGE_TAG)),,dev)
+export GAGE_COMMIT  := $(shell git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)
 
 .PHONY: build
-build:
+build: tag-check
 	cargo build --locked -p gage-cli
 
-# Proves version stamping reaches the binary: build with a known tag and
-# commit, then require --version to print both. CI runs it. The variables are overridden on
-# the cargo command line because this Makefile's own exports would win
-# otherwise.
+# A checkout that carries a tag must carry exactly v<workspace version>, so a
+# mis-tag can't ship a binary that prints the wrong version.
+.PHONY: tag-check
+tag-check:
+	@if [ -n "$(GAGE_TAG)" ] && [ "$(GAGE_TAG)" != "v$(PKG_VERSION)" ]; then \
+		echo "tag-check: checkout is tagged $(GAGE_TAG), but the workspace version is $(PKG_VERSION) (want v$(PKG_VERSION))" >&2; exit 1; fi
+
+# Proves tag-check accepts the matching tag, an untagged checkout, and
+# refuses a mismatch.
+.PHONY: tag-check-selftest
+tag-check-selftest:
+	@$(MAKE) --no-print-directory tag-check GAGE_TAG=v$(PKG_VERSION)
+	@$(MAKE) --no-print-directory tag-check GAGE_TAG=
+	@if $(MAKE) --no-print-directory tag-check GAGE_TAG=v0.0.0-wrong 2>/dev/null; then \
+		echo "tag-check-selftest: a mismatched tag was accepted" >&2; exit 1; fi
+
+# Proves version stamping reaches the binary: build with a known version
+# override and commit, then require --version to print both. CI runs it. The
+# variables are overridden on the cargo command line because this Makefile's
+# own exports would win otherwise. It also proves the unstamped shape: with no
+# GAGE_VERSION the binary prints the crate version.
 STAMP_VERSION := v9.9.9-testtag
 STAMP_COMMIT  := cafef00
 .PHONY: stamp-check
-stamp-check:
+stamp-check: tag-check tag-check-selftest
 	GAGE_VERSION=$(STAMP_VERSION) GAGE_COMMIT=$(STAMP_COMMIT) cargo build --locked -p gage-cli
 	@out="$$(./target/debug/gage$(EXE) --version)"; echo "$$out"; \
 	case "$$out" in *"$(STAMP_VERSION)"*"$(STAMP_COMMIT)"*) ;; \
-	*) echo "stamp-check: --version does not carry the stamped tag and commit" >&2; exit 1 ;; esac
+	*) echo "stamp-check: --version does not carry the stamped version and commit" >&2; exit 1 ;; esac
+	env -u GAGE_VERSION GAGE_COMMIT=$(STAMP_COMMIT) cargo build --locked -p gage-cli
+	@out="$$(./target/debug/gage$(EXE) --version)"; echo "$$out"; \
+	test "$$out" = "gage $(PKG_VERSION) (commit $(STAMP_COMMIT))" || \
+	{ echo "stamp-check: an unstamped build must print the crate version" >&2; exit 1; }
 
 # The tests never touch the network: dependencies are fetched first, then
 # cargo is forbidden from going online. Run it with the network off once by

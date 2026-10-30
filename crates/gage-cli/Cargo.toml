@@ -6,7 +6,12 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://github.com/distillerylabs/gage-rs/tree/main/doc/cli"
+readme = "README.md"
+keywords = ["age", "git", "secrets", "password-manager", "cli"]
+categories = ["command-line-utilities", "cryptography"]
+include = ["src/**", "build.rs", "Cargo.toml", "README.md", "LICENSE"]
 
 [[bin]]
 name = "gage"
@@ -18,7 +23,7 @@ workspace = true
 [dependencies]
 anyhow = "1"
 clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions", "string"] }
-gage = { path = "../gage" }
+gage = { package = "gage-core", path = "../gage", version = "0.1.0" }
 # init's default device name; std has no hostname call.
 hostname = "0.4"
 # `log` renders commit times in the local zone, which needs jiff to find it;
@@ -52,7 +57,7 @@ thiserror = "2"
 
 [dev-dependencies]
 assert_cmd = "2"
-gage = { path = "../gage", features = ["test-support"] }
+gage = { package = "gage-core", path = "../gage", version = "0.1.0", features = ["test-support"] }
 portable-pty = "0.9"
 age = "0.12.1"
 

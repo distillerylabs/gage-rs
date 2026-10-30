@@ -26,7 +26,7 @@ make cover-check # fail if total line coverage < COVER_MIN (80); run `make cover
 make install-hooks  # git pre-commit hook that runs `make lint`
 ```
 
-Run a single test: `cargo test -p gage <test_name> -- --nocapture` (or `-p gage-cli`).
+Run a single test: `cargo test -p gage-core <test_name> -- --nocapture` (or `-p gage-cli`).
 
 The toolchain is pinned in `rust-toolchain.toml`. Cargo-installed tools (cargo-deny, cargo-llvm-cov) are pinned in the Makefile and installed into `./bin`, not resolved from `PATH`.
 
