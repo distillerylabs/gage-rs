@@ -16,10 +16,10 @@ members = ["cargo:."]
 cargo-dist-version = "0.32.0"
 ci = "github"
 allow-dirty = ["ci"]
-# Native runners only (dist's defaults: ubuntu-22.04 for a glibc 2.35
-# baseline, ubuntu-22.04-arm, macos-14, macos-15-intel, windows-2022). No
-# musl: memlock, core-dump suppression and file locking are not tested
-# against it.
+# Native runners only: dist's defaults (ubuntu-22.04 for a glibc 2.35
+# baseline, ubuntu-22.04-arm, macos-15-intel, windows-2022), except Apple
+# silicon (see github-custom-runners below). No musl: memlock, core-dump
+# suppression and file locking are not tested against it.
 targets = [
     "aarch64-apple-darwin",
     "aarch64-unknown-linux-gnu",
@@ -47,6 +47,11 @@ global-artifacts-jobs = ["./release-smoke"]
 github-custom-job-permissions = { "release-smoke" = { contents = "read" } }
 # Archives carry gage-cli's README.md and LICENSE and the workspace
 # CHANGELOG.md, all found by dist's auto-includes.
+
+# dist 0.32 defaults Apple silicon to macos-14, which GitHub retires on
+# 2026-11-02 (actions/runner-images#13518).
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
 
 # dist pastes each value verbatim after `@`, so the version comment rides
 # along and scripts/check-action-pins.sh passes the generated file. The

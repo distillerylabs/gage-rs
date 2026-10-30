@@ -101,11 +101,14 @@ What the sources showed, which changed several proposals:
    |---|---|
    | `x86_64-unknown-linux-gnu` | `ubuntu-22.04` |
    | `aarch64-unknown-linux-gnu` | `ubuntu-22.04-arm` |
-   | `aarch64-apple-darwin` | `macos-14` |
+   | `aarch64-apple-darwin` | `macos-15` |
    | `x86_64-apple-darwin` | `macos-15-intel` |
    | `x86_64-pc-windows-msvc` | `windows-2022` |
 
-   No `github-custom-runners`. The glibc baseline is 2.35. No musl.
+   One `github-custom-runners` entry: dist defaults Apple silicon to
+   `macos-14`, which GitHub retires on 2026-11-02 (the PR run hit its
+   brownout), so it is pinned to `macos-15`. The glibc baseline is 2.35.
+   No musl.
    Intel macOS goes, with a CHANGELOG note, when its runner goes.
 2. **Pinning.** `release.yml` is generated, then a committed patch is
    applied (see 3).
