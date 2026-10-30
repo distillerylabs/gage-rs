@@ -8,6 +8,10 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+# Not a cargo-dist release artifact: only gage-cli ships binaries.
+[package.metadata.dist]
+dist = false
+
 [lints]
 workspace = true
 

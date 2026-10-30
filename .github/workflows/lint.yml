@@ -63,6 +63,22 @@ jobs:
         run: cargo package --list --locked -p gage-cli
         shell: bash
 
+      # The pinned cargo-dist, for dist-check below; keyed on the Makefile
+      # so a pin change reinstalls it.
+      - name: Cache tool binaries
+        if: runner.os == 'Linux'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin
+          key: lint-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+      # release.yml is dist's output plus scripts/dist/release.yml.patch,
+      # nothing else. Ubuntu only: the generated file is the same anywhere.
+      - name: make dist-check
+        if: runner.os == 'Linux'
+        run: make dist-check
+        shell: bash
+
   # The rust-version promise: the crates build on the oldest compiler they
   # claim. `check` without --all-targets, since the promise covers building
   # the crates, not their dev-dependencies. See ADR-0058.

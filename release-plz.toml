@@ -1,0 +1,37 @@
+# release-plz: the version-bump and CHANGELOG pull request, and the
+# crates.io publish when it merges (.github/workflows/release-plz.yml). The
+# settled decisions are in
+# doc/implementation/00_gage-cli/plans/r1-release/r1b-release-pipeline.md.
+#
+# cargo-dist owns the GitHub Release (release.yml, on the tag pushed here),
+# so release-plz creates none.
+
+[workspace]
+# Release only when a release-plz PR (branch release-plz-*) merges, never
+# on an ordinary push to main.
+release_always = false
+git_release_enable = false
+# No published baseline to compare against before 0.1.0. Revisit after it.
+semver_check = false
+# Only the workspace's own packages move in the release PR; dependency
+# bumps go through ordinary review.
+dependencies_update = false
+
+# One tag (v<version>) and one root CHANGELOG.md, carried by gage-cli. The
+# two crates are versioned in lockstep (ADR-0058).
+[[package]]
+name = "gage-cli"
+version_group = "gage"
+changelog_path = "CHANGELOG.md"
+changelog_include = ["gage-core"]
+git_tag_name = "v{{ version }}"
+
+[[package]]
+name = "gage-core"
+version_group = "gage"
+changelog_update = false
+git_tag_enable = false
+
+[[package]]
+name = "reset-local-state"
+release = false

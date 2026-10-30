@@ -1,0 +1,76 @@
+name: Release smoke
+
+# Called by release.yml (dist-workspace.toml: global-artifacts-jobs) once
+# every target is built, on PR runs and on release tags alike. release.yml's
+# host job needs it, and the Homebrew tap push and the GitHub Release both
+# need host, so a binary that doesn't run, or prints the wrong version,
+# stops the release before anything is published.
+#
+# Each leg runs on the same native runner its target was built on (the
+# matrix is dist's own build matrix, from the plan), checks the archive
+# against its .sha256, unpacks it and requires `gage --version` to print
+# exactly `gage <version> (commit <sha7>)` (ADR-0058).
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke (${{ join(matrix.targets, ', ') }})
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(inputs.plan).ci.github.artifacts_matrix }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Fetch local artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: artifacts-build-local-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: gage --version
+        shell: bash
+        env:
+          PLAN: ${{ inputs.plan }}
+          TARGET: ${{ join(matrix.targets, ' ') }}
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.releases[] | select(.app_name == "gage-cli") | .app_version' <<<"$PLAN")"
+          want="gage ${version} (commit ${GITHUB_SHA::7})"
+
+          cd artifacts
+          archive="$(ls gage-cli-"$TARGET".tar.xz gage-cli-"$TARGET".zip 2>/dev/null || true)"
+          if [ -z "$archive" ]; then
+            echo "no archive for $TARGET; have:" >&2; ls >&2; exit 1
+          fi
+
+          # The checksum dist published next to the archive.
+          if command -v sha256sum >/dev/null; then sum=sha256sum; else sum="shasum -a 256"; fi
+          got_sum="$($sum "$archive" | cut -d' ' -f1)"
+          want_sum="$(cut -d' ' -f1 "$archive.sha256")"
+          if [ "$got_sum" != "$want_sum" ]; then
+            echo "checksum mismatch for $archive: $got_sum, want $want_sum" >&2; exit 1
+          fi
+
+          mkdir unpacked
+          case "$archive" in
+            *.zip) unzip -q "$archive" -d unpacked ;;
+            *) tar -xJf "$archive" -C unpacked ;;
+          esac
+          bin="$(find unpacked -type f \( -name gage -o -name gage.exe \) | head -n 1)"
+          if [ -z "$bin" ]; then
+            echo "no gage binary in $archive" >&2; exit 1
+          fi
+
+          got="$("$bin" --version)"
+          echo "$archive: $got"
+          if [ "$got" != "$want" ]; then
+            echo "gage --version printed '$got', want '$want'" >&2; exit 1
+          fi

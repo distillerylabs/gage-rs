@@ -17,6 +17,10 @@ include = ["src/**", "Cargo.toml", "README.md", "LICENSE", "clippy.toml"]
 # The crate is `gage-core` on crates.io; the code keeps saying `gage::`.
 name = "gage"
 
+# Not a cargo-dist release artifact: only gage-cli ships binaries.
+[package.metadata.dist]
+dist = false
+
 [lints]
 workspace = true
 

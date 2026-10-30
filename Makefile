@@ -66,8 +66,15 @@ test:
 # without any version parsing.
 CARGO_DENY_VERSION     := 0.20.2
 CARGO_LLVM_COV_VERSION := 0.9.1
+# The release tools (doc/implementation/00_gage-cli/plans/r1-release/).
+# CARGO_DIST_VERSION must equal cargo-dist-version in dist-workspace.toml:
+# dist refuses to run otherwise, and release.yml installs that version.
+CARGO_DIST_VERSION     := 0.32.0
+RELEASE_PLZ_VERSION    := 0.4.2
 CARGO_DENY_BIN     := $(CURDIR)/bin/cargo-deny-$(CARGO_DENY_VERSION)/bin/cargo-deny$(EXE)
 CARGO_LLVM_COV_BIN := $(CURDIR)/bin/cargo-llvm-cov-$(CARGO_LLVM_COV_VERSION)/bin/cargo-llvm-cov$(EXE)
+DIST_BIN           := $(CURDIR)/bin/cargo-dist-$(CARGO_DIST_VERSION)/bin/dist$(EXE)
+RELEASE_PLZ_BIN    := $(CURDIR)/bin/release-plz-$(RELEASE_PLZ_VERSION)/bin/release-plz$(EXE)
 
 $(CARGO_DENY_BIN):
 	@echo "installing cargo-deny $(CARGO_DENY_VERSION) into bin/..."
@@ -76,6 +83,21 @@ $(CARGO_DENY_BIN):
 $(CARGO_LLVM_COV_BIN):
 	@echo "installing cargo-llvm-cov $(CARGO_LLVM_COV_VERSION) into bin/..."
 	@cargo install --locked --root "$(CURDIR)/bin/cargo-llvm-cov-$(CARGO_LLVM_COV_VERSION)" cargo-llvm-cov --version $(CARGO_LLVM_COV_VERSION)
+
+$(DIST_BIN):
+	@echo "installing cargo-dist $(CARGO_DIST_VERSION) into bin/..."
+	@cargo install --locked --root "$(CURDIR)/bin/cargo-dist-$(CARGO_DIST_VERSION)" cargo-dist --version $(CARGO_DIST_VERSION)
+
+$(RELEASE_PLZ_BIN):
+	@echo "installing release-plz $(RELEASE_PLZ_VERSION) into bin/..."
+	@cargo install --locked --root "$(CURDIR)/bin/release-plz-$(RELEASE_PLZ_VERSION)" release-plz --version $(RELEASE_PLZ_VERSION)
+
+# The pinned tools' paths, for CI steps that call them directly.
+.PHONY: dist-bin release-plz-bin
+dist-bin: $(DIST_BIN)
+	@echo "$(DIST_BIN)"
+release-plz-bin: $(RELEASE_PLZ_BIN)
+	@echo "$(RELEASE_PLZ_BIN)"
 
 # Total line coverage is the only thing that gates, and the gate is a floor
 # against a real regression, not a ratchet: setting it just under the
@@ -127,7 +149,13 @@ audit: $(CARGO_DENY_BIN)
 	"$(CARGO_DENY_BIN)" --locked check
 
 .PHONY: lint
-lint: fmt-check clippy
+lint: fmt-check clippy action-pins
+
+# Every `uses:` in .github/workflows is pinned to a commit SHA with a
+# version comment; see scripts/check-action-pins.sh.
+.PHONY: action-pins
+action-pins:
+	sh scripts/check-action-pins.sh
 
 .PHONY: fmt
 fmt:
@@ -143,9 +171,11 @@ clippy:
 
 # Proves the library-purity lint (crates/gage/clippy.toml) still fires: a
 # lint that silently stopped firing would otherwise pass forever.
+# Also proves the action-pin check still rejects a tag-pinned action.
 .PHONY: lint-selftest
 lint-selftest:
 	sh scripts/lint-selftest.sh
+	sh scripts/check-action-pins-selftest.sh
 
 # Black-box QA of the built binary: several personas sharing vaults through
 # local bare repos, offline (scripts/qa/README.md). Slow (real scrypt
@@ -172,6 +202,20 @@ clean:
 .PHONY: clean-tools
 clean-tools:
 	rm -rf bin/
+
+# release.yml is dist's generated output plus scripts/dist/release.yml.patch
+# (scripts/dist/release-yml.sh). dist-check proves the committed file is
+# exactly that; lint.yml runs it on Linux. Not part of `make lint`: it
+# builds cargo-dist on first use. After editing release.yml by hand, record
+# the edit with dist-patch; after changing dist-workspace.toml or bumping
+# dist, rebuild the file with dist-regen.
+.PHONY: dist-check dist-patch dist-regen
+dist-check: $(DIST_BIN)
+	sh scripts/dist/release-yml.sh check "$(DIST_BIN)"
+dist-patch: $(DIST_BIN)
+	sh scripts/dist/release-yml.sh patch "$(DIST_BIN)"
+dist-regen: $(DIST_BIN)
+	sh scripts/dist/release-yml.sh regen "$(DIST_BIN)"
 
 # Installs a git pre-commit hook that runs `make lint`, the same check CI's
 # lint workflow runs. Pass ARGS=--uninstall or ARGS=--force as needed.
