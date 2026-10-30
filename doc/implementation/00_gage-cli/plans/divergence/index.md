@@ -63,7 +63,8 @@ the port's `open-questions.md`, which D1c archives.
     `--script/--stdin/--yes`
   - exit codes 0–7
   - the duration grammar and spelling
-- **Release / 1.0.** A separate effort, later.
+- **Release / 1.0.** A separate effort, later. The first release,
+  0.1.0, is phase R1 ([plan](../r1-release/index.md)); 1.0 is still later.
 
 ## What stays
 
@@ -89,6 +90,7 @@ ones learn.
 | D2 Source sweep ([plan](d2-source-sweep/index.md), [#124](https://github.com/distillerylabs/gage-rs/issues/124)) | D2a `crates/gage` · D2b `crates/gage-cli` | `[x]` | Sonnet | D1 |
 | D3 Types and errors ([plan](d3-types-errors/index.md), [#131](https://github.com/distillerylabs/gage-rs/issues/131)) | D3a `VaultId`, enums, `Option` config · D3b error/frontend boundary · D3c small Go-isms | `[x]` | **Opus** D3a/D3b; Sonnet D3c | D2 |
 | D4 API surface ([plan](d4-api-surface/index.md), [#140](https://github.com/distillerylabs/gage-rs/issues/140)) | D4a module hierarchy + re-exports · D4b test seams off production types · D4c typed CLI dispatch | `[x]` | **Opus** D4b; Sonnet D4a/D4c | D3 |
+| R1 First release 0.1.0 ([plan](../r1-release/index.md), [#149](https://github.com/distillerylabs/gage-rs/issues/149)) | R1a publishable crates + versioning · R1b release pipeline · R1c docs, pre-flight, cut | `[ ]` | **Opus** R1b; Sonnet R1a/R1c | D4 |
 
 **Order.**
 
