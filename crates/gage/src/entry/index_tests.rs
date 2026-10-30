@@ -17,8 +17,8 @@ use uuid::Uuid;
 use crate::crypto::locker::{Locker, MemLocker};
 use crate::entry::{Entry, NewEntry, ResolveError};
 use crate::prompter::FakePrompter;
-use crate::session::{Session, SessionConfig, SessionError};
-use crate::session_tests::{Cfg, Clock, Device, current_personal, unlocks};
+use crate::session::{Session, SessionConfig, SessionError, SystemClock};
+use crate::session_tests::{Cfg, Device, StepClock, current_personal, unlocks};
 
 impl Device {
     fn decrypts(&self, name: &str) -> usize {
@@ -36,7 +36,7 @@ impl Device {
             prompter,
             idle_timeout: None,
             current: Some("personal".into()),
-            now: None,
+            clock: &SystemClock,
         })
     }
 }
@@ -416,13 +416,13 @@ fn idle_timeout_discards_index_like_an_explicit_lock() {
     let d = Device::new(&["personal"]);
     d.seed("personal", &["AWS"]);
     let p = unlocks(2);
-    let clock = Clock::new();
+    let clock = StepClock::new();
     let mut s = d.session(
         &p,
         Cfg {
             idle_timeout: Some(Duration::from_secs(60)),
             current: Some("personal"),
-            clock: Some(clock.clone()),
+            clock: Some(&clock),
         },
     );
     s.list(None).unwrap();

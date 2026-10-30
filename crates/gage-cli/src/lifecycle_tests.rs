@@ -280,7 +280,7 @@ impl Env {
             hostname: &move || Ok(hostname.clone()),
             editor: self.editor.lock().unwrap().clone(),
             passphrase_env: None,
-            now: &std::time::Instant::now,
+            clock: &gage::SystemClock,
             clipboard: &self.clip.keeper(),
             clipboard_wait: &|d| self.clip.wait(d),
             time_zone: self.time_zone.lock().unwrap().clone(),

@@ -149,7 +149,7 @@ impl Vault {
             dest.push_after_write(prompter);
 
             if remove_source {
-                self.move_hook.after_dest_committed();
+                self.after_dest_committed();
                 let path = self.entry_path(source_id);
                 std::fs::remove_file(&path).map_err(|source| MoveError::Io { path, source })?;
                 gitrepo::commit_all(&self.path, &source_id.to_string())?;

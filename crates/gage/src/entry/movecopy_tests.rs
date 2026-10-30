@@ -394,6 +394,25 @@ fn two_vault_locks_are_both_held_for_the_whole_operation() {
     assert!(!lock_is_held_elsewhere(&dst_lock));
 }
 
+// The crash test below panics from the hook; this one proves the hook
+// runs, once, so that test can't pass for a hook that was never called.
+#[test]
+fn a_move_calls_the_move_hook_once() {
+    let (src, dst) = (Fixture::new(), Fixture::new());
+    put(&src, "GitHub");
+    let calls = Arc::new(Mutex::new(0));
+    let seen = Arc::clone(&calls);
+    let v = src
+        .vault
+        .clone()
+        .with_move_hook(move || *seen.lock().unwrap() += 1);
+
+    v.move_to("GitHub", &dst.vault, &src.identity(), &FakePrompter::new())
+        .unwrap();
+
+    assert_eq!(*calls.lock().unwrap(), 1);
+}
+
 // --- crash and session ------------------------------------------------------
 
 // Dying

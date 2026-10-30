@@ -48,6 +48,14 @@ pub fn page_size() -> usize {
     sys::page_size()
 }
 
+/// Whether a lock failure is the platform refusing for a resource reason
+/// (a CI runner's or container's lock limit), not a wrong call: what a
+/// test may skip on.
+#[cfg(test)]
+pub(crate) fn resource_limited(err: &io::Error) -> bool {
+    sys::resource_limited(err)
+}
+
 /// A fixed-length byte buffer that occupies whole pages no other
 /// allocation shares, for a caller that intends to [`lock`] it. Zeroed
 /// before it is freed.

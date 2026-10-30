@@ -455,14 +455,22 @@ fn session_end_of_input_clears_a_pending_copy() {
 // nowhere. The timer fires mid-session, from the session's own clock read
 // between two lines, which is outside any command, as a real timer's
 // thread is. (`main` gives the real keeper the process's stderr.)
+/// The real clock, firing `timer` on every read: a session reads its
+/// clock between lines, so that is where the fake timer goes off.
+struct FiresTimer<'t>(&'t FakeTimer);
+
+impl gage::Clock for FiresTimer<'_> {
+    fn now(&self) -> std::time::Instant {
+        self.0.fire_if_scheduled();
+        std::time::Instant::now()
+    }
+}
+
 #[test]
 fn session_scheduled_clear_failure_reaches_stderr() {
     let env = with_github();
     env.clip.cb.fail_clears("clipboard unavailable");
-    let now = || {
-        env.clip.timer.fire_if_scheduled();
-        std::time::Instant::now()
-    };
+    let clock = FiresTimer(&env.clip.timer);
     let r = env.session_with_clock(
         &script(&[
             "use personal",
@@ -471,7 +479,7 @@ fn session_scheduled_clear_failure_reaches_stderr() {
             "status",
             "exit",
         ]),
-        &now,
+        &clock,
     );
     assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(env.clip.timer.scheduled(), 1);

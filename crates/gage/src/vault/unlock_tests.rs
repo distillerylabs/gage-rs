@@ -2,14 +2,14 @@
 //! against real files under temp roots and real scrypt (at the test work
 //! factor).
 
-use std::any::Any;
 use std::io;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use crate::crypto::crypt::{self, Recipient};
 use crate::crypto::identity::SECRET_KEY_PREFIX;
-use crate::crypto::locker::{Locker, MemLocker};
+use crate::crypto::locker::Locker;
+use crate::crypto::memlock;
 use crate::error::{ErrorKind, HasKind};
 use crate::prompter::{FakePrompter, Kind, PromptError, Purpose};
 use crate::storage::config::{self, Global, VaultEntry};
@@ -365,11 +365,23 @@ fn default_locker_is_the_real_memlock_backed_one() {
     };
     let resolved = Vault::from_registration(&m.dirs, "personal", &entry).unwrap();
     for (how, v) in [("create", created), ("from_registration", resolved)] {
-        let locker = v.locker();
-        assert!(
-            (&*locker as &dyn Any).is::<MemLocker>(),
-            "{how}: not the memlock-backed locker"
-        );
+        assert!(v.locker.is_default(), "{how}: an injected locker");
+    }
+
+    // And the default resolves to a locker that reaches the platform: a
+    // key-sized page-locked buffer locks and unlocks through it, as it does
+    // through `memlock` itself. Skipped, as memlock's own round trip is,
+    // only where the platform refuses for a resource reason. (A `dyn
+    // Locker` can't name its concrete type without `Any`, which `Locker`
+    // no longer requires: ADR-0056.)
+    let buf = memlock::LockedBuf::copy_from(&[7u8; 74]);
+    let locker = super::LockerSeam::default().get();
+    match locker.lock(buf.as_slice()) {
+        Ok(()) => locker
+            .unlock(buf.as_slice())
+            .expect("unlock after a successful lock"),
+        Err(e) if memlock::resource_limited(&e) => {}
+        Err(e) => panic!("the default locker's lock failed: {e}"),
     }
 }
 

@@ -67,7 +67,7 @@ fn main() {
         hostname: &|| Ok(hostname::get()?.to_string_lossy().into_owned()),
         editor: std::env::var("EDITOR").ok(),
         passphrase_env: passphrase_env(),
-        now: &std::time::Instant::now,
+        clock: &gage::SystemClock,
         clipboard: &keeper,
         clipboard_wait: &clipboard::wait_for_clipboard,
         time_zone: jiff::tz::TimeZone::system(),

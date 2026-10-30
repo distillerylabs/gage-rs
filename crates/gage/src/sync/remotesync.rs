@@ -104,19 +104,13 @@ impl RemoteSyncer for GitSyncer {
 #[derive(Clone, Default)]
 pub(crate) struct SyncerSeam(Option<Arc<dyn RemoteSyncer>>);
 
-// Two vaults are the same vault whichever syncer they'd use; an injected
-// one only ever equals itself.
-impl PartialEq for SyncerSeam {
-    fn eq(&self, other: &SyncerSeam) -> bool {
-        match (&self.0, &other.0) {
-            (None, None) => true,
-            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-            _ => false,
-        }
+impl SyncerSeam {
+    /// Whether this is the real syncer, not an injected one.
+    #[cfg(test)]
+    pub(crate) fn is_default(&self) -> bool {
+        self.0.is_none()
     }
 }
-
-impl Eq for SyncerSeam {}
 
 impl std::fmt::Debug for SyncerSeam {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -138,15 +132,6 @@ impl PullObserver {
         }
     }
 }
-
-// Observation, not identity.
-impl PartialEq for PullObserver {
-    fn eq(&self, _: &PullObserver) -> bool {
-        true
-    }
-}
-
-impl Eq for PullObserver {}
 
 impl std::fmt::Debug for PullObserver {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -476,10 +461,10 @@ impl Vault {
         }
     }
 
-    /// The same vault, fetching and pushing through `syncer`. Tests only:
-    /// the real one runs everywhere else.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn with_remote_syncer(mut self, syncer: Arc<dyn RemoteSyncer>) -> Vault {
+    /// The same vault, fetching and pushing through `syncer`. This
+    /// crate's tests only: the real one runs everywhere else.
+    #[cfg(test)]
+    pub(crate) fn with_remote_syncer(mut self, syncer: Arc<dyn RemoteSyncer>) -> Vault {
         self.syncer = SyncerSeam(Some(syncer));
         self
     }

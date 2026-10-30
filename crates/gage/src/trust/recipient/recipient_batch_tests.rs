@@ -150,6 +150,38 @@ fn one_reencryption_pass_for_the_batch() {
     assert_eq!(writes.load(std::sync::atomic::Ordering::SeqCst), 3);
 }
 
+// The delete seam fires once per deleted path, counting up: a crash
+// test that panics at `done >= 1` proves nothing if it never runs.
+#[test]
+fn the_delete_hook_fires_once_per_deleted_path() {
+    let f = Fixture::new();
+    f.seed(1);
+    track(&f, "notes/one.txt");
+    track(&f, "notes/two.txt");
+    let delete = ["notes/one.txt".to_string(), "notes/two.txt".to_string()];
+    let calls = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = calls.clone();
+    let v = f
+        .vault
+        .clone()
+        .with_delete_hook(move |done| seen.lock().unwrap().push(done));
+
+    batch(
+        &v,
+        &[member("phone-1").0],
+        &RecipientWrite {
+            message: MESSAGE,
+            delete_paths: &delete,
+            push_clause: None,
+        },
+        &f.identity(),
+        &FakePrompter::new(),
+    )
+    .unwrap();
+
+    assert_eq!(*calls.lock().unwrap(), vec![1, 2]);
+}
+
 #[test]
 fn one_trust_question_for_the_batch() {
     let f = Fixture::new();

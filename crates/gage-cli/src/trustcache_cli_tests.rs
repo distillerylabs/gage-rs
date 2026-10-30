@@ -78,7 +78,7 @@ impl Env {
             hostname: &move || Ok(hostname.clone()),
             editor: None,
             passphrase_env: None,
-            now: &std::time::Instant::now,
+            clock: &gage::SystemClock,
             clipboard: &crate::clipboard::fake::unused(),
             clipboard_wait: &|_| {},
             time_zone: jiff::tz::TimeZone::UTC,

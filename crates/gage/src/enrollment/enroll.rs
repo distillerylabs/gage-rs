@@ -158,7 +158,7 @@ impl Vault {
                 vault: self.name.clone(),
             });
         }
-        self.enroll_hook.after_pull();
+        self.after_enroll_pull();
         Ok(())
     }
 

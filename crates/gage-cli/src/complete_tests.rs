@@ -54,7 +54,7 @@ fn session<'a>(env: &'a Env, prompter: &'a FakePrompter) -> Session<'a> {
         prompter,
         idle_timeout: None,
         current: env.global().current,
-        now: None,
+        clock: &gage::SystemClock,
     })
 }
 
@@ -640,7 +640,7 @@ fn run_line(env: &Env, s: &mut Session, line: &str) -> (Result<bool, CliError>, 
             hostname: &|| panic!("read the hostname"),
             editor: None,
             passphrase_env: None,
-            now: &std::time::Instant::now,
+            clock: &gage::SystemClock,
             clipboard: &crate::clipboard::fake::unused(),
             clipboard_wait: &|_| {},
             time_zone: jiff::tz::TimeZone::UTC,

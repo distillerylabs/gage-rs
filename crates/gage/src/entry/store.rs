@@ -92,7 +92,7 @@ impl Vault {
         ciphertext: &[u8],
         identity: &Identity,
     ) -> Result<Entry, Error> {
-        self.decrypts.bump();
+        self.count_decrypt();
         let plaintext = Zeroizing::new(crypt::decrypt(ciphertext, identity)?);
         Entry::from_yaml(&plaintext)
     }

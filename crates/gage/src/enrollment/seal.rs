@@ -162,7 +162,7 @@ impl Vault {
         // The cap on the *claimed* factor (ADR-0026). Without
         // it, one committed file claiming 2^30 is a hang, not a slowdown.
         let identity = crypt::enrollment_scrypt_identity(code);
-        self.enrollment_decrypts.bump();
+        self.count_enrollment_decrypt();
         match crypt::decrypt_with_limit(sealed, &identity, Some(MAX_PENDING_REQUEST_BYTES)) {
             Err(_) => Attempt::NotOpened,
             // The code worked and the payload is larger than anything gage

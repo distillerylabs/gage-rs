@@ -4,7 +4,7 @@
 
 use crate::entry::{Entry, Timestamp};
 use crate::prompter::FakePrompter;
-use crate::session::{Session, SessionConfig};
+use crate::session::{Session, SessionConfig, SystemClock};
 use crate::sync::remotesync::tests::{NAME, PASSPHRASE, SyncVault, sample};
 use crate::sync::syncresolve::Resolution;
 
@@ -15,7 +15,7 @@ fn new_session<'a>(s: &'a SyncVault, p: &'a FakePrompter) -> Session<'a> {
         prompter: p,
         idle_timeout: None,
         current: Some(NAME.into()),
-        now: None,
+        clock: &SystemClock,
     })
 }
 

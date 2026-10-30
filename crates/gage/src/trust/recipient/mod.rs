@@ -619,7 +619,7 @@ impl Vault {
         // restores them.
         for (done, (rel, full)) in doomed.iter().enumerate() {
             gitrepo::remove_if_present(full, rel)?;
-            self.reencrypt_hook.after_delete(done + 1);
+            self.after_deleted_path(done + 1);
         }
         // Expired enrollment requests ride this commit, at the deletions'
         // crash position: "pruning rides the next recipient change", with
@@ -671,7 +671,7 @@ impl Vault {
         for (done, (&id, e)) in ids.iter().zip(&entries).enumerate() {
             self.write_entry_to(id, e, &parsed)
                 .map_err(|source| RecipientError::Reencrypt { id, source })?;
-            self.reencrypt_hook.after_entry(done + 1);
+            self.after_reencrypted_entry(done + 1);
         }
         Ok(ids.len())
     }

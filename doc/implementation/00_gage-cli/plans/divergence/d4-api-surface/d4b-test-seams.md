@@ -190,68 +190,102 @@ seam fields:
 
 ## Settled decisions
 
-*(Move each decision here once it has been reviewed, as D3c did.)*
+Decisions 1-5 were built as proposed, with these refinements
+(recorded in [ADR-0056](../../../../../decisions/0056-test-seams-off-production-types.md)):
+
+- **Decision 1.** The hooks kept their `Vault` builders
+  (`with_reencrypt_hook`, ...), which now write into `TestSeams`. The
+  production call sites are `Vault` methods: `count_decrypt`,
+  `count_enrollment_decrypt`, `after_reencrypted_entry`,
+  `after_deleted_path`, `after_dest_committed` and `after_enroll_pull`.
+  A private `Vault::new` is now the one place a `Vault` is built, so the
+  field list is written once rather than in `create`,
+  `from_registration` and `for_tests`.
+- **Decision 2.** `LockerSeam` and `SyncerSeam` each gained a
+  `cfg(test)` `is_default()`. Neither they nor `PullObserver`
+  implements `PartialEq`.
+- **Decision 3.** The two tests share one helper,
+  `assert_is_plain_vault`.
+- **Decision 4.** The library's test `Cfg` carries a `&StepClock` (so it
+  gained a lifetime), because `SessionConfig` borrows the clock for
+  `'a`. gage-cli's `step_clock` returns a `StepClock` struct, and the
+  `clip_tests` clock is `FiresTimer`.
+- **Decision 5.** The `is_default()` assertion plus a page-lock round
+  trip through `LockerSeam::default().get()`, skipped only on a resource
+  refusal (`memlock::resource_limited`, a new `cfg(test)` wrapper), as
+  memlock's own round trip is. `type_name` was not an option:
+  `type_name_of_val` on a `dyn Locker` names the trait object, not
+  `MemLocker`. The round trip proves that the default path reaches a
+  platform lock on all three OSes. It can't prove the type, and nothing
+  portable can without `Any`.
 
 ## Tasks
 
 ### 1. Prove the hooks still fire
 
-- [ ] Tests first, against the current layout. For each hook, a test
+- [x] Tests first, against the current layout. For each hook, a test
       asserts the hook was *called* a known number of times on a known
       path. Today a panicking hook is what proves it ran, and a moved
       hook that never runs would make "the crash left state X" tests
       pass for the wrong reason. Add these counts where missing:
-  - re-encrypting n entries calls `after_entry` n times
+  - re-encrypting n entries calls `after_entry` n times (already
+    covered: `one_reencryption_pass_for_the_batch`)
   - a recipient removal calls `after_delete` once per deleted path
+    (`the_delete_hook_fires_once_per_deleted_path`)
   - `mv` calls `after_dest_committed` once
+    (`a_move_calls_the_move_hook_once`)
   - `enroll` calls `after_pull` once
+    (`an_enroll_calls_the_post_pull_hook_once`)
 
   Green on `main`'s code before anything moves.
 
 ### 2. Seam bundle
 
-- [ ] Implement decision 1. Move the setters (`with_reencrypt_hook`,
+- [x] Implement decision 1. Move the setters (`with_reencrypt_hook`,
       `with_delete_hook`, `with_move_hook`, `with_enroll_hook`) onto
       `TestSeams`, or keep them as `cfg(test)` `Vault` builders that
       write into it. Production call sites are unchanged in shape.
-- [ ] Narrow `decrypt_count`, `enrollment_decrypt_count` and
+- [x] Narrow `decrypt_count`, `enrollment_decrypt_count` and
       `with_remote_syncer` to `cfg(test)`, per decision 1.
-- [ ] `cargo build -p gage` without `test-support`: `Vault` has no hook
+- [x] `cargo build -p gage` without `test-support`: `Vault` has no hook
       or counter field. A `size_of::<Vault>()` comparison between test
       and non-test isn't possible in one build, so this check is by
       inspection, recorded in the PR.
+      *Inspected:* outside `cfg(test)`, the fields are `name`, `path`,
+      `id`, `dirs`, `locker`, `syncer` and `pulled`. `cargo check -p
+      gage` (no features) is clean.
 
 ### 3. `Vault` equality
 
-- [ ] Tests first: rewrite the two whole-`Vault` `assert_eq!`s per
+- [x] Tests first: rewrite the two whole-`Vault` `assert_eq!`s per
       decision 3, including the default-seam assertions. They must be
       green before the derive goes.
-- [ ] Drop `PartialEq, Eq` from `Vault`. Delete every always-true
+- [x] Drop `PartialEq, Eq` from `Vault`. Delete every always-true
       `PartialEq`/`Eq` impl, and the pointer ones, unless something
       else still needs them.
 
 ### 4. `Clock`
 
-- [ ] Tests first: the idle-timeout and `status` tests in
+- [x] Tests first: the idle-timeout and `status` tests in
       `session_tests`, `index_tests`, `repl_tests` and `clip_tests` are
       ported to `impl Clock` clocks, with only the clock's construction
       changing.
-- [ ] Implement decision 4 in the library, then in gage-cli (`Io`,
+- [x] Implement decision 4 in the library, then in gage-cli (`Io`,
       `main.rs`, `repl.rs`, and every test `Io` literal).
 
 ### 5. `Locker`
 
-- [ ] Rewrite `default_locker_is_the_real_memlock_backed_one` per
+- [x] Rewrite `default_locker_is_the_real_memlock_backed_one` per
       decision 5, then drop `Any` and the `use std::any::Any`.
 
 ### 6. ADR and green
 
-- [ ] ADR-0056: test seams live off production types; `Clock` is the
+- [x] ADR-0056: test seams live off production types; `Clock` is the
       session's injected time; which time reads aren't routed through
       it, and why. Link it from `doc/decisions/README.md`.
-- [ ] `make lint` and `make test` are clean. `git diff --stat main --
+- [x] `make lint` and `make test` are clean. `git diff --stat main --
       tests/fixtures` is empty.
-- [ ] The scrypt hook and its guard tests are unchanged:
+- [x] The scrypt hook and its guard tests are unchanged:
       `git diff main -- '*crypt.rs'` touches nothing in the work-factor
       section.
 

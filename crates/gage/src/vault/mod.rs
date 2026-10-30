@@ -53,7 +53,7 @@ const GITIGNORE: &str = ".DS_Store\nThumbs.db\n";
 /// neither device wrote ("On-disk layout", ADR-0021).
 const GITATTRIBUTES: &str = ".age-recipients -merge\n.gage/config.toml -merge\n";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Vault {
     /// The name this device registered the vault under: a label for
     /// humans, never a path component.
@@ -68,171 +68,55 @@ pub struct Vault {
     /// than being read from the process.
     dirs: Dirs,
     locker: LockerSeam,
-    pub(crate) decrypts: DecryptCounter,
-    /// Enrollment open attempts, one per scrypt run against a sealed
-    /// request: what proves "rejected before any decryption". Zero-sized, and a no-op, outside tests.
-    pub(crate) enrollment_decrypts: DecryptCounter,
-    /// The re-encryption crash seam (a crash seam): called after each
-    /// entry a re-encryption writes. Zero-sized, and a no-op, outside
-    /// tests.
-    pub(crate) reencrypt_hook: ReencryptHook,
-    /// The `mv` crash seam (a crash seam): called once the destination's
-    /// commit and push are done and before the source loses the entry.
-    /// Zero-sized, and a no-op, outside tests.
-    pub(crate) move_hook: MoveHook,
-    /// Called by `enroll` right after its catch-up pull, with the write
-    /// lock still held. Zero-sized, and a no-op, outside tests.
-    pub(crate) enroll_hook: EnrollHook,
     /// The network half of sync; the real git-backed one unless a test
     /// injected another (see `remotesync`).
     pub(crate) syncer: SyncerSeam,
     /// Who to tell that a pull or merge moved the working tree: a
     /// session's index. See `remotesync`.
     pub(crate) pulled: PullObserver,
-}
-
-/// How many entries this vault (and its clones) has decrypted: what the
-/// index tests count to prove "one pass, not two". It
-/// observes the one real decrypt path; nothing can be faked through it.
-/// Zero-sized, and a no-op, outside tests.
-#[derive(Clone, Default)]
-pub(crate) struct DecryptCounter(
-    #[cfg(any(test, feature = "test-support"))] Arc<std::sync::atomic::AtomicUsize>,
-);
-
-impl DecryptCounter {
-    pub(crate) fn bump(&self) {
-        #[cfg(any(test, feature = "test-support"))]
-        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    }
-}
-
-// Counting is observation, not identity: two vaults are the same vault
-// whatever they've decrypted.
-impl PartialEq for DecryptCounter {
-    fn eq(&self, _: &DecryptCounter) -> bool {
-        true
-    }
-}
-
-impl Eq for DecryptCounter {}
-
-impl std::fmt::Debug for DecryptCounter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("DecryptCounter")
-    }
-}
-
-/// Called after each entry a re-encryption writes into the working tree,
-/// with how many it has written so far. A test
-/// panics from it to interrupt the pass with no cleanup beyond `Drop`s,
-/// which is what a killed process leaves, or probes the vault lock from it.
-/// Nothing on the re-encryption path may catch an unwind: that would turn
-/// the simulated crash into ordinary cleanup, and the crash tests would
-/// quietly start proving something else.
-#[derive(Clone, Default)]
-pub(crate) struct ReencryptHook {
+    /// This crate's test hooks and counters. Absent from any other build
+    /// (ADR-0056).
     #[cfg(test)]
-    entry: Option<Arc<dyn Fn(usize) + Send + Sync>>,
-    #[cfg(test)]
-    delete: Option<Arc<dyn Fn(usize) + Send + Sync>>,
+    seams: TestSeams,
 }
 
-impl ReencryptHook {
-    pub(crate) fn after_entry(&self, done: usize) {
-        #[cfg(test)]
-        if let Some(hook) = &self.entry {
-            hook(done);
-        }
-        let _ = done;
-    }
-
-    /// Called after each path a recipient write deletes, with how many it
-    /// has deleted so far: the seam for dying between the deletions and
-    /// the commit.
-    pub(crate) fn after_delete(&self, done: usize) {
-        #[cfg(test)]
-        if let Some(hook) = &self.delete {
-            hook(done);
-        }
-        let _ = done;
-    }
-}
-
-// A hook observes; it doesn't make two vaults different vaults.
-impl PartialEq for ReencryptHook {
-    fn eq(&self, _: &ReencryptHook) -> bool {
-        true
-    }
-}
-
-impl Eq for ReencryptHook {}
-
-impl std::fmt::Debug for ReencryptHook {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ReencryptHook")
-    }
-}
-
-/// Called by a move between the destination's commit and the source's
-/// removal. A test panics from it to die in
-/// that window with no cleanup beyond `Drop`s, or probes both vault locks
-/// from it. Nothing on the move path may catch an unwind, for the reason
-/// [`ReencryptHook`] gives.
+/// The test-only hooks and counters a `Vault` carries, in one place so a
+/// shipped build has none of them. Production code reaches them through
+/// the `Vault` methods below, whose non-test bodies are empty.
+///
+/// The hooks are crash seams: a test panics from one to interrupt a write
+/// with no cleanup beyond `Drop`s, which is what a killed process leaves,
+/// or probes the vault lock from it. Nothing on those paths may catch an
+/// unwind: that would turn the simulated crash into ordinary cleanup, and
+/// the crash tests would quietly start proving something else.
+#[cfg(test)]
 #[derive(Clone, Default)]
-pub(crate) struct MoveHook(#[cfg(test)] Option<Arc<dyn Fn() + Send + Sync>>);
-
-impl MoveHook {
-    pub(crate) fn after_dest_committed(&self) {
-        #[cfg(test)]
-        if let Some(hook) = &self.0 {
-            hook();
-        }
-    }
+struct TestSeams {
+    /// Entries decrypted: what the index tests count to prove "one pass,
+    /// not two". It observes the one real decrypt path.
+    decrypts: Arc<std::sync::atomic::AtomicUsize>,
+    /// Enrollment open attempts, one per scrypt run against a sealed
+    /// request: what proves "rejected before any decryption".
+    enrollment_decrypts: Arc<std::sync::atomic::AtomicUsize>,
+    /// After each entry a re-encryption writes, with how many so far.
+    after_reencrypted_entry: Option<Arc<dyn Fn(usize) + Send + Sync>>,
+    /// After each path a recipient write deletes, with how many so far:
+    /// the seam for dying between the deletions and the commit.
+    after_deleted_path: Option<Arc<dyn Fn(usize) + Send + Sync>>,
+    /// After a move's destination commit and push, before the source
+    /// loses the entry.
+    after_dest_committed: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Right after enroll's catch-up pull, with the write lock still
+    /// held: the pull and the commit must be one locked sequence, and a
+    /// probe during the fetch alone can't tell that from a pull that took
+    /// and released a lock of its own.
+    after_enroll_pull: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
-impl PartialEq for MoveHook {
-    fn eq(&self, _: &MoveHook) -> bool {
-        true
-    }
-}
-
-impl Eq for MoveHook {}
-
-impl std::fmt::Debug for MoveHook {
+#[cfg(test)]
+impl std::fmt::Debug for TestSeams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("MoveHook")
-    }
-}
-
-/// Called by `enroll` immediately after its pull.
-/// A test probes the write lock from it: the pull and the commit must be
-/// one locked sequence, and a probe during the fetch alone can't tell that
-/// from a pull that took and released a lock of its own before enroll
-/// took its own.
-#[derive(Clone, Default)]
-pub(crate) struct EnrollHook(#[cfg(test)] Option<Arc<dyn Fn() + Send + Sync>>);
-
-impl EnrollHook {
-    pub(crate) fn after_pull(&self) {
-        #[cfg(test)]
-        if let Some(hook) = &self.0 {
-            hook();
-        }
-    }
-}
-
-impl PartialEq for EnrollHook {
-    fn eq(&self, _: &EnrollHook) -> bool {
-        true
-    }
-}
-
-impl Eq for EnrollHook {}
-
-impl std::fmt::Debug for EnrollHook {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("EnrollHook")
+        f.write_str("TestSeams")
     }
 }
 
@@ -245,21 +129,13 @@ impl LockerSeam {
     fn get(&self) -> Arc<dyn Locker> {
         self.0.clone().unwrap_or_else(|| Arc::new(MemLocker))
     }
-}
 
-// Two vaults are the same vault whichever locker they'd use; an injected
-// one only ever equals itself.
-impl PartialEq for LockerSeam {
-    fn eq(&self, other: &LockerSeam) -> bool {
-        match (&self.0, &other.0) {
-            (None, None) => true,
-            (Some(a), Some(b)) => Arc::ptr_eq(a, b),
-            _ => false,
-        }
+    /// Whether this is the real locker, not an injected one.
+    #[cfg(test)]
+    fn is_default(&self) -> bool {
+        self.0.is_none()
     }
 }
-
-impl Eq for LockerSeam {}
 
 impl std::fmt::Debug for LockerSeam {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -507,20 +383,28 @@ impl Vault {
         if let Some(remote) = &spec.remote {
             gitrepo::set_remote(&spec.path, remote)?;
         }
-        Ok(Vault {
-            name: spec.name.clone(),
-            path: spec.path.clone(),
-            id: spec.id.clone(),
+        Ok(Vault::new(
+            spec.name.clone(),
+            spec.path.clone(),
+            spec.id.clone(),
+            dirs,
+        ))
+    }
+
+    /// A vault value with the real seams: the one place a `Vault` is
+    /// built, so no constructor can forget one.
+    fn new(name: String, path: PathBuf, id: VaultId, dirs: &Dirs) -> Vault {
+        Vault {
+            name,
+            path,
+            id,
             dirs: dirs.clone(),
             locker: LockerSeam::default(),
-            decrypts: DecryptCounter::default(),
-            enrollment_decrypts: DecryptCounter::default(),
-            reencrypt_hook: ReencryptHook::default(),
-            move_hook: MoveHook::default(),
-            enroll_hook: EnrollHook::default(),
             syncer: SyncerSeam::default(),
             pulled: PullObserver::default(),
-        })
+            #[cfg(test)]
+            seams: TestSeams::default(),
+        }
     }
 
     /// The vault a registration names, checked against the vault at its
@@ -567,20 +451,7 @@ impl Vault {
             name: name.to_string(),
             path: entry.path.clone(),
         })?;
-        Ok(Vault {
-            name: name.to_string(),
-            path: entry.path.clone(),
-            id,
-            dirs: dirs.clone(),
-            locker: LockerSeam::default(),
-            decrypts: DecryptCounter::default(),
-            enrollment_decrypts: DecryptCounter::default(),
-            reencrypt_hook: ReencryptHook::default(),
-            move_hook: MoveHook::default(),
-            enroll_hook: EnrollHook::default(),
-            syncer: SyncerSeam::default(),
-            pulled: PullObserver::default(),
-        })
+        Ok(Vault::new(name.to_string(), entry.path.clone(), id, dirs))
     }
 
     /// Reads the vault's committed config (validated) and, for a git
@@ -690,20 +561,12 @@ impl Vault {
     /// A vault value for unlock tests that need no vault on disk.
     #[cfg(test)]
     pub(crate) fn for_tests(dirs: &Dirs, name: &str, id: &VaultId) -> Vault {
-        Vault {
-            name: name.to_string(),
-            path: dirs.data.join("vaults").join(name),
-            id: id.clone(),
-            dirs: dirs.clone(),
-            locker: LockerSeam::default(),
-            decrypts: DecryptCounter::default(),
-            enrollment_decrypts: DecryptCounter::default(),
-            reencrypt_hook: ReencryptHook::default(),
-            move_hook: MoveHook::default(),
-            enroll_hook: EnrollHook::default(),
-            syncer: SyncerSeam::default(),
-            pulled: PullObserver::default(),
-        }
+        Vault::new(
+            name.to_string(),
+            dirs.data.join("vaults").join(name),
+            id.clone(),
+            dirs,
+        )
     }
 
     /// The same vault, page-locking through `locker` instead of the real
@@ -716,40 +579,38 @@ impl Vault {
     }
 
     /// The same vault, calling `hook` after each entry a re-encryption
-    /// writes. This crate's tests only.
+    /// writes.
     #[cfg(test)]
     pub(crate) fn with_reencrypt_hook(
         mut self,
         hook: impl Fn(usize) + Send + Sync + 'static,
     ) -> Vault {
-        self.reencrypt_hook.entry = Some(Arc::new(hook));
+        self.seams.after_reencrypted_entry = Some(Arc::new(hook));
         self
     }
 
     /// The same vault, calling `hook` after each path a recipient write
-    /// deletes. This crate's tests only.
+    /// deletes.
     #[cfg(test)]
     pub(crate) fn with_delete_hook(
         mut self,
         hook: impl Fn(usize) + Send + Sync + 'static,
     ) -> Vault {
-        self.reencrypt_hook.delete = Some(Arc::new(hook));
+        self.seams.after_deleted_path = Some(Arc::new(hook));
         self
     }
 
     /// The same vault, calling `hook` after a move's destination commit.
-    /// This crate's tests only.
     #[cfg(test)]
     pub(crate) fn with_move_hook(mut self, hook: impl Fn() + Send + Sync + 'static) -> Vault {
-        self.move_hook = MoveHook(Some(Arc::new(hook)));
+        self.seams.after_dest_committed = Some(Arc::new(hook));
         self
     }
 
-    /// The same vault, calling `hook` right after enroll's pull. This
-    /// crate's tests only.
+    /// The same vault, calling `hook` right after enroll's pull.
     #[cfg(test)]
     pub(crate) fn with_enroll_hook(mut self, hook: impl Fn() + Send + Sync + 'static) -> Vault {
-        self.enroll_hook = EnrollHook(Some(Arc::new(hook)));
+        self.seams.after_enroll_pull = Some(Arc::new(hook));
         self
     }
 
@@ -760,17 +621,74 @@ impl Vault {
     }
 
     /// Entries this vault and its clones have decrypted so far.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn decrypt_count(&self) -> usize {
-        self.decrypts.0.load(std::sync::atomic::Ordering::SeqCst)
+    #[cfg(test)]
+    pub(crate) fn decrypt_count(&self) -> usize {
+        self.seams
+            .decrypts
+            .load(std::sync::atomic::Ordering::SeqCst)
     }
 
     /// Enrollment open attempts this vault and its clones have made.
     #[cfg(test)]
     pub(crate) fn enrollment_decrypt_count(&self) -> usize {
-        self.enrollment_decrypts
-            .0
+        self.seams
+            .enrollment_decrypts
             .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    // --- the test seams, as production calls them -------------------------
+    //
+    // Each is a no-op outside this crate's tests (ADR-0056).
+
+    /// One entry decrypted.
+    pub(crate) fn count_decrypt(&self) {
+        #[cfg(test)]
+        self.seams
+            .decrypts
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// One enrollment open attempt.
+    pub(crate) fn count_enrollment_decrypt(&self) {
+        #[cfg(test)]
+        self.seams
+            .enrollment_decrypts
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// A re-encryption has written `done` entries.
+    pub(crate) fn after_reencrypted_entry(&self, done: usize) {
+        #[cfg(test)]
+        if let Some(hook) = &self.seams.after_reencrypted_entry {
+            hook(done);
+        }
+        let _ = done;
+    }
+
+    /// A recipient write has deleted `done` paths.
+    pub(crate) fn after_deleted_path(&self, done: usize) {
+        #[cfg(test)]
+        if let Some(hook) = &self.seams.after_deleted_path {
+            hook(done);
+        }
+        let _ = done;
+    }
+
+    /// A move's destination is committed and pushed; the source still
+    /// holds the entry.
+    pub(crate) fn after_dest_committed(&self) {
+        #[cfg(test)]
+        if let Some(hook) = &self.seams.after_dest_committed {
+            hook();
+        }
+    }
+
+    /// Enroll's catch-up pull is done, and the write lock still held.
+    pub(crate) fn after_enroll_pull(&self) {
+        #[cfg(test)]
+        if let Some(hook) = &self.seams.after_enroll_pull {
+            hook();
+        }
     }
 
     /// This vault's write lock file, keyed by its id (so two registrations
@@ -1176,6 +1094,18 @@ mod tests {
         files
     }
 
+    /// `vault` names what it should, and uses the real locker and syncer.
+    /// `Vault` has no `PartialEq` (ADR-0056), so each field that makes
+    /// it this vault is compared on its own.
+    fn assert_is_plain_vault(vault: &Vault, name: &str, path: &Path, id: &VaultId) {
+        assert_eq!(vault.name, name);
+        assert_eq!(vault.path, path);
+        assert_eq!(&vault.id, id);
+        assert_eq!(vault.dirs, test_dirs());
+        assert!(vault.locker.is_default(), "an injected locker");
+        assert!(vault.syncer.is_default(), "an injected syncer");
+    }
+
     #[test]
     fn create_writes_full_skeleton() {
         let root = tempfile::tempdir().unwrap();
@@ -1183,23 +1113,7 @@ mod tests {
 
         let vault = Vault::create(&test_dirs(), &spec).unwrap();
 
-        assert_eq!(
-            vault,
-            Vault {
-                name: "myvault".into(),
-                path: spec.path.clone(),
-                id: spec.id.clone(),
-                dirs: test_dirs(),
-                locker: LockerSeam::default(),
-                decrypts: DecryptCounter::default(),
-                enrollment_decrypts: DecryptCounter::default(),
-                reencrypt_hook: ReencryptHook::default(),
-                move_hook: MoveHook::default(),
-                enroll_hook: EnrollHook::default(),
-                syncer: SyncerSeam::default(),
-                pulled: PullObserver::default(),
-            }
-        );
+        assert_is_plain_vault(&vault, "myvault", &spec.path, &spec.id);
         for rel in [
             ".gage/config.toml",
             ".age-recipients",
@@ -1627,23 +1541,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let (spec, entry) = registered(&root);
         let vault = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap();
-        assert_eq!(
-            vault,
-            Vault {
-                name: "personal".into(),
-                path: spec.path,
-                id: spec.id,
-                dirs: test_dirs(),
-                locker: LockerSeam::default(),
-                decrypts: DecryptCounter::default(),
-                enrollment_decrypts: DecryptCounter::default(),
-                reencrypt_hook: ReencryptHook::default(),
-                move_hook: MoveHook::default(),
-                enroll_hook: EnrollHook::default(),
-                syncer: SyncerSeam::default(),
-                pulled: PullObserver::default(),
-            }
-        );
+        assert_is_plain_vault(&vault, "personal", &spec.path, &spec.id);
     }
 
     // (library half; the CLI half is in gage-cli).

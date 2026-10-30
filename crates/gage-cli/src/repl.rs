@@ -18,7 +18,7 @@ use gage::Prompter;
 use gage::storage::config;
 use gage::storage::paths;
 use gage::storage::xdgpaths::Dirs;
-use gage::{Session, SessionConfig};
+use gage::{Clock, Session, SessionConfig};
 
 use crate::Io;
 use crate::cli::{self, Outcome, ScriptSource};
@@ -45,7 +45,7 @@ struct Opened<'a> {
 
 fn open<'a>(
     dirs: Result<Dirs, gage::storage::xdgpaths::Error>,
-    now: impl Fn() -> std::time::Instant + 'a,
+    clock: &'a dyn Clock,
     prompter: &'a dyn Prompter,
 ) -> Result<Opened<'a>, CliError> {
     let dirs = dirs?;
@@ -62,7 +62,7 @@ fn open<'a>(
         // A session starts pointed where a one-shot command would, so
         // `show foo` works before any `use`. Naming it doesn't unlock it.
         current: global.current,
-        now: Some(Box::new(now)),
+        clock,
     })));
     Ok(Opened {
         dirs,
@@ -97,7 +97,7 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
         dirs,
         settings,
         session,
-    } = open((io.dirs)(), io.now, prompter)?;
+    } = open((io.dirs)(), io.clock, prompter)?;
 
     let mut history = History::open(Some(&settings.history_file)).unwrap_or_else(|e| {
         // Losing recall is no reason to refuse a session: say so once.
@@ -156,7 +156,7 @@ pub fn run_script(
     // Before any session opens: a missing file is the command line's fault.
     let mut lines = Lines::open(source)?;
     let name = lines.name();
-    let Opened { session, .. } = open((io.dirs)(), io.now, prompter)?;
+    let Opened { session, .. } = open((io.dirs)(), io.clock, prompter)?;
 
     let result = (|| {
         for n in 1usize.. {

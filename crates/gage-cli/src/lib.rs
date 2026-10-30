@@ -8,7 +8,7 @@
 //! streams or exits.
 
 use std::io::{Read, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::exitcode::ExitCode;
 use gage::Prompter;
@@ -81,8 +81,9 @@ pub struct Io<'a> {
     /// environment, set it here. Nothing in the library learns it exists.
     pub passphrase_env: Option<zeroize::Zeroizing<String>>,
     /// The clock a session's idle timeout reads. `main` passes
-    /// `Instant::now`; tests step it instead of waiting.
-    pub now: &'a dyn Fn() -> Instant,
+    /// [`SystemClock`](gage::SystemClock); tests step it instead of
+    /// waiting.
+    pub clock: &'a dyn gage::Clock,
     /// Where `-c` copies to, and what clears it. `main` passes
     /// [`ClipboardKeeper::system`]; tests pass one over a fake clipboard
     /// and timer. One per run, so a session's copies share one keeper and

@@ -5,13 +5,12 @@
 //! proceeds rather than aborting the unlock, and a counting one for the
 //! tests proving `Drop` releases exactly what was locked.
 
-use std::any::Any;
 use std::io;
 
 use crate::crypto::memlock;
 
 /// Pins and releases the pages holding key material.
-pub trait Locker: Any + Send + Sync {
+pub trait Locker: Send + Sync {
     fn lock(&self, buf: &[u8]) -> io::Result<()>;
     fn unlock(&self, buf: &[u8]) -> io::Result<()>;
 }

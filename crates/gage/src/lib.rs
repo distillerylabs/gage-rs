@@ -40,7 +40,7 @@ pub use crate::crypto::identity::Identity;
 pub use crate::entry::Entry;
 pub use crate::error::{ErrorKind, HasKind, Remedy};
 pub use crate::prompter::{Prompter, Warning};
-pub use crate::session::{Session, SessionConfig};
+pub use crate::session::{Clock, Session, SessionConfig, SystemClock};
 pub use crate::storage::vaultconfig::{UnlockMethod, VaultId, VaultType};
 pub use crate::vault::{CreateSpec, Vault};
 

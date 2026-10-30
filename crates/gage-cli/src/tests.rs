@@ -36,7 +36,7 @@ fn run_reg(reg: &Registry, args: &[&str], stdin_is_terminal: bool) -> CliResult 
         hostname: &|| panic!("a parsing test read the hostname"),
         editor: None,
         passphrase_env: None,
-        now: &std::time::Instant::now,
+        clock: &gage::SystemClock,
         clipboard: &crate::clipboard::fake::unused(),
         clipboard_wait: &|_| {},
         time_zone: jiff::tz::TimeZone::UTC,
