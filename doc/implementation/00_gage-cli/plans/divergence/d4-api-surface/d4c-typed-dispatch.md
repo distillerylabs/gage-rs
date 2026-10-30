@@ -215,10 +215,10 @@ Decisions 1-6 were built as proposed, with these refinements
 - [x] ADR-0057: the registry carries a typed `Command`; dispatch is
       exhaustive; tests inject fakes with real variants. Link it from
       `doc/decisions/README.md`. It amends nothing in ADR-0030–0032.
-- [ ] `make lint` and `make test` are clean.
-- [ ] `git diff --stat main -- tests/fixtures` is empty, so the help
+- [x] `make lint` and `make test` are clean.
+- [x] `git diff --stat main -- tests/fixtures` is empty, so the help
       snapshots are unedited.
-- [ ] `grep -rn 'not implemented yet' crates/gage-cli/src` is empty.
+- [x] `grep -rn 'not implemented yet' crates/gage-cli/src` is empty.
 
 ## Definition of done
 
