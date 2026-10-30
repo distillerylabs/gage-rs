@@ -10,11 +10,11 @@ use zeroize::Zeroizing;
 
 use super::seal::{Payload, seal_payload};
 use super::{EnrollmentError, EnrollmentRequest, OpenedRequest, code};
-use crate::recipient_tests::Fixture;
+use crate::storage::vaultconfig::UnlockMethod;
+use crate::storage::vaultconfig::VaultId;
+use crate::trust::recipient::recipient_tests::Fixture;
 use crate::vault::Vault;
-use crate::vaultconfig::UnlockMethod;
-use crate::vaultconfig::VaultId;
-use crate::{config, paths};
+use crate::{storage::config, storage::paths};
 
 /// One vault, its owner's key, and nothing pending.
 pub(crate) fn vault() -> Fixture {
@@ -129,7 +129,7 @@ pub(crate) fn register_also(vault: &Vault, name: &str, id: &VaultId) {
         config::VaultEntry {
             path: vault.path.with_file_name(name),
             id: Some(id.clone()),
-            vault_type: crate::vaultconfig::VaultType::Git,
+            vault_type: crate::storage::vaultconfig::VaultType::Git,
             ..Default::default()
         },
     );

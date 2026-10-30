@@ -202,8 +202,12 @@ fn session_over_a_real_terminal_drives_the_line_editor() {
             .find(|(name, _)| *name == k)
             .map(|(_, p)| p.to_string_lossy().into_owned())
     };
-    let dirs =
-        gage::xdgpaths::Dirs::resolve(gage::xdgpaths::Os::current(), &env, root.path()).unwrap();
+    let dirs = gage::storage::xdgpaths::Dirs::resolve(
+        gage::storage::xdgpaths::Os::current(),
+        &env,
+        root.path(),
+    )
+    .unwrap();
     let history = std::fs::read_to_string(dirs.state.join("history")).unwrap();
     assert_eq!(
         history,

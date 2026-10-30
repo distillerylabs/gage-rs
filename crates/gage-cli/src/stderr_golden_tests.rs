@@ -213,7 +213,7 @@ fn a_diverged_push_names_sync() {
     Device::clone(remote.path()).write_commit_push("shared.txt", "theirs", "theirs");
     let vault = env.vault_dir();
     std::fs::write(vault.join("shared.txt"), "mine").unwrap();
-    gage::gitrepo::commit_all(&vault, "a local commit").unwrap();
+    gage::sync::gitrepo::commit_all(&vault, "a local commit").unwrap();
 
     let r = env.run(&["push"]);
     assert_golden(
@@ -317,7 +317,7 @@ fn every_open_error_keeps_its_exit_code() {
     use crate::error::CliError;
     use crate::exitcode::ExitCode;
 
-    let code = |r: Result<gage::vault::Vault, OpenError>| CliError::from(r.unwrap_err()).code();
+    let code = |r: Result<gage::Vault, OpenError>| CliError::from(r.unwrap_err()).code();
 
     let env = env_with_vault();
     assert!(matches!(
@@ -327,7 +327,7 @@ fn every_open_error_keeps_its_exit_code() {
     assert_eq!(code(open_registered(&env.dirs, "nope")), ExitCode::NotFound);
 
     let mut global = env.global();
-    global.vaults.get_mut("personal").unwrap().id = Some(gage::vaultconfig::VaultId::new());
+    global.vaults.get_mut("personal").unwrap().id = Some(gage::VaultId::new());
     env.save_global(&global);
     assert!(matches!(
         open_registered(&env.dirs, "personal"),
@@ -354,7 +354,7 @@ fn every_open_error_keeps_its_exit_code() {
 // doesn't route around that.
 #[test]
 fn a_remedy_rendered_auth_failure_keeps_the_token_out() {
-    use gage::syncerr::{Error, Kind};
+    use gage::sync::syncerr::{Error, Kind};
 
     use crate::error::CliError;
 
@@ -363,7 +363,7 @@ fn a_remedy_rendered_auth_failure_keeps_the_token_out() {
         "unexpected http status 403 for https://me:ghp_secret123@github.com/me/vault.git",
     )
     .annotate_auth("github.com");
-    let rendered = CliError::from(gage::gitrepo::Error::Sync(refused)).to_string();
+    let rendered = CliError::from(gage::sync::gitrepo::Error::Sync(refused)).to_string();
     assert!(!rendered.contains("ghp_secret123"), "{rendered}");
     assert!(!rendered.contains("me:"), "{rendered}");
     assert!(
@@ -392,7 +392,7 @@ fn a_diverged_pull_names_sync() {
     Device::clone(remote.path()).write_commit_push("notes.txt", "theirs", "theirs");
     let vault = env.vault_dir();
     std::fs::write(vault.join("local.txt"), "mine").unwrap();
-    gage::gitrepo::commit_all(&vault, "a local commit").unwrap();
+    gage::sync::gitrepo::commit_all(&vault, "a local commit").unwrap();
 
     let r = env.run(&["pull"]);
     assert_golden(

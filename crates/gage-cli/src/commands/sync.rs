@@ -9,10 +9,10 @@
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::gitrepo;
-use gage::remotesync::{ConflictKind, SyncError, SyncReport};
-use gage::syncresolve::entry_count;
-use gage::vault::Vault;
+use gage::Vault;
+use gage::sync::gitrepo;
+use gage::sync::remotesync::{ConflictKind, SyncError, SyncReport};
+use gage::sync::syncresolve::entry_count;
 
 use super::entry::{open_vault, use_flag, use_name};
 use super::{Keys, fail, out};

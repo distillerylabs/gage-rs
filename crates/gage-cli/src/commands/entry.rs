@@ -13,14 +13,14 @@ use std::collections::BTreeMap;
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
+use gage::Identity;
+use gage::Prompter;
+use gage::Vault;
+use gage::crypto::generate::{self, GenerateOptions};
 use gage::entry::{
     self, CandidateList, Entry, ListEntry, NewEntry, ResolveError, Timestamp, WriteError,
 };
-use gage::generate::{self, GenerateOptions};
-use gage::identity::Identity;
-use gage::prompter::Prompter;
 use gage::session::SessionError;
-use gage::vault::Vault;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -65,81 +65,93 @@ fn force_flag(help: &'static str) -> Arg {
         .help(help)
 }
 
-pub fn flags(name: &str) -> Vec<Arg> {
-    match name {
-        "insert" => vec![
-            description_flag(),
-            // One of the three ways to supply the value, and the one that
-            // also sets fields, so it excludes the other two and --field.
-            Arg::new("edit")
-                .short('e')
-                .long("edit")
-                .action(ArgAction::SetTrue)
-                .conflicts_with_all(["multiline", "value-stdin", "field"])
-                .help(
-                    "open a template in $EDITOR to fill in value/fields (and optionally title/description)",
-                ),
-            Arg::new("field")
-                .long("field")
-                .value_name("NAME=VALUE")
-                .action(ArgAction::Append)
-                .help(
-                    "set a structured field as NAME=VALUE (repeatable; mutually exclusive with -e/--edit)",
-                ),
-            force_flag("allow inserting a duplicate title"),
-            Arg::new("multiline")
-                .short('m')
-                .long("multiline")
-                .action(ArgAction::SetTrue)
-                .conflicts_with("value-stdin")
-                .help("read the value as multiple lines from the terminal until EOF"),
-            use_flag(),
-            Arg::new("value-stdin")
-                .long("value-stdin")
-                .action(ArgAction::SetTrue)
-                .help("read the value verbatim from stdin (one trailing newline trimmed)"),
-        ],
-        "show" => vec![
-            clip_flag("copy to the clipboard instead of printing, and clear it after a timeout"),
-            Arg::new("field")
-                .long("field")
-                .value_name("NAME")
-                .help("print one entry from fields instead of the value"),
-            qr_flag("render a QR code instead of printing the value"),
-            use_flag(),
-        ],
-        "rename" => vec![force_flag("allow renaming to a duplicate title"), use_flag()],
-        "generate" => vec![
-            clip_flag("copy the generated value to the clipboard, and clear it after a timeout"),
-            description_flag(),
-            force_flag("allow inserting a duplicate title"),
-            Arg::new("length")
-                .short('l')
-                .long("length")
-                .value_name("N")
-                .value_parser(clap::value_parser!(usize))
-                .help(format!(
-                    "length of the generated value (default {}, minimum {})",
-                    generate::DEFAULT_LENGTH,
-                    generate::MIN_LENGTH
-                )),
-            Arg::new("no-symbols")
-                .long("no-symbols")
-                .action(ArgAction::SetTrue)
-                .help("draw from letters and digits only"),
-            qr_flag("render the generated value as a QR code"),
-            use_flag(),
-        ],
-        "ls" => vec![
-            Arg::new("header")
-                .short('H')
-                .long("header")
-                .action(ArgAction::SetTrue)
-                .help("print a labelled, |-delimited table instead of plain unlabelled rows"),
-            use_flag(),
-        ],
-        _ => vec![use_flag()],
-    }
+pub fn insert_flags() -> Vec<Arg> {
+    vec![
+        description_flag(),
+        // One of the three ways to supply the value, and the one that
+        // also sets fields, so it excludes the other two and --field.
+        Arg::new("edit")
+            .short('e')
+            .long("edit")
+            .action(ArgAction::SetTrue)
+            .conflicts_with_all(["multiline", "value-stdin", "field"])
+            .help(
+                "open a template in $EDITOR to fill in value/fields (and optionally title/description)",
+            ),
+        Arg::new("field")
+            .long("field")
+            .value_name("NAME=VALUE")
+            .action(ArgAction::Append)
+            .help(
+                "set a structured field as NAME=VALUE (repeatable; mutually exclusive with -e/--edit)",
+            ),
+        force_flag("allow inserting a duplicate title"),
+        Arg::new("multiline")
+            .short('m')
+            .long("multiline")
+            .action(ArgAction::SetTrue)
+            .conflicts_with("value-stdin")
+            .help("read the value as multiple lines from the terminal until EOF"),
+        use_flag(),
+        Arg::new("value-stdin")
+            .long("value-stdin")
+            .action(ArgAction::SetTrue)
+            .help("read the value verbatim from stdin (one trailing newline trimmed)"),
+    ]
+}
+
+pub fn show_flags() -> Vec<Arg> {
+    vec![
+        clip_flag("copy to the clipboard instead of printing, and clear it after a timeout"),
+        Arg::new("field")
+            .long("field")
+            .value_name("NAME")
+            .help("print one entry from fields instead of the value"),
+        qr_flag("render a QR code instead of printing the value"),
+        use_flag(),
+    ]
+}
+
+pub fn rename_flags() -> Vec<Arg> {
+    vec![
+        force_flag("allow renaming to a duplicate title"),
+        use_flag(),
+    ]
+}
+
+pub fn generate_flags() -> Vec<Arg> {
+    vec![
+        clip_flag("copy the generated value to the clipboard, and clear it after a timeout"),
+        description_flag(),
+        force_flag("allow inserting a duplicate title"),
+        Arg::new("length")
+            .short('l')
+            .long("length")
+            .value_name("N")
+            .value_parser(clap::value_parser!(usize))
+            .help(format!(
+                "length of the generated value (default {}, minimum {})",
+                generate::DEFAULT_LENGTH,
+                generate::MIN_LENGTH
+            )),
+        Arg::new("no-symbols")
+            .long("no-symbols")
+            .action(ArgAction::SetTrue)
+            .help("draw from letters and digits only"),
+        qr_flag("render the generated value as a QR code"),
+        use_flag(),
+    ]
+}
+
+pub fn ls_flags() -> Vec<Arg> {
+    vec![
+        Arg::new("header")
+            .short('H')
+            .long("header")
+            .action(ArgAction::SetTrue)
+            .help("print a labelled, |-delimited table instead of plain unlabelled rows"),
+        use_flag(),
+    ]
 }
 
 // --- the handler: both modes ------------------------------------------------

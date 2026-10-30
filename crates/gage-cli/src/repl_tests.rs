@@ -13,10 +13,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::exitcode::ExitCode;
-use gage::config::Shell;
-use gage::locker::{Locker, MemLocker};
+use gage::crypto::locker::{Locker, MemLocker};
 use gage::prompter::FakePrompter;
-use gage::session::{Session, SessionConfig};
+use gage::storage::config::Shell;
+use gage::{Clock, Session, SessionConfig, SystemClock};
 
 use crate::history::History;
 use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE};
@@ -72,11 +72,22 @@ pub(crate) fn passphrase_prompts(r: &CliResult) -> usize {
 /// A clock that advances `step` each time it is read: how a session
 /// driven end to end gets simulated idle time with no hook between its
 /// lines.
-fn step_clock(step: Duration) -> impl Fn() -> Instant {
-    let t = Cell::new(Instant::now());
-    move || {
-        t.set(t.get() + step);
-        t.get()
+struct StepClock {
+    t: Cell<Instant>,
+    step: Duration,
+}
+
+impl Clock for StepClock {
+    fn now(&self) -> Instant {
+        self.t.set(self.t.get() + self.step);
+        self.t.get()
+    }
+}
+
+fn step_clock(step: Duration) -> StepClock {
+    StepClock {
+        t: Cell::new(Instant::now()),
+        step,
     }
 }
 
@@ -84,10 +95,10 @@ impl Env {
     /// Bare `gage` on a "terminal", fed `script` through the real
     /// terminal prompter.
     pub(crate) fn session(&self, script: &str) -> CliResult {
-        self.session_with_clock(script, &Instant::now)
+        self.session_with_clock(script, &SystemClock)
     }
 
-    pub(crate) fn session_with_clock(&self, script: &str, now: &dyn Fn() -> Instant) -> CliResult {
+    pub(crate) fn session_with_clock(&self, script: &str, clock: &dyn Clock) -> CliResult {
         let input = SharedInput(Rc::new(RefCell::new(Cursor::new(
             script.as_bytes().to_vec(),
         ))));
@@ -114,7 +125,7 @@ impl Env {
                 hostname: &move || Ok(hostname.clone()),
                 editor: self.editor.lock().unwrap().clone(),
                 passphrase_env: None,
-                now,
+                clock,
                 clipboard: &self.clip.keeper(),
                 clipboard_wait: &|d| self.clip.wait(d),
                 time_zone: self.time_zone.lock().unwrap().clone(),
@@ -209,7 +220,7 @@ fn direct_session<'a>(
         prompter,
         idle_timeout: None,
         current: None,
-        now: None,
+        clock: &SystemClock,
     })
 }
 
@@ -231,7 +242,7 @@ fn with_io<T>(env: &Env, stdin: &str, f: impl FnOnce(&mut Io) -> T) -> (T, Strin
         hostname: &|| panic!("a session test read the hostname"),
         editor: None,
         passphrase_env: None,
-        now: &Instant::now,
+        clock: &SystemClock,
         clipboard: &crate::clipboard::fake::unused(),
         clipboard_wait: &|_| {},
         time_zone: jiff::tz::TimeZone::UTC,

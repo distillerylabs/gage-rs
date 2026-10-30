@@ -5,12 +5,12 @@
 use std::path::{Path, PathBuf};
 
 use crate::exitcode::ExitCode;
+use gage::Vault;
 use gage::gittest::{self, Answer, BareRemote, Device, HttpRecorder};
 use gage::prompter::FakePrompter;
-use gage::remotesync::SyncReport;
-use gage::syncresolve::{Resolution, entry_count};
-use gage::vault::Vault;
-use gage::{gitrepo, paths, remoteauth, vaultconfig};
+use gage::sync::remotesync::SyncReport;
+use gage::sync::syncresolve::{Resolution, entry_count};
+use gage::{storage::paths, storage::vaultconfig, sync::gitrepo, sync::remoteauth};
 
 use crate::commands::{report_conflicts, sync_line};
 use crate::editor::fake::{Action, FakeEditor, Set};

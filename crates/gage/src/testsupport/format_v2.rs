@@ -12,10 +12,10 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::entry::Extra;
-use crate::gitrepo::{self, RemoteOptions};
-use crate::paths;
-use crate::vaultconfig::VaultId;
-use crate::xdgpaths::Dirs;
+use crate::storage::paths;
+use crate::storage::vaultconfig::VaultId;
+use crate::storage::xdgpaths::Dirs;
+use crate::sync::gitrepo::{self, RemoteOptions};
 
 /// The vault's local name on the device the fixture captures.
 pub const VAULT_NAME: &str = "personal";

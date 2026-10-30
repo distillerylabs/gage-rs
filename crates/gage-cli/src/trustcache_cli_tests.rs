@@ -6,8 +6,9 @@
 use std::path::{Path, PathBuf};
 
 use crate::exitcode::ExitCode;
-use gage::prompter::{FakePrompter, Prompter};
-use gage::{gitrepo, gittest, recipients, vaultconfig};
+use gage::Prompter;
+use gage::prompter::FakePrompter;
+use gage::{gittest, storage::vaultconfig, sync::gitrepo, trust::recipient};
 
 use crate::entry_tests::{DEVICE, unlocks};
 use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE};
@@ -49,7 +50,7 @@ impl Env {
     }
 
     fn age_recipients(&self) -> Vec<String> {
-        recipients::load(&self.vault_dir().join(".age-recipients")).unwrap()
+        recipient::load(&self.vault_dir().join(".age-recipients")).unwrap()
     }
 
     /// `gage insert <title> --value-stdin <extra...>` through `p`.
@@ -77,7 +78,7 @@ impl Env {
             hostname: &move || Ok(hostname.clone()),
             editor: None,
             passphrase_env: None,
-            now: &std::time::Instant::now,
+            clock: &gage::SystemClock,
             clipboard: &crate::clipboard::fake::unused(),
             clipboard_wait: &|_| {},
             time_zone: jiff::tz::TimeZone::UTC,
@@ -95,9 +96,9 @@ impl Env {
 /// `recipient add` on another device arrives in after a pull.
 pub(crate) fn commit_routine_change(vault: &Path, device: &str, pubkey: &str) {
     let path = vault.join(".age-recipients");
-    let mut keys = recipients::load(&path).unwrap();
+    let mut keys = recipient::load(&path).unwrap();
     keys.push(pubkey.into());
-    recipients::save(&path, &keys).unwrap();
+    recipient::save(&path, &keys).unwrap();
     let config = vault.join(".gage").join("config.toml");
     let mut file = vaultconfig::load(&config).unwrap();
     file.recipients.push(vaultconfig::Recipient {
@@ -112,9 +113,9 @@ pub(crate) fn commit_routine_change(vault: &Path, device: &str, pubkey: &str) {
 /// `verify` reports and the trust cache refuses to forget.
 pub(crate) fn tamper_recipients_file(vault: &Path, pubkey: &str) {
     let path = vault.join(".age-recipients");
-    let mut keys = recipients::load(&path).unwrap();
+    let mut keys = recipient::load(&path).unwrap();
     keys.push(pubkey.into());
-    recipients::save(&path, &keys).unwrap();
+    recipient::save(&path, &keys).unwrap();
     gitrepo::commit_all(vault, "add a key").unwrap();
 }
 
@@ -452,7 +453,8 @@ fn two_vaults_under_one_local_name_share_neither_directory() {
     let env = Env::new();
     env.ok(&["init", VAULT, "--device", "laptop-1", "--no-recovery-key"]);
     let a_id = env.entry(VAULT).id.unwrap();
-    let a_identity = gage::paths::identity_file_path(&env.dirs, &a_id, "laptop-1").unwrap();
+    let a_identity =
+        gage::storage::paths::identity_file_path(&env.dirs, &a_id, "laptop-1").unwrap();
     let a_trust = env.trust_dir();
     env.insert_ok("hunter2", &["SomethingOfAs"]);
     assert!(
@@ -478,7 +480,8 @@ fn two_vaults_under_one_local_name_share_neither_directory() {
     let b_id = env.entry(VAULT).id.unwrap();
     assert_ne!(b_id, a_id, "two unrelated vaults share an id");
 
-    let b_identity = gage::paths::identity_file_path(&env.dirs, &b_id, "laptop-1").unwrap();
+    let b_identity =
+        gage::storage::paths::identity_file_path(&env.dirs, &b_id, "laptop-1").unwrap();
     assert!(!b_identity.exists(), "B sees an identity it never created");
     assert!(a_identity.is_file(), "A's identity was disturbed");
     assert_ne!(env.trust_dir(), a_trust, "B inherited A's trust cache");

@@ -14,7 +14,8 @@ use std::io::Cursor;
 use std::rc::Rc;
 
 use crate::exitcode::ExitCode;
-use gage::prompter::{FakePrompter, Prompter};
+use gage::Prompter;
+use gage::prompter::FakePrompter;
 
 use crate::entry_tests::unlocks;
 use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE};
@@ -93,7 +94,7 @@ impl Env {
                 passphrase_env: run
                     .passphrase_env
                     .map(|p| zeroize::Zeroizing::new(p.into())),
-                now: &std::time::Instant::now,
+                clock: &gage::SystemClock,
                 clipboard: &self.clip.keeper(),
                 clipboard_wait: &|d| self.clip.wait(d),
                 time_zone: self.time_zone.lock().unwrap().clone(),

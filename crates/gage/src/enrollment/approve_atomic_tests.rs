@@ -11,11 +11,11 @@ use super::seal::Payload;
 use super::*;
 use crate::error::ErrorKind;
 use crate::prompter::FakePrompter;
-use crate::recipient::RecipientError;
-use crate::reencrypt_tests::{crashed, crashing_after};
-use crate::remotesync::tests::{SyncVault, sample, unlocks};
-use crate::twodevice_tests::{B_PASSPHRASE, Machine};
-use crate::vaultconfig;
+use crate::storage::vaultconfig;
+use crate::sync::remotesync::tests::{SyncVault, sample, unlocks};
+use crate::trust::recipient::RecipientError;
+use crate::vault::reencrypt_tests::{crashed, crashing_after};
+use crate::vault::twodevice_tests::{B_PASSPHRASE, Machine};
 
 /// Lists `pubkey` as `device` in both recipient files and commits, without
 /// re-encrypting or reviewing: another writer's change, as this device's

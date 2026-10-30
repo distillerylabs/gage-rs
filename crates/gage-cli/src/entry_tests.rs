@@ -7,11 +7,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::exitcode::ExitCode;
-use gage::entry::{self, Entry};
-use gage::locker::Locker;
+use gage::Entry;
+use gage::Vault;
+use gage::crypto::locker::Locker;
+use gage::entry::{self};
 use gage::prompter::{FakePrompter, PromptError};
-use gage::vault::Vault;
-use gage::{gitrepo, vaultlock};
+use gage::{storage::vaultlock, sync::gitrepo};
 use uuid::Uuid;
 
 use crate::commands::{
@@ -1121,7 +1122,7 @@ fn two_registrations_of_one_repository_share_one_lock() {
 
     // Held through the "personal" registration's id.
     let lock_path =
-        gage::paths::lock_file_path(&env.dirs, &env.entry("personal").id.clone().unwrap());
+        gage::storage::paths::lock_file_path(&env.dirs, &env.entry("personal").id.clone().unwrap());
     std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
     let mut holder = Command::new(std::env::current_exe().unwrap())
         .args([

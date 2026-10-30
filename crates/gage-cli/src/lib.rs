@@ -8,11 +8,11 @@
 //! streams or exits.
 
 use std::io::{Read, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::exitcode::ExitCode;
-use gage::prompter::Prompter;
-use gage::xdgpaths::{self, Dirs};
+use gage::Prompter;
+use gage::storage::xdgpaths::{self, Dirs};
 
 // build.rs include!s it too; the crate itself only needs it for the test
 // that checks the Makefile exports the same names.
@@ -43,7 +43,7 @@ use cli::Outcome;
 use clipboard::ClipboardKeeper;
 use commands::Keys;
 use error::{CliError, prefixed};
-use registry::{Availability, Registry};
+use registry::{Command, Registry, SessionVerb};
 pub use version::BuildInfo;
 
 /// The process seams one invocation runs against.
@@ -81,8 +81,9 @@ pub struct Io<'a> {
     /// environment, set it here. Nothing in the library learns it exists.
     pub passphrase_env: Option<zeroize::Zeroizing<String>>,
     /// The clock a session's idle timeout reads. `main` passes
-    /// `Instant::now`; tests step it instead of waiting.
-    pub now: &'a dyn Fn() -> Instant,
+    /// [`SystemClock`](gage::SystemClock); tests step it instead of
+    /// waiting.
+    pub clock: &'a dyn gage::Clock,
     /// Where `-c` copies to, and what clears it. `main` passes
     /// [`ClipboardKeeper::system`]; tests pass one over a fake clipboard
     /// and timer. One per run, so a session's copies share one keeper and
@@ -154,7 +155,7 @@ fn dispatch(
             let prompter = scriptprompt::for_script(base, passphrase_env.as_ref(), can_prompt);
             repl::run_script(reg, io, &*prompter, &run.source)
         }
-        Outcome::Command("help", matches) => {
+        Outcome::Command(Command::Session(SessionVerb::Help), matches) => {
             let topic: Vec<String> = matches
                 .get_many::<String>("command")
                 .into_iter()
@@ -164,18 +165,22 @@ fn dispatch(
             let text = cli::help_topic(reg, &io.build, &topic)?;
             print(io, &text)
         }
-        Outcome::Command(name, matches) => {
-            let info = reg
-                .find(name)
-                .expect("parse only returns registered commands");
-            if info.availability == Availability::SessionOnly {
-                return Err(CliError::new(
-                    ExitCode::Usage,
-                    format!(
-                        "{name} is only available in a session; run `gage` with no arguments to start one"
-                    ),
-                ));
-            }
+        Outcome::Command(Command::Session(verb), _) => {
+            let name = reg
+                .commands
+                .iter()
+                .find(|c| c.command == Command::Session(verb))
+                .map_or("", |c| c.name);
+            Err(CliError::new(
+                ExitCode::Usage,
+                format!(
+                    "{name} is only available in a session; run `gage` with no arguments to start one"
+                ),
+            ))
+        }
+        Outcome::Command(Command::Run(run), matches) => {
+            // A one-shot-only or both-mode command; the session-only
+            // ones are the arm above.
             // Wrapped here, once, rather than at each point a handler hands
             // a prompter to the library: the same decision written out a
             // dozen times would have a dozen chances to be forgotten.
@@ -185,12 +190,7 @@ fn dispatch(
             } else {
                 prompter
             };
-            commands::run(name, &matches, io, &mut Keys::OneShot(prompter)).unwrap_or_else(|| {
-                Err(CliError::new(
-                    ExitCode::Internal,
-                    format!("{name} is not implemented yet"),
-                ))
-            })
+            commands::run(run, &matches, io, &mut Keys::OneShot(prompter))
         }
     }
 }

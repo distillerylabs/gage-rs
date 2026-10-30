@@ -2,9 +2,9 @@
 //! modes, and its two questions.
 
 use crate::exitcode::ExitCode;
-use gage::gitrepo;
 use gage::gittest;
 use gage::prompter::FakePrompter;
+use gage::sync::gitrepo;
 use jiff::tz::{TimeZone, offset};
 use jiff::{Timestamp, ToSpan};
 

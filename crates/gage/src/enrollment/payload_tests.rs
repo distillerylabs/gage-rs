@@ -13,7 +13,7 @@ use super::name::pending_file_name;
 use super::seal::{Attempt, Payload};
 use super::{EnrollmentError, MAX_PENDING_REQUEST_BYTES, PendingRequest};
 use crate::error::ErrorKind;
-use crate::vaultconfig::UnlockMethod;
+use crate::storage::vaultconfig::UnlockMethod;
 
 // Each is MalformedRequest
 // at Conflict, and never CodeWrong, which a retry loop would sit

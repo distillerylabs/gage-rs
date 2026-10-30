@@ -5,7 +5,7 @@
 
 use crate::exitcode::ExitCode;
 use gage::prompter::FakePrompter;
-use gage::{gitrepo, recipients};
+use gage::{sync::gitrepo, trust::recipient};
 
 use crate::commands::short_hash;
 use crate::identity_cli_tests::{A_DEVICE, B_DEVICE, TwoDevices, VAULT};
@@ -34,7 +34,7 @@ impl Env {
     }
 
     fn recipients_file(&self) -> Vec<String> {
-        recipients::load(&self.path().join(".age-recipients")).unwrap()
+        recipient::load(&self.path().join(".age-recipients")).unwrap()
     }
 
     /// `gage insert <title> --value-stdin`, with `value` on stdin.

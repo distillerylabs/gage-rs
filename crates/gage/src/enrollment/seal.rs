@@ -15,10 +15,10 @@ use super::{
     EnrollmentError, EnrollmentRequest, MAX_ENROLLMENT_TTL, MAX_PENDING_REQUEST_BYTES,
     OpenedRequest, PendingRequest,
 };
-use crate::crypt::{self, Recipient};
+use crate::crypto::crypt::{self, Recipient};
+use crate::storage::vaultconfig::{self, InvalidVaultId, UnlockMethod, VaultId};
 use crate::vault::Vault;
-use crate::vaultconfig::{self, InvalidVaultId, UnlockMethod, VaultId};
-use crate::{agekey, devicename};
+use crate::{crypto::agekey, devicename};
 
 /// The plaintext under the seal, as TOML.
 ///
@@ -162,7 +162,7 @@ impl Vault {
         // The cap on the *claimed* factor (ADR-0026). Without
         // it, one committed file claiming 2^30 is a hang, not a slowdown.
         let identity = crypt::enrollment_scrypt_identity(code);
-        self.enrollment_decrypts.bump();
+        self.count_enrollment_decrypt();
         match crypt::decrypt_with_limit(sealed, &identity, Some(MAX_PENDING_REQUEST_BYTES)) {
             Err(_) => Attempt::NotOpened,
             // The code worked and the payload is larger than anything gage

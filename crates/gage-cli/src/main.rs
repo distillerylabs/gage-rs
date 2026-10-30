@@ -4,7 +4,7 @@
 
 use std::io::IsTerminal;
 
-use gage::xdgpaths::Dirs;
+use gage::storage::xdgpaths::Dirs;
 use gage_cli::clipboard::{self, ClipboardKeeper};
 use gage_cli::prompter::{SecretInput, TerminalPrompter};
 use gage_cli::{BuildInfo, Io};
@@ -67,7 +67,7 @@ fn main() {
         hostname: &|| Ok(hostname::get()?.to_string_lossy().into_owned()),
         editor: std::env::var("EDITOR").ok(),
         passphrase_env: passphrase_env(),
-        now: &std::time::Instant::now,
+        clock: &gage::SystemClock,
         clipboard: &keeper,
         clipboard_wait: &clipboard::wait_for_clipboard,
         time_zone: jiff::tz::TimeZone::system(),

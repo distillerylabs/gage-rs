@@ -42,10 +42,153 @@ pub const GROUP_ORDER: [&str; 7] = [
     GROUP_GIT,
 ];
 
+/// A registered command, by identity rather than by name. Dispatch,
+/// flags, long help and completion match on it exhaustively, so a
+/// registered command no handler covers fails to compile (ADR-0057).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Command {
+    /// A verb only a session runs; the REPL handles it before parsing.
+    Session(SessionVerb),
+    /// A command the clap tree parses and `commands::run` executes.
+    Run(RunCommand),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionVerb {
+    Use,
+    Lock,
+    Status,
+    Exit,
+    Help,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunCommand {
+    Init,
+    Clone,
+    VaultList,
+    VaultInfo,
+    VaultRemove,
+    VaultSetDefault,
+    IdentityAdd,
+    IdentityEnroll,
+    IdentityList,
+    RecipientAdd,
+    RecipientRemove,
+    RecipientList,
+    RecipientPending,
+    RecipientApprove,
+    RecipientDeny,
+    RecipientVerify,
+    RecoveryEnroll,
+    RecoveryRotate,
+    RecoveryVerify,
+    Insert,
+    Show,
+    Cat,
+    Edit,
+    Rename,
+    Generate,
+    Rm,
+    Mv,
+    Cp,
+    Ls,
+    Search,
+    Reindex,
+    Sync,
+    Pull,
+    Push,
+    Log,
+    History,
+    GitSetRemote,
+    AuthLogin,
+    AuthStatus,
+    AuthLogout,
+}
+
+impl Command {
+    /// Every command, in no particular order. Hand-written so a test can
+    /// check the registry against it: a variant added to the enums but
+    /// not here, or here but not registered, fails that test.
+    pub const ALL: [Command; 45] = {
+        use RunCommand::*;
+        use SessionVerb::*;
+        [
+            Command::Session(Use),
+            Command::Session(Lock),
+            Command::Session(Status),
+            Command::Session(Exit),
+            Command::Session(Help),
+            Command::Run(Init),
+            Command::Run(Clone),
+            Command::Run(VaultList),
+            Command::Run(VaultInfo),
+            Command::Run(VaultRemove),
+            Command::Run(VaultSetDefault),
+            Command::Run(IdentityAdd),
+            Command::Run(IdentityEnroll),
+            Command::Run(IdentityList),
+            Command::Run(RecipientAdd),
+            Command::Run(RecipientRemove),
+            Command::Run(RecipientList),
+            Command::Run(RecipientPending),
+            Command::Run(RecipientApprove),
+            Command::Run(RecipientDeny),
+            Command::Run(RecipientVerify),
+            Command::Run(RecoveryEnroll),
+            Command::Run(RecoveryRotate),
+            Command::Run(RecoveryVerify),
+            Command::Run(Insert),
+            Command::Run(Show),
+            Command::Run(Cat),
+            Command::Run(Edit),
+            Command::Run(Rename),
+            Command::Run(Generate),
+            Command::Run(Rm),
+            Command::Run(Mv),
+            Command::Run(Cp),
+            Command::Run(Ls),
+            Command::Run(Search),
+            Command::Run(Reindex),
+            Command::Run(Sync),
+            Command::Run(Pull),
+            Command::Run(Push),
+            Command::Run(Log),
+            Command::Run(History),
+            Command::Run(GitSetRemote),
+            Command::Run(AuthLogin),
+            Command::Run(AuthStatus),
+            Command::Run(AuthLogout),
+        ]
+    };
+
+    /// Whether the first positional addresses an entry, so completion
+    /// offers the current vault's titles: `show`, `cat`, `edit`, `rename`,
+    /// `rm`, `mv`, `cp`, and `generate`, whose argument names a *new*
+    /// entry but for which existing titles are still worth seeing (to
+    /// avoid a duplicate). Exhaustive, so a new command decides.
+    pub fn takes_entry_query(self) -> bool {
+        use RunCommand::*;
+        match self {
+            Command::Session(_) => false,
+            Command::Run(run) => match run {
+                Show | Cat | Edit | Rename | Generate | Rm | Mv | Cp => true,
+                Init | Clone | VaultList | VaultInfo | VaultRemove | VaultSetDefault
+                | IdentityAdd | IdentityEnroll | IdentityList | RecipientAdd | RecipientRemove
+                | RecipientList | RecipientPending | RecipientApprove | RecipientDeny
+                | RecipientVerify | RecoveryEnroll | RecoveryRotate | RecoveryVerify | Insert
+                | Ls | Search | Reindex | Sync | Pull | Push | Log | History | GitSetRemote
+                | AuthLogin | AuthStatus | AuthLogout => false,
+            },
+        }
+    }
+}
+
 /// One invocable command. `name` is its full path below `gage`, so a nested
 /// command is `"vault list"`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommandInfo {
+    pub command: Command,
     pub name: &'static str,
     pub aliases: &'static [&'static str],
     pub short: &'static str,
@@ -84,7 +227,8 @@ pub struct Registry {
 /// The real registry. Commands are listed in the order each group renders in.
 pub fn registry() -> Registry {
     use Availability::{Both, OneShotOnly, SessionOnly};
-    let session = |name, aliases, usage, short| CommandInfo {
+    let session = |verb, name, aliases, usage, short| CommandInfo {
+        command: Command::Session(verb),
         name,
         aliases,
         short,
@@ -92,7 +236,8 @@ pub fn registry() -> Registry {
         usage,
         availability: SessionOnly,
     };
-    let command = |name, usage, short, group, availability| CommandInfo {
+    let command = |run, name, usage, short, group, availability| CommandInfo {
+        command: Command::Run(run),
         name,
         aliases: &[],
         short,
@@ -103,29 +248,45 @@ pub fn registry() -> Registry {
     Registry {
         commands: vec![
             session(
+                SessionVerb::Use,
                 "use",
                 &[],
                 "<vault>",
                 "Switch/unlock the active vault for this session",
             ),
             session(
+                SessionVerb::Lock,
                 "lock",
                 &[],
                 "[vault]",
                 "Drop key material for one vault (or all) without exiting",
             ),
             session(
+                SessionVerb::Status,
                 "status",
                 &["whoami"],
                 "",
                 "List vaults touched this session and their lock state",
             ),
-            session("exit", &["quit"], "", "Leave the session"),
-            session("help", &[], "[command]", "Show help for gage's commands"),
+            session(
+                SessionVerb::Exit,
+                "exit",
+                &["quit"],
+                "",
+                "Leave the session",
+            ),
+            session(
+                SessionVerb::Help,
+                "help",
+                &[],
+                "[command]",
+                "Show help for gage's commands",
+            ),
             // One-shot only: it creates a vault rather than operating on
             // one, which leaves "does the new vault become the session's
             // current one?" unanswered (ADR-0032).
             command(
+                RunCommand::Init,
                 "init",
                 "<name>",
                 "Create a new vault",
@@ -135,6 +296,7 @@ pub fn registry() -> Registry {
             // One-shot only, like init: it creates a vault rather than
             // operating on one.
             command(
+                RunCommand::Clone,
                 "clone",
                 "<remote-url>",
                 "Clone an existing vault from a remote",
@@ -142,6 +304,7 @@ pub fn registry() -> Registry {
                 OneShotOnly,
             ),
             command(
+                RunCommand::VaultList,
                 "vault list",
                 "",
                 "List registered vaults",
@@ -149,6 +312,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::VaultInfo,
                 "vault info",
                 "[name]",
                 "Show a vault's type, method, recipient count, and (for git) remote/status",
@@ -156,6 +320,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::VaultRemove,
                 "vault remove",
                 "<name>",
                 "Forget a vault locally, leaving its files untouched",
@@ -163,6 +328,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::VaultSetDefault,
                 "vault set-default",
                 "<name>",
                 "Change which vault is used when none is given",
@@ -170,6 +336,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::IdentityAdd,
                 "identity add",
                 "",
                 "Register this device's identity and print its public key",
@@ -177,6 +344,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::IdentityEnroll,
                 "identity enroll",
                 "",
                 "Register this device's identity and publish a request to join",
@@ -184,6 +352,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::IdentityList,
                 "identity list",
                 "",
                 "List the keys this machine holds for a vault",
@@ -191,6 +360,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::RecipientAdd,
                 "recipient add",
                 "<pubkey>",
                 "Authorize a public key and re-encrypt the vault to include it",
@@ -198,6 +368,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::RecipientRemove,
                 "recipient remove",
                 "<pubkey-or-name>",
                 "Revoke a recipient and re-encrypt the vault without its key",
@@ -205,6 +376,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::RecipientList,
                 "recipient list",
                 "",
                 "List the keys this vault is encrypted to",
@@ -212,6 +384,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::RecipientPending,
                 "recipient pending",
                 "",
                 "List enrollment requests waiting to be approved",
@@ -219,6 +392,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::RecipientApprove,
                 "recipient approve",
                 "[ID...]",
                 "Admit an enrolling device and re-encrypt the vault to include it",
@@ -226,6 +400,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::RecipientDeny,
                 "recipient deny",
                 "<ID>",
                 "Remove an enrollment request without granting anything",
@@ -233,6 +408,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::RecipientVerify,
                 "recipient verify",
                 "",
                 "Check .age-recipients and config.toml still agree",
@@ -241,6 +417,7 @@ pub fn registry() -> Registry {
             ),
             // One-shot only.
             command(
+                RunCommand::RecoveryEnroll,
                 "recovery enroll",
                 "",
                 "Use a recovery key to enroll a fresh identity for this device",
@@ -248,6 +425,7 @@ pub fn registry() -> Registry {
                 OneShotOnly,
             ),
             command(
+                RunCommand::RecoveryRotate,
                 "recovery rotate",
                 "",
                 "Replace this vault's recovery key, or add one if it has none",
@@ -255,14 +433,23 @@ pub fn registry() -> Registry {
                 OneShotOnly,
             ),
             command(
+                RunCommand::RecoveryVerify,
                 "recovery verify",
                 "",
                 "Check a stored recovery key is still one of this vault's recipients",
                 GROUP_RECIPIENT,
                 OneShotOnly,
             ),
-            command("insert", "<title>", "Create a new entry", GROUP_ENTRY, Both),
             command(
+                RunCommand::Insert,
+                "insert",
+                "<title>",
+                "Create a new entry",
+                GROUP_ENTRY,
+                Both,
+            ),
+            command(
+                RunCommand::Show,
                 "show",
                 "<query>",
                 "Print an entry's value",
@@ -270,6 +457,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Cat,
                 "cat",
                 "<query>",
                 "Print an entry's full decrypted contents",
@@ -277,6 +465,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Edit,
                 "edit",
                 "<query>",
                 "Edit an entry's full YAML in $EDITOR",
@@ -284,6 +473,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Rename,
                 "rename",
                 "<query> <new-title>",
                 "Change an entry's title",
@@ -291,14 +481,23 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Generate,
                 "generate",
                 "<title>",
                 "Create a new entry with a randomly generated value",
                 GROUP_ENTRY,
                 Both,
             ),
-            command("rm", "<query>", "Delete an entry", GROUP_ENTRY, Both),
             command(
+                RunCommand::Rm,
+                "rm",
+                "<query>",
+                "Delete an entry",
+                GROUP_ENTRY,
+                Both,
+            ),
+            command(
+                RunCommand::Mv,
                 "mv",
                 "<query>",
                 "Move an entry to another vault — the sharing mechanism",
@@ -306,6 +505,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Cp,
                 "cp",
                 "<query>",
                 "Copy an entry into another vault, keeping the original",
@@ -313,6 +513,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Ls,
                 "ls",
                 "",
                 "List entries with their ids, dates, and last writer",
@@ -320,6 +521,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             CommandInfo {
+                command: Command::Run(RunCommand::Search),
                 name: "search",
                 aliases: &["grep"],
                 short: "Find entries by title, description, or body text",
@@ -328,6 +530,7 @@ pub fn registry() -> Registry {
                 availability: Both,
             },
             command(
+                RunCommand::Reindex,
                 "reindex",
                 "",
                 "Force a session's cached metadata index to rebuild",
@@ -335,6 +538,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Sync,
                 "sync",
                 "",
                 "Pull, merge what can be merged, then push",
@@ -342,6 +546,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Pull,
                 "pull",
                 "",
                 "Fast-forward this vault from its remote",
@@ -349,6 +554,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Push,
                 "push",
                 "",
                 "Publish this vault's commits to its remote",
@@ -356,6 +562,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::Log,
                 "log",
                 "[query]",
                 "Show an entry's commit history — timestamps only, nothing decrypted",
@@ -363,6 +570,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::History,
                 "history",
                 "<query>",
                 "Decrypt every past revision of one entry (surfaces old secret values)",
@@ -370,6 +578,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::GitSetRemote,
                 "git set-remote",
                 "<name> <url>",
                 "Set or change a vault's git remote (origin)",
@@ -377,6 +586,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::AuthLogin,
                 "auth login",
                 "",
                 "Store a token for a git host",
@@ -384,6 +594,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::AuthStatus,
                 "auth status",
                 "",
                 "Show which git hosts have a token",
@@ -391,6 +602,7 @@ pub fn registry() -> Registry {
                 Both,
             ),
             command(
+                RunCommand::AuthLogout,
                 "auth logout",
                 "",
                 "Forget a git host's token",
@@ -433,6 +645,12 @@ impl Registry {
         self.commands
             .iter()
             .find(|c| c.name == name || c.aliases.contains(&name))
+    }
+
+    /// The command registered as `name` (or an alias), for a caller that
+    /// holds only a name the user typed.
+    pub fn command_named(&self, name: &str) -> Option<Command> {
+        self.find(name).map(|c| c.command)
     }
 
     pub fn parent(&self, name: &str) -> Option<&ParentInfo> {
@@ -502,6 +720,81 @@ mod tests {
     }
 
     #[test]
+    fn the_registry_names_exactly_the_forty_five_commands_and_their_aliases() {
+        let reg = registry();
+        let names: Vec<&str> = reg.commands.iter().map(|c| c.name).collect();
+        assert_eq!(
+            names,
+            [
+                "use",
+                "lock",
+                "status",
+                "exit",
+                "help",
+                "init",
+                "clone",
+                "vault list",
+                "vault info",
+                "vault remove",
+                "vault set-default",
+                "identity add",
+                "identity enroll",
+                "identity list",
+                "recipient add",
+                "recipient remove",
+                "recipient list",
+                "recipient pending",
+                "recipient approve",
+                "recipient deny",
+                "recipient verify",
+                "recovery enroll",
+                "recovery rotate",
+                "recovery verify",
+                "insert",
+                "show",
+                "cat",
+                "edit",
+                "rename",
+                "generate",
+                "rm",
+                "mv",
+                "cp",
+                "ls",
+                "search",
+                "reindex",
+                "sync",
+                "pull",
+                "push",
+                "log",
+                "history",
+                "git set-remote",
+                "auth login",
+                "auth status",
+                "auth logout",
+            ]
+        );
+        let aliases: Vec<(&str, &str)> = reg
+            .commands
+            .iter()
+            .flat_map(|c| c.aliases.iter().map(|a| (c.name, *a)))
+            .collect();
+        assert_eq!(
+            aliases,
+            [("status", "whoami"), ("exit", "quit"), ("search", "grep")]
+        );
+    }
+
+    #[test]
+    fn every_command_is_registered_exactly_once() {
+        let reg = registry();
+        for command in Command::ALL {
+            let n = reg.commands.iter().filter(|c| c.command == command).count();
+            assert_eq!(n, 1, "{command:?} is registered {n} times");
+        }
+        assert_eq!(reg.commands.len(), Command::ALL.len());
+    }
+
+    #[test]
     fn find_command_unknown() {
         assert_eq!(registry().find("not-a-command"), None);
     }
@@ -535,6 +828,7 @@ mod tests {
     #[test]
     fn group_commands_still_renders_a_group_missing_from_group_order() {
         let cmd = |name, group| CommandInfo {
+            command: Command::Run(RunCommand::Ls),
             name,
             aliases: &[],
             short: "s",
@@ -555,6 +849,7 @@ mod tests {
     #[test]
     fn groups_render_in_group_order() {
         let cmd = |name, group| CommandInfo {
+            command: Command::Run(RunCommand::Ls),
             name,
             aliases: &[],
             short: "s",

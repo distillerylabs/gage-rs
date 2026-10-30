@@ -26,6 +26,9 @@ by this log; a format change needs an ADR as well as a new spec.
 ### Project
 
 - [0001](0001-divergence-from-go-gage.md) gage-rs diverges and becomes its own project
+- [0055](0055-module-hierarchy.md) The library is grouped by concern; the root re-exports what a frontend names
+- [0056](0056-test-seams-off-production-types.md) Test seams live off production types; `Clock` is the session's injected time
+- [0057](0057-typed-command-dispatch.md) The registry carries a typed `Command`; dispatch is exhaustive
 
 ### Format and storage
 

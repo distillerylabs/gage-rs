@@ -11,7 +11,7 @@
 use crate::exitcode::ExitCode;
 use gage::gittest::{self, BareRemote};
 use gage::prompter::{FakePrompter, Purpose};
-use gage::{gitrepo, paths, recipients, vaultconfig};
+use gage::{storage::paths, storage::vaultconfig, sync::gitrepo, trust::recipient};
 
 use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE, config_file};
 
@@ -308,7 +308,7 @@ fn recipient_verify_exit_codes_and_differences() {
     let vault = t.a.vault_path();
     let own = t.a.vault_config(VAULT).recipients[0].pubkey.clone();
     let stray = stray_key();
-    recipients::save(&vault.join(".age-recipients"), &[own, stray.clone()]).unwrap();
+    recipient::save(&vault.join(".age-recipients"), &[own, stray.clone()]).unwrap();
 
     let r = t.a.run(&["recipient", "verify"]);
     assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);

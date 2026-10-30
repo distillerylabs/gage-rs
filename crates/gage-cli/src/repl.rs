@@ -14,11 +14,11 @@ use std::io::{BufReader, Read};
 use std::rc::Rc;
 
 use crate::exitcode::ExitCode;
-use gage::config;
-use gage::paths;
-use gage::prompter::Prompter;
-use gage::session::{Session, SessionConfig};
-use gage::xdgpaths::Dirs;
+use gage::Prompter;
+use gage::storage::config;
+use gage::storage::paths;
+use gage::storage::xdgpaths::Dirs;
+use gage::{Clock, Session, SessionConfig};
 
 use crate::Io;
 use crate::cli::{self, Outcome, ScriptSource};
@@ -27,7 +27,7 @@ use crate::complete::{SessionHelper, resolve_session_command_name};
 use crate::error::{CliError, prefixed};
 use crate::history::History;
 use crate::lineread::{LineReader, PlainLineReader, ReadOutcome, RustylineReader, read_one_line};
-use crate::registry::Registry;
+use crate::registry::{Command, Registry, SessionVerb};
 use crate::shell::{self, PromptState, ShellSettings};
 
 /// What the interactive session and a script run share: where gage keeps
@@ -44,8 +44,8 @@ struct Opened<'a> {
 }
 
 fn open<'a>(
-    dirs: Result<Dirs, gage::xdgpaths::Error>,
-    now: impl Fn() -> std::time::Instant + 'a,
+    dirs: Result<Dirs, gage::storage::xdgpaths::Error>,
+    clock: &'a dyn Clock,
     prompter: &'a dyn Prompter,
 ) -> Result<Opened<'a>, CliError> {
     let dirs = dirs?;
@@ -62,7 +62,7 @@ fn open<'a>(
         // A session starts pointed where a one-shot command would, so
         // `show foo` works before any `use`. Naming it doesn't unlock it.
         current: global.current,
-        now: Some(Box::new(now)),
+        clock,
     })));
     Ok(Opened {
         dirs,
@@ -97,7 +97,7 @@ pub fn run_session(reg: &Registry, io: &mut Io, prompter: &dyn Prompter) -> Resu
         dirs,
         settings,
         session,
-    } = open((io.dirs)(), io.now, prompter)?;
+    } = open((io.dirs)(), io.clock, prompter)?;
 
     let mut history = History::open(Some(&settings.history_file)).unwrap_or_else(|e| {
         // Losing recall is no reason to refuse a session: say so once.
@@ -156,7 +156,7 @@ pub fn run_script(
     // Before any session opens: a missing file is the command line's fault.
     let mut lines = Lines::open(source)?;
     let name = lines.name();
-    let Opened { session, .. } = open((io.dirs)(), io.now, prompter)?;
+    let Opened { session, .. } = open((io.dirs)(), io.clock, prompter)?;
 
     let result = (|| {
         for n in 1usize.. {
@@ -363,13 +363,15 @@ fn exec_line_in(
     args[0] = resolve_session_command_name(reg, first)?;
     let first = &args[0];
     let rest = &args[1..];
-    match reg.find(first).map(|c| c.name) {
-        Some("exit") => return Ok(true),
-        Some("use") => session_use(session, rest)?,
-        Some("lock") => session_lock(session, io, rest)?,
-        Some("status") => session_status(session, io, rest)?,
-        Some("help") => session_help(reg, io, rest)?,
-        _ => run_command(reg, session, io, &args, mode)?,
+    match reg.command_named(first) {
+        Some(Command::Session(verb)) => match verb {
+            SessionVerb::Exit => return Ok(true),
+            SessionVerb::Use => session_use(session, rest)?,
+            SessionVerb::Lock => session_lock(session, io, rest)?,
+            SessionVerb::Status => session_status(session, io, rest)?,
+            SessionVerb::Help => session_help(reg, io, rest)?,
+        },
+        Some(Command::Run(_)) | None => run_command(reg, session, io, &args, mode)?,
     }
     Ok(false)
 }
@@ -424,13 +426,12 @@ fn run_command(
         {
             Err(crate::assumeyes::refused_in_session())
         }
-        Outcome::Command(name, matches) => {
-            commands::run(name, &matches, io, &mut Keys::Session(session)).unwrap_or_else(|| {
-                Err(CliError::new(
-                    ExitCode::Internal,
-                    format!("{name} is not implemented yet"),
-                ))
-            })
+        // Dispatched before parsing, by `exec_line_in`.
+        Outcome::Command(Command::Session(_), _) => {
+            unreachable!("session verbs never reach the clap tree")
+        }
+        Outcome::Command(Command::Run(run), matches) => {
+            commands::run(run, &matches, io, &mut Keys::Session(session))
         }
     }
 }

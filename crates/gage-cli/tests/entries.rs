@@ -57,15 +57,19 @@ impl Machine {
     /// gage's roots as the binary resolves them from [`Machine::xdg`], so
     /// a path the test builds is the one the binary uses, not a copy of
     /// its layout.
-    fn dirs(&self) -> gage::xdgpaths::Dirs {
+    fn dirs(&self) -> gage::storage::xdgpaths::Dirs {
         let xdg = self.xdg();
         let env = |k: &str| {
             xdg.iter()
                 .find(|(name, _)| *name == k)
                 .map(|(_, p)| p.to_string_lossy().into_owned())
         };
-        gage::xdgpaths::Dirs::resolve(gage::xdgpaths::Os::current(), &env, self.root.path())
-            .unwrap()
+        gage::storage::xdgpaths::Dirs::resolve(
+            gage::storage::xdgpaths::Os::current(),
+            &env,
+            self.root.path(),
+        )
+        .unwrap()
     }
 
     /// Runs `args` with `stdin` after the passphrase line, and returns
@@ -84,7 +88,7 @@ impl Machine {
         self.root.path().join("data/gage/vaults/personal")
     }
 
-    fn vault_id(&self) -> gage::vaultconfig::VaultId {
+    fn vault_id(&self) -> gage::VaultId {
         let out = self.gage(&["vault", "info"]).output().unwrap();
         text(&out.stdout)
             .lines()
@@ -100,7 +104,7 @@ fn text(bytes: &[u8]) -> String {
 }
 
 fn commits(vault: &Path) -> usize {
-    gage::gitrepo::commit_count(vault).unwrap()
+    gage::sync::gitrepo::commit_count(vault).unwrap()
 }
 
 // Two real gage
@@ -134,10 +138,10 @@ fn concurrent_inserts_through_the_cli_both_succeed() {
     assert!(ls.contains("first") && ls.contains("second"), "{ls}");
     for (title, value) in [("first", "one"), ("second", "two")] {
         let yaml = m.ok(&["cat", title], "");
-        let e = gage::entry::Entry::from_yaml(yaml.as_bytes()).unwrap();
+        let e = gage::Entry::from_yaml(yaml.as_bytes()).unwrap();
         assert_eq!(e.value, value);
     }
-    assert!(gage::gitrepo::is_clean(&m.vault_dir()).unwrap());
+    assert!(gage::sync::gitrepo::is_clean(&m.vault_dir()).unwrap());
 }
 
 // A reader takes no lock, so
@@ -147,12 +151,12 @@ fn concurrent_inserts_through_the_cli_both_succeed() {
 fn concurrent_reads_do_not_block_each_other() {
     let m = Machine::with_vault();
     m.ok(&["insert", "readable"], "v\n");
-    let lock_path = gage::paths::lock_file_path(&m.dirs(), &m.vault_id());
+    let lock_path = gage::storage::paths::lock_file_path(&m.dirs(), &m.vault_id());
     assert!(
         lock_path.parent().unwrap().is_dir(),
         "the insert above made the lock directory, so this is the path writers lock"
     );
-    let held = gage::vaultlock::Lock::acquire(&lock_path, std::time::Duration::ZERO)
+    let held = gage::storage::vaultlock::Lock::acquire(&lock_path, std::time::Duration::ZERO)
         .expect("the write lock is free before the readers start");
 
     std::thread::scope(|scope| {
@@ -177,7 +181,7 @@ fn value_stdin_after_a_piped_passphrase_stores_the_value() {
     m.ok(&["insert", "piped", "--value-stdin"], "the-value\n");
 
     let yaml = m.ok(&["cat", "piped"], "");
-    let e = gage::entry::Entry::from_yaml(yaml.as_bytes()).unwrap();
+    let e = gage::Entry::from_yaml(yaml.as_bytes()).unwrap();
     assert_eq!(e.value, "the-value");
 }
 
@@ -273,7 +277,7 @@ fn insert_multiline_captures_from_a_real_terminal_until_eof() {
     );
 
     let yaml = m.ok(&["cat", "Notes"], "");
-    let e = gage::entry::Entry::from_yaml(yaml.as_bytes()).unwrap();
+    let e = gage::Entry::from_yaml(yaml.as_bytes()).unwrap();
     assert_eq!(e.value, typed, "byte for byte what was typed");
 }
 

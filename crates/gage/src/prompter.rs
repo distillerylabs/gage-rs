@@ -15,8 +15,8 @@ use zeroize::Zeroizing;
 
 use crate::entry::CandidateList;
 use crate::error::{ErrorKind, HasKind, Remedy};
-use crate::syncresolve::{EntryConflict, Resolution};
-use crate::trustcache::RecipientChangeWarning;
+use crate::sync::syncresolve::{EntryConflict, Resolution};
+use crate::trust::trustcache::RecipientChangeWarning;
 
 /// The identity method an [`UnlockRequest`] is asking about. Unlocking is
 /// one method-agnostic exchange rather than a passphrase-specific call, so

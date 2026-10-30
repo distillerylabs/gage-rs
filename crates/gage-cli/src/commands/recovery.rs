@@ -9,16 +9,16 @@ use std::path::PathBuf;
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::error::{ErrorKind, HasKind};
-use gage::identityfile::{self, IdentityBackup};
-use gage::prompter::Prompter;
-use gage::recipient::RecipientError;
+use gage::Prompter;
+use gage::UnlockMethod;
+use gage::Vault;
 use gage::recovery::{
     RECOVERY_DEVICE_LABEL, RecoverResult, RecoverSpec, RecoveryError, RotateResult,
     check_device_label_free, new_recovery_key,
 };
-use gage::vault::Vault;
-use gage::vaultconfig::UnlockMethod;
+use gage::storage::identityfile::{self, IdentityBackup};
+use gage::trust::recipient::RecipientError;
+use gage::{ErrorKind, HasKind};
 
 use super::entry::{open_vault, use_flag};
 use super::identity::record_local_identity;
@@ -74,37 +74,38 @@ so a stolen identity file stops opening anything new. Naming the device being
 enrolled is how you rebuild a machine under the name it already had, and the
 only case in which this replaces a local identity file rather than refusing.";
 
-pub fn flags(name: &str) -> Vec<Arg> {
-    match name {
-        "recovery enroll" => vec![
-            Arg::new("device")
-                .long("device")
-                .value_name("NAME")
-                .help("this device's name for the vault (default: normalized hostname)"),
-            Arg::new("no-new-recovery-key")
-                .long("no-new-recovery-key")
-                .action(ArgAction::SetTrue)
-                .help("don't generate a replacement recovery key (leaves the vault without one)"),
-            Arg::new("recovery-key-out")
-                .long("recovery-key-out")
-                .value_name("FILE")
-                .help("write the replacement recovery key to this file (mode 0600) instead of showing it"),
-            Arg::new("replaces")
-                .long("replaces")
-                .value_name("NAME")
-                .help("device whose key to remove in the same commit (the one that was lost)"),
-            use_flag(),
-        ],
-        "recovery rotate" => vec![
-            Arg::new("recovery-key-out")
-                .long("recovery-key-out")
-                .value_name("FILE")
-                .help("write the new recovery key to this file (mode 0600) instead of showing it"),
-            use_flag(),
-        ],
-        "recovery verify" => vec![use_flag()],
-        _ => Vec::new(),
-    }
+pub fn enroll_flags() -> Vec<Arg> {
+    vec![
+        Arg::new("device")
+            .long("device")
+            .value_name("NAME")
+            .help("this device's name for the vault (default: normalized hostname)"),
+        Arg::new("no-new-recovery-key")
+            .long("no-new-recovery-key")
+            .action(ArgAction::SetTrue)
+            .help("don't generate a replacement recovery key (leaves the vault without one)"),
+        Arg::new("recovery-key-out")
+            .long("recovery-key-out")
+            .value_name("FILE")
+            .help(
+                "write the replacement recovery key to this file (mode 0600) instead of showing it",
+            ),
+        Arg::new("replaces")
+            .long("replaces")
+            .value_name("NAME")
+            .help("device whose key to remove in the same commit (the one that was lost)"),
+        use_flag(),
+    ]
+}
+
+pub fn rotate_flags() -> Vec<Arg> {
+    vec![
+        Arg::new("recovery-key-out")
+            .long("recovery-key-out")
+            .value_name("FILE")
+            .help("write the new recovery key to this file (mode 0600) instead of showing it"),
+        use_flag(),
+    ]
 }
 
 /// `recovery verify`: checks a pasted key against the plaintext recipient

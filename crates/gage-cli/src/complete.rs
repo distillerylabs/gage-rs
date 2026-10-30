@@ -26,22 +26,13 @@ use rustyline::validate::Validator;
 use rustyline::{Context, Helper};
 
 use crate::exitcode::ExitCode;
-use gage::config;
-use gage::paths;
-use gage::session::Session;
-use gage::xdgpaths::Dirs;
+use gage::Session;
+use gage::storage::config;
+use gage::storage::paths;
+use gage::storage::xdgpaths::Dirs;
 
 use crate::error::CliError;
-use crate::registry::Registry;
-
-/// Commands whose first positional addresses an entry: `show`, `cat`,
-/// `edit`, `rename`, `rm`, and `generate`, whose argument names a *new*
-/// entry but for which existing titles are still worth seeing (to avoid a
-/// duplicate). `mv` and `cp` take a query too. One list,
-/// so the decision lives in one place.
-const ENTRY_QUERY_COMMANDS: [&str; 8] = [
-    "show", "cat", "edit", "rename", "generate", "rm", "mv", "cp",
-];
+use crate::registry::{self, Command as CommandId, Registry, SessionVerb};
 
 /// Every candidate that starts with `prefix`, deduplicated and sorted.
 pub fn prefix_matches(candidates: &[String], prefix: &str) -> Vec<String> {
@@ -250,10 +241,15 @@ pub fn leaf_positional_candidates(
     if !typed.is_empty() {
         return Vec::new();
     }
-    match target.get_name() {
-        "use" | "lock" => vault_name_candidates(dirs),
-        name if ENTRY_QUERY_COMMANDS.contains(&name) => entry_title_candidates(session),
-        _ => Vec::new(),
+    // The tree's leaf name is a registry name only for a top-level
+    // command; a nested leaf (`auth status`) shares no name with one that
+    // takes a query.
+    match registry::registry().command_named(target.get_name()) {
+        Some(CommandId::Session(SessionVerb::Use | SessionVerb::Lock)) => {
+            vault_name_candidates(dirs)
+        }
+        Some(command) if command.takes_entry_query() => entry_title_candidates(session),
+        Some(_) | None => Vec::new(),
     }
 }
 

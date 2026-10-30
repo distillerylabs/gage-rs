@@ -271,7 +271,7 @@ fn prune_without_a_pending_directory_is_not_an_error() {
 fn pruning_leaves_live_requests_alone() {
     let f = vault();
     let live = seal_into(&f.vault, "phone-1", &new_pubkey(), DAY);
-    crate::gitrepo::commit_all(&f.vault.path, "test: a live enrollment request").unwrap();
+    crate::sync::gitrepo::commit_all(&f.vault.path, "test: a live enrollment request").unwrap();
 
     f.vault
         .add_recipient(

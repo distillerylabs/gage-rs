@@ -15,16 +15,16 @@ use super::code::normalize_code;
 use super::name::parse_pending_file_name;
 use super::seal::Attempt;
 use super::{EnrollmentError, OpenedRequest, PENDING_DIR, PendingRequest, read_pending_file};
+use crate::crypto::identity::Identity;
 use crate::entry::WRITE_LOCK_TIMEOUT;
 use crate::error::Remedy;
-use crate::gitrepo::{self, REMOTE_OP_TIMEOUT};
-use crate::identity::Identity;
 use crate::prompter::{Prompter, Warning};
-use crate::recipient::RecipientWrite;
 use crate::recovery::check_device_label_free;
-use crate::remotesync::{PushClause, offline_or_error};
+use crate::storage::vaultconfig::Recipient;
+use crate::sync::gitrepo::{self, REMOTE_OP_TIMEOUT};
+use crate::sync::remotesync::{PushClause, offline_or_error};
+use crate::trust::recipient::RecipientWrite;
 use crate::vault::Vault;
-use crate::vaultconfig::Recipient;
 
 /// What an unpublished approval says it cost. The generic "committed
 /// locally but not pushed" is far too thin here: locally the vault is

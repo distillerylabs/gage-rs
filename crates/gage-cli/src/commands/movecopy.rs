@@ -9,10 +9,10 @@
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::identity::Identity;
-use gage::movecopy::{MoveError, MoveResult};
-use gage::prompter::Prompter;
-use gage::vault::Vault;
+use gage::Identity;
+use gage::Prompter;
+use gage::Vault;
+use gage::entry::movecopy::{MoveError, MoveResult};
 
 use super::entry::{open_vault, resolve_failure, use_flag, use_name, with_unlocked};
 use super::{Keys, arg, dirs, fail, open_registered, out, session_failure};

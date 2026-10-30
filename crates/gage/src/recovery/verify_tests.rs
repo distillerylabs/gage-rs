@@ -2,9 +2,9 @@
 
 use super::*;
 use crate::error::{ErrorKind, HasKind};
-use crate::recipient_tests::dirs_in;
+use crate::storage::vaultconfig;
+use crate::trust::recipient::recipient_tests::dirs_in;
 use crate::vault::{CreateSpec, LabelledRecipient, Vault};
-use crate::vaultconfig;
 
 struct Fixture {
     _root: tempfile::TempDir,
@@ -24,7 +24,7 @@ fn fixture() -> Fixture {
             name: "personal".into(),
             id: vaultconfig::VaultId::new(),
             path: root.path().join("vault"),
-            vault_type: crate::vaultconfig::VaultType::Git,
+            vault_type: crate::storage::vaultconfig::VaultType::Git,
             method: "passphrase".into(),
             device: "laptop-1".into(),
             recipients: vec![device.to_public().to_string()],

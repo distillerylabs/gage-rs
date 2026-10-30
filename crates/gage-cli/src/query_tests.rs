@@ -5,7 +5,8 @@
 //! `editor::fake`) set on the [`Env`].
 
 use crate::exitcode::ExitCode;
-use gage::entry::{Entry, Timestamp};
+use gage::Entry;
+use gage::entry::Timestamp;
 use gage::prompter::FakePrompter;
 use uuid::Uuid;
 
@@ -39,7 +40,7 @@ impl Env {
         vault.write_entry(id, &e).unwrap();
         // Committed, as a real write would be: an uncommitted file is what
         // the next write's dirty-tree reset discards.
-        gage::gitrepo::commit_all(&vault.path, &id.to_string()).unwrap();
+        gage::sync::gitrepo::commit_all(&vault.path, &id.to_string()).unwrap();
         id
     }
 
@@ -481,7 +482,7 @@ fn generate_inserts_entry_with_random_value_of_sane_default_length() {
 
     let (id, e) = env.only_entry("personal");
     assert_eq!(e.title, "GitHub");
-    assert_eq!(e.value.len(), gage::generate::DEFAULT_LENGTH);
+    assert_eq!(e.value.len(), gage::crypto::generate::DEFAULT_LENGTH);
     assert_eq!(r.stdout, format!("gage: generated \"GitHub\" ({id})\n"));
     assert!(!r.stdout.contains(&e.value) && !r.stderr.contains(&e.value));
 }

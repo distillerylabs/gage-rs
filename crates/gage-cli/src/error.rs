@@ -7,7 +7,7 @@
 
 use std::fmt;
 
-use gage::error::{HasKind, Remedy};
+use gage::{HasKind, Remedy};
 
 use crate::exitcode::ExitCode;
 
@@ -122,7 +122,7 @@ pub fn prefixed(msg: impl fmt::Display) -> String {
 mod tests {
     use super::*;
 
-    use gage::error::ErrorKind;
+    use gage::ErrorKind;
 
     #[derive(Debug, thiserror::Error)]
     #[error("library failure")]
@@ -165,7 +165,7 @@ mod tests {
     fn a_cause_already_in_the_message_is_not_repeated() {
         let dir = std::env::temp_dir().join("gage-cli-error-test-missing-dir");
         let lib_err =
-            gage::config::save(&dir.join("config.toml"), &Default::default()).unwrap_err();
+            gage::storage::config::save(&dir.join("config.toml"), &Default::default()).unwrap_err();
         let cause = std::error::Error::source(&lib_err).unwrap().to_string();
         let err: CliError = lib_err.into();
 
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn a_library_error_keeps_its_own_code() {
-        let err: CliError = gage::paths::Error::InvalidDeviceName("x".into()).into();
+        let err: CliError = gage::storage::paths::Error::InvalidDeviceName("x".into()).into();
         assert_eq!(err.code(), ExitCode::LockedOrAuth);
     }
 
@@ -202,7 +202,7 @@ mod tests {
     // script line's.
     #[test]
     fn every_error_is_prefixed_exactly_once() {
-        let library: CliError = gage::paths::Error::InvalidDeviceName("x".into()).into();
+        let library: CliError = gage::storage::paths::Error::InvalidDeviceName("x".into()).into();
         let made = CliError::new(ExitCode::Usage, "bad flag");
         let wrapped = CliError::new(ExitCode::Usage, "bad flag").context("saving");
         let script = crate::repl::script_error(

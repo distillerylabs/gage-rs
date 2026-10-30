@@ -64,7 +64,7 @@ fn recovery_rotate_replaces_the_key() {
     let old = init_vault_with_recovery_key_file(&env, VAULT);
     insert(&env, "api-token", "s3cr3t");
     let path = env.entry(VAULT).path;
-    let commits = gage::gitrepo::commit_count(&path).unwrap();
+    let commits = gage::sync::gitrepo::commit_count(&path).unwrap();
 
     let (r, shown, p) = run_rotate(&env, &[]);
     assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
@@ -74,7 +74,10 @@ fn recovery_rotate_replaces_the_key() {
     assert_eq!(requests.len(), 1, "{requests:?}");
     assert_eq!(requests[0].purpose, Purpose::Unlock);
 
-    assert_eq!(gage::gitrepo::commit_count(&path).unwrap(), commits + 1);
+    assert_eq!(
+        gage::sync::gitrepo::commit_count(&path).unwrap(),
+        commits + 1
+    );
     assert_verifies(&env, &shown, true);
     assert_verifies(&env, &old, false);
     let show = env.run(&["show", "api-token"]);
@@ -296,7 +299,8 @@ fn recovery_verify_tolerates_pasted_whitespace() {
 fn recovery_verify_needs_no_unlock() {
     let env = Env::new();
     let secret = init_vault_with_recovery_key_file(&env, VAULT);
-    let lock = gage::paths::lock_file_path(&env.dirs, &env.entry(VAULT).id.clone().unwrap());
+    let lock =
+        gage::storage::paths::lock_file_path(&env.dirs, &env.entry(VAULT).id.clone().unwrap());
     let _ = std::fs::remove_file(&lock);
 
     let (r, p) = run_verify(&env, &secret);
@@ -473,7 +477,7 @@ fn recovery_enroll_without_a_terminal_refuses_before_anything() {
 #[test]
 fn recovery_enroll_refuses_a_colliding_name_before_the_paste() {
     use crate::lifecycle_tests::Tty;
-    use gage::recipient::RecipientError;
+    use gage::trust::recipient::RecipientError;
 
     let env = Env::new();
     let pasted = init_vault_with_recovery_key_file(&env, VAULT);
@@ -678,7 +682,7 @@ fn recovery_enroll_gets_a_working_device_back() {
         "proves nothing"
     );
     let path = env.entry(VAULT).path;
-    let commits = gage::gitrepo::commit_count(&path).unwrap();
+    let commits = gage::sync::gitrepo::commit_count(&path).unwrap();
 
     let (r, shown, p) = run_enroll(&env, &pasted, &["--device", "laptop-2"]);
     assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
@@ -689,7 +693,10 @@ fn recovery_enroll_gets_a_working_device_back() {
     assert_eq!(requests.len(), 1, "{requests:?}");
     assert_eq!(requests[0].purpose, Purpose::Create);
     assert_eq!(requests[0].device, "laptop-2");
-    assert_eq!(gage::gitrepo::commit_count(&path).unwrap(), commits + 1);
+    assert_eq!(
+        gage::sync::gitrepo::commit_count(&path).unwrap(),
+        commits + 1
+    );
 
     // The vault reads again, through the ordinary unlock.
     let read = show(&env, "api-token");
@@ -826,7 +833,7 @@ fn recovery_enroll_replaces_a_different_lost_device() {
     let pasted = init_vault_with_recovery_key_file(&env, VAULT);
     lose_the_identity_file(&env);
     let path = env.entry(VAULT).path;
-    let commits = gage::gitrepo::commit_count(&path).unwrap();
+    let commits = gage::sync::gitrepo::commit_count(&path).unwrap();
 
     let (r, _, _) = run_enroll(
         &env,
@@ -835,7 +842,10 @@ fn recovery_enroll_replaces_a_different_lost_device() {
     );
     assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
     assert_eq!(labels(&env), ["laptop-2", RECOVERY_DEVICE_LABEL]);
-    assert_eq!(gage::gitrepo::commit_count(&path).unwrap(), commits + 1);
+    assert_eq!(
+        gage::sync::gitrepo::commit_count(&path).unwrap(),
+        commits + 1
+    );
     assert!(r.stdout.contains("removed \"laptop-1\""), "{}", r.stdout);
 }
 
@@ -849,7 +859,7 @@ fn recovery_enroll_rolls_back_the_identity_when_the_swap_fails() {
     lose_the_identity_file(&env);
     let before = env.vault_config(VAULT).recipients;
     let registration = env.entry(VAULT);
-    let commits = gage::gitrepo::commit_count(&registration.path).unwrap();
+    let commits = gage::sync::gitrepo::commit_count(&registration.path).unwrap();
 
     let (r, shown, p) = run_enroll(
         &env,
@@ -871,7 +881,7 @@ fn recovery_enroll_rolls_back_the_identity_when_the_swap_fails() {
         (registration.device, registration.pubkey)
     );
     assert_eq!(
-        gage::gitrepo::commit_count(&registration.path).unwrap(),
+        gage::sync::gitrepo::commit_count(&registration.path).unwrap(),
         commits
     );
     // A key made for a swap that never happened is no one's: never shown.
@@ -886,8 +896,8 @@ fn recovery_enroll_rolls_back_the_identity_when_the_swap_fails() {
 // the vault's only identity, so its directory was pruned with it.
 #[test]
 fn recovery_enroll_restores_the_identity_it_displaced_when_aborted() {
-    use gage::identityfile::MARKER_FILE_NAME;
     use gage::prompter::PromptError;
+    use gage::storage::identityfile::MARKER_FILE_NAME;
 
     let env = Env::new();
     let pasted = init_vault_with_recovery_key_file(&env, VAULT);
@@ -957,11 +967,11 @@ fn recovery_enroll_restores_the_displaced_identity_when_the_swap_fails() {
     let file = identity_files(&env).pop().unwrap();
     let original = std::fs::read(&file).unwrap();
     let path = env.entry(VAULT).path;
-    let mut listed = gage::recipients::load(&path.join(".age-recipients")).unwrap();
+    let mut listed = gage::trust::recipient::load(&path.join(".age-recipients")).unwrap();
     listed.push(gage::recovery::new_recovery_key().unwrap().pubkey);
-    gage::recipients::save(&path.join(".age-recipients"), &listed).unwrap();
-    gage::gitrepo::commit_all(&path, "diverge the recipient files").unwrap();
-    let commits = gage::gitrepo::commit_count(&path).unwrap();
+    gage::trust::recipient::save(&path.join(".age-recipients"), &listed).unwrap();
+    gage::sync::gitrepo::commit_all(&path, "diverge the recipient files").unwrap();
+    let commits = gage::sync::gitrepo::commit_count(&path).unwrap();
 
     let out = env.root.path().join("new.key");
     let p = FakePrompter::new()
@@ -989,7 +999,7 @@ fn recovery_enroll_restores_the_displaced_identity_when_the_swap_fails() {
 
     assert_eq!(std::fs::read(&file).expect("destroyed"), original);
     assert_eq!(identity_files(&env), [file]);
-    assert_eq!(gage::gitrepo::commit_count(&path).unwrap(), commits);
+    assert_eq!(gage::sync::gitrepo::commit_count(&path).unwrap(), commits);
     assert!(
         !out.exists(),
         "a key was delivered for a swap that never happened"

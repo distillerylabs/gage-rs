@@ -2,7 +2,7 @@
 //! in-process.
 
 use crate::exitcode::ExitCode;
-use gage::entry::Entry;
+use gage::Entry;
 use gage::prompter::FakePrompter;
 use uuid::Uuid;
 
@@ -318,9 +318,9 @@ fn history_decrypt_fails_on_an_undecryptable_revision() {
     let file = vault.path.join(format!("entries/{id}.age"));
     let sound = std::fs::read(&file).unwrap();
     std::fs::write(&file, b"not age").unwrap();
-    gage::gitrepo::commit_all(&vault.path, &id.to_string()).unwrap();
+    gage::sync::gitrepo::commit_all(&vault.path, &id.to_string()).unwrap();
     std::fs::write(&file, sound).unwrap();
-    gage::gitrepo::commit_all(&vault.path, &id.to_string()).unwrap();
+    gage::sync::gitrepo::commit_all(&vault.path, &id.to_string()).unwrap();
 
     let r = env.cmd(&["history", "--decrypt", "Account"]);
     assert_eq!(r.code, ExitCode::Conflict, "{}", r.stdout);

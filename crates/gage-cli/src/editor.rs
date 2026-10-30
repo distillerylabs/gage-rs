@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::exitcode::ExitCode;
-use gage::entry::Entry;
+use gage::Entry;
 use zeroize::Zeroizing;
 
 use crate::error::CliError;
@@ -251,7 +251,9 @@ pub(crate) mod fake {
     use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
 
-    use gage::entry::{Entry, Timestamp};
+    use gage::Entry;
+
+    use gage::entry::Timestamp;
 
     /// The config file's suffix: how the trampoline knows it was run as an
     /// editor rather than as part of the suite.

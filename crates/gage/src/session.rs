@@ -34,14 +34,14 @@ use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
+use crate::crypto::identity::Identity;
+use crate::entry::index::Index;
+use crate::entry::search::{SearchResult, matches_body, sort_results};
 use crate::entry::{self, Entry, ListEntry, ResolveError, resolve_query};
 use crate::error::{ErrorKind, HasKind, Remedy};
-use crate::identity::Identity;
-use crate::identityfile::UnlockError;
-use crate::index::Index;
 use crate::prompter::{PromptError, Prompter, Warning};
-use crate::remotesync::{SyncError, SyncReport};
-use crate::search::{SearchResult, matches_body, sort_results};
+use crate::storage::identityfile::UnlockError;
+use crate::sync::remotesync::{SyncError, SyncReport};
 use crate::vault::Vault;
 
 /// Why the session's opener couldn't produce a vault: the frontend's
@@ -56,8 +56,8 @@ use crate::vault::Vault;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum OpenError {
-    Config(Box<crate::config::Error>),
-    Registry(crate::config::RegistryError),
+    Config(Box<crate::storage::config::Error>),
+    Registry(crate::storage::config::RegistryError),
     Resolve(Box<crate::vault::ResolveError>),
 }
 
@@ -81,14 +81,14 @@ impl std::error::Error for OpenError {
     }
 }
 
-impl From<crate::config::Error> for OpenError {
-    fn from(e: crate::config::Error) -> OpenError {
+impl From<crate::storage::config::Error> for OpenError {
+    fn from(e: crate::storage::config::Error) -> OpenError {
         OpenError::Config(Box::new(e))
     }
 }
 
-impl From<crate::config::RegistryError> for OpenError {
-    fn from(e: crate::config::RegistryError) -> OpenError {
+impl From<crate::storage::config::RegistryError> for OpenError {
+    fn from(e: crate::storage::config::RegistryError) -> OpenError {
         OpenError::Registry(e)
     }
 }
@@ -194,11 +194,27 @@ pub struct SessionConfig<'a> {
     /// `current`, so a session behaves like one-shot mode until `use`.
     /// Naming it doesn't unlock it; the first call that needs a key does.
     pub current: Option<String>,
-    /// The clock the idle timeout reads; `None` is [`Instant::now`].
-    /// Injected so tests simulate elapsed time instead of sleeping. A
-    /// plain function suffices: the timeout is a check at the start of a
-    /// call, never a background timer.
-    pub now: Option<Box<dyn Fn() -> Instant + 'a>>,
+    /// The clock the idle timeout and `status` read: [`SystemClock`], or
+    /// a test's, which simulates elapsed time instead of sleeping.
+    pub clock: &'a dyn Clock,
+}
+
+/// The session's time: what the idle timeout and `status` measure against
+/// (ADR-0056). A reading is enough, with no timer behind it: the timeout
+/// is a check at the start of a call, never a background thread. So there
+/// is no `Send + Sync` bound, and a test clock can be an `Rc<Cell<_>>`.
+pub trait Clock {
+    fn now(&self) -> Instant;
+}
+
+/// The real clock: [`Instant::now`].
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
 }
 
 /// Every entry of a vault, decrypted in one pass.
@@ -296,7 +312,7 @@ pub struct Session<'a> {
     open: Opener<'a>,
     prompter: &'a dyn Prompter,
     idle_timeout: Option<Duration>,
-    now: Box<dyn Fn() -> Instant + 'a>,
+    clock: &'a dyn Clock,
     current: Option<String>,
     vaults: BTreeMap<String, HeldVault>,
     /// How many commands are in flight (see [`Session::begin_command`]);
@@ -310,7 +326,7 @@ impl<'a> Session<'a> {
             open: cfg.open,
             prompter: cfg.prompter,
             idle_timeout: cfg.idle_timeout.filter(|t| !t.is_zero()),
-            now: cfg.now.unwrap_or_else(|| Box::new(Instant::now)),
+            clock: cfg.clock,
             current: cfg.current,
             vaults: BTreeMap::new(),
             depth: 0,
@@ -405,7 +421,7 @@ impl<'a> Session<'a> {
         self.enter();
         let name = self.target(name)?;
         let prompter = self.prompter;
-        let now = (self.now)();
+        let now = self.clock.now();
         let held = self.hold(&name)?;
         // The vault and its cached identity borrowed together: both are
         // shared borrows of one held vault.
@@ -435,7 +451,7 @@ impl<'a> Session<'a> {
     pub fn vault(&mut self, name: Option<&str>) -> Result<(&Vault, &Identity), SessionError> {
         self.enter();
         let name = self.target(name)?;
-        let now = (self.now)();
+        let now = self.clock.now();
         let prompter = self.prompter;
         let held = self.hold(&name)?;
         if !held.is_unlocked() {
@@ -656,7 +672,7 @@ impl<'a> Session<'a> {
     /// honest.
     pub fn status(&mut self) -> Vec<VaultState> {
         self.enter();
-        let now = (self.now)();
+        let now = self.clock.now();
         self.vaults
             .iter()
             .map(|(name, held)| VaultState {
@@ -695,7 +711,7 @@ impl<'a> Session<'a> {
         let Some(timeout) = self.idle_timeout else {
             return;
         };
-        let now = (self.now)();
+        let now = self.clock.now();
         for held in self.vaults.values_mut() {
             let idle = held
                 .last_used

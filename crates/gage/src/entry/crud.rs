@@ -15,12 +15,12 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use super::{Entry, Error, Extra, Timestamp, new_id};
+use crate::crypto::identity::Identity;
 use crate::error::{ErrorKind, HasKind, Remedy};
-use crate::identity::Identity;
 use crate::prompter::{Prompter, Warning};
-use crate::trustcache::TrustError;
+use crate::trust::trustcache::TrustError;
 use crate::vault::Vault;
-use crate::{gitrepo, paths, vaultlock};
+use crate::{storage::paths, storage::vaultlock, sync::gitrepo};
 
 /// How long a write waits for another process's write to finish before
 /// giving up: long enough for any normal commit,
@@ -629,10 +629,10 @@ mod tests {
 
     use super::*;
     use crate::prompter::FakePrompter;
+    use crate::storage::xdgpaths::Dirs;
     use crate::testsupport::fast_scrypt;
     use crate::vault::CreateSpec;
-    use crate::xdgpaths::Dirs;
-    use crate::{config, vaultconfig, vaultlock};
+    use crate::{storage::config, storage::vaultconfig, storage::vaultlock};
 
     /// A real vault (git repository, recipients file) and the identity
     /// that can read it.
@@ -663,7 +663,7 @@ mod tests {
                     name: "work".into(),
                     id: vaultconfig::VaultId::new(),
                     path: root.path().join("vault"),
-                    vault_type: crate::vaultconfig::VaultType::Git,
+                    vault_type: crate::storage::vaultconfig::VaultType::Git,
                     method: "passphrase".into(),
                     device: "laptop-1".into(),
                     recipients: vec![key.to_public().to_string()],
@@ -1473,7 +1473,7 @@ mod tests {
         let f = Fixture::new();
         let entry = config::VaultEntry {
             path: f.dirs.data.join("gone"),
-            vault_type: crate::vaultconfig::VaultType::Git,
+            vault_type: crate::storage::vaultconfig::VaultType::Git,
             device: "test-device".into(),
             method: "passphrase".into(),
             ..Default::default()

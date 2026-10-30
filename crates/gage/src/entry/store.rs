@@ -9,7 +9,7 @@ use zeroize::Zeroizing;
 
 use super::{ENTRIES_DIR_NAME, ENTRY_FILE_EXT, Entry, Error};
 use crate::vault::Vault;
-use crate::{atomicfile, crypt, identity::Identity, recipients};
+use crate::{crypto::crypt, crypto::identity::Identity, storage::atomicfile, trust::recipient};
 
 impl Vault {
     /// `<vault>/entries`.
@@ -27,7 +27,7 @@ impl Vault {
     /// (`age1yubikey1…`) is legal there but not encryptable by this build,
     /// and fails here, before anything is written.
     fn encrypt_recipients(&self) -> Result<Vec<crypt::Recipient>, Error> {
-        let keys = recipients::load(&self.path.join(".age-recipients"))?;
+        let keys = recipient::load(&self.path.join(".age-recipients"))?;
         Ok(keys
             .iter()
             .map(|k| crypt::Recipient::parse(k))
@@ -79,7 +79,7 @@ impl Vault {
     /// `.age-recipients`, without writing it anywhere: what [`Vault::write_entry`] writes, and what a
     /// conflict resolution's keep-both hands the merge to create. Stamps
     /// nothing: the entry is encrypted exactly as given.
-    pub fn encrypt_entry(&self, e: &Entry) -> Result<Vec<u8>, Error> {
+    pub(crate) fn encrypt_entry(&self, e: &Entry) -> Result<Vec<u8>, Error> {
         let to = self.encrypt_recipients()?;
         let plaintext = e.to_yaml()?;
         Ok(crypt::encrypt(&plaintext, &to)?)
@@ -92,14 +92,14 @@ impl Vault {
         ciphertext: &[u8],
         identity: &Identity,
     ) -> Result<Entry, Error> {
-        self.decrypts.bump();
+        self.count_decrypt();
         let plaintext = Zeroizing::new(crypt::decrypt(ciphertext, identity)?);
         Entry::from_yaml(&plaintext)
     }
 
     /// Reads and decrypts `entries/<id>.age` with `identity` and parses
     /// the result. Ciphertext `identity` isn't a recipient of fails with
-    /// [`crypt::Error::NotARecipient`], unwrapped, so a caller can tell
+    /// `crypt::Error::NotARecipient`, unwrapped, so a caller can tell
     /// "wrong key" from "damaged file" from "no such entry".
     pub fn read_entry(&self, id: Uuid, identity: &Identity) -> Result<Entry, Error> {
         let path = self.entry_path(id);
@@ -182,8 +182,8 @@ mod tests {
     use super::*;
     use crate::entry::{Extra, Timestamp, new_id};
     use crate::error::{ErrorKind, HasKind};
+    use crate::storage::xdgpaths::Dirs;
     use crate::testsupport::fast_scrypt;
-    use crate::xdgpaths::Dirs;
 
     /// A vault directory with a recipients file and the identities that
     /// can read it.
@@ -202,14 +202,15 @@ mod tests {
                 data: root.path().join("data"),
                 state: root.path().join("state"),
             };
-            let mut vault = Vault::for_tests(&dirs, "work", &crate::vaultconfig::VaultId::new());
+            let mut vault =
+                Vault::for_tests(&dirs, "work", &crate::storage::vaultconfig::VaultId::new());
             vault.path = root.path().join("vault");
             std::fs::create_dir_all(&vault.path).unwrap();
             let keys: Vec<_> = (0..recipient_count)
                 .map(|_| age::x25519::Identity::generate())
                 .collect();
             let public: Vec<String> = keys.iter().map(|k| k.to_public().to_string()).collect();
-            recipients::save(&vault.path.join(".age-recipients"), &public).unwrap();
+            recipient::save(&vault.path.join(".age-recipients"), &public).unwrap();
             Fixture {
                 _root: root,
                 vault,
@@ -376,9 +377,9 @@ mod tests {
     #[test]
     fn write_entry_rejects_a_recipient_it_cannot_encrypt_to() {
         let f = Fixture::new(1);
-        let mut keys = recipients::load(&f.vault.path.join(".age-recipients")).unwrap();
+        let mut keys = recipient::load(&f.vault.path.join(".age-recipients")).unwrap();
         keys.push("age1yubikey1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9hkmc0".into());
-        recipients::save(&f.vault.path.join(".age-recipients"), &keys).unwrap();
+        recipient::save(&f.vault.path.join(".age-recipients"), &keys).unwrap();
         let err = f.vault.write_entry(new_id(), &sample()).unwrap_err();
         assert!(
             matches!(&err, Error::Crypt(crypt::Error::InvalidRecipient { .. })),

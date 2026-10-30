@@ -15,17 +15,17 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
-use crate::config;
-use crate::crypt;
+use crate::crypto::crypt;
 use crate::enrollment::{Payload, normalize_code};
 use crate::entry::Entry;
 use crate::prompter::FakePrompter;
 use crate::recovery::RECOVERY_DEVICE_LABEL;
+use crate::storage::config;
+use crate::storage::vaultconfig::{self, Method, Recipient, VersionSkew};
 use crate::testsupport::format_v2::{self as fx, Installed};
-use crate::trustcache::{KNOWN_CONFIG_FILE, TRUST_FILE, TrustRecord};
+use crate::trust::trustcache::{KNOWN_CONFIG_FILE, TRUST_FILE, TrustRecord};
 use crate::vault::Vault;
-use crate::vaultconfig::{self, Method, Recipient, VersionSkew};
-use crate::{gitrepo, identityfile, paths, recipients};
+use crate::{storage::identityfile, storage::paths, sync::gitrepo, trust::recipient};
 
 /// The installed vault, resolved the way a command resolves it.
 fn vault(i: &Installed) -> Vault {
@@ -116,7 +116,7 @@ fn format_v2_vault_config_parses() {
         format!("{}\n{}\n", fx::DEVICE_PUBKEY, fx::RECOVERY_PUBKEY)
     );
     assert_eq!(
-        recipients::load(&i.vault.join(".age-recipients")).unwrap(),
+        recipient::load(&i.vault.join(".age-recipients")).unwrap(),
         [fx::DEVICE_PUBKEY, fx::RECOVERY_PUBKEY]
     );
     assert_eq!(
@@ -351,7 +351,7 @@ fn format_v2_pending_request_opens_at_a_fixed_clock() {
     assert_eq!(request.id, fx::REQUEST_ID);
     assert_eq!(request.device, fx::ENROLLING_DEVICE);
     assert_eq!(request.method, "passphrase");
-    crate::agekey::validate_recipient(&request.pubkey).unwrap();
+    crate::crypto::agekey::validate_recipient(&request.pubkey).unwrap();
     assert_eq!(request.expires, pending[0].expires);
     assert_eq!(
         request.expires.duration_since(request.created),
@@ -376,7 +376,7 @@ fn format_v2_commit_layout() {
     assert_eq!(gitrepo::AUTHOR_EMAIL, "gage@localhost");
     assert_eq!(crate::vault::INIT_COMMIT_MESSAGE, "gage: initialize vault");
     assert_eq!(
-        crate::remotesync::MERGE_COMMIT_MESSAGE,
+        crate::sync::remotesync::MERGE_COMMIT_MESSAGE,
         "gage: merge origin"
     );
 

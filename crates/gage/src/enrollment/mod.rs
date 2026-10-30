@@ -28,12 +28,15 @@ pub use approve::{Approval, ApprovalOutcome, ApprovalResult};
 
 use crate::entry::LockError;
 use crate::error::{ErrorKind, HasKind, Remedy};
-use crate::recipient::RecipientError;
 use crate::recovery::ReservedLabel;
-use crate::remotesync::SyncError;
+use crate::storage::vaultconfig::{self, UnlockMethod, VaultId};
+use crate::sync::remotesync::SyncError;
+use crate::trust::recipient::RecipientError;
 use crate::vault::Vault;
-use crate::vaultconfig::{self, UnlockMethod, VaultId};
-use crate::{agekey, atomicfile, config, crypt, gitrepo, identityfile, paths};
+use crate::{
+    crypto::agekey, crypto::crypt, storage::atomicfile, storage::config, storage::identityfile,
+    storage::paths, sync::gitrepo,
+};
 #[cfg(test)]
 pub(crate) use code::normalize_code;
 use name::{expiry_live, parse_pending_file_name};
@@ -336,7 +339,7 @@ impl HasKind for EnrollmentError {
             // Enrolling again is the way forward, after storing a token
             // when the remote refused the one it had.
             Push(e) => Some(Remedy::EnrollAgain {
-                auth_refused: e.remote_kind() == Some(crate::syncerr::Kind::Auth),
+                auth_refused: e.remote_kind() == Some(crate::sync::syncerr::Kind::Auth),
                 host: match e.remedy() {
                     Some(Remedy::AuthLogin { host }) => Some(host),
                     _ => None,
@@ -355,7 +358,7 @@ impl HasKind for EnrollmentError {
 
 impl Vault {
     /// `<vault>/.gage/pending`.
-    pub fn pending_dir(&self) -> PathBuf {
+    pub(crate) fn pending_dir(&self) -> PathBuf {
         self.path.join(PENDING_DIR)
     }
 

@@ -22,8 +22,8 @@ use gage::entry::CandidateList;
 use gage::prompter::{
     Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse, Warning,
 };
-use gage::syncresolve::{EntryConflict, Resolution};
-use gage::trustcache::RecipientChangeWarning;
+use gage::sync::syncresolve::{EntryConflict, Resolution};
+use gage::trust::trustcache::RecipientChangeWarning;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -283,10 +283,11 @@ pub fn for_script<'p>(
 #[cfg(test)]
 mod tests {
     use crate::exitcode::ExitCode;
-    use gage::entry::{Candidate, Entry};
-    use gage::error::HasKind;
+    use gage::Entry;
+    use gage::HasKind;
+    use gage::entry::Candidate;
     use gage::prompter::FakePrompter;
-    use gage::syncresolve::ConflictSide;
+    use gage::sync::syncresolve::ConflictSide;
 
     use super::*;
     use crate::assumeyes::AssumeYes;

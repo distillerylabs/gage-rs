@@ -3,8 +3,8 @@
 //! library says what would fix it; only this module spells it as a `gage`
 //! command.
 
-use gage::error::Remedy;
-use gage::prompter::Warning;
+use gage::Remedy;
+use gage::Warning;
 
 use crate::error::ERROR_PREFIX;
 

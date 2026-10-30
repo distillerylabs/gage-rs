@@ -1,16 +1,16 @@
 //! Labelled extra recipients at `create`.
 
 use super::*;
+use crate::crypto::identity::Identity;
 use crate::entry::NewEntry;
 use crate::error::{ErrorKind, HasKind};
-use crate::gitrepo;
-use crate::identity::Identity;
 use crate::prompter::FakePrompter;
-use crate::recipient_tests::dirs_in;
-use crate::recipients;
+use crate::storage::vaultconfig;
+use crate::sync::gitrepo;
 use crate::testsupport::fast_scrypt;
+use crate::trust::recipient;
+use crate::trust::recipient::recipient_tests::dirs_in;
 use crate::vault::{CreateError, CreateSpec, LabelledRecipient, Vault};
-use crate::vaultconfig;
 
 const DEVICE: &str = "laptop-1";
 
@@ -23,7 +23,7 @@ fn spec(root: &tempfile::TempDir, recipients: Vec<String>) -> CreateSpec {
         name: "personal".into(),
         id: vaultconfig::VaultId::new(),
         path: root.path().join("vault"),
-        vault_type: crate::vaultconfig::VaultType::Git,
+        vault_type: crate::storage::vaultconfig::VaultType::Git,
         method: "passphrase".into(),
         device: DEVICE.into(),
         recipients,
@@ -60,7 +60,7 @@ fn create_writes_labelled_extra_recipient_to_both_files_in_one_commit() {
     assert_eq!(gitrepo::commit_count(&vault.path).unwrap(), 1);
     assert!(gitrepo::is_clean(&vault.path).unwrap());
     assert_eq!(labels(&vault), [DEVICE, RECOVERY_DEVICE_LABEL]);
-    let in_file = recipients::load(&vault.path.join(".age-recipients")).unwrap();
+    let in_file = recipient::load(&vault.path.join(".age-recipients")).unwrap();
     assert_eq!(in_file, [device_key, recovery]);
 }
 
@@ -88,7 +88,7 @@ fn create_orders_device_then_labelled_extras_then_generic_recipients() {
         .collect();
     assert_eq!(config_keys, expected);
     assert_eq!(
-        recipients::load(&vault.path.join(".age-recipients")).unwrap(),
+        recipient::load(&vault.path.join(".age-recipients")).unwrap(),
         expected
     );
 }
@@ -233,7 +233,7 @@ fn create_without_extra_recipients_still_allows_repeated_recipient_keys() {
     let s = spec(&root, vec![a.clone(), b.clone(), a.clone()]);
     let vault = Vault::create(&dirs_in(root.path()), &s).unwrap();
     assert_eq!(
-        recipients::load(&vault.path.join(".age-recipients")).unwrap(),
+        recipient::load(&vault.path.join(".age-recipients")).unwrap(),
         [a.clone(), b, a]
     );
 }

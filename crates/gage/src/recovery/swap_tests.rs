@@ -8,20 +8,20 @@ use std::sync::Arc;
 use zeroize::Zeroizing;
 
 use super::*;
-use crate::config::{self, Global, VaultEntry};
+use crate::crypto::locker::Locker;
 use crate::error::{ErrorKind, HasKind};
 use crate::gittest::{self, BareRemote};
-use crate::locker::Locker;
 use crate::prompter::FakePrompter;
-use crate::recipient::RecipientError;
 use crate::recovery::{RecoveryKey, new_recovery_key};
-use crate::remotesync::tests::{sample, unlocks};
+use crate::storage::config::{self, Global, VaultEntry};
+use crate::storage::vaultconfig::Recipient;
+use crate::storage::xdgpaths::Dirs;
+use crate::sync::remotesync::tests::{sample, unlocks};
 use crate::testsupport::fast_scrypt;
-use crate::trustcache::TrustError;
+use crate::trust::recipient::RecipientError;
+use crate::trust::trustcache::TrustError;
 use crate::vault::{CreateSpec, LabelledRecipient};
-use crate::vaultconfig::Recipient;
-use crate::xdgpaths::Dirs;
-use crate::{gitrepo, identityfile, paths, vaultconfig};
+use crate::{storage::identityfile, storage::paths, storage::vaultconfig, sync::gitrepo};
 
 const NAME: &str = "personal";
 const OWNER: &str = "laptop-1";
@@ -78,8 +78,8 @@ impl Recover {
                 name: NAME.into(),
                 id: id.clone(),
                 path: path.clone(),
-                vault_type: crate::vaultconfig::VaultType::Git,
-                method: crate::vaultconfig::UnlockMethod::Passphrase,
+                vault_type: crate::storage::vaultconfig::VaultType::Git,
+                method: crate::storage::vaultconfig::UnlockMethod::Passphrase,
                 device: OWNER.into(),
                 recipients: vec![owner_pubkey.clone()],
                 extra_recipients: extras(&owner_pubkey, &key),
@@ -94,9 +94,9 @@ impl Recover {
                 VaultEntry {
                     path,
                     id: Some(id),
-                    vault_type: crate::vaultconfig::VaultType::Git,
+                    vault_type: crate::storage::vaultconfig::VaultType::Git,
                     device: OWNER.into(),
-                    method: crate::vaultconfig::UnlockMethod::Passphrase,
+                    method: crate::storage::vaultconfig::UnlockMethod::Passphrase,
                     git: config::GitMeta {
                         origin: Some(origin),
                     },
@@ -136,7 +136,7 @@ impl Recover {
     }
 
     pub(super) fn head(&self) -> String {
-        crate::recipient_tests::head_hash(&self.vault.path)
+        crate::trust::recipient::recipient_tests::head_hash(&self.vault.path)
     }
 
     pub(super) fn head_message(&self) -> String {
@@ -174,7 +174,7 @@ impl Recover {
 
     /// `.age-recipients`, read as itself.
     pub(super) fn recipients_file(&self) -> Vec<String> {
-        crate::recipients::load(&self.vault.path.join(".age-recipients")).unwrap()
+        crate::trust::recipient::load(&self.vault.path.join(".age-recipients")).unwrap()
     }
 
     /// Whether `secret` opens every entry on disk.
@@ -759,7 +759,7 @@ fn recover_device_refuses_to_re_add_the_retired_key() {
 fn recover_device_still_asks_m10s_question() {
     let f = Recover::new();
     f.insert("first");
-    crate::trustcache_tests::commit_routine_change(&f.vault, "phone-1", &fresh_pubkey());
+    crate::trust::trustcache_tests::commit_routine_change(&f.vault, "phone-1", &fresh_pubkey());
     let (head, labels) = (f.head(), f.labels());
     let p = FakePrompter::new().with_recipient_answers(&[false]);
 
@@ -990,9 +990,9 @@ fn interrupted_recover_device_leaves_head_untouched() {
         }
         let (head, labels, file) = (f.head(), f.labels(), f.recipients_file());
         let device = fresh_pubkey();
-        let crashing = crate::reencrypt_tests::crashing_after(&f.vault, crash_after);
+        let crashing = crate::vault::reencrypt_tests::crashing_after(&f.vault, crash_after);
 
-        let died = crate::reencrypt_tests::crashed(|| {
+        let died = crate::vault::reencrypt_tests::crashed(|| {
             let _ = crashing.recover_device(
                 &spec("laptop-2", &device),
                 f.pasted(),
@@ -1174,10 +1174,10 @@ fn interrupted_rotate_recovery_key_leaves_head_untouched() {
         }
         let (head, labels, file) = (f.head(), f.labels(), f.recipients_file());
         let next = fresh_pubkey();
-        let crashing = crate::reencrypt_tests::crashing_after(&f.vault, crash_after);
+        let crashing = crate::vault::reencrypt_tests::crashing_after(&f.vault, crash_after);
         let identity = f.unlock();
 
-        let died = crate::reencrypt_tests::crashed(|| {
+        let died = crate::vault::reencrypt_tests::crashed(|| {
             let _ = crashing.rotate_recovery_key(&next, &identity, &FakePrompter::new());
         });
 
@@ -1203,7 +1203,7 @@ fn interrupted_rotate_recovery_key_leaves_head_untouched() {
 fn rotate_recovery_key_still_asks_m10s_question() {
     let f = Recover::new();
     f.insert("first");
-    crate::trustcache_tests::commit_routine_change(&f.vault, "phone-1", &fresh_pubkey());
+    crate::trust::trustcache_tests::commit_routine_change(&f.vault, "phone-1", &fresh_pubkey());
     let (head, labels) = (f.head(), f.labels());
     let p = FakePrompter::new().with_recipient_answers(&[false]);
 
@@ -1306,7 +1306,7 @@ fn both_swaps_refuse_an_actor_who_cannot_read_every_entry() {
     fn readable_only_by(f: &Recover, to: &str) {
         let id = f.vault.entry_ids().unwrap()[0];
         let entry = f.vault.read_entry(id, &f.unlock()).unwrap();
-        let to = crate::crypt::Recipient::parse(to).unwrap();
+        let to = crate::crypto::crypt::Recipient::parse(to).unwrap();
         f.vault.write_entry_to(id, &entry, &[to]).unwrap();
         gitrepo::commit_all(&f.vault.path, "test: an entry only one key opens").unwrap();
     }

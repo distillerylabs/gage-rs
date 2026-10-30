@@ -13,7 +13,7 @@ use clap::{Arg, ArgAction, ArgMatches, Command};
 use crate::exitcode::ExitCode;
 
 use crate::error::CliError;
-use crate::registry::{Availability, CommandInfo, Registry};
+use crate::registry::{self, Availability, CommandInfo, Registry, SessionVerb};
 use crate::version::BuildInfo;
 
 const ROOT_ABOUT: &str = "gage — a git-backed, age-encrypted secret & notes manager";
@@ -36,8 +36,8 @@ pub enum Outcome {
     Print(String),
     /// Bare `gage` on a terminal.
     Session,
-    /// A registered leaf command, by full name, with its matches.
-    Command(&'static str, ArgMatches),
+    /// A registered leaf command with its matches.
+    Command(registry::Command, ArgMatches),
     /// `--script FILE` or `--stdin` on bare `gage`: a whole session's
     /// commands from somewhere that isn't a prompt. It wins over the
     /// terminal check, so a script run from a terminal is still a script.
@@ -166,7 +166,7 @@ fn leaf(info: &CommandInfo, name: &'static str) -> Command {
     // A command's long description replaces its short one in its own help.
     // Baked into the template rather than set as clap's long_about, so
     // `-h`, `--help` and `gage help <cmd>` all render the same text.
-    let about = crate::commands::long_about(info.name)
+    let about = crate::commands::long_about(info.command)
         .map(|long| format!("{long}\n"))
         .unwrap_or_else(|| "{about-with-newline}".into());
     let aliases = if info.aliases.is_empty() {
@@ -177,7 +177,7 @@ fn leaf(info: &CommandInfo, name: &'static str) -> Command {
     cmd = cmd.help_template(format!(
         "{about}\nUsage:\n  {{usage}}\n\n{aliases}{{all-args}}"
     ));
-    if info.name == "help" {
+    if info.command == registry::Command::Session(SessionVerb::Help) {
         // The topic is a command path, `help vault list`.
         return cmd.arg(
             Arg::new("command")
@@ -188,7 +188,7 @@ fn leaf(info: &CommandInfo, name: &'static str) -> Command {
     }
     for arg in usage_args(info.usage)
         .into_iter()
-        .chain(crate::commands::flags(info.name))
+        .chain(crate::commands::flags(info.command))
     {
         cmd = cmd.arg(arg);
     }
@@ -375,7 +375,7 @@ fn resolve(
     }
     let full = path.join(" ");
     match reg.find(&full) {
-        Some(info) => Ok(Outcome::Command(info.name, matches.clone())),
+        Some(info) => Ok(Outcome::Command(info.command, matches.clone())),
         None => Ok(Outcome::Print(command_help(root, reg, &path))),
     }
 }

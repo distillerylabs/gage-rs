@@ -11,13 +11,13 @@
 use zeroize::Zeroizing;
 
 use super::{RECOVERY_DEVICE_LABEL, RecoveryError, check_device_label_free};
+use crate::crypto::identity::{Identity, KeyLine, PageLock, Unlocked};
 use crate::entry::WRITE_LOCK_TIMEOUT;
-use crate::identity::{Identity, KeyLine, PageLock, Unlocked};
 use crate::prompter::{Prompter, Warning};
-use crate::recipient::{RecipientError, RecipientWrite};
+use crate::storage::vaultconfig::Recipient;
+use crate::trust::recipient::{RecipientError, RecipientWrite};
 use crate::vault::{Vault, warn_page_lock_failed};
-use crate::vaultconfig::Recipient;
-use crate::{agekey, devicename};
+use crate::{crypto::agekey, devicename};
 
 /// The change [`Vault::recover_device`] makes to a vault's recipient list,
 /// in one commit.

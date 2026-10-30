@@ -15,18 +15,18 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::config::{self, Global, RegistryError, VaultEntry};
+use crate::crypto::locker::Locker;
+use crate::crypto::memlock;
 use crate::entry::{NewEntry, ResolveError};
 use crate::error::{ErrorKind, HasKind};
-use crate::locker::Locker;
-use crate::memlock;
-use crate::paths;
 use crate::prompter::{FakePrompter, PromptError};
-use crate::session::{OpenError, Session, SessionConfig, SessionError};
+use crate::session::{Clock, OpenError, Session, SessionConfig, SessionError, SystemClock};
+use crate::storage::config::{self, Global, RegistryError, VaultEntry};
+use crate::storage::paths;
+use crate::storage::xdgpaths::Dirs;
 use crate::testsupport::fast_scrypt;
 use crate::vault::{CreateSpec, Vault};
-use crate::xdgpaths::Dirs;
-use crate::{identityfile, vaultconfig};
+use crate::{storage::identityfile, storage::vaultconfig};
 
 pub(crate) const PASSPHRASE: &str = "correct horse battery staple";
 pub(crate) const DEVICE: &str = "laptop-1";
@@ -109,8 +109,8 @@ impl Device {
                     name: name.to_string(),
                     id: id.clone(),
                     path: path.clone(),
-                    vault_type: crate::vaultconfig::VaultType::Git,
-                    method: crate::vaultconfig::UnlockMethod::Passphrase,
+                    vault_type: crate::storage::vaultconfig::VaultType::Git,
+                    method: crate::storage::vaultconfig::UnlockMethod::Passphrase,
                     device: DEVICE.into(),
                     recipients: vec![pubkey],
                     extra_recipients: Vec::new(),
@@ -124,9 +124,9 @@ impl Device {
                     VaultEntry {
                         path,
                         id: Some(id),
-                        vault_type: crate::vaultconfig::VaultType::Git,
+                        vault_type: crate::storage::vaultconfig::VaultType::Git,
                         device: DEVICE.into(),
-                        method: crate::vaultconfig::UnlockMethod::Passphrase,
+                        method: crate::storage::vaultconfig::UnlockMethod::Passphrase,
                         ..Default::default()
                     },
                 )
@@ -150,42 +150,45 @@ impl Device {
             .ok_or_else(|| OpenError::Registry(RegistryError::NotRegistered(name.to_string())))
     }
 
-    pub(crate) fn session<'a>(&'a self, prompter: &'a FakePrompter, cfg: Cfg) -> Session<'a> {
+    pub(crate) fn session<'a>(&'a self, prompter: &'a FakePrompter, cfg: Cfg<'a>) -> Session<'a> {
         Session::new(SessionConfig {
             open: Box::new(move |name| self.open(name)),
             prompter,
             idle_timeout: cfg.idle_timeout,
             current: cfg.current.map(str::to_string),
-            now: cfg
-                .clock
-                .map(|c| Box::new(move || c.now()) as Box<dyn Fn() -> Instant>),
+            clock: match cfg.clock {
+                Some(c) => c,
+                None => &SystemClock,
+            },
         })
     }
 }
 
 /// The parts of a `SessionConfig` a test varies.
 #[derive(Default)]
-pub(crate) struct Cfg {
+pub(crate) struct Cfg<'c> {
     pub(crate) idle_timeout: Option<Duration>,
     pub(crate) current: Option<&'static str>,
-    pub(crate) clock: Option<Clock>,
+    pub(crate) clock: Option<&'c StepClock>,
 }
 
 /// A clock a test moves by hand instead of waiting for.
 #[derive(Clone)]
-pub(crate) struct Clock(Rc<Cell<Instant>>);
+pub(crate) struct StepClock(Rc<Cell<Instant>>);
 
-impl Clock {
-    pub(crate) fn new() -> Clock {
-        Clock(Rc::new(Cell::new(Instant::now())))
-    }
-
-    fn now(&self) -> Instant {
-        self.0.get()
+impl StepClock {
+    pub(crate) fn new() -> StepClock {
+        StepClock(Rc::new(Cell::new(Instant::now())))
     }
 
     pub(crate) fn advance(&self, d: Duration) {
         self.0.set(self.0.get() + d);
+    }
+}
+
+impl Clock for StepClock {
+    fn now(&self) -> Instant {
+        self.0.get()
     }
 }
 
@@ -227,7 +230,7 @@ impl Device {
     }
 }
 
-pub(crate) fn current_personal() -> Cfg {
+pub(crate) fn current_personal() -> Cfg<'static> {
     Cfg {
         current: Some("personal"),
         ..Cfg::default()
@@ -635,10 +638,10 @@ fn dropping_a_session_drops_its_keys() {
 
 // --- idle timeout -----------------------------------------------------------
 
-fn timed(clock: &Clock, timeout: Duration) -> Cfg {
+fn timed(clock: &StepClock, timeout: Duration) -> Cfg<'_> {
     Cfg {
         idle_timeout: Some(timeout),
-        clock: Some(clock.clone()),
+        clock: Some(clock),
         ..Cfg::default()
     }
 }
@@ -647,7 +650,7 @@ fn timed(clock: &Clock, timeout: Duration) -> Cfg {
 fn session_idle_timeout_relocks_and_re_prompts() {
     let d = Device::new(&["personal"]);
     let p = unlocks(2);
-    let clock = Clock::new();
+    let clock = StepClock::new();
     let mut s = d.session(&p, timed(&clock, Duration::from_secs(600)));
 
     s.use_vault("personal").unwrap();
@@ -669,7 +672,7 @@ fn session_idle_timeout_relocks_and_re_prompts() {
 fn idle_timeout_closes_the_identity_like_an_explicit_lock() {
     let d = Device::new(&["personal"]);
     let p = unlocks(1);
-    let clock = Clock::new();
+    let clock = StepClock::new();
     let mut s = d.session(&p, timed(&clock, Duration::from_secs(60)));
 
     s.vault(Some("personal")).unwrap();
@@ -690,12 +693,12 @@ fn idle_timeout_disabled_when_zero() {
     for timeout in [None, Some(Duration::ZERO)] {
         let d = Device::new(&["personal"]);
         let p = unlocks(1);
-        let clock = Clock::new();
+        let clock = StepClock::new();
         let mut s = d.session(
             &p,
             Cfg {
                 idle_timeout: timeout,
-                clock: Some(clock.clone()),
+                clock: Some(&clock),
                 ..Cfg::default()
             },
         );
@@ -713,7 +716,7 @@ fn idle_timeout_disabled_when_zero() {
 fn idle_timeout_is_visible_to_status_without_a_command() {
     let d = Device::new(&["personal"]);
     let p = unlocks(1);
-    let clock = Clock::new();
+    let clock = StepClock::new();
     let mut s = d.session(&p, timed(&clock, Duration::from_secs(60)));
 
     s.use_vault("personal").unwrap();
@@ -729,7 +732,7 @@ fn idle_timeout_is_visible_to_status_without_a_command() {
 fn idle_timeout_never_interrupts_an_in_flight_command() {
     let d = Device::new(&["personal"]);
     let p = unlocks(1);
-    let clock = Clock::new();
+    let clock = StepClock::new();
     let mut s = d.session(&p, timed(&clock, Duration::from_secs(60)));
     s.use_vault("personal").unwrap();
 
@@ -958,7 +961,7 @@ fn entry_title_candidates_empty_once_the_idle_timeout_relocks() {
     let d = Device::new(&["personal"]);
     d.seed("personal", &["AWS"]);
     let p = unlocks(1);
-    let clock = Clock::new();
+    let clock = StepClock::new();
     let mut s = d.session(&p, timed(&clock, Duration::from_secs(60)));
     s.use_vault("personal").unwrap();
     assert_eq!(s.entry_title_candidates(), ["AWS"]);

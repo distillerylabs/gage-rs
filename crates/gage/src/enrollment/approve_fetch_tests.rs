@@ -14,15 +14,15 @@ use super::approve_tests::{
 use super::fixtures_tests::{assert_enrollment_error, good_payload, hand_seal, write_pending};
 use super::name::pending_file_name;
 use super::*;
+use crate::crypto::identity::Identity;
 use crate::entry::WRITE_LOCK_TIMEOUT;
 use crate::error::ErrorKind;
 use crate::gittest;
-use crate::identity::Identity;
 use crate::prompter::FakePrompter;
-use crate::remotesync::UNPUSHED_WRITE_CLAUSE;
-use crate::remotesync::tests::{FakeSyncer, SyncVault, unlocks};
-use crate::syncerr;
-use crate::twodevice_tests::Machine;
+use crate::sync::remotesync::UNPUSHED_WRITE_CLAUSE;
+use crate::sync::remotesync::tests::{FakeSyncer, SyncVault, unlocks};
+use crate::sync::syncerr;
+use crate::vault::twodevice_tests::Machine;
 
 /// Approves `req` as the owner through `v` (a, or a with an injected
 /// syncer), with an identity taken before anything here moved.

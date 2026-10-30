@@ -242,7 +242,7 @@ fn the_two_secrets_never_cross() {
     }
     let code = code_in(&r.stdout);
     let id = t.b.entry(VAULT).id.unwrap();
-    let identity = gage::paths::identity_file_path(&t.b.dirs, &id, "phone-1").unwrap();
+    let identity = gage::storage::paths::identity_file_path(&t.b.dirs, &id, "phone-1").unwrap();
     let wrapped = std::fs::read(identity).unwrap();
     assert!(
         !String::from_utf8_lossy(&wrapped).contains(&code),

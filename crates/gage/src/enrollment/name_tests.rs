@@ -8,7 +8,7 @@ use super::fixtures_tests::*;
 use super::name::{parse_pending_file_name, pending_file_name};
 use super::{DEFAULT_ENROLLMENT_TTL, EnrollmentError, MAX_ENROLLMENT_TTL};
 use crate::error::ErrorKind;
-use crate::vaultconfig::UnlockMethod;
+use crate::storage::vaultconfig::UnlockMethod;
 
 // <request-id>-<expires-epoch>.age,
 // to the second, which is the resolution the name carries.

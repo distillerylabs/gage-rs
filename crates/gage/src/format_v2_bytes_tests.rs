@@ -9,13 +9,13 @@
 
 use std::path::Path;
 
-use crate::config;
-use crate::crypt;
+use crate::crypto::crypt;
 use crate::enrollment::{Payload, normalize_code};
+use crate::storage::config;
 use crate::testsupport::format_v2::{self as fx, Installed};
-use crate::trustcache::{KNOWN_CONFIG_FILE, TRUST_FILE, TrustRecord};
+use crate::trust::trustcache::{KNOWN_CONFIG_FILE, TRUST_FILE, TrustRecord};
 use crate::vault::Vault;
-use crate::{paths, vaultconfig};
+use crate::{storage::paths, storage::vaultconfig};
 
 fn vault(i: &Installed) -> Vault {
     let global = config::load(&paths::global_config_file(&i.dirs)).unwrap();
