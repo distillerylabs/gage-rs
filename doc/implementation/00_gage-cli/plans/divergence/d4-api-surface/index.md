@@ -106,7 +106,7 @@ Specific to D4:
 |---|---|---|---|
 | [D4a Module hierarchy + re-exports](d4a-module-hierarchy.md) ([#141](https://github.com/distillerylabs/gage-rs/issues/141), PR [#145](https://github.com/distillerylabs/gage-rs/pull/145)) | `[x]` | Sonnet | parent branch |
 | [D4b Test seams off production types](d4b-test-seams.md) ([#142](https://github.com/distillerylabs/gage-rs/issues/142), PR [#146](https://github.com/distillerylabs/gage-rs/pull/146)) | `[x]` | **Opus** | D4a |
-| [D4c Typed CLI dispatch](d4c-typed-dispatch.md) ([#143](https://github.com/distillerylabs/gage-rs/issues/143)) | `[ ]` | Sonnet | D4b |
+| [D4c Typed CLI dispatch](d4c-typed-dispatch.md) ([#143](https://github.com/distillerylabs/gage-rs/issues/143), PR [#147](https://github.com/distillerylabs/gage-rs/pull/147)) | `[x]` | Sonnet | D4b |
 
 **Why Sonnet for D4a.**
 
