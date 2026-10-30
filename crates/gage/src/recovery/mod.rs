@@ -24,8 +24,8 @@ pub use swap::{RecoverResult, RecoverSpec, RotateResult};
 
 use crate::entry::LockError;
 use crate::error::{ErrorKind, HasKind, Remedy};
-use crate::gitrepo;
-use crate::recipient::RecipientError;
+use crate::sync::gitrepo;
+use crate::trust::recipient::RecipientError;
 
 /// The label the recovery recipient is registered under. Fixed, so a
 /// recovery key is recognisable in any vault's recipient listing, and
@@ -85,7 +85,7 @@ pub enum RecoveryError {
     #[error(transparent)]
     Recipient(#[from] RecipientError),
     #[error(transparent)]
-    Config(#[from] crate::vaultconfig::Error),
+    Config(#[from] crate::storage::vaultconfig::Error),
 }
 
 fn not_recovery(device: &Option<String>, pubkey: &str, vault: &str) -> String {

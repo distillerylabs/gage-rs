@@ -15,11 +15,11 @@ use crate::entry::WRITE_LOCK_TIMEOUT;
 use crate::error::{ErrorKind, HasKind};
 use crate::gittest;
 use crate::prompter::{FakePrompter, PromptError, Purpose};
-use crate::remotesync::RemoteSyncer;
-use crate::remotesync::tests::{DEVICE, FakeSyncer, SyncVault};
-use crate::syncerr;
-use crate::twodevice_tests::{B_DEVICE, B_PASSPHRASE, Machine};
-use crate::vaultlock;
+use crate::storage::vaultlock;
+use crate::sync::remotesync::RemoteSyncer;
+use crate::sync::remotesync::tests::{DEVICE, FakeSyncer, SyncVault};
+use crate::sync::syncerr;
+use crate::vault::twodevice_tests::{B_DEVICE, B_PASSPHRASE, Machine};
 
 fn pair() -> (SyncVault, Machine) {
     let a = SyncVault::new();
@@ -799,7 +799,7 @@ fn merged_requests_still_grant_nothing() {
 // this is where that would stop being a surprise.
 #[test]
 fn a_divergence_involving_pending_is_reported_honestly() {
-    use crate::remotesync::{ConflictKind, SyncReport};
+    use crate::sync::remotesync::{ConflictKind, SyncReport};
 
     let (a, b) = pair();
     let req = b.vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap();

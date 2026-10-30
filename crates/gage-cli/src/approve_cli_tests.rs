@@ -7,8 +7,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::exitcode::ExitCode;
-use gage::gitrepo;
 use gage::prompter::FakePrompter;
+use gage::sync::gitrepo;
 use jiff::{Timestamp, ToSpan};
 
 use crate::enroll_cli_tests::code_in;
@@ -109,7 +109,7 @@ pub(crate) fn file_unchecked(
     created: Timestamp,
     expires: Timestamp,
 ) -> String {
-    let v = gage::vault::Vault::from_registration(&env.dirs, VAULT, &env.entry(VAULT)).unwrap();
+    let v = gage::Vault::from_registration(&env.dirs, VAULT, &env.entry(VAULT)).unwrap();
     let (_, code) = gage::testsupport::file_unchecked_request(
         &v,
         device,

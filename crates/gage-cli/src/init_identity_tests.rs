@@ -5,13 +5,14 @@
 use std::path::{Path, PathBuf};
 
 use crate::exitcode::ExitCode;
-use gage::config::VaultEntry;
-use gage::crypt::{self, Recipient};
-use gage::error::HasKind;
+use gage::HasKind;
+use gage::Vault;
+use gage::VaultId;
+use gage::crypto::crypt::{self, Recipient};
 use gage::prompter::{FakePrompter, Kind, PromptError, Prompter, Purpose};
-use gage::vault::{UnlockError, Vault};
-use gage::vaultconfig::VaultId;
-use gage::{paths, recipients};
+use gage::storage::config::VaultEntry;
+use gage::vault::UnlockError;
+use gage::{storage::paths, trust::recipient};
 
 use crate::error::CliError;
 use crate::lifecycle_tests::{Env, PASSPHRASE};
@@ -68,7 +69,7 @@ fn init_then_unlock_decrypts_something_encrypted_to_the_vault() {
 
     let entry = env.entry("personal");
     let from_config = env.vault_config("personal").recipients[0].pubkey.clone();
-    let from_file = recipients::load(&entry.path.join(".age-recipients")).unwrap();
+    let from_file = recipient::load(&entry.path.join(".age-recipients")).unwrap();
     assert_eq!(from_file, std::slice::from_ref(&from_config));
 
     let vault = Vault::from_registration(&env.dirs, "personal", &entry).unwrap();
@@ -435,7 +436,7 @@ fn init_extra_recipient_follows_the_device_key() {
     assert_eq!(file.recipients[0].device, entry.device);
     assert_eq!(file.recipients[1].pubkey, RECIPIENT_1);
     assert_eq!(
-        recipients::load(&entry.path.join(".age-recipients")).unwrap(),
+        recipient::load(&entry.path.join(".age-recipients")).unwrap(),
         [file.recipients[0].pubkey.clone(), RECIPIENT_1.to_string()],
         "same keys, same order, in both recipient-defining files"
     );

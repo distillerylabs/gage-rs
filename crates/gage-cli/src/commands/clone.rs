@@ -14,12 +14,13 @@ use std::path::{Path, PathBuf};
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::config::{GitMeta, VaultEntry};
+use gage::Prompter;
+use gage::VaultId;
 use gage::enrollment::DEFAULT_ENROLLMENT_TTL;
-use gage::gitrepo::{self, RemoteOptions};
-use gage::prompter::Prompter;
-use gage::vaultconfig::{self, VaultId};
-use gage::{paths, vault};
+use gage::storage::config::{GitMeta, VaultEntry};
+use gage::storage::vaultconfig::{self};
+use gage::sync::gitrepo::{self, RemoteOptions};
+use gage::{storage::paths, vault};
 
 use super::enroll::enroll_device;
 use super::init::resolve_device_name;
@@ -125,7 +126,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         },
     };
     global.register(&name, entry.clone())?;
-    gage::config::save_creating_dir(&config_path, &global)?;
+    gage::storage::config::save_creating_dir(&config_path, &global)?;
 
     out(
         io,
@@ -174,7 +175,7 @@ fn can_answer_new_passphrase(io: &Io) -> bool {
 /// would be backwards. An identity that exists was set up deliberately and
 /// is left alone, as is anything that can't be checked.
 fn access_lines(
-    dirs: &gage::xdgpaths::Dirs,
+    dirs: &gage::storage::xdgpaths::Dirs,
     id: &VaultId,
     name: &str,
     device: &str,

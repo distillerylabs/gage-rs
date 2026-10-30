@@ -9,13 +9,16 @@ use zeroize::Zeroizing;
 
 use super::{EnrollmentError, EnrollmentRequest, MAX_ENROLLMENT_TTL, name::pending_file_name};
 use crate::entry::WRITE_LOCK_TIMEOUT;
-use crate::gitrepo::REMOTE_OP_TIMEOUT;
 use crate::prompter::{Prompter, Warning};
 use crate::recovery::check_device_label_free;
-use crate::syncerr::Kind;
+use crate::storage::vaultconfig::UnlockMethod;
+use crate::sync::gitrepo::REMOTE_OP_TIMEOUT;
+use crate::sync::syncerr::Kind;
 use crate::vault::Vault;
-use crate::vaultconfig::UnlockMethod;
-use crate::{atomicfile, config, devicename, gitrepo, identityfile, paths, vaultconfig};
+use crate::{
+    devicename, storage::atomicfile, storage::config, storage::identityfile, storage::paths,
+    storage::vaultconfig, sync::gitrepo,
+};
 
 /// What a published request commits under. Like every commit gage writes,
 /// it names no device and no request: the filename scheme exists so a

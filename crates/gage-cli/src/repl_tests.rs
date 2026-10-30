@@ -13,10 +13,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::exitcode::ExitCode;
-use gage::config::Shell;
-use gage::locker::{Locker, MemLocker};
+use gage::crypto::locker::{Locker, MemLocker};
 use gage::prompter::FakePrompter;
-use gage::session::{Session, SessionConfig};
+use gage::storage::config::Shell;
+use gage::{Session, SessionConfig};
 
 use crate::history::History;
 use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE};

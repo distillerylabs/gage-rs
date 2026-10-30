@@ -10,7 +10,7 @@ use super::fixtures_tests::*;
 use super::name::pending_file_name;
 use super::seal_tests::{in_child, run_child};
 use super::{MAX_ENROLLMENT_ATTEMPTS, PendingRequest};
-use crate::crypt;
+use crate::crypto::crypt;
 use crate::entry::NewEntry;
 use crate::prompter::FakePrompter;
 
@@ -45,7 +45,7 @@ fn pending_request_grants_no_decryption() {
         .unwrap();
     let as_outsider = f
         .vault
-        .read_entry(id, &crate::identity::Identity::for_tests(&outsider));
+        .read_entry(id, &crate::crypto::identity::Identity::for_tests(&outsider));
     assert!(
         matches!(
             as_outsider,

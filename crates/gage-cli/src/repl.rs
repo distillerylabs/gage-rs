@@ -14,11 +14,11 @@ use std::io::{BufReader, Read};
 use std::rc::Rc;
 
 use crate::exitcode::ExitCode;
-use gage::config;
-use gage::paths;
-use gage::prompter::Prompter;
-use gage::session::{Session, SessionConfig};
-use gage::xdgpaths::Dirs;
+use gage::Prompter;
+use gage::storage::config;
+use gage::storage::paths;
+use gage::storage::xdgpaths::Dirs;
+use gage::{Session, SessionConfig};
 
 use crate::Io;
 use crate::cli::{self, Outcome, ScriptSource};
@@ -44,7 +44,7 @@ struct Opened<'a> {
 }
 
 fn open<'a>(
-    dirs: Result<Dirs, gage::xdgpaths::Error>,
+    dirs: Result<Dirs, gage::storage::xdgpaths::Error>,
     now: impl Fn() -> std::time::Instant + 'a,
     prompter: &'a dyn Prompter,
 ) -> Result<Opened<'a>, CliError> {

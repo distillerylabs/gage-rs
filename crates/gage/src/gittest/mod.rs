@@ -10,8 +10,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::gitrepo::{self, RemoteOptions};
-use crate::xdgpaths::Dirs;
+use crate::storage::xdgpaths::Dirs;
+use crate::sync::gitrepo::{self, RemoteOptions};
 
 mod recorder;
 

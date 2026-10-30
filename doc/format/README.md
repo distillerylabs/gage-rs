@@ -19,7 +19,7 @@ a commit-message shape. A format change needs all four of these, in the
 same change:
 
 1. **A `format_version` bump** (`CURRENT_FORMAT_VERSION` in
-   `crates/gage/src/vaultconfig/mod.rs`).
+   `crates/gage/src/storage/vaultconfig/mod.rs`).
 2. **A new spec, `v<N>.md`**, beside the old one. The old spec is not
    edited, except to link the new one.
 3. **A new fixture, `tests/fixtures/format-v<N>/`**, written once by a

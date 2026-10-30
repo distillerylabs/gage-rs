@@ -3,13 +3,13 @@
 //! so they work on a device that holds no identity at all. `add` and
 //! `remove` change the list, and always re-encrypt every entry, in one
 //! commit or not at all; what they do lives in the library
-//! (`gage::recipient`).
+//! (`gage::trust::recipient`).
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::prompter::Prompter;
-use gage::recipient::RecipientChange;
-use gage::vault::Vault;
+use gage::Prompter;
+use gage::Vault;
+use gage::trust::recipient::RecipientChange;
 
 use super::entry::use_flag;
 use super::sync::with_resolved_vault;

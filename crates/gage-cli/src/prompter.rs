@@ -15,8 +15,8 @@ use gage::entry::CandidateList;
 use gage::prompter::{
     Kind, PromptError, Prompter, Purpose, UnlockRequest, UnlockResponse, Warning,
 };
-use gage::syncresolve::{ConflictSide, EntryConflict, Resolution};
-use gage::trustcache::{RecipientChangeWarning, difference_lines};
+use gage::sync::syncresolve::{ConflictSide, EntryConflict, Resolution};
+use gage::trust::trustcache::{RecipientChangeWarning, difference_lines};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -403,10 +403,11 @@ mod tests {
     use std::rc::Rc;
 
     use crate::exitcode::ExitCode;
-    use gage::entry::{Candidate, Entry};
-    use gage::error::HasKind;
-    use gage::recipient::RecipientVerification;
-    use gage::syncresolve::{ConflictSide, EntryConflict, Resolution};
+    use gage::Entry;
+    use gage::HasKind;
+    use gage::entry::Candidate;
+    use gage::sync::syncresolve::{ConflictSide, EntryConflict, Resolution};
+    use gage::trust::recipient::RecipientVerification;
 
     use super::*;
 
@@ -914,7 +915,7 @@ mod tests {
                    +device = \"unknown-device\""
                 .into(),
             verification,
-            added: vec![gage::vaultconfig::Recipient {
+            added: vec![gage::storage::vaultconfig::Recipient {
                 device: "unknown-device".into(),
                 pubkey: "age1qz8x2".into(),
             }],
@@ -1002,7 +1003,7 @@ mod tests {
     fn recipient_change_count_summarizes_every_shape() {
         let r = |n: usize| {
             vec![
-                gage::vaultconfig::Recipient {
+                gage::storage::vaultconfig::Recipient {
                     device: "d".into(),
                     pubkey: "k".into(),
                 };

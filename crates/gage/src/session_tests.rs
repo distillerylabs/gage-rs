@@ -15,18 +15,18 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::config::{self, Global, RegistryError, VaultEntry};
+use crate::crypto::locker::Locker;
+use crate::crypto::memlock;
 use crate::entry::{NewEntry, ResolveError};
 use crate::error::{ErrorKind, HasKind};
-use crate::locker::Locker;
-use crate::memlock;
-use crate::paths;
 use crate::prompter::{FakePrompter, PromptError};
 use crate::session::{OpenError, Session, SessionConfig, SessionError};
+use crate::storage::config::{self, Global, RegistryError, VaultEntry};
+use crate::storage::paths;
+use crate::storage::xdgpaths::Dirs;
 use crate::testsupport::fast_scrypt;
 use crate::vault::{CreateSpec, Vault};
-use crate::xdgpaths::Dirs;
-use crate::{identityfile, vaultconfig};
+use crate::{storage::identityfile, storage::vaultconfig};
 
 pub(crate) const PASSPHRASE: &str = "correct horse battery staple";
 pub(crate) const DEVICE: &str = "laptop-1";
@@ -109,8 +109,8 @@ impl Device {
                     name: name.to_string(),
                     id: id.clone(),
                     path: path.clone(),
-                    vault_type: crate::vaultconfig::VaultType::Git,
-                    method: crate::vaultconfig::UnlockMethod::Passphrase,
+                    vault_type: crate::storage::vaultconfig::VaultType::Git,
+                    method: crate::storage::vaultconfig::UnlockMethod::Passphrase,
                     device: DEVICE.into(),
                     recipients: vec![pubkey],
                     extra_recipients: Vec::new(),
@@ -124,9 +124,9 @@ impl Device {
                     VaultEntry {
                         path,
                         id: Some(id),
-                        vault_type: crate::vaultconfig::VaultType::Git,
+                        vault_type: crate::storage::vaultconfig::VaultType::Git,
                         device: DEVICE.into(),
-                        method: crate::vaultconfig::UnlockMethod::Passphrase,
+                        method: crate::storage::vaultconfig::UnlockMethod::Passphrase,
                         ..Default::default()
                     },
                 )

@@ -6,7 +6,7 @@ use std::sync::Once;
 
 use jiff::Timestamp;
 
-use crate::crypt;
+use crate::crypto::crypt;
 use crate::vault::Vault;
 
 pub mod format_v2;

@@ -1,8 +1,8 @@
 //! `gage mv` and `gage cp` through the real CLI, in-process.
 
 use crate::exitcode::ExitCode;
-use gage::gitrepo;
 use gage::prompter::FakePrompter;
+use gage::sync::gitrepo;
 
 use crate::entry_tests::unlocks;
 use crate::lifecycle_tests::{Env, PASSPHRASE};

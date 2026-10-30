@@ -223,64 +223,83 @@ already follow modules, so they move with them.
 
 ## Settled decisions
 
-*(Move each decision here once it has been reviewed, as D3c did.)*
+Decisions 1-6 were built as proposed, with these refinements
+(recorded in [ADR-0055](../../../../../decisions/0055-module-hierarchy.md)):
+
+- **Decision 1.** `identity_add` became the private `vault::identities`
+  submodule; `devicename` stays at the root; `*_tests.rs` files are
+  declared by the module they test. The cross-cutting `unlock_tests`,
+  `reencrypt_tests`, `twodevice_tests` and `sync_index_tests` live under
+  `vault/`; `session_tests` and `format_v2_*` stay at the root.
+- **Decision 3.** Area submodules are `pub mod`, not private with
+  re-exports: several share function names (`load`, `save`, `remove`), so
+  flattening would collide. Visibility was narrowed at module level:
+  `memlock`, `search`, `index` are crate-private; `agekey`,
+  `locker`, `vaultlock` and the `.age-recipients` `load`/`save` are `pub`
+  only under `test-support`. `encrypt_entry`, `pending_dir`,
+  `require_full_access` and `config_path` are `pub(crate)`.
+- **Decision 4.** `trust::recipient` is one file module plus a private
+  `file` submodule (`RecipientsFileError`); no `ops` split was needed
+  (675 lines).
+- **Decision 6.** `CRYPT_SOURCE = "crypto/crypt.rs"`; `swap_tests` needed
+  no change since `recovery/` did not move.
 
 ## Tasks
 
 ### 1. Guards first
 
-- [ ] Before moving anything, make the path-pinned guards
+- [x] Before moving anything, make the path-pinned guards
       layout-independent where possible:
   - normalise `library_sources()` names to `/`
   - name the files they look for through one constant each
 
   Green on the current layout.
-- [ ] Add a test in `crates/gage/tests/` that lists `lib.rs`'s top-level
+- [x] Add a test in `crates/gage/tests/` that lists `lib.rs`'s top-level
       `pub mod`s and asserts they equal the decision-1 set. It is red
       until task 3 is done, and it pins the layout afterwards.
 
 ### 2. Merge `recipient` and `recipients`
 
-- [ ] Per decision 4. Update the callers in `vault.rs`, `entry/mod.rs`,
+- [x] Per decision 4. Update the callers in `vault.rs`, `entry/mod.rs`,
       `entry/store.rs`, `trustcache.rs`, the tests, and the six gage-cli
       test files.
 
 ### 3. Group the modules
 
-- [ ] Move one area at a time, with `cargo check --workspace
+- [x] Move one area at a time, with `cargo check --workspace
       --all-targets` green after each: `storage`, then `crypto`, then
       `sync`, then `trust`, then `entry`.
-- [ ] Use `git mv` so history follows the files.
-- [ ] Move `*_tests.rs` declarations to their area's `mod.rs`.
-- [ ] Update `COVER_IGNORE` if `gittest`'s path changes, and the
+- [x] Use `git mv` so history follows the files.
+- [x] Move `*_tests.rs` declarations to their area's `mod.rs`.
+- [x] Update `COVER_IGNORE` if `gittest`'s path changes, and the
       guards' constants from task 1.
 
 ### 4. Re-exports and visibility
 
-- [ ] Add the decision-2 root re-exports. Move gage-cli's imports of
+- [x] Add the decision-2 root re-exports. Move gage-cli's imports of
       those types to the root.
-- [ ] Apply decision 3. Narrow item by item until `cargo check
+- [x] Apply decision 3. Narrow item by item until `cargo check
       --workspace --all-targets` and `cargo check -p gage-cli
       --all-targets` are green. Confirm with `cargo build -p gage-cli`
       (no `test-support`) that the shipped binary still builds.
-- [ ] `cargo doc -p gage --no-deps` builds with no broken intra-doc
+- [x] `cargo doc -p gage --no-deps` builds with no broken intra-doc
       links.
 
 ### 5. Docs and ADR
 
-- [ ] ADR-0055: module hierarchy and public surface, including
+- [x] ADR-0055: module hierarchy and public surface, including
       decision 5 as a non-goal. Link it from `doc/decisions/README.md`.
-- [ ] Update the source paths in `doc/format/v2.md`,
+- [x] Update the source paths in `doc/format/v2.md`,
       `doc/format/README.md` and `doc/design/lint-rationale.md`. This is
       path text only, not a format change.
-- [ ] Update CLAUDE.md's "Supporting modules" list.
+- [x] Update CLAUDE.md's "Supporting modules" list.
 
 ### 6. Green
 
-- [ ] `make lint`, `make lint-selftest` and `make test` are clean.
-- [ ] `make cover` and `make cover-check` still pass, so the
+- [x] `make lint`, `make lint-selftest` and `make test` are clean.
+- [x] `make cover` and `make cover-check` still pass, so the
       `COVER_IGNORE` change didn't widen or narrow coverage by accident.
-- [ ] `git diff --stat main -- tests/fixtures` is empty.
+- [x] `git diff --stat main -- tests/fixtures` is empty.
 
 ## Definition of done
 

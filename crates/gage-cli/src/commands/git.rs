@@ -3,7 +3,7 @@
 //! doc.
 
 use clap::ArgMatches;
-use gage::{config, gitrepo};
+use gage::{storage::config, sync::gitrepo};
 
 use super::{arg, load_global};
 use crate::Io;

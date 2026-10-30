@@ -15,10 +15,10 @@ use super::{
     EnrollmentError, EnrollmentRequest, MAX_ENROLLMENT_TTL, MAX_PENDING_REQUEST_BYTES,
     OpenedRequest, PendingRequest,
 };
-use crate::crypt::{self, Recipient};
+use crate::crypto::crypt::{self, Recipient};
+use crate::storage::vaultconfig::{self, InvalidVaultId, UnlockMethod, VaultId};
 use crate::vault::Vault;
-use crate::vaultconfig::{self, InvalidVaultId, UnlockMethod, VaultId};
-use crate::{agekey, devicename};
+use crate::{crypto::agekey, devicename};
 
 /// The plaintext under the seal, as TOML.
 ///

@@ -34,14 +34,14 @@ use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
+use crate::crypto::identity::Identity;
+use crate::entry::index::Index;
+use crate::entry::search::{SearchResult, matches_body, sort_results};
 use crate::entry::{self, Entry, ListEntry, ResolveError, resolve_query};
 use crate::error::{ErrorKind, HasKind, Remedy};
-use crate::identity::Identity;
-use crate::identityfile::UnlockError;
-use crate::index::Index;
 use crate::prompter::{PromptError, Prompter, Warning};
-use crate::remotesync::{SyncError, SyncReport};
-use crate::search::{SearchResult, matches_body, sort_results};
+use crate::storage::identityfile::UnlockError;
+use crate::sync::remotesync::{SyncError, SyncReport};
 use crate::vault::Vault;
 
 /// Why the session's opener couldn't produce a vault: the frontend's
@@ -56,8 +56,8 @@ use crate::vault::Vault;
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum OpenError {
-    Config(Box<crate::config::Error>),
-    Registry(crate::config::RegistryError),
+    Config(Box<crate::storage::config::Error>),
+    Registry(crate::storage::config::RegistryError),
     Resolve(Box<crate::vault::ResolveError>),
 }
 
@@ -81,14 +81,14 @@ impl std::error::Error for OpenError {
     }
 }
 
-impl From<crate::config::Error> for OpenError {
-    fn from(e: crate::config::Error) -> OpenError {
+impl From<crate::storage::config::Error> for OpenError {
+    fn from(e: crate::storage::config::Error) -> OpenError {
         OpenError::Config(Box::new(e))
     }
 }
 
-impl From<crate::config::RegistryError> for OpenError {
-    fn from(e: crate::config::RegistryError) -> OpenError {
+impl From<crate::storage::config::RegistryError> for OpenError {
+    fn from(e: crate::storage::config::RegistryError) -> OpenError {
         OpenError::Registry(e)
     }
 }

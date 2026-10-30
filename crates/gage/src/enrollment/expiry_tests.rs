@@ -10,7 +10,7 @@ use super::EnrollmentError;
 use super::fixtures_tests::*;
 use super::name::pending_file_name;
 use crate::error::ErrorKind;
-use crate::recipient_tests::Fixture;
+use crate::trust::recipient::recipient_tests::Fixture;
 
 /// Files a good payload for `vault` with the given sealed times, under a
 /// filename epoch of `filed`, and returns `(id, code)`.

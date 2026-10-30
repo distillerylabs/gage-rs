@@ -13,12 +13,12 @@ use super::fixtures_tests::{
     vault,
 };
 use super::*;
+use crate::crypto::identity::Identity;
 use crate::error::ErrorKind;
-use crate::identity::Identity;
 use crate::prompter::FakePrompter;
-use crate::recipient::RecipientError;
-use crate::remotesync::tests::{FakeSyncer, SyncVault, sample, unlocks};
-use crate::twodevice_tests::{B_PASSPHRASE, Machine};
+use crate::sync::remotesync::tests::{FakeSyncer, SyncVault, sample, unlocks};
+use crate::trust::recipient::RecipientError;
+use crate::vault::twodevice_tests::{B_PASSPHRASE, Machine};
 
 /// A joining device that has published a request, and the request (with
 /// its code). The owner's vault is caught up to it, as it would be after

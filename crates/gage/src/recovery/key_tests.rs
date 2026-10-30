@@ -4,7 +4,7 @@ use age::secrecy::ExposeSecret;
 use zeroize::Zeroize;
 
 use super::*;
-use crate::agekey;
+use crate::crypto::agekey;
 
 #[test]
 fn new_recovery_key_returns_a_valid_recipient() {

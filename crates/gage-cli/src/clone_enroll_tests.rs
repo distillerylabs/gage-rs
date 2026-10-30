@@ -322,7 +322,7 @@ fn clone_device_flag_carries_through_to_the_offer() {
     assert_eq!(entry.device, "deliberately-named");
 
     let code = code_in(&r.stdout);
-    let vault = gage::vault::Vault::from_registration(&b.dirs, VAULT, &entry).unwrap();
+    let vault = gage::Vault::from_registration(&b.dirs, VAULT, &entry).unwrap();
     let pending = vault.pending_enrollments().unwrap();
     let opened = vault
         .open_enrollment(&pending, &[Zeroizing::new(code)])

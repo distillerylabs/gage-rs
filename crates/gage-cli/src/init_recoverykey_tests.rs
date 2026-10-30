@@ -7,11 +7,12 @@ use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use crate::exitcode::ExitCode;
+use gage::Warning;
 use gage::entry::CandidateList;
-use gage::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse, Warning};
+use gage::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse};
 use gage::recovery::RECOVERY_DEVICE_LABEL;
-use gage::syncresolve::{EntryConflict, Resolution};
-use gage::xdgpaths::Dirs;
+use gage::storage::xdgpaths::Dirs;
+use gage::sync::syncresolve::{EntryConflict, Resolution};
 use zeroize::Zeroizing;
 
 use crate::commands::{
@@ -123,7 +124,7 @@ impl Prompter for ScreenPrompter {
 
     fn confirm_recipient_change(
         &self,
-        warning: &gage::trustcache::RecipientChangeWarning,
+        warning: &gage::trust::trustcache::RecipientChangeWarning,
     ) -> Result<bool, PromptError> {
         self.inner.confirm_recipient_change(warning)
     }
@@ -892,15 +893,15 @@ fn init_still_publishes_when_the_recovery_confirmation_fails() {
 fn init_key_is_shown_only_after_the_commit_exists() {
     let env = Env::new();
     let vault = env.default_vault_path("personal");
-    let global = gage::paths::global_config_file(&env.dirs);
+    let global = gage::storage::paths::global_config_file(&env.dirs);
     let checked = std::rc::Rc::new(std::cell::Cell::new(false));
     let mut p = ScreenPrompter::new();
     let (seen, screen) = (checked.clone(), p.screen.clone());
     p.on_value = Some(Box::new(move || {
         assert_eq!(secret_keys(&screen.text()).len(), 1, "asked before shown");
-        assert_eq!(gage::gitrepo::commit_count(&vault).unwrap(), 1);
-        assert!(gage::gitrepo::is_clean(&vault).unwrap());
-        let registered = gage::config::load_or_default(&global).unwrap();
+        assert_eq!(gage::sync::gitrepo::commit_count(&vault).unwrap(), 1);
+        assert!(gage::sync::gitrepo::is_clean(&vault).unwrap());
+        let registered = gage::storage::config::load_or_default(&global).unwrap();
         assert!(registered.vaults.contains_key("personal"));
         seen.set(true);
     }));

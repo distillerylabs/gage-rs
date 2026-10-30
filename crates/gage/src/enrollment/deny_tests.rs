@@ -8,7 +8,7 @@ use super::fixtures_tests::{assert_enrollment_error, hours, new_pubkey, vault};
 use super::*;
 use crate::error::ErrorKind;
 use crate::prompter::FakePrompter;
-use crate::remotesync::tests::{FakeSyncer, SyncVault, unreachable_error};
+use crate::sync::remotesync::tests::{FakeSyncer, SyncVault, unreachable_error};
 
 /// One hex digit every pending id carries, so it matches all of them.
 fn common_substring(v: &Vault) -> String {

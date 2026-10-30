@@ -5,12 +5,12 @@ use std::time::Duration;
 
 use super::*;
 use crate::error::{ErrorKind, HasKind};
-use crate::identity_add::IdentityAddError;
 use crate::prompter::FakePrompter;
-use crate::recipient::{RecipientError, RecipientWrite};
-use crate::recipient_tests::{Fixture, dirs_in};
+use crate::storage::vaultconfig::{self, Recipient};
+use crate::trust::recipient::recipient_tests::{Fixture, dirs_in};
+use crate::trust::recipient::{RecipientError, RecipientWrite};
+use crate::vault::IdentityAddError;
 use crate::vault::{CreateError, CreateSpec, LabelledRecipient, Vault};
-use crate::vaultconfig::{self, Recipient};
 
 fn key() -> String {
     age::x25519::Identity::generate().to_public().to_string()
@@ -21,7 +21,7 @@ fn spec_for(root: &tempfile::TempDir, device: &str) -> CreateSpec {
         name: "personal".into(),
         id: vaultconfig::VaultId::new(),
         path: root.path().join("vault"),
-        vault_type: crate::vaultconfig::VaultType::Git,
+        vault_type: crate::storage::vaultconfig::VaultType::Git,
         method: "passphrase".into(),
         device: device.into(),
         recipients: vec![key()],

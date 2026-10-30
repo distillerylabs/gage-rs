@@ -3,12 +3,12 @@
 //! doc.
 
 use clap::ArgMatches;
-use gage::config::{self, VaultEntry};
-use gage::identityfile;
-use gage::orphan::{self, KeepReason, OrphanCheck};
-use gage::prompter::Prompter;
-use gage::trustcache;
-use gage::vault::Vault;
+use gage::Prompter;
+use gage::Vault;
+use gage::storage::config::{self, VaultEntry};
+use gage::storage::identityfile;
+use gage::trust::orphan::{self, KeepReason, OrphanCheck};
+use gage::trust::trustcache;
 
 use super::{arg, dirs, load_global, out};
 use crate::Io;
@@ -103,7 +103,7 @@ pub fn remove(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Res
 fn offer_orphaned_identity(
     io: &mut Io,
     prompter: &dyn Prompter,
-    dirs: &gage::xdgpaths::Dirs,
+    dirs: &gage::storage::xdgpaths::Dirs,
     name: &str,
     entry: &VaultEntry,
 ) {

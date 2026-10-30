@@ -12,9 +12,9 @@ use std::sync::Arc;
 use clap::{Arg, Command};
 
 use crate::exitcode::ExitCode;
-use gage::locker::MemLocker;
+use gage::crypto::locker::MemLocker;
 use gage::prompter::FakePrompter;
-use gage::session::{Session, SessionConfig};
+use gage::{Session, SessionConfig};
 
 use crate::BuildInfo;
 use crate::cli;

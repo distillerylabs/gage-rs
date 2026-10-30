@@ -17,13 +17,13 @@ use std::time::Duration;
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
+use gage::HasKind;
+use gage::Vault;
 use gage::devicename;
 use gage::enrollment::{
     Approval, ApprovalResult, EnrollmentError, OpenedRequest, PendingRequest, RequestCandidates,
 };
-use gage::error::HasKind;
-use gage::prompter::{Prompter, Warning};
-use gage::vault::Vault;
+use gage::{Prompter, Warning};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use zeroize::Zeroizing;

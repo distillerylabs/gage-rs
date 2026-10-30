@@ -2,7 +2,7 @@
 //! ⚑ marks the tests that
 //! guard an irreversible delete (the only copy of a private key).
 //!
-//! The library's [`gage::orphan`] tests prove each keep reason without a
+//! The library's [`gage::trust::orphan`] tests prove each keep reason without a
 //! CLI in the way; these prove the CLI renders them, asks, and deletes
 //! only on a yes.
 
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use crate::exitcode::ExitCode;
 use gage::prompter::FakePrompter;
-use gage::{paths, recipients, vaultconfig};
+use gage::{storage::paths, storage::vaultconfig, trust::recipient};
 
 use crate::identity_cli_tests::{B_DEVICE, TwoDevices, VAULT};
 use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE, config_file};
@@ -48,14 +48,14 @@ impl Env {
             }
         }
         vaultconfig::save(&path, &file).unwrap();
-        recipients::save(
+        recipient::save(
             &entry.path.join(".age-recipients"),
             std::slice::from_ref(&replacement),
         )
         .unwrap();
     }
 
-    fn set_registration(&self, name: &str, f: impl FnOnce(&mut gage::config::VaultEntry)) {
+    fn set_registration(&self, name: &str, f: impl FnOnce(&mut gage::storage::config::VaultEntry)) {
         let mut global = self.global();
         f(global.vaults.get_mut(name).unwrap());
         self.save_global(&global);

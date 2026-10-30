@@ -8,7 +8,7 @@ use super::*;
 use crate::error::{ErrorKind, HasKind};
 use crate::prompter::FakePrompter;
 use crate::recovery::RECOVERY_DEVICE_LABEL;
-use crate::remotesync::tests::SyncVault;
+use crate::sync::remotesync::tests::SyncVault;
 
 #[test]
 fn approval_refuses_a_request_that_claims_the_recovery_label() {

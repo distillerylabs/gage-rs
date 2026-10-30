@@ -11,8 +11,8 @@ use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
 use crate::exitcode::ExitCode;
-use gage::prompter::Prompter;
-use gage::xdgpaths::{self, Dirs};
+use gage::Prompter;
+use gage::storage::xdgpaths::{self, Dirs};
 
 // build.rs include!s it too; the crate itself only needs it for the test
 // that checks the Makefile exports the same names.

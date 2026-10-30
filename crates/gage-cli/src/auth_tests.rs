@@ -3,7 +3,7 @@
 
 use crate::exitcode::ExitCode;
 use gage::prompter::FakePrompter;
-use gage::{gitrepo, gittest};
+use gage::{gittest, sync::gitrepo};
 
 use crate::lifecycle_tests::Env;
 use crate::registry::{Availability, registry};
@@ -217,8 +217,8 @@ fn no_token_value_ever_appears_in_output() {
 // reaches a real refusal.
 #[test]
 fn expired_token_error_names_the_host_and_the_command() {
-    let refused = gage::syncerr::Error::new(gage::syncerr::Kind::Auth, "401");
-    let remedy = gage::error::HasKind::remedy(&refused.annotate_auth("github.com")).unwrap();
+    let refused = gage::sync::syncerr::Error::new(gage::sync::syncerr::Kind::Auth, "401");
+    let remedy = gage::HasKind::remedy(&refused.annotate_auth("github.com")).unwrap();
     let hint = crate::remedy::render(&remedy);
     for want in ["github.com", "gage auth login", "expired"] {
         assert!(hint.contains(want), "{want}: {hint}");

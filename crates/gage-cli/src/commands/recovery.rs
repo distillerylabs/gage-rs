@@ -9,16 +9,16 @@ use std::path::PathBuf;
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::error::{ErrorKind, HasKind};
-use gage::identityfile::{self, IdentityBackup};
-use gage::prompter::Prompter;
-use gage::recipient::RecipientError;
+use gage::Prompter;
+use gage::UnlockMethod;
+use gage::Vault;
 use gage::recovery::{
     RECOVERY_DEVICE_LABEL, RecoverResult, RecoverSpec, RecoveryError, RotateResult,
     check_device_label_free, new_recovery_key,
 };
-use gage::vault::Vault;
-use gage::vaultconfig::UnlockMethod;
+use gage::storage::identityfile::{self, IdentityBackup};
+use gage::trust::recipient::RecipientError;
+use gage::{ErrorKind, HasKind};
 
 use super::entry::{open_vault, use_flag};
 use super::identity::record_local_identity;

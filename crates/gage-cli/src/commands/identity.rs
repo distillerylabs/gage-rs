@@ -7,7 +7,7 @@
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::vaultconfig::UnlockMethod;
+use gage::UnlockMethod;
 
 use super::entry::use_flag;
 use super::init::resolve_device_name;
@@ -113,7 +113,7 @@ pub(super) fn record_local_identity(
     entry.device = device.to_string();
     entry.method = method.clone();
     entry.pubkey = Some(pubkey.to_string());
-    gage::config::save_creating_dir(&path, &global)?;
+    gage::storage::config::save_creating_dir(&path, &global)?;
     Ok(())
 }
 

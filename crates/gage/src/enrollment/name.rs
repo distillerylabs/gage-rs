@@ -4,7 +4,7 @@
 use jiff::{SignedDuration, Timestamp};
 
 use super::MAX_ENROLLMENT_TTL;
-use crate::vaultconfig;
+use crate::storage::vaultconfig;
 
 /// The extension every sealed request carries.
 pub(crate) const PENDING_FILE_EXT: &str = ".age";

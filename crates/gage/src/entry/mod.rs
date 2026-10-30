@@ -8,9 +8,21 @@
 //! heuristics: see `yaml` for the rules and the check behind them.
 
 mod crud;
+pub mod history;
 mod layout;
+pub mod movecopy;
+pub(crate) mod search;
 mod store;
 mod yaml;
+
+pub(crate) mod index;
+
+#[cfg(test)]
+mod history_tests;
+#[cfg(test)]
+mod index_tests;
+#[cfg(test)]
+mod movecopy_tests;
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -18,9 +30,9 @@ use std::str::FromStr;
 
 use uuid::Uuid;
 
-use crate::crypt;
+use crate::crypto::crypt;
+use crate::crypto::identity::Identity;
 use crate::error::{ErrorKind, HasKind, Remedy};
-use crate::identity::Identity;
 
 pub(crate) use crud::sort_list;
 pub use crud::{
@@ -270,8 +282,8 @@ pub enum Error {
     #[error("no entry with that id in this vault: {id}")]
     EntryNotFound { id: Uuid },
     /// The decrypt errors, typed, passed through unwrapped rather than swallowed:
-    /// a caller tells "wrong key" ([`crypt::Error::NotARecipient`]) from
-    /// "damaged file" ([`crypt::Error::CorruptCiphertext`]) from "no such
+    /// a caller tells "wrong key" (`crypt::Error::NotARecipient`) from
+    /// "damaged file" (`crypt::Error::CorruptCiphertext`) from "no such
     /// entry" by variant.
     #[error(transparent)]
     Crypt(#[from] crypt::Error),
@@ -284,7 +296,7 @@ pub enum Error {
     #[error("refusing to write an entry that does not survive its own YAML round trip: {0}")]
     Unfaithful(String),
     #[error("reading .age-recipients: {0}")]
-    Recipients(#[from] crate::recipients::Error),
+    Recipients(#[from] crate::trust::recipient::RecipientsFileError),
     #[error("{action} {path}: {source}")]
     Io {
         action: &'static str,
@@ -294,7 +306,7 @@ pub enum Error {
     #[error("writing entry {id}: {source}")]
     Write {
         id: Uuid,
-        source: crate::atomicfile::Error,
+        source: crate::storage::atomicfile::Error,
     },
 }
 

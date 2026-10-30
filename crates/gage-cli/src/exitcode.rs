@@ -4,7 +4,7 @@
 
 use std::fmt;
 
-use gage::error::ErrorKind;
+use gage::ErrorKind;
 
 /// One of gage's well-known process exit codes. Every command's exit status
 /// is one of these, never a bare integer.

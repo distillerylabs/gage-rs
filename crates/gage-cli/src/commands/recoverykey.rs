@@ -14,10 +14,10 @@ use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 
 use crate::exitcode::ExitCode;
-use gage::atomicfile;
-use gage::prompter::{Prompter, Warning};
 use gage::recovery::RecoveryKey;
-use gage::xdgpaths::Dirs;
+use gage::storage::atomicfile;
+use gage::storage::xdgpaths::Dirs;
+use gage::{Prompter, Warning};
 use zeroize::Zeroizing;
 
 use super::fail;

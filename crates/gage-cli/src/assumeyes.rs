@@ -2,10 +2,11 @@
 //! a scripted run there is nobody to show a recipient diff to and the
 //! answer is already known (ADR-0033).
 
+use gage::Warning;
 use gage::entry::CandidateList;
-use gage::prompter::{PromptError, Prompter, UnlockRequest, UnlockResponse, Warning};
-use gage::syncresolve::{EntryConflict, Resolution};
-use gage::trustcache::RecipientChangeWarning;
+use gage::prompter::{PromptError, Prompter, UnlockRequest, UnlockResponse};
+use gage::sync::syncresolve::{EntryConflict, Resolution};
+use gage::trust::trustcache::RecipientChangeWarning;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 

@@ -6,12 +6,13 @@ use std::path::PathBuf;
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::config::{self, Global};
-use gage::paths;
-use gage::prompter::Prompter;
-use gage::session::{OpenError, Session};
-use gage::vault::Vault;
-use gage::xdgpaths::Dirs;
+use gage::Prompter;
+use gage::Session;
+use gage::Vault;
+use gage::session::OpenError;
+use gage::storage::config::{self, Global};
+use gage::storage::paths;
+use gage::storage::xdgpaths::Dirs;
 
 use crate::Io;
 use crate::error::CliError;

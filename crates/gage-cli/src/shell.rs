@@ -7,10 +7,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::exitcode::ExitCode;
-use gage::config::{self, Shell};
-use gage::vaultconfig::VaultType;
-use gage::xdgpaths::Dirs;
-use gage::{gitrepo, paths};
+use gage::VaultType;
+use gage::storage::config::{self, Shell};
+use gage::storage::xdgpaths::Dirs;
+use gage::{storage::paths, sync::gitrepo};
 
 use crate::duration;
 use crate::error::CliError;

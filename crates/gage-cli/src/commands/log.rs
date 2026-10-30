@@ -7,10 +7,11 @@
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::entry::{Entry, ResolveError};
-use gage::history::{LogEntry, Revision};
-use gage::identity::Identity;
-use gage::vault::Vault;
+use gage::Entry;
+use gage::Identity;
+use gage::Vault;
+use gage::entry::ResolveError;
+use gage::entry::history::{LogEntry, Revision};
 use jiff::tz::TimeZone;
 use uuid::Uuid;
 

@@ -14,7 +14,8 @@ use std::io::Cursor;
 use std::rc::Rc;
 
 use crate::exitcode::ExitCode;
-use gage::prompter::{FakePrompter, Prompter};
+use gage::Prompter;
+use gage::prompter::FakePrompter;
 
 use crate::entry_tests::unlocks;
 use crate::lifecycle_tests::{CliResult, Env, PASSPHRASE};

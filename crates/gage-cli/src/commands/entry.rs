@@ -13,14 +13,14 @@ use std::collections::BTreeMap;
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
+use gage::Identity;
+use gage::Prompter;
+use gage::Vault;
+use gage::crypto::generate::{self, GenerateOptions};
 use gage::entry::{
     self, CandidateList, Entry, ListEntry, NewEntry, ResolveError, Timestamp, WriteError,
 };
-use gage::generate::{self, GenerateOptions};
-use gage::identity::Identity;
-use gage::prompter::Prompter;
 use gage::session::SessionError;
-use gage::vault::Vault;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 

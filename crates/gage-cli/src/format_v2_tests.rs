@@ -9,12 +9,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::exitcode::ExitCode;
-use gage::config::Shell;
+use gage::Vault;
 use gage::entry::NewEntry;
 use gage::gittest;
 use gage::prompter::FakePrompter;
+use gage::storage::config::Shell;
 use gage::testsupport::format_v2::{self as fx, Installed};
-use gage::vault::Vault;
 
 use crate::enroll_cli_tests::code_in;
 use crate::lifecycle_tests::{CliResult, Env};
@@ -196,7 +196,8 @@ fn write_format_v2_fixture() {
     );
     fx::copy_tree(&trust, &out.join("state").join(&id));
 
-    let text = std::fs::read_to_string(gage::paths::global_config_file(&laptop.dirs)).unwrap();
+    let text =
+        std::fs::read_to_string(gage::storage::paths::global_config_file(&laptop.dirs)).unwrap();
     let template = text
         .replace(
             registration.path.to_str().unwrap(),

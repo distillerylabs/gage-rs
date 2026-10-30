@@ -6,13 +6,14 @@
 use std::path::{Path, PathBuf};
 
 use crate::exitcode::ExitCode;
-use gage::config::{self, Global, VaultEntry};
+use gage::Warning;
 use gage::entry::CandidateList;
-use gage::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse, Warning};
-use gage::syncresolve::{EntryConflict, Resolution};
-use gage::vaultconfig;
-use gage::xdgpaths::Dirs;
-use gage::{gitrepo, paths, recipients};
+use gage::prompter::{FakePrompter, PromptError, Prompter, UnlockRequest, UnlockResponse};
+use gage::storage::config::{self, Global, VaultEntry};
+use gage::storage::vaultconfig;
+use gage::storage::xdgpaths::Dirs;
+use gage::sync::syncresolve::{EntryConflict, Resolution};
+use gage::{storage::paths, sync::gitrepo, trust::recipient};
 
 use crate::commands::resolve_device_name;
 use crate::error::ERROR_PREFIX;
@@ -116,7 +117,7 @@ impl Prompter for EchoingPrompter<'_> {
 
     fn confirm_recipient_change(
         &self,
-        warning: &gage::trustcache::RecipientChangeWarning,
+        warning: &gage::trust::trustcache::RecipientChangeWarning,
     ) -> Result<bool, PromptError> {
         self.inner.confirm_recipient_change(warning)
     }
@@ -562,7 +563,7 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
     let env = Env::new();
     let path = env.init("personal", &[]);
     let before = env.global();
-    let keys_before = recipients::load(&path.join(".age-recipients")).unwrap();
+    let keys_before = recipient::load(&path.join(".age-recipients")).unwrap();
 
     let r = env.run_with(
         &[
@@ -582,7 +583,7 @@ fn init_into_already_registered_name_fails_and_leaves_existing_vault_untouched()
         r.stderr
     );
     assert_eq!(env.global(), before);
-    let keys = recipients::load(&path.join(".age-recipients")).unwrap();
+    let keys = recipient::load(&path.join(".age-recipients")).unwrap();
     assert_eq!(keys, keys_before);
 }
 
@@ -732,7 +733,7 @@ fn init_repeated_recipient_writes_all() {
         ],
     );
 
-    let keys = recipients::load(&path.join(".age-recipients")).unwrap();
+    let keys = recipient::load(&path.join(".age-recipients")).unwrap();
     assert_eq!(Some(&keys[0]), env.entry("personal").pubkey.as_ref());
     assert_eq!(keys[1..], [RECIPIENT_1, RECIPIENT_2, RECIPIENT_1]);
     let labels: Vec<String> = env
@@ -854,10 +855,10 @@ fn init_with_no_recipient_generates_this_devices_identity() {
         "want exactly this device's own key"
     );
     let pubkey = &file.recipients[0].pubkey;
-    gage::agekey::validate_recipient(pubkey).unwrap();
+    gage::crypto::agekey::validate_recipient(pubkey).unwrap();
     assert_eq!(file.recipients[0].device, entry.device);
     // The same key, in both recipient-defining files.
-    let keys = recipients::load(&entry.path.join(".age-recipients")).unwrap();
+    let keys = recipient::load(&entry.path.join(".age-recipients")).unwrap();
     assert_eq!(keys, std::slice::from_ref(pubkey));
 }
 

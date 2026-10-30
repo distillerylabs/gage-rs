@@ -10,7 +10,7 @@
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
-use gage::{gitrepo, remoteauth};
+use gage::{sync::gitrepo, sync::remoteauth};
 
 use super::{Keys, dirs, fail, load_global, out};
 use crate::Io;

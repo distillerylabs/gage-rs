@@ -7,9 +7,9 @@ use uuid::Uuid;
 use super::fixtures_tests::*;
 use super::name::pending_file_name;
 use super::{EnrollmentError, MAX_ENROLLMENT_ATTEMPTS, PendingRequest};
-use crate::crypt;
+use crate::crypto::crypt;
 use crate::error::ErrorKind;
-use crate::vaultconfig::UnlockMethod;
+use crate::storage::vaultconfig::UnlockMethod;
 
 /// The `-> scrypt <salt> <logN>` stanza's logN, off a real header.
 fn stanza_factor(file: &[u8]) -> u8 {
@@ -371,7 +371,7 @@ fn sealed_id_must_match_the_filename() {
 }
 
 /// `n` well-named, live, unopenable files.
-fn stuff(f: &crate::recipient_tests::Fixture, n: usize) {
+fn stuff(f: &crate::trust::recipient::recipient_tests::Fixture, n: usize) {
     for _ in 0..n {
         let id = Uuid::new_v4().to_string();
         write_pending(&f.vault, &pending_file_name(&id, hours(1)), b"a request");

@@ -8,9 +8,9 @@ use std::time::Duration;
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
+use gage::Prompter;
+use gage::Vault;
 use gage::enrollment::{DEFAULT_ENROLLMENT_TTL, EnrollmentRequest, MAX_ENROLLMENT_TTL};
-use gage::prompter::Prompter;
-use gage::vault::Vault;
 use jiff::Timestamp;
 
 use super::entry::use_flag;

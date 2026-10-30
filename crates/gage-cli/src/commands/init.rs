@@ -13,14 +13,16 @@ use std::path::{Path, PathBuf};
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgAction, ArgMatches};
-use gage::config::{GitMeta, RegistryError, VaultEntry};
-use gage::error::HasKind;
-use gage::prompter::Prompter;
+use gage::HasKind;
+use gage::Prompter;
 use gage::recovery::{RECOVERY_DEVICE_LABEL, check_device_label_free, new_recovery_key};
-use gage::syncerr::Kind;
-use gage::vault::{CreateSpec, LabelledRecipient, Vault};
-use gage::vaultconfig::{UnlockMethod, VaultId, VaultType};
-use gage::{devicename, identityfile, paths, remoteauth};
+use gage::storage::config::{GitMeta, RegistryError, VaultEntry};
+use gage::storage::vaultconfig::VaultId;
+use gage::sync::syncerr::Kind;
+use gage::vault::LabelledRecipient;
+use gage::{CreateSpec, Vault};
+use gage::{UnlockMethod, VaultType};
+use gage::{devicename, storage::identityfile, storage::paths, sync::remoteauth};
 
 use super::recoverykey::{
     KeyPlan, check_recovery_key_out_path, deliver_recovery_key, plan_recovery_key,
@@ -223,7 +225,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
             },
         },
     )?;
-    gage::config::save_creating_dir(&config_path, &global)?;
+    gage::storage::config::save_creating_dir(&config_path, &global)?;
 
     // After registration, so a key is never shown for a vault that isn't
     // usable yet, and before the summary, so the one thing needing action

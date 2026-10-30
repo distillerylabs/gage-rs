@@ -26,6 +26,7 @@ by this log; a format change needs an ADR as well as a new spec.
 ### Project
 
 - [0001](0001-divergence-from-go-gage.md) gage-rs diverges and becomes its own project
+- [0055](0055-module-hierarchy.md) The library is grouped by concern; the root re-exports what a frontend names
 
 ### Format and storage
 

@@ -4,7 +4,7 @@
 
 use std::io::IsTerminal;
 
-use gage::xdgpaths::Dirs;
+use gage::storage::xdgpaths::Dirs;
 use gage_cli::clipboard::{self, ClipboardKeeper};
 use gage_cli::prompter::{SecretInput, TerminalPrompter};
 use gage_cli::{BuildInfo, Io};

@@ -10,7 +10,7 @@
 use std::io::{BufRead, Write};
 use std::path::Path;
 
-use gage::xdgpaths::Dirs;
+use gage::storage::xdgpaths::Dirs;
 
 fn main() {
     let dirs = match Dirs::from_process() {

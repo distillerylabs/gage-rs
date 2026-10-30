@@ -26,10 +26,10 @@ use rustyline::validate::Validator;
 use rustyline::{Context, Helper};
 
 use crate::exitcode::ExitCode;
-use gage::config;
-use gage::paths;
-use gage::session::Session;
-use gage::xdgpaths::Dirs;
+use gage::Session;
+use gage::storage::config;
+use gage::storage::paths;
+use gage::storage::xdgpaths::Dirs;
 
 use crate::error::CliError;
 use crate::registry::Registry;

@@ -118,7 +118,14 @@ When adding behavior, put it in `crates/gage` and add a thin `gage-cli` command 
 - **`Session`** — process-scoped: one or more unlocked `Vault`s, their `Identity`s, and each vault's metadata index. Backs both the interactive REPL and non-interactive `--script`/`--stdin` mode.
 - **`Entry`** — a single decrypted record (YAML: `title`, `description`, `created`/`updated`/`updated_by`, `value`, `fields`).
 
-Supporting modules include `agekey`, `atomicfile` (temp+rename writes), `config`, `devicename` (validates/normalizes device names — these become filesystem path components, so validation is a security boundary, not cosmetic), `error` (`ErrorKind`, the frontend-neutral kind every error has; `gage-cli`'s `exitcode` maps it to exit codes 0–7), `gitrepo`/`gittest` (git wrapper + ephemeral bare-repo test harness — no real network in tests), `memlock` (`mlock`/`VirtualLock` behind one signature), `recipients`, `remoteauth`, `syncerr`, `vaultconfig`, `vaultlock` (the per-vault advisory lock), `xdgpaths`.
+The crate is grouped by concern ([ADR-0055](doc/decisions/0055-module-hierarchy.md)); `lib.rs` re-exports the types a frontend names (`Vault`, `Session`, `Entry`, `Identity`, `Prompter`, `ErrorKind`, ...) and everything else is reached through its area:
+
+- `storage` — `atomicfile` (temp+rename writes), `config`, `paths`, `xdgpaths`, `vaultconfig`, `vaultlock` (the per-vault advisory lock), `identityfile`.
+- `crypto` — `agekey`, `crypt`, `identity`, `locker`, `memlock` (`mlock`/`VirtualLock` behind one signature), `generate`.
+- `sync` — `gitrepo` (git wrapper), `remotesync`, `syncerr`, `syncresolve`, `remoteauth`.
+- `trust` — `recipient` (verify/add/remove, plus the `.age-recipients` file), `trustcache`, `orphan`.
+- `entry` — the record plus `history`, `search`, `movecopy` and the session's metadata `index`; `enrollment` and `recovery` are their own areas.
+- root — `vault`, `session`, `prompter`, `error` (`ErrorKind`, the frontend-neutral kind every error has; `gage-cli`'s `exitcode` maps it to exit codes 0–7), `devicename` (validates/normalizes device names — these become filesystem path components, so validation is a security boundary, not cosmetic), and the test-gated `gittest` (ephemeral bare-repo harness — no real network in tests) and `testsupport`.
 
 ### Key invariants worth knowing before touching related code
 
