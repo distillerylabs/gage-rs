@@ -12,7 +12,9 @@ use gage::prompter::FakePrompter;
 use super::*;
 use crate::cli::command_list_line;
 use crate::error::ERROR_PREFIX;
-use crate::registry::{Availability, CommandInfo, GROUP_ENTRY, GROUP_VAULT, Registry, registry};
+use crate::registry::{
+    Availability, Command, CommandInfo, GROUP_ENTRY, GROUP_VAULT, Registry, RunCommand, registry,
+};
 
 struct CliResult {
     code: ExitCode,
@@ -60,6 +62,7 @@ fn cmd(
     availability: Availability,
 ) -> CommandInfo {
     CommandInfo {
+        command: Command::Run(RunCommand::Ls),
         name,
         aliases,
         short: "injected for this test only",
@@ -534,20 +537,4 @@ fn bare_gage_with_redirected_stdin_prints_root_help() {
     let r = run_reg(&registry(), &[], false);
     assert_eq!(r.code, ExitCode::Success);
     assert_eq!(r.stdout, run(&["--help"]).stdout);
-}
-
-// A stub that isn't session-only reports it is not implemented
-// rather than looking like an unknown command.
-#[test]
-fn an_unimplemented_one_shot_command_is_internal() {
-    let mut reg = registry();
-    reg.commands.push(cmd(
-        "fake-oneshot",
-        &[],
-        GROUP_VAULT,
-        Availability::OneShotOnly,
-    ));
-    let r = run_reg(&reg, &["fake-oneshot"], false);
-    assert_eq!(r.code, ExitCode::Internal);
-    assert_eq!(r.stderr, "gage: fake-oneshot is not implemented yet\n");
 }

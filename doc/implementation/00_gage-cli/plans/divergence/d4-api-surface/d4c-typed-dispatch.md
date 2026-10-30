@@ -163,40 +163,56 @@ not-implemented test.
 
 ## Settled decisions
 
-*(Move each decision here once it has been reviewed, as D3c did.)*
+Decisions 1-6 were built as proposed, with these refinements
+(recorded in [ADR-0057](../../../../../decisions/0057-typed-command-dispatch.md)):
+
+- **Decisions 1 and 6.** The split is `Command::Session(SessionVerb)` /
+  `Command::Run(RunCommand)`, so `commands::run` takes a `RunCommand` and
+  needs no `unreachable!`. The one that remains is in the REPL, where
+  `Outcome::Command` can still carry a session verb that `exec_line_in`
+  rules out by dispatching verbs first. `Command::ALL` is hand-written and
+  checked against the registry.
+- **Decision 3.** The test helper `cmd()` fixes the variant to
+  `RunCommand::Ls` rather than taking one; the fakes only render help.
+- **Decision 4.** Finer than planned: modules expose one flags function per
+  command that differs (`entry::show_flags`, ...), and `commands::flags`
+  lists every `--use`-only command, so no module keeps a `_` default.
+- **Decision 5.** `leaf_positional_candidates` keeps its signature (the
+  `complete_tests` are unedited, `use` paths included). It resolves the
+  clap leaf name through `registry().command_named`.
 
 ## Tasks
 
 ### 1. Pin what exists
 
-- [ ] Tests first: a registry test asserting that the set of
+- [x] Tests first: a registry test asserting that the set of
       `CommandInfo` names equals today's 45, so a rename in this
       milestone shows up as a test failure, not as a snapshot diff
       noticed late. Green on the current code.
 
 ### 2. `Command` in the registry
 
-- [ ] Implement decision 1. Add the `ALL`-versus-registry uniqueness
+- [x] Implement decision 1. Add the `ALL`-versus-registry uniqueness
       test, which is red until every entry carries a distinct
       `command`.
 
 ### 3. Dispatch
 
-- [ ] Replace `commands::run`, `flags` and `long_about` with exhaustive
+- [x] Replace `commands::run`, `flags` and `long_about` with exhaustive
       matches on `Command` (decisions 4 and 6).
-- [ ] Replace the REPL's verb match and the two `"help"` special cases
+- [x] Replace the REPL's verb match and the two `"help"` special cases
       (decision 2).
-- [ ] Delete both "not implemented yet" paths and their test (decision
+- [x] Delete both "not implemented yet" paths and their test (decision
       3).
 
 ### 4. Completion
 
-- [ ] Implement decision 5. The `complete_tests` stay green unedited,
+- [x] Implement decision 5. The `complete_tests` stay green unedited,
       except for `use` paths.
 
 ### 5. ADR and green
 
-- [ ] ADR-0057: the registry carries a typed `Command`; dispatch is
+- [x] ADR-0057: the registry carries a typed `Command`; dispatch is
       exhaustive; tests inject fakes with real variants. Link it from
       `doc/decisions/README.md`. It amends nothing in ADR-0030–0032.
 - [ ] `make lint` and `make test` are clean.

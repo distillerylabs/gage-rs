@@ -27,7 +27,7 @@ use crate::complete::{SessionHelper, resolve_session_command_name};
 use crate::error::{CliError, prefixed};
 use crate::history::History;
 use crate::lineread::{LineReader, PlainLineReader, ReadOutcome, RustylineReader, read_one_line};
-use crate::registry::Registry;
+use crate::registry::{Command, Registry, SessionVerb};
 use crate::shell::{self, PromptState, ShellSettings};
 
 /// What the interactive session and a script run share: where gage keeps
@@ -363,13 +363,15 @@ fn exec_line_in(
     args[0] = resolve_session_command_name(reg, first)?;
     let first = &args[0];
     let rest = &args[1..];
-    match reg.find(first).map(|c| c.name) {
-        Some("exit") => return Ok(true),
-        Some("use") => session_use(session, rest)?,
-        Some("lock") => session_lock(session, io, rest)?,
-        Some("status") => session_status(session, io, rest)?,
-        Some("help") => session_help(reg, io, rest)?,
-        _ => run_command(reg, session, io, &args, mode)?,
+    match reg.command_named(first) {
+        Some(Command::Session(verb)) => match verb {
+            SessionVerb::Exit => return Ok(true),
+            SessionVerb::Use => session_use(session, rest)?,
+            SessionVerb::Lock => session_lock(session, io, rest)?,
+            SessionVerb::Status => session_status(session, io, rest)?,
+            SessionVerb::Help => session_help(reg, io, rest)?,
+        },
+        Some(Command::Run(_)) | None => run_command(reg, session, io, &args, mode)?,
     }
     Ok(false)
 }
@@ -424,13 +426,12 @@ fn run_command(
         {
             Err(crate::assumeyes::refused_in_session())
         }
-        Outcome::Command(name, matches) => {
-            commands::run(name, &matches, io, &mut Keys::Session(session)).unwrap_or_else(|| {
-                Err(CliError::new(
-                    ExitCode::Internal,
-                    format!("{name} is not implemented yet"),
-                ))
-            })
+        // Dispatched before parsing, by `exec_line_in`.
+        Outcome::Command(Command::Session(_), _) => {
+            unreachable!("session verbs never reach the clap tree")
+        }
+        Outcome::Command(Command::Run(run), matches) => {
+            commands::run(run, &matches, io, &mut Keys::Session(session))
         }
     }
 }

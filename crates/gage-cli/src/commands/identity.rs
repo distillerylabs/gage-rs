@@ -28,23 +28,21 @@ name rather than restoring the old key from a backup, and have a device with
 access add it. If no device can, `gage recovery enroll` gets you back in with
 the vault's recovery key.";
 
-pub fn flags(name: &str) -> Vec<Arg> {
-    match name {
-        "identity add" => {
-            vec![
-            Arg::new("device")
-                .long("device")
-                .value_name("string")
-                .help("this device's name for the vault (default: normalized hostname)"),
-            Arg::new("method").long("method").value_name("string").help(format!(
+pub fn add_flags() -> Vec<Arg> {
+    vec![
+        Arg::new("device")
+            .long("device")
+            .value_name("string")
+            .help("this device's name for the vault (default: normalized hostname)"),
+        Arg::new("method")
+            .long("method")
+            .value_name("string")
+            .help(format!(
                 "how this device unlocks the vault (accepted: [{}]; default: the vault's own)",
                 UnlockMethod::names(" ")
             )),
-            use_flag(),
-        ]
-        }
-        _ => vec![use_flag()],
-    }
+        use_flag(),
+    ]
 }
 
 pub fn add(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {

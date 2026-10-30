@@ -74,22 +74,19 @@ const MAX_CODE_PROMPTS: usize = 100;
 /// which is the point.
 const TIME_FORMAT: &str = "%Y-%m-%d %H:%M %Z";
 
-pub fn flags(name: &str) -> Vec<Arg> {
-    match name {
-        "recipient approve" => vec![
-            Arg::new("code")
-                .long("code")
-                .value_name("stringArray")
-                .action(ArgAction::Append)
-                .help("an enrollment code you were given out-of-band (repeatable; prompted for if absent)"),
-            Arg::new("device")
-                .long("device")
-                .value_name("string")
-                .help("record the approved key under this name instead of the one the request claims"),
-            use_flag(),
-        ],
-        _ => vec![use_flag()],
-    }
+pub fn approve_flags() -> Vec<Arg> {
+    vec![
+        Arg::new("code")
+            .long("code")
+            .value_name("stringArray")
+            .action(ArgAction::Append)
+            .help("an enrollment code you were given out-of-band (repeatable; prompted for if absent)"),
+        Arg::new("device")
+            .long("device")
+            .value_name("string")
+            .help("record the approved key under this name instead of the one the request claims"),
+        use_flag(),
+    ]
 }
 
 pub fn pending(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {

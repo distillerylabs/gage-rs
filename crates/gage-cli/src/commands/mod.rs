@@ -16,6 +16,7 @@ use gage::storage::xdgpaths::Dirs;
 
 use crate::Io;
 use crate::error::CliError;
+use crate::registry::{Command, RunCommand};
 
 mod approve;
 mod auth;
@@ -58,52 +59,76 @@ pub(crate) use recoverykey::{
 #[cfg(test)]
 pub(crate) use sync::{report_conflicts, sync_line};
 
-/// The flags of the command registered as `name`, beyond its positionals.
-pub fn flags(name: &str) -> Vec<Arg> {
-    match name {
-        "init" => init::flags(),
-        "clone" => clone::flags(),
-        "sync" | "pull" | "push" => sync::flags(),
-        "insert" | "show" | "cat" | "edit" | "rename" | "generate" | "rm" | "ls" | "search"
-        | "reindex" => entry::flags(name),
-        "log" | "history" => log::flags(name),
-        "mv" | "cp" => movecopy::flags(),
-        "auth login" | "auth status" | "auth logout" => auth::flags(),
-        "identity add" | "identity list" => identity::flags(name),
-        "identity enroll" => enroll::flags(),
-        "recipient add" | "recipient remove" | "recipient list" | "recipient verify" => {
-            recipient::flags(name)
-        }
-        "recipient pending" | "recipient approve" | "recipient deny" => approve::flags(name),
-        "recovery enroll" | "recovery rotate" | "recovery verify" => recovery::flags(name),
-        _ => Vec::new(),
+/// The flags of `command`, beyond its positionals. Session verbs are not
+/// parsed by clap with flags of their own.
+pub fn flags(command: Command) -> Vec<Arg> {
+    use RunCommand::*;
+    let Command::Run(run) = command else {
+        return Vec::new();
+    };
+    // The commands that take only `--use` are listed, not defaulted, so a
+    // new command has to decide.
+    let use_only = || vec![entry::use_flag()];
+    match run {
+        Init => init::flags(),
+        Clone => clone::flags(),
+        Sync | Pull | Push => sync::flags(),
+        Insert => entry::insert_flags(),
+        Show => entry::show_flags(),
+        Rename => entry::rename_flags(),
+        Generate => entry::generate_flags(),
+        Ls => entry::ls_flags(),
+        Cat | Edit | Rm | Search | Reindex => use_only(),
+        History => log::history_flags(),
+        Log => use_only(),
+        Mv | Cp => movecopy::flags(),
+        AuthLogin | AuthStatus | AuthLogout => auth::flags(),
+        IdentityAdd => identity::add_flags(),
+        IdentityList => use_only(),
+        IdentityEnroll => enroll::flags(),
+        RecipientAdd => recipient::add_flags(),
+        RecipientRemove => recipient::remove_flags(),
+        RecipientVerify => recipient::verify_flags(),
+        RecipientList => use_only(),
+        RecipientApprove => approve::approve_flags(),
+        RecipientPending | RecipientDeny => use_only(),
+        RecoveryEnroll => recovery::enroll_flags(),
+        RecoveryRotate => recovery::rotate_flags(),
+        RecoveryVerify => use_only(),
+        VaultList | VaultInfo | VaultRemove | VaultSetDefault | GitSetRemote => Vec::new(),
     }
 }
 
-/// The description `name`'s own help shows in place of its one-line
+/// The description `command`'s own help shows in place of its one-line
 /// short, when it has more to say.
-pub fn long_about(name: &str) -> Option<&'static str> {
-    match name {
-        "init" => Some(init::LONG_ABOUT),
-        "clone" => Some(clone::LONG_ABOUT),
-        "pull" => Some(sync::PULL_LONG_ABOUT),
-        "sync" => Some(sync::SYNC_LONG_ABOUT),
-        "ls" => Some(entry::LS_LONG_ABOUT),
-        "log" => Some(log::LOG_LONG_ABOUT),
-        "history" => Some(log::HISTORY_LONG_ABOUT),
-        "auth login" => Some(auth::LOGIN_LONG_ABOUT),
-        "identity add" => Some(identity::ADD_LONG_ABOUT),
-        "identity enroll" => Some(enroll::LONG_ABOUT),
-        "recipient add" => Some(recipient::ADD_LONG_ABOUT),
-        "recipient remove" => Some(recipient::REMOVE_LONG_ABOUT),
-        "recipient verify" => Some(recipient::VERIFY_LONG_ABOUT),
-        "recipient pending" => Some(approve::PENDING_LONG_ABOUT),
-        "recipient approve" => Some(approve::APPROVE_LONG_ABOUT),
-        "recipient deny" => Some(approve::DENY_LONG_ABOUT),
-        "recovery enroll" => Some(recovery::ENROLL_LONG_ABOUT),
-        "recovery rotate" => Some(recovery::ROTATE_LONG_ABOUT),
-        "recovery verify" => Some(recovery::VERIFY_LONG_ABOUT),
-        _ => None,
+pub fn long_about(command: Command) -> Option<&'static str> {
+    use RunCommand::*;
+    let Command::Run(run) = command else {
+        return None;
+    };
+    match run {
+        Init => Some(init::LONG_ABOUT),
+        Clone => Some(clone::LONG_ABOUT),
+        Pull => Some(sync::PULL_LONG_ABOUT),
+        Sync => Some(sync::SYNC_LONG_ABOUT),
+        Ls => Some(entry::LS_LONG_ABOUT),
+        Log => Some(log::LOG_LONG_ABOUT),
+        History => Some(log::HISTORY_LONG_ABOUT),
+        AuthLogin => Some(auth::LOGIN_LONG_ABOUT),
+        IdentityAdd => Some(identity::ADD_LONG_ABOUT),
+        IdentityEnroll => Some(enroll::LONG_ABOUT),
+        RecipientAdd => Some(recipient::ADD_LONG_ABOUT),
+        RecipientRemove => Some(recipient::REMOVE_LONG_ABOUT),
+        RecipientVerify => Some(recipient::VERIFY_LONG_ABOUT),
+        RecipientPending => Some(approve::PENDING_LONG_ABOUT),
+        RecipientApprove => Some(approve::APPROVE_LONG_ABOUT),
+        RecipientDeny => Some(approve::DENY_LONG_ABOUT),
+        RecoveryEnroll => Some(recovery::ENROLL_LONG_ABOUT),
+        RecoveryRotate => Some(recovery::ROTATE_LONG_ABOUT),
+        RecoveryVerify => Some(recovery::VERIFY_LONG_ABOUT),
+        Push | Insert | Show | Cat | Edit | Rename | Generate | Rm | Mv | Cp | Search | Reindex
+        | VaultList | VaultInfo | VaultRemove | VaultSetDefault | GitSetRemote | AuthStatus
+        | AuthLogout | IdentityList | RecipientList => None,
     }
 }
 
@@ -132,57 +157,57 @@ impl<'a> Keys<'_, 'a> {
     }
 }
 
-/// Runs the command registered as `name`, or `None` if there is no such
-/// implemented command.
+/// Runs `command`. Session verbs never get here: the REPL handles them
+/// before parsing, and a one-shot run refuses them first.
 pub fn run(
-    name: &str,
+    command: RunCommand,
     matches: &ArgMatches,
     io: &mut Io,
     keys: &mut Keys,
-) -> Option<Result<(), CliError>> {
-    Some(match name {
-        "init" => init::run(matches, io, keys.prompter()),
-        "clone" => clone::run(matches, io, keys.prompter()),
-        "sync" => sync::sync(matches, io, keys),
-        "pull" => sync::pull(matches, io, keys),
-        "push" => sync::push(matches, io, keys),
-        "insert" => entry::insert(matches, io, keys),
-        "show" => entry::show(matches, io, keys),
-        "cat" => entry::cat(matches, io, keys),
-        "edit" => entry::edit(matches, io, keys),
-        "rename" => entry::rename(matches, io, keys),
-        "generate" => entry::generate(matches, io, keys),
-        "rm" => entry::rm(matches, io, keys),
-        "mv" => movecopy::mv(matches, io, keys),
-        "cp" => movecopy::cp(matches, io, keys),
-        "ls" => entry::ls(matches, io, keys),
-        "search" => entry::search(matches, io, keys),
-        "reindex" => entry::reindex(matches, io, keys),
-        "log" => log::log(matches, io, keys),
-        "history" => log::history(matches, io, keys),
-        "vault list" => vault::list(io),
-        "vault info" => vault::info(matches, io),
-        "vault remove" => vault::remove(matches, io, keys.prompter()),
-        "vault set-default" => vault::set_default(matches, io),
-        "git set-remote" => git::set_remote(matches, io),
-        "auth login" => auth::login(matches, io, keys),
-        "auth status" => auth::status(matches, io),
-        "auth logout" => auth::logout(matches, io),
-        "identity add" => identity::add(matches, io, keys),
-        "identity enroll" => enroll::run(matches, io, keys),
-        "identity list" => identity::list(matches, io, keys),
-        "recipient add" => recipient::add(matches, io, keys),
-        "recipient remove" => recipient::remove(matches, io, keys),
-        "recipient list" => recipient::list(matches, io, keys),
-        "recipient verify" => recipient::verify(matches, io, keys),
-        "recipient pending" => approve::pending(matches, io, keys),
-        "recipient approve" => approve::approve(matches, io, keys),
-        "recipient deny" => approve::deny(matches, io, keys),
-        "recovery enroll" => recovery::enroll(matches, io, keys.prompter()),
-        "recovery rotate" => recovery::rotate(matches, io, keys),
-        "recovery verify" => recovery::verify(matches, io, keys.prompter()),
-        _ => return None,
-    })
+) -> Result<(), CliError> {
+    use RunCommand::*;
+    match command {
+        Init => init::run(matches, io, keys.prompter()),
+        Clone => clone::run(matches, io, keys.prompter()),
+        Sync => sync::sync(matches, io, keys),
+        Pull => sync::pull(matches, io, keys),
+        Push => sync::push(matches, io, keys),
+        Insert => entry::insert(matches, io, keys),
+        Show => entry::show(matches, io, keys),
+        Cat => entry::cat(matches, io, keys),
+        Edit => entry::edit(matches, io, keys),
+        Rename => entry::rename(matches, io, keys),
+        Generate => entry::generate(matches, io, keys),
+        Rm => entry::rm(matches, io, keys),
+        Mv => movecopy::mv(matches, io, keys),
+        Cp => movecopy::cp(matches, io, keys),
+        Ls => entry::ls(matches, io, keys),
+        Search => entry::search(matches, io, keys),
+        Reindex => entry::reindex(matches, io, keys),
+        Log => log::log(matches, io, keys),
+        History => log::history(matches, io, keys),
+        VaultList => vault::list(io),
+        VaultInfo => vault::info(matches, io),
+        VaultRemove => vault::remove(matches, io, keys.prompter()),
+        VaultSetDefault => vault::set_default(matches, io),
+        GitSetRemote => git::set_remote(matches, io),
+        AuthLogin => auth::login(matches, io, keys),
+        AuthStatus => auth::status(matches, io),
+        AuthLogout => auth::logout(matches, io),
+        IdentityAdd => identity::add(matches, io, keys),
+        IdentityEnroll => enroll::run(matches, io, keys),
+        IdentityList => identity::list(matches, io, keys),
+        RecipientAdd => recipient::add(matches, io, keys),
+        RecipientRemove => recipient::remove(matches, io, keys),
+        RecipientList => recipient::list(matches, io, keys),
+        RecipientVerify => recipient::verify(matches, io, keys),
+        RecipientPending => approve::pending(matches, io, keys),
+        RecipientApprove => approve::approve(matches, io, keys),
+        RecipientDeny => approve::deny(matches, io, keys),
+        RecoveryEnroll => recovery::enroll(matches, io, keys.prompter()),
+        RecoveryRotate => recovery::rotate(matches, io, keys),
+        RecoveryVerify => recovery::verify(matches, io, keys.prompter()),
+    }
 }
 
 /// The process's directory roots, resolved only when a command needs them,

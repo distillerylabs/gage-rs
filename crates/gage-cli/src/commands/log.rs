@@ -40,17 +40,14 @@ const TIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S %z";
 /// How many characters of a commit hash a line shows.
 const SHORT_HASH_LEN: usize = 7;
 
-pub fn flags(name: &str) -> Vec<Arg> {
-    match name {
-        "history" => vec![
-            Arg::new("decrypt")
-                .long("decrypt")
-                .action(ArgAction::SetTrue)
-                .help("required: decrypt and print every past revision of the entry"),
-            use_flag(),
-        ],
-        _ => vec![use_flag()],
-    }
+pub fn history_flags() -> Vec<Arg> {
+    vec![
+        Arg::new("decrypt")
+            .long("decrypt")
+            .action(ArgAction::SetTrue)
+            .help("required: decrypt and print every past revision of the entry"),
+        use_flag(),
+    ]
 }
 
 // --- which entries ----------------------------------------------------------

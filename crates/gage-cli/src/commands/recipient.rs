@@ -42,38 +42,41 @@ that already exists, so the revocation would only look like one. Removing
 this device's own key is allowed but asks first, and removing the last
 recipient is refused outright.";
 
-pub fn flags(name: &str) -> Vec<Arg> {
-    match name {
-        // No --reencrypt: adding always re-encrypts (ADR-0009). The flag is not
-        // accepted and ignored, since a script passing it asked for what
-        // used to be optional; clap rejects it as a usage error, the loud
-        // version.
-        "recipient add" => vec![
-            // Required: a bare key says nothing about whose it is, and the
-            // label is what `remove` and `list` address it by.
-            Arg::new("device")
-                .long("device")
-                .value_name("string")
-                .required(true)
-                .help("the device name to label this key with"),
-            use_flag(),
-        ],
-        "recipient remove" => vec![
-            Arg::new("reencrypt")
-                .long("reencrypt")
-                .action(ArgAction::SetTrue)
-                .help("re-encrypt every entry to the reduced recipient list (required)"),
-            use_flag(),
-        ],
-        "recipient verify" => vec![
-            Arg::new("repair")
-                .long("repair")
-                .action(ArgAction::SetTrue)
-                .help("rewrite .age-recipients from .gage/config.toml and commit it, after confirming what that drops"),
-            use_flag(),
-        ],
-        _ => vec![use_flag()],
-    }
+// No --reencrypt: adding always re-encrypts (ADR-0009). The flag is not
+// accepted and ignored, since a script passing it asked for what
+// used to be optional; clap rejects it as a usage error, the loud
+// version.
+pub fn add_flags() -> Vec<Arg> {
+    vec![
+        // Required: a bare key says nothing about whose it is, and the
+        // label is what `remove` and `list` address it by.
+        Arg::new("device")
+            .long("device")
+            .value_name("string")
+            .required(true)
+            .help("the device name to label this key with"),
+        use_flag(),
+    ]
+}
+
+pub fn remove_flags() -> Vec<Arg> {
+    vec![
+        Arg::new("reencrypt")
+            .long("reencrypt")
+            .action(ArgAction::SetTrue)
+            .help("re-encrypt every entry to the reduced recipient list (required)"),
+        use_flag(),
+    ]
+}
+
+pub fn verify_flags() -> Vec<Arg> {
+    vec![
+        Arg::new("repair")
+            .long("repair")
+            .action(ArgAction::SetTrue)
+            .help("rewrite .age-recipients from .gage/config.toml and commit it, after confirming what that drops"),
+        use_flag(),
+    ]
 }
 
 pub fn add(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
