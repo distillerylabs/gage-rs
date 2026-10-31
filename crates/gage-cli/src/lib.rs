@@ -1,3 +1,8 @@
+//! `gage-cli` installs the `gage` binary; it is not a library to depend on.
+//! Install it with `cargo install gage-cli --locked` and see the README and
+//! <https://github.com/distillerylabs/gage-rs/tree/main/doc/cli> for use. To
+//! build on gage as a library, use [`gage-core`](https://docs.rs/gage-core).
+//!
 //! The `gage` command-line frontend: a thin layer that parses arguments,
 //! calls into the `gage` library, and renders the result as output, a
 //! prompt, or an exit code. Everything that decides what gage does lives in

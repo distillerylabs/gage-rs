@@ -17,6 +17,11 @@ include = ["src/**", "build.rs", "Cargo.toml", "README.md", "LICENSE"]
 name = "gage"
 path = "src/main.rs"
 
+# The binary's docs page is a pointer to the README, not an API: the crate
+# docs in lib.rs say so.
+[package.metadata.docs.rs]
+all-features = false
+
 [lints]
 workspace = true
 

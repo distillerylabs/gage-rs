@@ -5,7 +5,7 @@ Thanks for your interest! The most useful contributions are bugs, platform probl
 By participating you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 Contributions are licensed under the project's [Apache-2.0 license](LICENSE).
 
-## Setup
+## Building from source
 
 Requires the Rust toolchain pinned in `rust-toolchain.toml` (rustup installs it automatically).
 
@@ -20,6 +20,8 @@ make install-hooks  # pre-commit hook that runs `make lint`
 ```
 
 Run a single test with `cargo test -p gage-core <test_name> -- --nocapture` (or `-p gage-cli`).
+
+Maintainers cutting a release: [doc/release.md](doc/release.md).
 
 ## Before opening a PR
 

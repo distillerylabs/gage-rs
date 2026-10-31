@@ -1,5 +1,22 @@
 //! The library: everything that decides what gage does.
 //!
+//! # Using it
+//!
+//! This is the `gage-core` crate, imported as `gage`. It is the library under
+//! the `gage` command-line tool, for building another frontend over the same
+//! vaults. A [`Vault`] is one vault's on-disk state and does the vault-wide
+//! work (create, list, add a recipient). [`Vault::unlock`] turns a
+//! [`Prompter`], which you implement to ask a human, into an [`Identity`],
+//! and every call that reads or writes an entry takes that identity
+//! explicitly. A [`Session`] holds one or more unlocked vaults for a
+//! process's lifetime. Anything that needs a human decision comes back as a
+//! typed value (a candidate list, a [`Warning`]) rather than as output, and
+//! every error carries an [`ErrorKind`] you can match on.
+//!
+//! The crate is pre-1.0: a minor release may change this API. The on-disk
+//! format has its own version (`doc/format/` in the repository) and does not
+//! move with the crate's.
+//!
 //! `gage-cli` is a thin frontend over this crate, and a future GUI/TUI is a
 //! second one. So nothing here may touch the terminal or the process: see
 //! `clippy.toml` and the denies below, and `tests/no_frontend_deps.rs` for

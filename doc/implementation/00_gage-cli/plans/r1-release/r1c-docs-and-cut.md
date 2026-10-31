@@ -76,41 +76,58 @@ decisions":
 
 ## Settled decisions
 
-None yet.
+All five proposals above are accepted as written, with these specifics:
+
+1. **First CHANGELOG entry.** The 0.1.0 section is hand-written in the
+   release PR, replacing release-plz's generated list. The draft is in
+   [Draft: CHANGELOG 0.1.0](#draft-changelog-010) below; the runbook's
+   normal-release step tells the maintainer to paste it.
+2. **Install order.** Homebrew, shell/PowerShell installer, `cargo install
+   gage-cli --locked`, manual archive plus verification. Building from
+   source lives in CONTRIBUTING.
+3. **Security status.** "Not independently audited" stays in the README's
+   Status section and in the release notes. "Not released" goes.
+   SECURITY.md: latest release only, no backports.
+4. **#98.** age is still 0.12.1 and #98 is open, so 0.1.0 ships with the
+   `RUSTSEC-2026-0387` ignore in place, restated in the CHANGELOG's known
+   issues.
+5. **docs.rs.** `[package.metadata.docs.rs]` on both crates:
+   `gage-core` with `all-features = false` (so no `test-support`);
+   `gage-cli` with a crate-docs pointer at its README.
 
 ## Tasks
 
 ### 1. User docs
 
-- [ ] README:
+- [x] README:
       - an Install section (decision 2)
       - a "Verifying a download" subsection: `sha256sum -c` against the
         published checksum, and `gh attestation verify <archive> --repo
         distillerylabs/gage-rs`
       - the Status wording (decision 3)
       - the Documentation section no longer sends users to `make build`
-- [ ] `doc/cli/getting-started.md`: start from an installed `gage`, and
+- [x] `doc/cli/getting-started.md`: start from an installed `gage`, and
       link the README's Install section.
-- [ ] Move building from source (`make build`) into CONTRIBUTING.md.
-- [ ] SECURITY.md: Supported versions (decision 3), and a pointer to the
+- [x] Move building from source (`make build`) into CONTRIBUTING.md.
+- [x] SECURITY.md: Supported versions (decision 3), and a pointer to the
       verification steps.
-- [ ] `make qa` stays green. The QA catalog checks `doc/cli/` behavior,
+- [x] `make qa` stays green. The QA catalog checks `doc/cli/` behavior,
       and `command_reference_names_every_registered_command` must still
       pass.
 
 ### 2. Library docs
 
-- [ ] docs.rs metadata (decision 5).
-- [ ] `gage-core`'s crate docs open with a usage paragraph for library
+- [x] docs.rs metadata (decision 5).
+- [x] `gage-core`'s crate docs open with a usage paragraph for library
       consumers. Keep the existing module overview in `lib.rs`, which
       already serves.
-- [ ] `cargo doc -p gage-core --no-deps` with `RUSTDOCFLAGS="-D
+- [x] `cargo doc -p gage-core --no-deps` with `RUSTDOCFLAGS="-D
       warnings"` is clean. Add it to `lint.yml` (ubuntu) if it passes
       without suppressions.
 
 ### 3. Maintainer runbook
 
-- [ ] `doc/release.md`, linked from CONTRIBUTING.md, covering:
+- [x] `doc/release.md`, linked from CONTRIBUTING.md, covering:
       - **Normal release:** the release-plz PR appears, you edit the
         CHANGELOG if needed, merge, approve the `release` environment,
         then watch `release.yml`.
@@ -131,13 +148,13 @@ None yet.
 
 ### 4. Pre-flight
 
-- [ ] `make lint`, `make test`, `make qa` and `make audit` are clean on
-      the release-plz PR's head.
+- [x] `make lint`, `make test`, `make qa` and `make audit` are clean
+      (run on the R1c branch; re-run on the release-plz PR's head).
 - [ ] CI is green on Linux, macOS and Windows for that commit, including
       the `release.yml` PR run.
-- [ ] #98 is handled per decision 4.
+- [x] #98 is handled per decision 4 (age still 0.12.1; ignore stays).
 - [ ] The CHANGELOG 0.1.0 section is per decision 1.
-- [ ] `git diff --stat main -- tests/fixtures` is empty across the whole
+- [x] `git diff --stat main -- tests/fixtures` is empty across the whole
       R1 stack.
 
 ### 5. Cut (the user)
@@ -172,3 +189,34 @@ None yet.
 - No long-lived crates.io token remains.
 - `make lint`, `make test`, `make qa` and `make audit` are clean, and CI is
   green on Linux, macOS and Windows.
+
+## Draft: CHANGELOG 0.1.0
+
+Pasted over release-plz's generated 0.1.0 section in the release PR:
+
+```markdown
+## [0.1.0] - <date>
+
+First release. gage is a git-backed, age-encrypted secret and notes
+manager: a vault is an ordinary git repository of opaque `.age` files, and
+there is no server or daemon.
+
+- **On-disk format v2** is specified in `doc/format/v2.md` and frozen. It
+  versions independently of the crates; a format change is never a patch
+  release.
+- **Platforms:** Linux (x86_64, aarch64; glibc 2.35 or newer), macOS
+  (Apple silicon and Intel), Windows (x86_64). Install with Homebrew, the
+  shell or PowerShell installer, `cargo install gage-cli --locked`, or a
+  downloaded archive. Archives carry sha256 checksums and GitHub artifact
+  attestations.
+- **Crates:** `gage-cli` (the `gage` binary) and `gage-core` (the library,
+  imported as `gage`). Pre-1.0: a minor release may change the CLI or the
+  library API.
+- **Not independently audited.** gage leans on the `age` library for all
+  cryptography; the vault, sync and key-handling code around it is new.
+  See `doc/design/security-model.md`.
+- **Known issue:** `cargo audit` reports RUSTSEC-2026-0387 (crypto-bigint)
+  through age 0.12.1's p256/hpke dependencies. gage uses only age's x25519
+  and scrypt types, so the affected code is not reachable. Tracked in #98.
+- The decisions behind the design are in `doc/decisions/`.
+```

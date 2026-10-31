@@ -63,6 +63,14 @@ jobs:
         run: cargo package --list --locked -p gage-cli
         shell: bash
 
+      # The library docs docs.rs will build must have no broken links.
+      - name: cargo doc (gage-core)
+        if: runner.os == 'Linux'
+        run: cargo doc --locked --no-deps -p gage-core
+        shell: bash
+        env:
+          RUSTDOCFLAGS: -D warnings
+
       # The pinned cargo-dist, for dist-check below; keyed on the Makefile
       # so a pin change reinstalls it.
       - name: Cache tool binaries

@@ -1,6 +1,6 @@
 //! A single decrypted record: the fixed metadata fields plus the payload
 //! (see "Entry format" in the design doc). This module is the type and its
-//! YAML form; [`store`] is where entries meet the vault's files.
+//! YAML form; `store` is where entries meet the vault's files.
 //!
 //! The YAML is written by gage's own emitter ([`Entry::to_yaml`]) and read with
 //! `saphyr`'s parser ([`Entry::from_yaml`]), because a password manager cannot

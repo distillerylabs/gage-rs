@@ -6,7 +6,7 @@
 //!
 //! The write side re-encrypts, always: `add` (ADR-0009) and `remove` alike. Every entry and both recipient files
 //! land in exactly one commit, or none of it does. The ordering in
-//! [`Vault::commit_recipient_list`] is what makes an interrupted run
+//! `Vault::commit_recipient_list` is what makes an interrupted run
 //! invisible in history. See "Recipient / access management" and "Why
 //! adding a recipient always re-encrypts" in the design doc.
 

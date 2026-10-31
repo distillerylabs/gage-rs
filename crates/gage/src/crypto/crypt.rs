@@ -26,7 +26,7 @@ use crate::error::{ErrorKind, HasKind};
 ///
 /// Raising it later needs no migration: each file records its own factor in
 /// its scrypt stanza. A `const`, so nothing at runtime can move the shipped
-/// number; [`SCRYPT_WORK_FACTOR`] is the copy the crypto path reads.
+/// number; `SCRYPT_WORK_FACTOR` is the copy the crypto path reads.
 pub const SHIPPED_SCRYPT_WORK_FACTOR: u8 = 19;
 
 /// The live work factor every passphrase recipient is built at, and the

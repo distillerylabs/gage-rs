@@ -64,7 +64,7 @@ pub fn write(path: &Path, data: &[u8], mode: u32) -> Result<(), Error> {
     Ok(())
 }
 
-/// Like [`write`], but only creates: if `path` already exists, nothing is
+/// Like [`write()`], but only creates: if `path` already exists, nothing is
 /// written and the error is [`Error::AlreadyExists`]. The check and the
 /// rename are one operation, so a file that appears after a caller looked
 /// is refused rather than replaced (ADR-0028).
