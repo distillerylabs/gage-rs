@@ -150,10 +150,10 @@ All five proposals above are accepted as written, with these specifics:
 
 - [x] `make lint`, `make test`, `make qa` and `make audit` are clean
       (run on the R1c branch; re-run on the release-plz PR's head).
-- [ ] CI is green on Linux, macOS and Windows for that commit, including
+- [x] CI is green on Linux, macOS and Windows for that commit, including
       the `release.yml` PR run.
 - [x] #98 is handled per decision 4 (age still 0.12.1; ignore stays).
-- [ ] The CHANGELOG 0.1.0 section is per decision 1.
+- [x] The CHANGELOG 0.1.0 section is per decision 1.
 - [x] `git diff --stat main -- tests/fixtures` is empty across the whole
       R1 stack.
 
