@@ -244,9 +244,20 @@ What the sources showed, which changed several proposals:
       record and on a `dist-workspace.toml` change that wasn't
       regenerated. `make dist-patch` and `make dist-regen` are its
       maintenance pair.
-- [ ] A PR run uploads five archives, checksums and installers, and every
-      smoke step is green. Link the run in the PR. *Needs the branch
-      pushed.*
+- [x] A PR run uploads five archives, checksums and installers, and every
+      smoke step is green. Link the run in the PR.
+      - [Run 41146786941](https://github.com/distillerylabs/gage-rs/actions/runs/41146786941)
+        on #155 uploaded:
+        - five archives, each with a `.sha256`
+        - `sha256.sum`
+        - the shell and PowerShell installers
+        - `gage.rb`
+        - the source tarball
+      - All five smoke legs passed.
+      - `gh attestation verify` passes for all five archives, signed by
+        `release.yml`.
+      - The first run's aarch64 macOS build was cancelled by GitHub's
+        `macos-14` brownout, which is why decision 1 pins `macos-15`.
 - [x] `dist build` locally for the host target produces an archive whose
       `gage --version` prints `gage 0.1.0 (commit <sha>)`.
       - `dist build --artifacts=local --target aarch64-apple-darwin`
@@ -327,11 +338,17 @@ the runbook.
       - Verified with `gh api` on 2026-10-30: environments, secrets, the
         tag ruleset (App-only bypass) and the `main` ruleset are as
         above. Every check is pinned to the GitHub Actions app.
-- [ ] After the R1b PR's first `release.yml` run, add its checks to the
+- [x] After the R1b PR's first `release.yml` run, add its checks to the
       `main` ruleset: `plan`, the five `build-local-artifacts (<target>)`
       and the five `custom-release-smoke / smoke (<target>)`. Without
       them, a release PR that breaks one target can merge. The crates are
       then published before the tag build fails.
+      - Verified with `gh api`: the ruleset requires 21 checks, all from
+        GitHub Actions.
+      - Not the bare `custom-release-smoke`: that name is reported only
+        when the smoke job is skipped.
+      - `plan` is required because GitHub counts a skipped required check
+        as passing.
 
 ### 5. Green
 
