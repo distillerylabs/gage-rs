@@ -7,6 +7,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as
 
 ## [Unreleased]
 
+## [0.1.1](https://github.com/distillerylabs/gage-rs/compare/v0.1.0...v0.1.1) - 2026-10-31
+
+### Other
+
+- Reword gage-cli description; require a per-issue branch for all changes
+
 ### Changed
 
 - Intel macOS (`x86_64-apple-darwin`) binaries are no longer published, and
