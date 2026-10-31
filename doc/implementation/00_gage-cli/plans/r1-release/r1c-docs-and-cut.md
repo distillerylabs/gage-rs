@@ -159,15 +159,17 @@ All five proposals above are accepted as written, with these specifics:
 
 ### 5. Cut (the user)
 
-- [ ] The user merges the release-plz PR and approves the `release`
+- [x] The user merges the release-plz PR and approves the `release`
       environment.
+      - 0.1.0 released successfully (2026-10-31).
 
 ### 6. Post-release verification
 
 - [ ] `cargo install gage-cli --locked` on a clean machine, then `gage
       --version`.
-- [ ] `brew install distillerylabs/tap/gage` on macOS (arm), then
+- [x] `brew install distillerylabs/tap/gage` on macOS (arm), then
       `--version`.
+      - Prints `gage 0.1.0 (commit 8be6c7b)`.
 - [ ] The shell installer on Linux, and the PowerShell installer on
       Windows.
 - [ ] Download one archive per OS, then `sha256sum -c` and `gh
