@@ -10,7 +10,7 @@ The moving parts:
 | Piece | Does | Where |
 |---|---|---|
 | release-plz | opens the release PR (version bump, CHANGELOG); on merge, publishes `gage-core` then `gage-cli` to crates.io and pushes the tag `v<version>` | `.github/workflows/release-plz.yml`, `release-plz.toml` |
-| cargo-dist | on the tag, builds five archives, installers and the Homebrew formula; attests, smoke-tests, then creates the GitHub Release | `.github/workflows/release.yml`, `release-smoke.yml`, `dist-workspace.toml` |
+| cargo-dist | on the tag, builds four archives, installers and the Homebrew formula; attests, smoke-tests, then creates the GitHub Release | `.github/workflows/release.yml`, `release-smoke.yml`, `dist-workspace.toml` |
 
 `release.yml` is generated; never edit it by hand. See "Changing the release
 workflow" below.
@@ -34,7 +34,7 @@ workflow" below.
    - `git diff --stat main -- tests/fixtures` is empty unless this release
      is a format change.
 3. **Checks.** The PR's CI is green, including the `release.yml` run, which
-   builds and smoke-tests all five archives without publishing anything.
+   builds and smoke-tests all four archives without publishing anything.
    Run `make lint`, `make test`, `make qa` and `make audit` locally on the
    PR's head if you want a second look.
 4. **Merge** the PR. `release-plz.yml` sees a merged `release-plz-*` PR
@@ -80,7 +80,7 @@ read a credential.
   (macos-latest)`, `test (windows-latest)`, `lint (ubuntu-latest)`, `lint
   (macos-latest)`, `lint (windows-latest)`, `msrv`, `audit`, `qa
   (ubuntu-latest)`, `qa (macos-latest)`, plus `release.yml`'s `plan`, the
-  five `build-local-artifacts (<target>)` and the five
+  four `build-local-artifacts (<target>)` and the four
   `custom-release-smoke / smoke (<target>)`. Without the release checks, a
   release PR that breaks one target could merge and the crates would be
   published before the tag build fails. Add new required checks here when a

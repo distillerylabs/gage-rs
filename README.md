@@ -60,8 +60,8 @@ cargo install gage-cli --locked
 **A downloaded archive:** take the one for your platform from the
 [latest release](https://github.com/distillerylabs/gage-rs/releases/latest),
 verify it (below), unpack it and put `gage` on your `PATH`. Archives exist for
-Linux (x86_64, aarch64; glibc 2.35 or newer), macOS (Apple silicon, Intel) and
-Windows (x86_64).
+Linux (x86_64, aarch64; glibc 2.35 or newer), macOS (Apple silicon only) and
+Windows (x86_64). On an Intel Mac, use `cargo install gage-cli --locked`.
 
 Then run `gage --version`, and continue with [getting started](doc/cli/getting-started.md).
 To build from a checkout instead, see [CONTRIBUTING.md](CONTRIBUTING.md).

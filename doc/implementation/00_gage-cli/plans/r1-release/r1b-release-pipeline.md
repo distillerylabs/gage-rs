@@ -110,6 +110,8 @@ What the sources showed, which changed several proposals:
    brownout), so it is pinned to `macos-15`. The glibc baseline is 2.35.
    No musl.
    Intel macOS goes, with a CHANGELOG note, when its runner goes.
+   Superseded: Intel macOS was dropped from the targets in
+   [#163](https://github.com/distillerylabs/gage-rs/issues/163).
 2. **Pinning.** `release.yml` is generated, then a committed patch is
    applied (see 3).
    - `github-action-commits` maps each dist action to `"<sha> #
