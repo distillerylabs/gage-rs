@@ -1,6 +1,6 @@
 [package]
 name = "gage-cli"
-description = "gage command-line frontend (binary: gage)"
+description = "gage command-line tool: git-backed, age-encrypted secrets and notes (installs the `gage` binary; not a library)"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
