@@ -7,6 +7,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as
 
 ## [Unreleased]
 
+### Changed
+
+- Intel macOS (`x86_64-apple-darwin`) binaries are no longer published, and
+  the Homebrew formula supports Apple silicon and Linux only. Use
+  `cargo install gage-cli --locked` on Intel Macs.
+
 ## [0.1.0](https://github.com/distillerylabs/gage-rs/releases/tag/v0.1.0) - 2026-10-31
 
 ### Other

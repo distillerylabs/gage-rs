@@ -17,13 +17,12 @@ cargo-dist-version = "0.32.0"
 ci = "github"
 allow-dirty = ["ci"]
 # Native runners only: dist's defaults (ubuntu-22.04 for a glibc 2.35
-# baseline, ubuntu-22.04-arm, macos-15-intel, windows-2022), except Apple
+# baseline, ubuntu-22.04-arm, windows-2022), except Apple
 # silicon (see github-custom-runners below). No musl: memlock, core-dump
 # suppression and file locking are not tested against it.
 targets = [
     "aarch64-apple-darwin",
     "aarch64-unknown-linux-gnu",
-    "x86_64-apple-darwin",
     "x86_64-pc-windows-msvc",
     "x86_64-unknown-linux-gnu",
 ]
@@ -38,7 +37,7 @@ github-attestations = true
 # The GitHub Release is created last, after the smoke test and the tap
 # push, so a failed smoke never leaves a published release behind.
 github-release = "announce"
-# Every PR builds all five archives as workflow artifacts; nothing is
+# Every PR builds all four archives as workflow artifacts; nothing is
 # published and no credential is reachable.
 pr-run-mode = "upload"
 # Runs each target's `gage --version` after the builds; host, and so the
