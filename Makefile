@@ -71,10 +71,13 @@ CARGO_LLVM_COV_VERSION := 0.9.1
 # dist refuses to run otherwise, and release.yml installs that version.
 CARGO_DIST_VERSION     := 0.32.0
 RELEASE_PLZ_VERSION    := 0.4.2
+# release-plz runs it (release-plz.toml semver_check) when it finds it on PATH.
+CARGO_SEMVER_CHECKS_VERSION := 0.51.0
 CARGO_DENY_BIN     := $(CURDIR)/bin/cargo-deny-$(CARGO_DENY_VERSION)/bin/cargo-deny$(EXE)
 CARGO_LLVM_COV_BIN := $(CURDIR)/bin/cargo-llvm-cov-$(CARGO_LLVM_COV_VERSION)/bin/cargo-llvm-cov$(EXE)
 DIST_BIN           := $(CURDIR)/bin/cargo-dist-$(CARGO_DIST_VERSION)/bin/dist$(EXE)
 RELEASE_PLZ_BIN    := $(CURDIR)/bin/release-plz-$(RELEASE_PLZ_VERSION)/bin/release-plz$(EXE)
+CARGO_SEMVER_CHECKS_BIN := $(CURDIR)/bin/cargo-semver-checks-$(CARGO_SEMVER_CHECKS_VERSION)/bin/cargo-semver-checks$(EXE)
 
 $(CARGO_DENY_BIN):
 	@echo "installing cargo-deny $(CARGO_DENY_VERSION) into bin/..."
@@ -92,12 +95,18 @@ $(RELEASE_PLZ_BIN):
 	@echo "installing release-plz $(RELEASE_PLZ_VERSION) into bin/..."
 	@cargo install --locked --root "$(CURDIR)/bin/release-plz-$(RELEASE_PLZ_VERSION)" release-plz --version $(RELEASE_PLZ_VERSION)
 
+$(CARGO_SEMVER_CHECKS_BIN):
+	@echo "installing cargo-semver-checks $(CARGO_SEMVER_CHECKS_VERSION) into bin/..."
+	@cargo install --locked --root "$(CURDIR)/bin/cargo-semver-checks-$(CARGO_SEMVER_CHECKS_VERSION)" cargo-semver-checks --version $(CARGO_SEMVER_CHECKS_VERSION)
+
 # The pinned tools' paths, for CI steps that call them directly.
-.PHONY: dist-bin release-plz-bin
+.PHONY: dist-bin release-plz-bin semver-checks-bin
 dist-bin: $(DIST_BIN)
 	@echo "$(DIST_BIN)"
 release-plz-bin: $(RELEASE_PLZ_BIN)
 	@echo "$(RELEASE_PLZ_BIN)"
+semver-checks-bin: $(CARGO_SEMVER_CHECKS_BIN)
+	@echo "$(CARGO_SEMVER_CHECKS_BIN)"
 
 # Total line coverage is the only thing that gates, and the gate is a floor
 # against a real regression, not a ratchet: setting it just under the
