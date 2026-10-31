@@ -13,9 +13,10 @@ name: Release-plz
 #   only the permissions that job needs. App tokens (unlike GITHUB_TOKEN)
 #   trigger workflows, so the release PR runs CI and the tag runs
 #   release.yml.
-# - crates.io: trusted publishing (OIDC). The first publish, before the
-#   crates exist, uses a crate-scoped CARGO_REGISTRY_TOKEN in the release
-#   environment, deleted afterwards.
+# - crates.io: trusted publishing (OIDC). CARGO_REGISTRY_TOKEN must stay
+#   unset: a set-but-empty variable (what an absent secret expands to) makes
+#   release-plz fail with "please provide a non-empty token" instead of
+#   using OIDC.
 #
 # release-plz runs from the Makefile-pinned binary, built from crates.io
 # source with --locked, rather than release-plz/action, which downloads
@@ -102,12 +103,11 @@ jobs:
         run: echo "RELEASE_PLZ=$(make --no-print-directory release-plz-bin | tail -n 1)" >> "$GITHUB_ENV"
 
       # Publishes gage-core then gage-cli, and tags gage-cli's version
-      # v<version>. With no CARGO_REGISTRY_TOKEN (after 0.1.0) release-plz
-      # uses trusted publishing.
+      # v<version>. With no CARGO_REGISTRY_TOKEN release-plz uses trusted
+      # publishing.
       - name: release-plz release
         env:
           GIT_TOKEN: ${{ steps.app-token.outputs.token }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           "$RELEASE_PLZ" release \
             --git-token "$GIT_TOKEN" \
