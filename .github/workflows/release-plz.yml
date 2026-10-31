@@ -21,9 +21,15 @@ name: Release-plz
 # release-plz runs from the Makefile-pinned binary, built from crates.io
 # source with --locked, rather than release-plz/action, which downloads
 # prebuilt binaries inside the job that holds the publish credentials.
+#
+# A manual run (workflow_dispatch) publishes a version that was merged but
+# never tagged, e.g. after a failed release job: it skips the release-PR
+# branch check but still needs v<version> untagged and the release
+# environment's approval, which only main can reach.
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -50,15 +56,19 @@ jobs:
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           # The same read as the Makefile's PKG_VERSION.
           version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
-          branch="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq '.[0].head.ref // ""')"
+          branch=""
+          if [ "$EVENT" != workflow_dispatch ]; then
+            branch="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq '.[0].head.ref // ""')"
+          fi
           release=false
           if git ls-remote --exit-code --tags origin "refs/tags/v${version}" >/dev/null; then
             echo "v${version} is already tagged: nothing to release"
-          elif [ "${branch#release-plz-}" = "$branch" ]; then
+          elif [ "$EVENT" != workflow_dispatch ] && [ "${branch#release-plz-}" = "$branch" ]; then
             echo "not a merged release PR (branch '${branch}'): nothing to release"
           else
             echo "release PR ${branch} merged and v${version} is untagged: releasing"

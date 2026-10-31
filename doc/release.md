@@ -52,6 +52,13 @@ workflow" below.
    [Verifying a download](../README.md#verifying-a-download)). Check that
    docs.rs built `gage-core`.
 
+If the `release` job fails before the tag exists (for example a publish
+error), the merged release PR is not retried by later pushes. Fix the cause,
+then run `release-plz.yml` by hand on `main` (Actions, Run workflow): it
+skips the release-PR check and releases the untagged version, still behind
+the `release` environment's approval. Re-running the failed run reuses its
+old workflow file, so it repeats the failure.
+
 If `release.yml` fails after the crates are published, the version is
 already on crates.io and cannot be re-published. Fix forward with a patch
 release; yank if the published version is harmful (below).
