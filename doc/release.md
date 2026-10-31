@@ -100,7 +100,10 @@ configured only for a crate that exists. After `0.1.0` is on crates.io:
 3. Revoke the token on crates.io.
 
 With no `CARGO_REGISTRY_TOKEN` set, release-plz publishes by trusted
-publishing. No long-lived crates.io credential should remain.
+publishing. No long-lived crates.io credential should remain. The workflow
+must not mention the variable at all: `${{ secrets.CARGO_REGISTRY_TOKEN }}`
+expands to an empty string when the secret is absent, and release-plz then
+fails with "please provide a non-empty token" instead of using OIDC.
 
 ### Rotation
 
