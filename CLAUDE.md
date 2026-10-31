@@ -36,11 +36,16 @@ CI runs natively on Linux, macOS, and Windows, not cross-compiled. Several invar
 
 **Never commit or push on your own initiative.** Leave all changes staged/unstaged in the working tree for the user to review locally. Only run `git commit` or `git push` when the user explicitly asks for that specific action in the current request — a prior commit/push approval does not carry forward to later changes.
 
+**Every change happens on a branch for its own issue, however the work started.** This applies when the user says "fix issue #N" or similar, not only out of plan mode. Never implement on `main`, and never on another issue's branch. Before the first edit:
+1. Run `git branch --show-current`. The branch must be `<N>-<slug>` for the issue being worked on. `main`, or a branch for a different issue, is the wrong place, even if the tree is clean.
+2. If it isn't, create one off `main`: `gh issue develop <N> --checkout --base main --name <N>-<slug>`. Uncommitted changes follow the checkout, so do this before editing, not after.
+3. Work with no issue number (a quick local tweak) still gets a branch; ask the user for the issue or a name rather than editing in place.
+
 **Plan mode always ends in a GitHub issue and a branch, before any implementation.** When a session starts in plan mode, the outcome of that planning is not code — it is:
 1. A GitHub issue (`gh issue create`) documenting the feature/fix: the problem, the agreed approach from the plan, and the acceptance criteria (for milestone work, the test list from the plan doc).
 2. A branch created for that issue (e.g. `gh issue develop <N> --checkout`, or `git checkout -b <N>-short-slug`) off `main`, which is where all implementation work happens.
 
-Only after both exist may implementation begin. Never start implementing straight out of plan mode without first documenting the work in a GitHub issue, and never implement on `main`. Reference the issue number in the branch name, and leave the branch uncommitted/unpushed per the rule above unless asked. Creating the issue and branch is the one step here that is expected as part of plan-mode output; if the plan is not yet settled or the user hasn't approved it, ask before filing.
+Only after both exist may implementation begin. Never start implementing straight out of plan mode without first documenting the work in a GitHub issue, and never implement on `main` (or on another issue's branch). Reference the issue number in the branch name, and leave the branch uncommitted/unpushed per the rule above unless asked. Creating the issue and branch is the one step here that is expected as part of plan-mode output; if the plan is not yet settled or the user hasn't approved it, ask before filing.
 
 **Work runs as rolling phases under one roadmap issue.** The roadmap tracking issue lists the phases of the current [plan](doc/implementation/00_gage-cli/plans/divergence/index.md). A phase's parent issue and sub-issues are filed only when that phase starts, not upfront, so they reflect what earlier phases learned. Add the new parent issue as a sub-issue of the roadmap issue.
 
