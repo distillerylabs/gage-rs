@@ -6,13 +6,17 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+publish = false
+
+# Not a cargo-dist release artifact: only gage-cli ships binaries.
+[package.metadata.dist]
+dist = false
 
 [lints]
 workspace = true
 
 [dependencies]
-gage = { path = "../gage" }
+gage = { package = "gage-core", path = "../gage", version = "0.1.0" }
 
 [dev-dependencies]
 tempfile = "3"

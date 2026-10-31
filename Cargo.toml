@@ -3,12 +3,12 @@ resolver = "3"
 members = ["crates/gage", "crates/gage-cli", "crates/reset-local-state"]
 
 [workspace.package]
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
-rust-version = "1.89"
+rust-version = "1.95"
 license = "Apache-2.0"
 repository = "https://github.com/distillerylabs/gage-rs"
-publish = false
+homepage = "https://github.com/distillerylabs/gage-rs"
 
 # Syscall-level modules (memlock, vaultlock on Windows) opt in locally with
 # #[allow(unsafe_code)] when they arrive; nothing else may use unsafe.
@@ -36,3 +36,9 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.hmac]
 opt-level = 3
+
+# What cargo-dist builds the release binaries with (dist-workspace.toml):
+# release, plus thin LTO, dist's own default.
+[profile.dist]
+inherits = "release"
+lto = "thin"

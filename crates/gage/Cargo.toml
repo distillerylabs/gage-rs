@@ -1,12 +1,30 @@
 [package]
-name = "gage"
+name = "gage-core"
 description = "gage library: vaults, entries, sessions. No terminal I/O."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-publish.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/gage-core"
+readme = "README.md"
+keywords = ["age", "git", "secrets", "password-manager", "encryption"]
+categories = ["cryptography", "authentication"]
+include = ["src/**", "Cargo.toml", "README.md", "LICENSE", "clippy.toml"]
+
+# docs.rs builds the default features only, so `test-support` (outside semver)
+# stays out of the published docs.
+[package.metadata.docs.rs]
+all-features = false
+
+[lib]
+# The crate is `gage-core` on crates.io; the code keeps saying `gage::`.
+name = "gage"
+
+# Not a cargo-dist release artifact: only gage-cli ships binaries.
+[package.metadata.dist]
+dist = false
 
 [lints]
 workspace = true

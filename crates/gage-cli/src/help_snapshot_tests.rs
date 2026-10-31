@@ -21,7 +21,7 @@ fn snapshot_dir() -> PathBuf {
 fn surfaces() -> Vec<(String, String)> {
     let reg = registry();
     // Fixed, so a stamped version never reaches a snapshot.
-    let info = resolve_build_info(Some("snapshot"), Some("0000000"));
+    let info = resolve_build_info(Some("snapshot"), Some("0000000"), "0.0.0");
     let mut out = vec![("root".to_string(), cli::render_root_help(&reg))];
     let mut paths: Vec<&str> = reg
         .one_shot()

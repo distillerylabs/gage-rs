@@ -15,7 +15,7 @@ use std::process::Command;
 
 const FEATURE: &str = "test-support";
 
-/// The features cargo resolves for the `gage` library in `gage-cli`'s
+/// The features cargo resolves for the `gage-core` library in `gage-cli`'s
 /// graph, over the given dependency edges, on every target platform.
 fn gage_features(edges: &str) -> Vec<String> {
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
@@ -38,7 +38,8 @@ fn gage_features(edges: &str) -> Vec<String> {
     let line = stdout
         .lines()
         .find(|l| {
-            l.starts_with("gage v") && (l.contains("crates/gage)") || l.contains(r"crates\gage)"))
+            l.starts_with("gage-core v")
+                && (l.contains("crates/gage)") || l.contains(r"crates\gage)"))
         })
         .unwrap_or_else(|| panic!("the gage library is not in gage-cli's tree:\n{stdout}"));
     let (_, features) = line.split_once('|').unwrap();

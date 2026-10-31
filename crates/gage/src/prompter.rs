@@ -1,6 +1,6 @@
 //! How the library asks for a human decision without touching a terminal:
 //! no printing, no reading stdin. `gage-cli` implements [`Prompter`]
-//! against the terminal, library tests against [`FakePrompter`], and a
+//! against the terminal, library tests against `FakePrompter`, and a
 //! future GUI/TUI against dialogs. See "Library architecture" and
 //! "Interactive decisions become data, not printed text" in the design doc.
 //!

@@ -1,0 +1,164 @@
+name: Release-plz
+
+# On every push to main: open or refresh the release PR (version bump and
+# CHANGELOG.md), and, when a release PR has just merged, publish gage-core
+# then gage-cli to crates.io and push the v<version> tag that starts
+# release.yml. Config in release-plz.toml; the settled decisions are in
+# doc/implementation/00_gage-cli/plans/r1-release/r1b-release-pipeline.md.
+#
+# Credentials, none of them repo secrets, so no pull_request run reaches
+# them:
+# - the release GitHub App's client id and key, in the release-pr and
+#   release environments. Each job mints a token for this repo alone, with
+#   only the permissions that job needs. App tokens (unlike GITHUB_TOKEN)
+#   trigger workflows, so the release PR runs CI and the tag runs
+#   release.yml.
+# - crates.io: trusted publishing (OIDC). The first publish, before the
+#   crates exist, uses a crate-scoped CARGO_REGISTRY_TOKEN in the release
+#   environment, deleted afterwards.
+#
+# release-plz runs from the Makefile-pinned binary, built from crates.io
+# source with --locked, rather than release-plz/action, which downloads
+# prebuilt binaries inside the job that holds the publish credentials.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Whether this push is a merged release PR whose tag doesn't exist yet.
+  # Only then does the release job run, and only then does the release
+  # environment ask the maintainer for approval; an ordinary push to main
+  # asks nothing.
+  pending:
+    if: github.repository == 'distillerylabs/gage-rs'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Is this a release?
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The same read as the Makefile's PKG_VERSION.
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
+          branch="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" --jq '.[0].head.ref // ""')"
+          release=false
+          if git ls-remote --exit-code --tags origin "refs/tags/v${version}" >/dev/null; then
+            echo "v${version} is already tagged: nothing to release"
+          elif [ "${branch#release-plz-}" = "$branch" ]; then
+            echo "not a merged release PR (branch '${branch}'): nothing to release"
+          else
+            echo "release PR ${branch} merged and v${version} is untagged: releasing"
+            release=true
+          fi
+          echo "release=${release}" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: pending
+    if: needs.pending.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    # Required reviewer: the maintainer approves every publish.
+    environment: release
+    permissions:
+      contents: read
+      # crates.io trusted publishing.
+      id-token: write
+    # Never cancelled midway: a half-published release is worse than a slow one.
+    concurrency:
+      group: release-plz-release
+      cancel-in-progress: false
+    steps:
+      # Tags are created through the API, so contents: write is enough.
+      - name: Mint a release token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+
+      # Built fresh, not restored from a cache, in the job that publishes.
+      - name: Install release-plz
+        run: echo "RELEASE_PLZ=$(make --no-print-directory release-plz-bin | tail -n 1)" >> "$GITHUB_ENV"
+
+      # Publishes gage-core then gage-cli, and tags gage-cli's version
+      # v<version>. With no CARGO_REGISTRY_TOKEN (after 0.1.0) release-plz
+      # uses trusted publishing.
+      - name: release-plz release
+        env:
+          GIT_TOKEN: ${{ steps.app-token.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          "$RELEASE_PLZ" release \
+            --git-token "$GIT_TOKEN" \
+            --forge github \
+            --repo-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
+
+  # Opens or refreshes the release PR. After a release it waits for the
+  # release job, so it never proposes a version that is being published.
+  release-pr:
+    needs: [pending, release]
+    if: ${{ !cancelled() && needs.pending.result == 'success' && needs.release.result != 'failure' }}
+    runs-on: ubuntu-latest
+    environment: release-pr
+    permissions:
+      contents: read
+    concurrency:
+      group: release-plz-pr
+      cancel-in-progress: false
+    steps:
+      - name: Mint a release-PR token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
+
+      # Only main writes this cache (pushes to main are the only trigger).
+      - name: Cache tool binaries
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: bin
+          key: release-plz-tools-${{ runner.os }}-${{ hashFiles('Makefile') }}
+
+      - name: Install release-plz
+        run: echo "RELEASE_PLZ=$(make --no-print-directory release-plz-bin | tail -n 1)" >> "$GITHUB_ENV"
+
+      - name: release-plz release-pr
+        env:
+          GIT_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          "$RELEASE_PLZ" release-pr \
+            --git-token "$GIT_TOKEN" \
+            --forge github \
+            --repo-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"

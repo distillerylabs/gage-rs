@@ -151,7 +151,7 @@ fn the_real_library_depends_on_no_frontend_crate() {
     );
     let metadata: Value = serde_json::from_slice(&output.stdout).expect("metadata is JSON");
 
-    assert_eq!(offenders(&metadata, "gage"), Vec::<Vec<String>>::new());
+    assert_eq!(offenders(&metadata, "gage-core"), Vec::<Vec<String>>::new());
 }
 
 /// Host SDKs and OAuth/device-flow crates: how host-specific code paths

@@ -23,8 +23,12 @@ keep you updated and coordinate disclosure with you.
 
 ## Supported versions
 
-`gage-rs` has no releases yet. Only the latest commit on `main` is
-supported; fixes are not backported.
+Only the latest release is supported; fixes are not backported
+([ADR-0058](doc/decisions/0058-release-and-versioning.md)). Before 1.0, a
+fix may ship in a minor release.
+
+To check that what you downloaded is what this repository built, see
+[Verifying a download](README.md#verifying-a-download).
 
 ## Scope and known limitations
 

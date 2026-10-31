@@ -32,7 +32,7 @@ fn run_reg(reg: &Registry, args: &[&str], stdin_is_terminal: bool) -> CliResult 
         stdin_is_terminal,
         stderr_is_terminal: stdin_is_terminal,
         line_editor: false,
-        build: version::resolve_build_info(Some("v1.2.3"), Some("abcdef1")),
+        build: version::resolve_build_info(Some("v1.2.3"), Some("abcdef1"), "0.0.0"),
         // Nothing here reaches a command that reads them.
         dirs: &|| panic!("a parsing test resolved gage's directories"),
         hostname: &|| panic!("a parsing test read the hostname"),

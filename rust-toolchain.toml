@@ -1,6 +1,7 @@
 # Pinned so every contributor and every CI platform builds with the same
-# compiler and the same clippy lint set. The floor is 1.89 (the workspace's
-# rust-version): std::fs::File::lock, see ADR-0003.
+# compiler and the same clippy lint set. The floor is 1.95 (the workspace's
+# rust-version, checked by the msrv job): rustyline needs cfg_select, stable in
+# 1.95. std::fs::File::lock (ADR-0003) needs 1.89. See ADR-0058.
 [toolchain]
 channel = "1.99.0"
 profile = "minimal"

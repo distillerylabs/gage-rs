@@ -40,7 +40,7 @@ probe() {
 	source="$3"
 	cp "$tmp/lib.rs.orig" "$lib"
 	printf '\n%s\n' "$source" >>"$lib"
-	if out="$(cd "$tmp" && cargo clippy -p gage --all-targets --locked -- -D warnings 2>&1)"; then
+	if out="$(cd "$tmp" && cargo clippy -p gage-core --all-targets --locked -- -D warnings 2>&1)"; then
 		result=pass
 	else
 		result=fail

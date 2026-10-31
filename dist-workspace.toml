@@ -1,0 +1,64 @@
+# cargo-dist: the release binaries, installers and Homebrew formula built
+# on a v* tag (.github/workflows/release.yml). The settled decisions are in
+# doc/implementation/00_gage-cli/plans/r1-release/r1b-release-pipeline.md.
+#
+# release.yml is `dist generate`'s output plus the hand edits in
+# scripts/dist/release.yml.patch, which is why ci is allow-dirty. `make
+# dist-check` regenerates it, applies the patch and requires the result to
+# equal the committed file, so editing either this file or release.yml
+# without the other fails lint.
+
+[workspace]
+members = ["cargo:."]
+
+[dist]
+# Must equal CARGO_DIST_VERSION in the Makefile.
+cargo-dist-version = "0.32.0"
+ci = "github"
+allow-dirty = ["ci"]
+# Native runners only: dist's defaults (ubuntu-22.04 for a glibc 2.35
+# baseline, ubuntu-22.04-arm, macos-15-intel, windows-2022), except Apple
+# silicon (see github-custom-runners below). No musl: memlock, core-dump
+# suppression and file locking are not tested against it.
+targets = [
+    "aarch64-apple-darwin",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+]
+installers = ["shell", "powershell", "homebrew"]
+install-path = "CARGO_HOME"
+install-updater = false
+tap = "distillerylabs/homebrew-tap"
+formula = "gage"
+publish-jobs = ["homebrew"]
+checksum = "sha256"
+github-attestations = true
+# The GitHub Release is created last, after the smoke test and the tap
+# push, so a failed smoke never leaves a published release behind.
+github-release = "announce"
+# Every PR builds all five archives as workflow artifacts; nothing is
+# published and no credential is reachable.
+pr-run-mode = "upload"
+# Runs each target's `gage --version` after the builds; host, and so the
+# tap push and the release, need it.
+global-artifacts-jobs = ["./release-smoke"]
+github-custom-job-permissions = { "release-smoke" = { contents = "read" } }
+# Archives carry gage-cli's README.md and LICENSE and the workspace
+# CHANGELOG.md, all found by dist's auto-includes.
+
+# dist 0.32 defaults Apple silicon to macos-14, which GitHub retires on
+# 2026-11-02 (actions/runner-images#13518).
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
+
+# dist pastes each value verbatim after `@`, so the version comment rides
+# along and scripts/check-action-pins.sh passes the generated file. The
+# SHAs are the ones the hand-written workflows use.
+[dist.github-action-commits]
+"actions/checkout" = "3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1"
+"actions/upload-artifact" = "cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2"
+"actions/download-artifact" = "9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2"
+"actions/attest" = "1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2"
+"swatinem/rust-cache" = "d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3"

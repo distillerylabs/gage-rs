@@ -1,0 +1,91 @@
+--- a/.github/workflows/release.yml
++++ b/.github/workflows/release.yml
+@@ -14,8 +14,11 @@
+ # title/body based on your changelogs.
+ 
+ name: Release
++# gage-rs edit (scripts/dist/release.yml.patch): read-only by default. dist
++# writes contents: write here for every job; only announce, which creates
++# the GitHub Release, needs it.
+ permissions:
+-  "contents": "write"
++  "contents": "read"
+ 
+ # This task will run whenever you push a git tag that looks like a version
+ # like "1.0.0", "v0.1.0-prerelease.1", "my-app/0.1.0", "releases/v1.0.0", etc.
+@@ -42,7 +45,9 @@
+   pull_request:
+   push:
+     tags:
+-      - '**[0-9]+.[0-9]+.[0-9]+*'
++      # gage-rs edit: release tags are v<version> only (ADR-0058), the same
++      # pattern the tag ruleset and the homebrew-tap environment allow.
++      - 'v[0-9]+.[0-9]+.[0-9]+*'
+ 
+ jobs:
+   # Run 'dist plan' (or host) to determine what tasks we need to do
+@@ -231,7 +236,6 @@
+     uses: ./.github/workflows/release-smoke.yml
+     with:
+       plan: ${{ needs.plan.outputs.val }}
+-    secrets: inherit
+     permissions:
+       "contents": "read"
+   # Determines if we should publish/announce
+@@ -286,18 +290,42 @@
+       - plan
+       - host
+     runs-on: "ubuntu-22.04"
++    # gage-rs edit: the tap credential is the release App's, held by the
++    # homebrew-tap environment, which only v* tags can use; the tag ruleset
++    # lets only the App create those, after the release environment's
++    # approval. A pull_request run never reaches this job or its secrets.
++    environment: homebrew-tap
+     env:
+       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+       PLAN: ${{ needs.plan.outputs.val }}
+-      GITHUB_USER: "axo bot"
+-      GITHUB_EMAIL: "admin+bot@axo.dev"
+     if: ${{ !fromJson(needs.plan.outputs.val).announcement_is_prerelease || fromJson(needs.plan.outputs.val).publish_prereleases }}
+     steps:
++      # gage-rs edit: a short-lived token for homebrew-tap alone, contents
++      # write only, in place of a long-lived HOMEBREW_TAP_TOKEN.
++      - name: Mint a homebrew-tap token
++        id: tap-token
++        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
++        with:
++          client-id: ${{ secrets.RELEASE_APP_CLIENT_ID }}
++          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
++          owner: distillerylabs
++          repositories: homebrew-tap
++          permission-contents: write
++      # gage-rs edit: commit as the App's bot user, not dist's default
++      # "axo bot" identity.
++      - name: Commit identity
++        env:
++          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
++          APP_SLUG: ${{ steps.tap-token.outputs.app-slug }}
++        run: |
++          id="$(gh api "/users/${APP_SLUG}%5Bbot%5D" --jq .id)"
++          echo "GITHUB_USER=${APP_SLUG}[bot]" >> "$GITHUB_ENV"
++          echo "GITHUB_EMAIL=${id}+${APP_SLUG}[bot]@users.noreply.github.com" >> "$GITHUB_ENV"
+       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+         with:
+           persist-credentials: true
+           repository: "distillerylabs/homebrew-tap"
+-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
++          token: ${{ steps.tap-token.outputs.token }}
+       # So we have access to the formula
+       - name: Fetch homebrew formulae
+         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+@@ -338,6 +366,10 @@
+     # "host" however must run to completion, no skipping allowed!
+     if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') }}
+     runs-on: "ubuntu-22.04"
++    # gage-rs edit: the one job that writes to this repo; it creates the
++    # GitHub Release and uploads the artifacts to it.
++    permissions:
++      "contents": "write"
+     env:
+       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+     steps:

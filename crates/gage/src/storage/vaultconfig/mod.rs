@@ -5,7 +5,7 @@
 //! Unlike the global config, every field here can reach the local
 //! filesystem (the id and each recipient's device name become path
 //! components), and the file is committed, so any git-writer can edit it.
-//! [`read`] therefore validates before returning, in a fixed order: the
+//! `read` therefore validates before returning, in a fixed order: the
 //! format version first (a file this build doesn't understand is never
 //! acted on), then the id, then the device names (ADR-0010, ADR-0006). The
 //! id's check is [`VaultId`]'s own (ADR-0052).
@@ -34,12 +34,12 @@ use crate::storage::serde_opt::empty_as_none;
 ///
 /// 2 added `[vault].id` (ADR-0006). A v1 vault has no id at all, so there is
 /// nothing to key its identities directory, trust cache or lock by, which
-/// is why the refusal in [`read`] is not a formality it could parse past.
+/// is why the refusal in `read` is not a formality it could parse past.
 pub const CURRENT_FORMAT_VERSION: i64 = 2;
 
 /// The `[vault]` table.
 ///
-/// No `Default`: the id has no zero value. [`read`] has refused a file
+/// No `Default`: the id has no zero value. `read` has refused a file
 /// without a valid id before this is ever deserialized.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct VaultMeta {

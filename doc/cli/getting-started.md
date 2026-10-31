@@ -1,17 +1,15 @@
 # Getting started
 
-## Building
+## Installing
 
-gage-rs is not released yet, so you build it from a checkout:
+Install `gage` by any of the channels in the README's
+[Install section](../../README.md#install), then check it:
 
 ```
-make build       # builds the gage binary -> target/debug/gage
+$ gage --version
 ```
 
-The Rust toolchain is pinned in `rust-toolchain.toml`, and rustup installs it
-for you. See [CONTRIBUTING.md](../../CONTRIBUTING.md) for build requirements.
-This guide assumes the `gage` binary is on your `PATH`: copy
-`target/debug/gage` somewhere on it.
+To build from a checkout instead, see [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Create your first vault
 

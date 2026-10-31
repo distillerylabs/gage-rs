@@ -29,6 +29,8 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0055](0055-module-hierarchy.md) The library is grouped by concern; the root re-exports what a frontend names
 - [0056](0056-test-seams-off-production-types.md) Test seams live off production types; `Clock` is the session's injected time
 - [0057](0057-typed-command-dispatch.md) The registry carries a typed `Command`; dispatch is exhaustive
+- [0058](0058-release-and-versioning.md) Release and versioning policy
+- [0059](0059-release-pipeline.md) The release pipeline's trust model
 
 ### Format and storage
 
