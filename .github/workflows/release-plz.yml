@@ -25,7 +25,10 @@ name: Release-plz
 # A manual run (workflow_dispatch) publishes a version that was merged but
 # never tagged, e.g. after a failed release job: it skips the release-PR
 # branch check but still needs v<version> untagged and the release
-# environment's approval, which only main can reach.
+# environment's approval, which only main can reach. release-plz makes its
+# own "is HEAD a release PR" check (release_always = false), which a later
+# commit on main fails, so the manual run passes it a copy of
+# release-plz.toml with release_always = true.
 on:
   push:
     branches: [main]
@@ -118,8 +121,16 @@ jobs:
       - name: release-plz release
         env:
           GIT_TOKEN: ${{ steps.app-token.outputs.token }}
+          EVENT: ${{ github.event_name }}
         run: |
+          config=release-plz.toml
+          if [ "$EVENT" = workflow_dispatch ]; then
+            config="${RUNNER_TEMP}/release-plz-manual.toml"
+            sed 's/^release_always = false$/release_always = true/' release-plz.toml > "$config"
+            grep -qx 'release_always = true' "$config"
+          fi
           "$RELEASE_PLZ" release \
+            --config "$config" \
             --git-token "$GIT_TOKEN" \
             --forge github \
             --repo-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"
