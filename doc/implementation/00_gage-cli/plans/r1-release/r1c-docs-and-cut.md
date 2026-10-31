@@ -165,21 +165,37 @@ All five proposals above are accepted as written, with these specifics:
 
 ### 6. Post-release verification
 
-- [ ] `cargo install gage-cli --locked` on a clean machine, then `gage
+- [x] `cargo install gage-cli --locked` on a clean machine, then `gage
       --version`.
+      - Run in a clean `rust:1-bookworm` container (aarch64): built from
+        crates.io in about a minute and printed
+        `gage 0.1.0 (commit 8be6c7b)`.
 - [x] `brew install distillerylabs/tap/gage` on macOS (arm), then
       `--version`.
       - Prints `gage 0.1.0 (commit 8be6c7b)`.
-- [ ] The shell installer on Linux, and the PowerShell installer on
+- [x] The shell installer on Linux, and the PowerShell installer on
       Windows.
-- [ ] Download one archive per OS, then `sha256sum -c` and `gh
+      - Run on GitHub-hosted `ubuntu-latest` (x86_64) and
+        `windows-latest` runners from a throwaway workflow, since
+        deleted; the shell installer also ran in an `ubuntu:22.04`
+        container (aarch64).
+      - Each installed 0.1.0 and printed `gage 0.1.0 (commit 8be6c7b)`.
+- [x] Download one archive per OS, then `sha256sum -c` and `gh
       attestation verify` pass.
-- [ ] docs.rs built `gage-core 0.1.0`.
-- [ ] Run [getting-started](../../../../cli/getting-started.md)
+      - Every archive's checksum matched its `.sha256`.
+      - `gh attestation verify` was run on the macOS arm archive (exit 0).
+- [x] docs.rs built `gage-core 0.1.0`.
+      - `gage-cli`'s "not a library" note renders on its rustdoc page
+        (`/gage-cli/0.1.0/gage_cli/`), not on the crate overview, which
+        shows the `Cargo.toml` description. Consider rewording that
+        description in the next release.
+- [x] Run [getting-started](../../../../cli/getting-started.md)
       end-to-end against the installed binary on one machine.
-- [ ] The runbook's after-first-publish step (trusted publishing,
+- [x] The runbook's after-first-publish step (trusted publishing,
       revoke the token) is done.
-- [ ] Mark R1 `[x]` in the divergence index and here.
+      - Trusted publishing is untested until the next release; a
+        failed publish then means checking the publisher settings.
+- [x] Mark R1 `[x]` in the divergence index and here.
 
 ## Definition of done
 

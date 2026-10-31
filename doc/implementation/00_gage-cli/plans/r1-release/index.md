@@ -92,7 +92,7 @@ From the planning Q&A (recorded on #149):
 |---|---|---|---|
 | [R1a Publishable crates + versioning](r1a-publishable-crates.md) ([#150](https://github.com/distillerylabs/gage-rs/issues/150)) | `[x]` | Sonnet | parent branch |
 | [R1b Release pipeline](r1b-release-pipeline.md) ([#151](https://github.com/distillerylabs/gage-rs/issues/151)) | `[x]` | **Opus** | R1a |
-| [R1c Docs, pre-flight, cut](r1c-docs-and-cut.md) ([#152](https://github.com/distillerylabs/gage-rs/issues/152)) | `[ ]` | Sonnet | R1b |
+| [R1c Docs, pre-flight, cut](r1c-docs-and-cut.md) ([#152](https://github.com/distillerylabs/gage-rs/issues/152)) | `[x]` | Sonnet | R1b |
 
 **Why Sonnet for R1a.**
 
