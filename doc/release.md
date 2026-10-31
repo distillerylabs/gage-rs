@@ -22,7 +22,10 @@ workflow" below.
    adds a section to `CHANGELOG.md`. It needs no action until you want to
    release.
 2. **Read it.**
-   - The version is right for what changed. Pre-1.0, a breaking change to
+   - The version is right for what changed. release-plz runs
+     cargo-semver-checks on `gage-core` against the last published version,
+     so an accidental API break can't ship as a patch; `gage-cli` is not
+     checked (ADR-0058). Pre-1.0, a breaking change to
      the CLI or the library is a minor bump; a `format_version` change is
      always a minor (or, from 1.0, a major) and never a patch.
    - Edit `CHANGELOG.md` on the PR branch if the generated section isn't

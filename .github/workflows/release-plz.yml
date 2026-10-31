@@ -154,6 +154,11 @@ jobs:
       - name: Install release-plz
         run: echo "RELEASE_PLZ=$(make --no-print-directory release-plz-bin | tail -n 1)" >> "$GITHUB_ENV"
 
+      # release-plz finds cargo-semver-checks on PATH (semver_check in
+      # release-plz.toml); without it the check is skipped with a warning.
+      - name: Install cargo-semver-checks
+        run: echo "$(dirname "$(make --no-print-directory semver-checks-bin | tail -n 1)")" >> "$GITHUB_PATH"
+
       - name: release-plz release-pr
         env:
           GIT_TOKEN: ${{ steps.app-token.outputs.token }}

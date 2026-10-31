@@ -11,8 +11,8 @@
 # on an ordinary push to main.
 release_always = false
 git_release_enable = false
-# No published baseline to compare against before 0.1.0. Revisit after it.
-semver_check = false
+# Compare against the last published version (0.1.0 and later).
+semver_check = true
 # Only the workspace's own packages move in the release PR; dependency
 # bumps go through ordinary review.
 dependencies_update = false
@@ -21,6 +21,9 @@ dependencies_update = false
 # two crates are versioned in lockstep (ADR-0058).
 [[package]]
 name = "gage-cli"
+# gage-cli's library target (gage_cli::run) is not a public API
+# (ADR-0058); only gage-core is covered by semver.
+semver_check = false
 version_group = "gage"
 changelog_path = "CHANGELOG.md"
 changelog_include = ["gage-core"]
