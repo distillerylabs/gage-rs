@@ -60,7 +60,7 @@ phase starts, so later phases benefit from what earlier ones learn.
 
 | Phase | Milestones | Status | Model | Depends on |
 |---|---|---|---|---|
-| A1 Mobile foundations ([plan](a1-foundations/index.md), [#178](https://github.com/distillerylabs/gage-rs/issues/178)) | A1a library create/join operations · A1b iOS build + simulator CI · A1c bindings for join + read | `[ ]` | **Opus** A1a/A1c; Sonnet A1b | — |
+| A1 Mobile foundations ([plan](a1-foundations/index.md), [#178](https://github.com/distillerylabs/gage-rs/issues/178)) | A1a library create/join operations · A1b iOS build + simulator CI · A1c bindings for join + read | `[~]` | **Opus** A1a/A1c; Sonnet A1b | — |
 | A2 Writes | insert/edit/remove, conflict resolution and recipient-change prompts through the bindings | `[ ]` | TBD | A1 |
 | A3 Android | NDK cross-compile, Kotlin AAR build, emulator CI | `[ ]` | TBD | A1 |
 

@@ -204,7 +204,7 @@ spike's do, against `gittest` bare remotes.
   2. Swift clones it and enrolls
   3. the fixture approves the request
   4. Swift syncs, unlocks, searches, shows and reveals
-- [ ] Green in the mobile CI job.
+- [x] Green in the mobile CI job (#189, run 41340496725).
 
 ### 6. Docs
 
