@@ -34,8 +34,14 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The vault the smoke reads, written on the host through the library.
-cargo run --locked -q -p gage-ffi --example smoke_fixture -- "$work/root" >/dev/null
+# The vault the smoke reads, written on the host through the library, on a bare
+# remote the simulator reaches as a local path: it shares the host's filesystem.
+fixture() {
+	cargo run --locked -q -p gage-ffi --example smoke_fixture -- "$@"
+}
+mkdir "$work/root"
+git -c init.defaultBranch=main init -q --bare "$work/root/remote.git"
+fixture setup "$work/root" "$work/root/remote.git"
 
 slice="$(find "$fw" -type d -name '*simulator*' -maxdepth 1 | head -n 1)"
 [ -n "$slice" ] || die "no simulator slice in $fw"
@@ -62,4 +68,11 @@ udid="$(xcrun simctl create gage-smoke "$devtype" "$runtime")"
 xcrun simctl boot "$udid"
 xcrun simctl bootstatus "$udid" -b >/dev/null
 
-SIMCTL_CHILD_ROOT="$work/root" xcrun simctl spawn "$udid" "$work/smoke"
+smoke() {
+	SIMCTL_CHILD_ROOT="$work/root" xcrun simctl spawn "$udid" "$work/smoke" "$1"
+}
+smoke basic
+# Join as a new device, then approve from the fixture's side, then read.
+smoke join
+fixture approve "$work/root" "$(cat "$work/root/enrollment-code")"
+smoke read

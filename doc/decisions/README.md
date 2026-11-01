@@ -33,6 +33,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0059](0059-release-pipeline.md) The release pipeline's trust model
 - [0060](0060-mobile-bindings.md) Mobile bindings live in this repo; the apps don't
 - [0061](0061-library-creates-and-registers.md) Creating or joining a vault is one library operation, registration included
+- [0063](0063-what-crosses-the-bindings.md) Secrets cross the bindings on request; remedies cross as data
 
 ### Format and storage
 

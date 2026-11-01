@@ -28,14 +28,187 @@ with `-liconv` and the `Security` and `CoreFoundation` frameworks.
 iOS and Android build without SSH, so an SSH remote is refused with a
 pointer to HTTPS ([ADR-0062](../../doc/decisions/0062-no-ssh-on-mobile.md)).
 
+## Using the bindings
+
+Examples are in Swift; Kotlin has the same names and the same shapes. Every
+error is a `GageError` and every question is a `Prompter` call. A complete
+working example is [`tests/swift/main.swift`](tests/swift/main.swift).
+
+### Threading
+
+**Call everything off the main thread.** Every export blocks: unlocking runs
+scrypt, which takes about a second, and `cloneVault`, `enroll`, `sync` and
+`unlock` wait on the network. A write can also wait for the vault's lock.
+
+`Prompter` methods run on the thread that made the call. To ask the person,
+hop to the main thread, block until they answer, and return the answer.
+
+### Where things live
+
+`Roots` names three directories inside your container. All three must already
+be protected as described in [What the app must protect](#what-the-app-must-protect).
+
+| Root | Holds |
+|---|---|
+| `config` | which vaults are registered on this device |
+| `data` | the vaults (`vaults/<name>`) and this device's passphrase-wrapped identity files |
+| `state` | **remote tokens, unencrypted**, plus locks and the record of which recipients this device has reviewed |
+
+### Creating or joining a vault
+
+```swift
+// A new vault. `remote` is set as origin, not pushed to: sync publishes it.
+let made = try initVault(roots: roots, name: "personal", device: "alice-iphone",
+                         remote: url, withRecoveryKey: true, prompter: prompter)
+// Deliver made.recoveryKey to the person now. gage keeps no copy.
+_ = try made.vault.sync(prompter: prompter)
+
+// An existing vault. Cloning grants no access.
+let cloned = try cloneVault(roots: roots, name: "personal", url: url, device: "alice-iphone")
+if !cloned.holdsIdentity {
+    let request = try cloned.vault.enroll(device: "alice-iphone", ttlSeconds: nil, prompter: prompter)
+    // Show request.code. Someone who can already read the vault approves it.
+    // Then, on this device:
+    _ = try cloned.vault.sync(prompter: prompter)
+}
+```
+
+The vault goes in `<data>/vaults/<name>`. A failed `initVault` or `cloneVault`
+is undone, leaving no vault and no identity it made. The exception is a failure
+to save the registration at the very end, which keeps what was made. On later
+launches, use `Vault.open(roots:name:)`.
+
+`withRecoveryKey: false` leaves this device's identity file as the only way
+into the vault: if it is lost, and nobody else is a recipient, the secrets are
+gone.
+
+An HTTPS remote that needs a token needs it stored first, under the URL's host:
+`saveRemoteToken(roots:host:token:)`. `removeRemoteToken` and `remoteTokenHosts`
+manage them; **nothing returns a stored token**. iOS and Android have no SSH
+([ADR-0062](../../doc/decisions/0062-no-ssh-on-mobile.md)).
+
+### Reading
+
+```swift
+let identity = try vault.unlock(prompter: prompter)
+let rows = try vault.list(identity: identity)
+let hits = try vault.search(identity: identity, pattern: "bank")
+let details = try vault.show(identity: identity, id: rows[0].id)    // no secrets
+let secret = try vault.reveal(identity: identity, id: rows[0].id, field: nil)
+```
+
+Entries are addressed by the `id` that `list` and `search` return. `show` gives
+metadata and field names; `reveal` gives one secret, the value or the field you
+name. Search is case-insensitive and also matches values and fields, in which
+case `matchedBody` is true. It never says what matched.
+
+`unlock` fetches first. It doesn't fail when offline: the person keeps reading
+the local copy, and a `warn` call says so.
+
+### Answering the prompter
+
+- **`unlock(request)`.** Answer with a passphrase, or throw. Throwing
+  `Cancelled` or `TooManyAttempts` ends the unlock. A wrong passphrase asks
+  again with the next `attempt`, for as long as you keep answering, so the retry
+  limit is yours. `purpose` is `.create` when the passphrase protects a new
+  identity: nothing can check it, so have the person type it twice.
+- **`warn(warning)`.** Show it once. It can't fail anything.
+
+This release asks nothing else. A question that would need another answer is
+refused: a real sync conflict, for one, is a `GageError.Conflict`. Writes, and
+the questions they ask, come in a later release.
+
+### Errors and remedies
+
+A `GageError` case is what kind of failure it was (`Conflict`, `Usage`,
+`NotFound`, `Ambiguous`, `LockedOrAuth`, `Internal`, `Unreachable`). `message`
+is the library's own text. `Unreachable` is worth retrying unchanged once the
+network is back.
+
+`remedy`, on an error or a `Warning`, is what the person can do next, as data
+that you word yourself: `.authLogin(host:)` might open your token screen. Most
+errors have none. Treat `.other`, a remedy newer than these bindings, as no
+suggestion.
+
+| Remedy | Means |
+|---|---|
+| `.authLogin(host:)` | the remote refused access; store a token for `host` |
+| `.authLoginAgain(host:)` | the stored token's file permissions are too loose; store it again |
+| `.enrollOrRecover` | this device has no identity for the vault; enroll, or use the recovery key |
+| `.sync`, `.syncAgain` | sync, or sync again |
+| `.recipientVerify`, `.recipientRepair` | the vault's recipient files disagree |
+| `.useHttps` | use the remote's HTTPS URL |
+| `.reRegister(name:)`, `.reclone(vault:)` | forget the vault here and clone it again |
+| `.enrollAgain(authRefused:host:)` | ask to join again, storing a token first if `authRefused` |
+| `.chooseDevice`, `.passName(plain:)` | pick another device name, or name the vault |
+| others | belong to writes and to frontends with flags; a later release uses them |
+
+### Which secret is which
+
+An app has to keep these apart as firmly as the CLI does. The mistake to design
+against is someone pasting their passphrase into a chat because they took it for
+the code.
+
+| Secret | Who sees it | Where it goes |
+|---|---|---|
+| Identity passphrase | only this person, on this device | nowhere: never shown, sent or stored by gage |
+| Enrollment code | this person, then the approver | out of band, over a channel where the approver can tell it came from them; not through the vault's remote. Safe to send, and short-lived. |
+| Recovery key | this person, once | offline, on paper. Not encrypted: it opens everything. |
+| Remote token | nobody, once stored | into `saveRemoteToken`, never back out |
+| Entry value or field | this person, on request | on screen, from `reveal` |
+
+Say which one you're asking for at the point you ask.
+
+### What the app must protect
+
+The bindings wipe what they hold; they can't reach what you hold
+([ADR-0063](../../doc/decisions/0063-what-crosses-the-bindings.md)).
+
+- **Coming in, a passphrase or token** is wiped on the Rust side after use. Your
+  own string isn't.
+- **Going out, a revealed secret, enrollment code or recovery key** leaves
+  copies out of everyone's reach: your string, and UniFFI's transfer buffer,
+  which is freed but not wiped. So call `reveal` only when the person asks, and
+  don't cache, log or persist the result, or put it in a view's saved state. A
+  Swift `String` can't be wiped.
+- **Inside the library,** `list` and `search` decrypt entries and don't wipe
+  them when freed. Only `show` and `reveal` wipe the entry they read.
+- **`Debug` output** never carries a secret, but the fields of a generated Swift
+  or Kotlin record do print if you log one. Don't log `EnrollmentRequest`,
+  `InitializedVault`, or a `reveal` result.
+- **Files.** Give all three `Roots` iOS data protection, and exclude `state`
+  from backups: it holds remote tokens as plain text. Identity files are wrapped
+  by the passphrase, and entries are encrypted to recipients. A Keychain-backed
+  token store is a possible later change
+  ([#187](https://github.com/distillerylabs/gage-rs/issues/187)); tokens are
+  files today.
+- **`Identity`.** The key is wiped and its page lock released when the last
+  handle goes. Swift does this on release, so drop your reference when the app
+  locks. **On Kotlin, call `close()`** (or use `use {}`), or the key stays in
+  memory until the garbage collector runs.
+- **Core dumps.** The CLI suppresses them in its own `main`; a library can't.
+  The app decides.
+
+**A known gap: container paths.** A registration records the vault's absolute
+path, but iOS can change an app's container path across updates and restores. So
+a vault registered before such a change may not open after it, until this is
+solved in a later release
+([#188](https://github.com/distillerylabs/gage-rs/issues/188)).
+
+Page locking and the vault lock have run in the simulator, which uses the Mac's
+kernel, so they are unproven on hardware. A device that refuses page locking
+gets one `warn`, and the unlock carries on.
+
 ## Smoke test
 
 ```sh
 make ios-smoke
 ```
 
-Writes a vault with `examples/smoke_fixture.rs`, builds
-`tests/swift/main.swift` against the XCFramework, and runs it in a
-throwaway iOS simulator (created and deleted by the script). It opens,
-unlocks and lists, and checks the wrong-passphrase and unknown-vault
-errors. CI runs both targets in `.github/workflows/mobile.yml`.
+Publishes a vault to a local bare remote with `examples/smoke_fixture.rs`,
+builds `tests/swift/main.swift` against the XCFramework, and runs it in a
+throwaway iOS simulator (created and deleted by the script). Swift opens,
+unlocks and lists, and checks the wrong-passphrase and unknown-vault errors.
+Then it clones the vault as a new device and enrolls, the fixture approves the
+request, and Swift syncs, unlocks, searches, shows and reveals. CI runs both
+targets in `.github/workflows/mobile.yml`.

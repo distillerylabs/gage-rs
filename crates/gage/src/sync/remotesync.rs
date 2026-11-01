@@ -461,10 +461,11 @@ impl Vault {
         }
     }
 
-    /// The same vault, fetching and pushing through `syncer`. This
-    /// crate's tests only: the real one runs everywhere else.
-    #[cfg(test)]
-    pub(crate) fn with_remote_syncer(mut self, syncer: Arc<dyn RemoteSyncer>) -> Vault {
+    /// The same vault, fetching and pushing through `syncer`. Tests only
+    /// (this crate's, and frontends' through the `test-support` feature):
+    /// the real one runs everywhere else.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_remote_syncer(mut self, syncer: Arc<dyn RemoteSyncer>) -> Vault {
         self.syncer = SyncerSeam(Some(syncer));
         self
     }
