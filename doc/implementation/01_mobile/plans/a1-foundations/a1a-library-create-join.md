@@ -118,6 +118,42 @@ The parent branch `178-a1-mobile-foundations` (these docs).
    shouldn't change its concurrency. Confirm whether the race is real,
    and file it as its own issue if so. A phone app runs one process, so
    it doesn't raise the stakes.
+5. **A registered name: one library error, two CLI messages.**
+   - Today the two commands refuse a registered name differently:
+     - `init` returns `RegistryError::AlreadyRegistered` (`init.rs:138`),
+       `"{name:?} is already a registered vault"`
+     - `clone` builds its own message with `ExitCode::Conflict`
+       (`clone.rs:77`), which adds `; pass --name to clone it under a
+       different name`
+   - Once the check is in the library, both get the same typed error.
+   - Proposal:
+     - `InitError` and `CloneError` each carry
+       `RegistryError::AlreadyRegistered`, whose kind is already
+       `Conflict`.
+     - `clone.rs` matches it and renders today's text. The `--name`
+       hint names a CLI flag, so it is frontend text and stays out of
+       the library's `Display`.
+   - No test pins that hint today; `lifecycle_tests.rs` checks only
+     `init`'s wording. Task 3 adds one before the move, so the move
+     can't drop the hint unseen.
+6. **A registry save that fails after the vault exists.**
+   - In both commands, registering is the last step, and nothing rolls
+     back if `save_creating_dir` fails:
+     - `init` leaves the committed vault and this device's identity on
+       disk, unregistered and unpublished
+     - `clone` leaves the clone on disk, unregistered
+   - A retry under the same name is blocked by the non-empty target.
+     An `init` retry mints a new id, so the first identity stays
+     orphaned under the old one.
+   - The opening promise, "no vault registered without the key", still
+     holds. Its converse doesn't: a vault and its key can exist with no
+     registration pointing at them.
+   - Proposal: unchanged in A1a, since rolling back here is a behavior
+     change. The library returns the save failure as its own variant,
+     never `RollbackFailed`. A test pins what is left behind, so a later
+     fix shows up as a visible change. File the rollback as its own
+     issue, alongside decision 4's race: both concern the same
+     unlocked load-register-save step.
 
 ## Settled decisions
 
@@ -144,6 +180,11 @@ Write each task's tests first and see them fail, then implement.
     device's key in both recipient files
   - [ ] `#[cfg(unix)]`: a rollback that fails (identity directory made
     read-only) is `RollbackFailed`, and its message carries both errors
+  - [ ] a registered name is `AlreadyRegistered`, kind `Conflict`
+    (decision 5)
+  - [ ] `#[cfg(unix)]`: a registry save that fails (config directory
+    made read-only) returns the save error, not `RollbackFailed`, and
+    leaves the vault and identity file in place, as today (decision 6)
 - [ ] Implement.
 
 ### 2. `Vault::clone_remote`
@@ -158,13 +199,19 @@ Write each task's tests first and see them fail, then implement.
   - [ ] a non-empty target is refused and left untouched
   - [ ] an unknown `format_version` rolls the clone back and registers
     nothing
-  - [ ] a registered name is refused before anything is cloned
+  - [ ] a registered name is refused before anything is cloned, as
+    `AlreadyRegistered` (decision 5)
+  - [ ] `#[cfg(unix)]`: a registry save that fails leaves the clone in
+    place, unregistered, as today (decision 6)
 - [ ] Implement.
 
 ### 3. Move `gage init` and `gage clone` onto them
 
 - [ ] The CLI tests above, unedited, are the tests. Run them before
   changing anything, to confirm they're green.
+- [ ] Before the move, add one CLI test, green against today's code:
+  `clone` into a registered name exits `Conflict`, and its stderr
+  carries the `--name` hint (decision 5).
 - [ ] `init.rs` and `clone.rs` call `Vault::init` and `Vault::clone_remote`.
   They no longer call `identityfile::create`, `Vault::create`,
   `gitrepo::clone`, `Global::register` or `save_creating_dir` directly.
