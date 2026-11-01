@@ -78,6 +78,9 @@ a checkout of this repo while both are changing.
 - The platform invariants that need real syscalls (`vaultlock`, `memlock`,
   core-dump suppression) are unproven on iOS and Android until they run
   there. Mobile targets aren't in CI yet.
+- UniFFI's crates are MPL-2.0. `deny.toml` allows that licence for those
+  crates by name, not workspace-wide. It is file-level copyleft: shipping
+  them obliges only that changes to UniFFI's own files stay MPL.
 - How the Swift package and the Android library are distributed, and
   whether `gage-ffi` is published, is decided when there is something to
   distribute.
