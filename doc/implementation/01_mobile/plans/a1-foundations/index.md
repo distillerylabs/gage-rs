@@ -64,7 +64,7 @@ From the planning Q&A (recorded on #177 and #178):
 | Milestone | Status | Model | Depends on |
 |---|---|---|---|
 | [A1a Library create/join operations](a1a-library-create-join.md) ([#179](https://github.com/distillerylabs/gage-rs/issues/179)) | `[x]` | **Opus** | parent branch |
-| [A1b iOS build + simulator CI](a1b-ios-build-ci.md) ([#180](https://github.com/distillerylabs/gage-rs/issues/180)) | `[ ]` | Sonnet | A1a |
+| [A1b iOS build + simulator CI](a1b-ios-build-ci.md) ([#180](https://github.com/distillerylabs/gage-rs/issues/180)) | `[x]` | Sonnet | A1a |
 | [A1c Bindings for join + read](a1c-bindings-join-read.md) ([#181](https://github.com/distillerylabs/gage-rs/issues/181)) | `[ ]` | **Opus** | A1b |
 
 **Why Opus for A1a.**

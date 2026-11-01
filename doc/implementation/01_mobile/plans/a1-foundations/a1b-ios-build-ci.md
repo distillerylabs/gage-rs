@@ -111,8 +111,8 @@ Write each task's tests first and see them fail, then implement.
     `remoteauth` tests stay green unedited
   - [x] for `aarch64-apple-ios` and `aarch64-linux-android`, the
     library's resolved dependency graph has no `libssh2-sys`
-    (`cargo metadata --filter-platform`, in `no_frontend_deps.rs`'s
-    style)
+    (`cargo tree --target`: `cargo metadata` unifies features across
+    platforms, so it can't see this; `tests/no_ssh_on_mobile.rs`)
   - [x] for the desktop targets, it still does
 - [x] Implement: target tables in `crates/gage/Cargo.toml`; the gated
   refusal.
@@ -151,7 +151,7 @@ Write each task's tests first and see them fail, then implement.
   - [x] SHA-pinned actions, so `check-action-pins.sh` passes
   - [x] `contents: read`
   - [x] runs `make xcframework` and `make ios-smoke`
-- [ ] Green on this milestone's PR. The other workflows are unaffected.
+- [x] Green on this milestone's PR (#186, run 41336229666). The other workflows are unaffected.
 
 ## Definition of done
 
