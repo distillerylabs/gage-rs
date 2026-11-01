@@ -7,6 +7,17 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/distillerylabs/gage-rs/compare/v0.1.1...v0.1.2) - 2026-11-01
+
+### Other
+
+- library create/join operations
+- bindings for join + read
+- Merge branch '179-a1a-library-create-join' into 180-a1b-ios-build-ci
+- fix Windows lint (unused import, large InitError)
+- iOS build, no SSH on mobile, simulator smoke CI
+- UniFFI bindings spike for iOS (open, unlock, list)
+
 ## [0.1.1](https://github.com/distillerylabs/gage-rs/compare/v0.1.0...v0.1.1) - 2026-10-31
 
 ### Other
