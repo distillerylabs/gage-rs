@@ -31,6 +31,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0057](0057-typed-command-dispatch.md) The registry carries a typed `Command`; dispatch is exhaustive
 - [0058](0058-release-and-versioning.md) Release and versioning policy
 - [0059](0059-release-pipeline.md) The release pipeline's trust model
+- [0060](0060-mobile-bindings.md) Mobile bindings live in this repo; the apps don't
 
 ### Format and storage
 

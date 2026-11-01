@@ -102,5 +102,5 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       - name: cargo +1.95 check
-        run: cargo +1.95 check --locked -p gage-core -p gage-cli
+        run: cargo +1.95 check --locked -p gage-core -p gage-cli -p gage-ffi
         shell: bash

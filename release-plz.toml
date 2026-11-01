@@ -38,3 +38,8 @@ git_tag_enable = false
 [[package]]
 name = "reset-local-state"
 release = false
+
+[[package]]
+name = "gage-ffi"
+# Unpublished until bindings distribution is decided (ADR-0060).
+release = false
