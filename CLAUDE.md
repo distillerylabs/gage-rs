@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Design rationale: [doc/design/gage-cli-design.md](doc/design/gage-cli-design.md) and [gage-cli-init-design.md](doc/design/gage-cli-init-design.md). Most non-obvious decisions (why a field lives where it does, why a check exists) are explained there, not in code comments. Read the relevant section before changing behavior it documents. [security-model.md](doc/design/security-model.md) and [lint-rationale.md](doc/design/lint-rationale.md) sit beside them.
 - Decisions that constrain code: [doc/decisions/](doc/decisions/README.md), one ADR per decision.
 - The on-disk format: [doc/format/](doc/format/README.md). User-visible behavior: [doc/cli/](doc/cli/README.md).
-- Plans: `doc/implementation/00_gage-cli/plans/`. The current roadmap is the [divergence plan](doc/implementation/00_gage-cli/plans/divergence/index.md). The port-era plans, `Q-` register and port ledgers are frozen in [doc/archive/](doc/archive/README.md); read them as history only.
+- Plans: `doc/implementation/<track>/plans/`: `00_gage-cli` (the CLI and library, closed) and `01_mobile`. The current roadmap is the [mobile plan](doc/implementation/01_mobile/plans/index.md) ([#177](https://github.com/distillerylabs/gage-rs/issues/177)). The port-era plans, `Q-` register and port ledgers are frozen in [doc/archive/](doc/archive/README.md); read them as history only.
 
 ## Commands
 
@@ -47,7 +47,7 @@ CI runs natively on Linux, macOS, and Windows, not cross-compiled. Several invar
 
 Only after both exist may implementation begin. Never start implementing straight out of plan mode without first documenting the work in a GitHub issue, and never implement on `main` (or on another issue's branch). Reference the issue number in the branch name, and leave the branch uncommitted/unpushed per the rule above unless asked. Creating the issue and branch is the one step here that is expected as part of plan-mode output; if the plan is not yet settled or the user hasn't approved it, ask before filing.
 
-**Work runs as rolling phases under one roadmap issue.** The roadmap tracking issue lists the phases of the current [plan](doc/implementation/00_gage-cli/plans/divergence/index.md). A phase's parent issue and sub-issues are filed only when that phase starts, not upfront, so they reflect what earlier phases learned. Add the new parent issue as a sub-issue of the roadmap issue.
+**Work runs as rolling phases under one roadmap issue.** The roadmap tracking issue lists the phases of the current [plan](doc/implementation/01_mobile/plans/index.md). A phase's parent issue and sub-issues are filed only when that phase starts, not upfront, so they reflect what earlier phases learned. Add the new parent issue as a sub-issue of the roadmap issue.
 
 **Work that needs more than one milestone uses a parent issue, sub-issues, and a stack of branches.** When a plan is too big for one reviewable change, it is split into milestones and set up as follows. This is the standing process; don't wait to be re-told it. (Single-milestone work keeps the simple issue + branch flow above.)
 
@@ -60,7 +60,7 @@ Only after both exist may implementation begin. Never start implementing straigh
 *When the plan is approved (still no implementation):*
 1. File one **parent issue** (`gh issue create`): problem, agreed approach, resolved decisions, the milestone table, overall acceptance criteria, and the plan-doc paths.
 2. Create the parent's branch off `main` with `gh issue develop <P> --checkout --name <P>-<slug>`. Note this also creates the branch on the remote, which is expected.
-3. On that branch, write **all** the plan docs under `doc/implementation/00_gage-cli/plans/<phase-slug>/`: `index.md` (why, resolved decisions, milestone table with model/dependency/status columns, process notes) plus one `m<N>-<slug>.md` per milestone (nav line, "Recommended model" blockquote, Goal, Depends on, Design references, Decisions to make first, tests-first task checklist, Definition of done).
+3. On that branch, write **all** the plan docs under `doc/implementation/<track>/plans/<phase-slug>/`: `index.md` (why, resolved decisions, milestone table with model/dependency/status columns, process notes) plus one `m<N>-<slug>.md` per milestone (nav line, "Recommended model" blockquote, Goal, Depends on, Design references, Decisions to make first, tests-first task checklist, Definition of done).
 4. File one **sub-issue per milestone**, each attached to the parent through the sub-issue API (`gh api -X POST repos/<owner>/<repo>/issues/<P>/sub_issues -F sub_issue_id=<numeric id from .id>`, not the issue number). Each body links its plan doc (a blob URL on the parent branch), states the recommended model and dependency, and says the plan doc's test list is the definition of done.
 5. Stop and wait for the user to review, commit, and open the PR for the parent branch. No sub-issue branches yet.
 
@@ -78,7 +78,7 @@ The no-commit/no-push rule above applies throughout: the exception is only what 
 
 **Write tests first, at task granularity.** Write a task's tests before its implementation, then implement to green, then move to the next task — don't write the whole implementation and backfill tests after, and don't try to author a whole milestone's test suite upfront against APIs that don't exist yet. This is the project's actual convention, not a generic suggestion.
 
-**If you're working from a milestone plan doc** (`doc/implementation/00_gage-cli/plans/*/*/*.md`):
+**If you're working from a milestone plan doc** (`doc/implementation/*/plans/*/*.md`):
 - Resolve any open "Decisions to make first" in the doc itself — get them reviewed — before writing any code for that milestone. A decision settled in the doc is durable across sessions; one made implicitly in code has to be re-derived by whoever reads it next.
 - The doc's test list is the definition of done, not a nice-to-have checked loosely at the end. A milestone isn't done until every item in that list is green (on all three CI platforms, unless the doc says otherwise). When judging whether a milestone is complete, check the actual list in the doc — the failure mode to watch for is quiet scope narrowing: most of the list implemented and reported as done.
 - If context runs low mid-milestone, write a `*-sessionhandoff.md` in the same plans directory for a reader with zero conversation history, rather than pushing through with degraded context.
