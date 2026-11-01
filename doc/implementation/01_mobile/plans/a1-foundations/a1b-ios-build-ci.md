@@ -66,7 +66,7 @@ A1a.
    - The check is a pure function of the target OS, so host tests cover
      both answers.
    - `Cred::ssh_key_from_agent` is never reached on mobile.
-   - Record it as ADR-0061, amending ADR-0015.
+   - Record it as ADR-0062, amending ADR-0015 (ADR-0061 went to A1a).
 2. **How `ssh` is turned off.**
    - Proposal: `git2` without `ssh` in `[dependencies]`.
    - `ssh` is added back in a
@@ -92,7 +92,9 @@ A1a.
 
 ## Settled decisions
 
-(Moved here from above once reviewed.)
+All six proposals above were reviewed and accepted as written, with one
+renumbering: the ADR is 0062, since A1a took 0061. Decision 3 stays
+measure-then-record: the sizes go in the ADR.
 
 ## Tasks
 
@@ -100,54 +102,55 @@ Write each task's tests first and see them fail, then implement.
 
 ### 1. No SSH on iOS or Android
 
-- [ ] ADR-0061, linked from `doc/decisions/README.md`.
-- [ ] Tests:
-  - [ ] the method check, given a mobile target and an SSH remote,
+- [x] ADR-0062, linked from `doc/decisions/README.md`.
+- [x] Tests:
+  - [x] the method check, given a mobile target and an SSH remote,
     is `SshUnsupported` with `Remedy::UseHttps`, and makes no network
     call
-  - [ ] given a desktop target, it is unchanged; the existing
+  - [x] given a desktop target, it is unchanged; the existing
     `remoteauth` tests stay green unedited
-  - [ ] for `aarch64-apple-ios` and `aarch64-linux-android`, the
+  - [x] for `aarch64-apple-ios` and `aarch64-linux-android`, the
     library's resolved dependency graph has no `libssh2-sys`
     (`cargo metadata --filter-platform`, in `no_frontend_deps.rs`'s
     style)
-  - [ ] for the desktop targets, it still does
-- [ ] Implement: target tables in `crates/gage/Cargo.toml`; the gated
+  - [x] for the desktop targets, it still does
+- [x] Implement: target tables in `crates/gage/Cargo.toml`; the gated
   refusal.
-- [ ] Measure the iOS release archive and the linked smoke against the
+- [x] Measure the iOS release archive and the linked smoke against the
   spike's numbers. Record them in the ADR.
 
 ### 2. `make xcframework`
 
-- [ ] `scripts/ios/build-xcframework.sh`, run by `make xcframework`:
-  - [ ] fails with a clear message if Xcode or the Rust targets are
+- [x] `scripts/ios/build-xcframework.sh`, run by `make xcframework`:
+  - [x] fails with a clear message if Xcode or the Rust targets are
     missing
-  - [ ] builds `aarch64-apple-ios` and `aarch64-apple-ios-sim` release,
+  - [x] builds `aarch64-apple-ios` and `aarch64-apple-ios-sim` release,
     with `IPHONEOS_DEPLOYMENT_TARGET=18.0`
-  - [ ] generates the Swift bindings with the crate's `uniffi-bindgen`
-  - [ ] writes `target/ios/GageFFI.xcframework` (two slices, headers
+  - [x] generates the Swift bindings with the crate's `uniffi-bindgen`
+  - [x] writes `target/ios/GageFFI.xcframework` (two slices, headers
     and module map) and `target/ios/swift/`
-  - [ ] fails if any object in either archive has a minimum OS other
-    than 18.0
-- [ ] `crates/gage-ffi/README.md`: what to install, and how to build.
+  - [x] fails if any object in either archive has a minimum OS newer
+    than 18.0, or none carries it exactly (older is harmless:
+    compiler_builtins' simulator atomics are 14.0)
+- [x] `crates/gage-ffi/README.md`: what to install, and how to build.
 
 ### 3. Swift smoke
 
-- [ ] `crates/gage-ffi/examples/smoke_fixture.rs` writes a vault with
+- [x] `crates/gage-ffi/examples/smoke_fixture.rs` writes a vault with
   two entries into a directory, through A1a's `Vault::init`.
-- [ ] `crates/gage-ffi/tests/swift/main.swift`, from the spike:
-  - [ ] it opens, unlocks and lists
-  - [ ] it checks the wrong-passphrase and unknown-vault errors
-  - [ ] it exits non-zero on any mismatch
-- [ ] `make ios-smoke` creates the fixture, boots a simulator, runs the
+- [x] `crates/gage-ffi/tests/swift/main.swift`, from the spike:
+  - [x] it opens, unlocks and lists
+  - [x] it checks the wrong-passphrase and unknown-vault errors
+  - [x] it exits non-zero on any mismatch
+- [x] `make ios-smoke` creates the fixture, boots a simulator, runs the
   smoke and shuts the simulator down.
 
 ### 4. CI
 
-- [ ] `.github/workflows/mobile.yml` on `macos-15`:
-  - [ ] SHA-pinned actions, so `check-action-pins.sh` passes
-  - [ ] `contents: read`
-  - [ ] runs `make xcframework` and `make ios-smoke`
+- [x] `.github/workflows/mobile.yml` on `macos-15`:
+  - [x] SHA-pinned actions, so `check-action-pins.sh` passes
+  - [x] `contents: read`
+  - [x] runs `make xcframework` and `make ios-smoke`
 - [ ] Green on this milestone's PR. The other workflows are unaffected.
 
 ## Definition of done

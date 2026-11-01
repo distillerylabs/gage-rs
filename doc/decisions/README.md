@@ -55,6 +55,7 @@ by this log; a format change needs an ADR as well as a new spec.
 
 - [0014](0014-git-crate.md) `git2`, statically vendored
 - [0015](0015-ssh.md) SSH remotes: ssh-agent only
+- [0062](0062-no-ssh-on-mobile.md) No SSH remotes on iOS or Android
 - [0016](0016-git-isolation.md) libgit2 ignores the user's git config
 - [0017](0017-sync-classify.md) Fetch and push failures are classified by type
 - [0018](0018-remote-timeout.md) Network operations are bounded to 30 s

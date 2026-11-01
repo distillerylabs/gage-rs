@@ -1,0 +1,41 @@
+name: Mobile
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Supersede in-flight runs on the same PR; never cancel runs on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Unfiltered on purpose: nearly every change touches crates/gage, which this
+# build compiles, and a path filter that missed one would let the iOS build
+# break unseen.
+jobs:
+  ios:
+    # Apple silicon, so the simulator is arm64 (the only slice built).
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install the pinned toolchain and the iOS targets
+        run: |
+          rustup toolchain install
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim
+        shell: bash
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - name: make xcframework
+        run: make xcframework
+        shell: bash
+
+      - name: make ios-smoke
+        run: make ios-smoke
+        shell: bash

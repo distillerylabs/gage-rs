@@ -61,6 +61,11 @@ pub enum Error {
         "this remote depends on a ~/.ssh/config host alias, which gage does not read: {host:?} is not a resolvable host name (re-spelling the remote with the host's real name also works)"
     )]
     SshConfigAlias { host: String },
+    /// An SSH remote on a build without SSH (iOS, Android; ADR-0062).
+    #[error(
+        "this build of gage has no SSH support, so it cannot use {remote:?}: use the repository's HTTPS URL instead"
+    )]
+    SshUnsupported { remote: String },
     /// An SSH remote, and no ssh-agent to authenticate through.
     #[error(
         "this remote is SSH-spelled and gage could not reach ssh-agent ({reason}). SSH support is best-effort"
@@ -72,9 +77,10 @@ impl HasKind for Error {
     fn kind(&self) -> ErrorKind {
         match self {
             Error::Path(e) => e.kind(),
-            Error::EmptyToken | Error::BadRemote { .. } | Error::SshConfigAlias { .. } => {
-                ErrorKind::Usage
-            }
+            Error::EmptyToken
+            | Error::BadRemote { .. }
+            | Error::SshConfigAlias { .. }
+            | Error::SshUnsupported { .. } => ErrorKind::Usage,
             Error::NoToken { .. } | Error::InsecureToken { .. } | Error::SshAgent { .. } => {
                 ErrorKind::LockedOrAuth
             }
@@ -87,7 +93,9 @@ impl HasKind for Error {
             Error::InsecureToken { host, .. } => {
                 Some(Remedy::AuthLoginAgain { host: host.clone() })
             }
-            Error::SshConfigAlias { .. } | Error::SshAgent { .. } => Some(Remedy::UseHttps),
+            Error::SshConfigAlias { .. }
+            | Error::SshAgent { .. }
+            | Error::SshUnsupported { .. } => Some(Remedy::UseHttps),
             Error::Path(e) => e.remedy(),
             _ => None,
         }
@@ -331,8 +339,25 @@ impl Method {
 /// anything: a stored token over HTTP(S), ssh-agent over SSH, nothing for a
 /// local path.
 pub fn method(dirs: &Dirs, remote: &str) -> Result<Method, Error> {
+    method_for(dirs, remote, SSH_SUPPORTED)
+}
+
+/// Whether this build carries SSH. iOS and Android build git2 without its
+/// `ssh` feature (ADR-0062), so an SSH remote is refused up front there.
+const SSH_SUPPORTED: bool = !cfg!(any(target_os = "ios", target_os = "android"));
+
+/// [`method`] with the target's SSH support passed in, so tests on any
+/// host cover both answers.
+fn method_for(dirs: &Dirs, remote: &str, ssh_supported: bool) -> Result<Method, Error> {
+    let unsupported = || Error::SshUnsupported {
+        remote: remote.to_string(),
+    };
     match parse(remote)? {
         Remote::Local => Ok(Method::Local),
+        Remote::Url { scheme, .. } if scheme.eq_ignore_ascii_case("ssh") && !ssh_supported => {
+            Err(unsupported())
+        }
+        Remote::Scp { .. } if !ssh_supported => Err(unsupported()),
         Remote::Url { scheme, host, user } if scheme.eq_ignore_ascii_case("ssh") => {
             ssh_method(host, user)
         }

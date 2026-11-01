@@ -235,3 +235,58 @@ fn a_methods_debug_never_shows_the_token() {
     };
     assert!(!format!("{m:?}").contains("tok_secret"));
 }
+
+// The refusal is a pure function of the target, so the host's tests drive
+// both answers; the real `method` passes `cfg!` for the build target.
+#[test]
+fn a_mobile_target_refuses_an_ssh_remote_before_any_agent_or_alias_check() {
+    let (_root, dirs) = machine();
+    for remote in [
+        "git@github.com:me/vault.git",
+        "ssh://git@git.example.internal/me/vault.git",
+        // Would be an alias refusal on a desktop; mobile never gets that far.
+        "git@internal:secrets/work-vault.git",
+    ] {
+        let err = method_for(&dirs, remote, false).unwrap_err();
+        assert!(
+            matches!(err, Error::SshUnsupported { .. }),
+            "{remote}: {err}"
+        );
+        assert_eq!(err.kind(), ErrorKind::Usage);
+        assert_eq!(err.remedy(), Some(crate::error::Remedy::UseHttps), "{err}");
+        assert!(err.to_string().contains("HTTPS"), "{err}");
+    }
+}
+
+#[test]
+fn a_mobile_target_still_resolves_https_and_local_remotes() {
+    let (_root, dirs) = machine();
+    save(&dirs, "github.com", "ghp_example").unwrap();
+    assert!(matches!(
+        method_for(&dirs, "https://github.com/me/vault.git", false),
+        Ok(Method::Token { .. })
+    ));
+    assert!(matches!(
+        method_for(&dirs, "https://gitlab.com/me/vault.git", false),
+        Ok(Method::Anonymous { .. })
+    ));
+    assert!(matches!(
+        method_for(&dirs, "/tmp/remote.git", false),
+        Ok(Method::Local)
+    ));
+}
+
+#[test]
+fn a_desktop_target_is_unchanged_by_the_mobile_switch() {
+    let (_root, dirs) = machine();
+    let err = method_for(&dirs, "git@internal:secrets/work-vault.git", true).unwrap_err();
+    assert!(matches!(err, Error::SshConfigAlias { .. }), "{err}");
+}
+
+#[test]
+fn ssh_is_supported_exactly_where_the_build_has_it() {
+    assert_eq!(
+        SSH_SUPPORTED,
+        !cfg!(any(target_os = "ios", target_os = "android"))
+    );
+}
