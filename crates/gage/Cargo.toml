@@ -36,9 +36,9 @@ test-support = []
 
 [dependencies]
 # ADR-0014: vendored libgit2 and OpenSSL, and a static zlib, so the
-# binary needs no system git libraries. ADR-0015: `ssh` adds libssh2 (always
-# built from its bundled source) for best-effort ssh-agent auth only.
-git2 = { version = "0.21", default-features = false, features = ["https", "ssh", "vendored-libgit2", "vendored-openssl"] }
+# binary needs no system git libraries. `ssh` (ADR-0015) is added back for
+# every target but iOS and Android below (ADR-0062).
+git2 = { version = "0.21", default-features = false, features = ["https", "vendored-libgit2", "vendored-openssl"] }
 libz-sys = { version = "1", features = ["static"] }
 humantime = "2"
 tempfile = "3"
@@ -65,8 +65,15 @@ serde_json = "1"
 
 [target."cfg(unix)".dependencies]
 libc = "0.2"
-# ADR-0015: libssh2 links OpenSSL on Unix (WinCNG on Windows). Vendored here
+
+# ADR-0015: best-effort ssh-agent auth, libssh2 built from its bundled
+# source. ADR-0062: not on iOS or Android, which have no ssh-agent to talk to.
+[target.'cfg(not(any(target_os = "ios", target_os = "android")))'.dependencies]
+git2 = { version = "0.21", default-features = false, features = ["ssh"] }
+
+# libssh2 links OpenSSL on Unix (WinCNG on Windows). Vendored here
 # explicitly rather than relying on libgit2-sys's feature wiring.
+[target.'cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))'.dependencies]
 libssh2-sys = { version = "0.3", features = ["vendored-openssl"] }
 
 [target."cfg(windows)".dependencies]

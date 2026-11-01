@@ -110,6 +110,10 @@ host isn't a resolvable host name, gage assumes it is an alias, refuses
 (exit `2`) and says so, pointing you at the HTTPS URL. If ssh-agent can't
 be reached, the operation fails (exit `5`) with the same advice.
 
+The iOS and Android builds have no SSH at all
+([ADR-0062](../decisions/0062-no-ssh-on-mobile.md)): there an SSH remote is
+refused up front (exit `2`) with a pointer to the HTTPS URL.
+
 ## What gage doesn't model
 
 For git operations gage has no command for (branches and tags, `gc`,

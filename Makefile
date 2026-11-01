@@ -226,6 +226,15 @@ dist-patch: $(DIST_BIN)
 dist-regen: $(DIST_BIN)
 	sh scripts/dist/release-yml.sh regen "$(DIST_BIN)"
 
+# The iOS XCFramework and generated Swift (target/ios/), then the Swift smoke
+# test in a throwaway simulator. macOS with Xcode only; CI's mobile.yml runs
+# both. The deployment target is set inside the script (see it for why).
+.PHONY: xcframework ios-smoke
+xcframework:
+	sh scripts/ios/build-xcframework.sh
+ios-smoke:
+	sh scripts/ios/smoke.sh
+
 # Installs a git pre-commit hook that runs `make lint`, the same check CI's
 # lint workflow runs. Pass ARGS=--uninstall or ARGS=--force as needed.
 .PHONY: install-hooks

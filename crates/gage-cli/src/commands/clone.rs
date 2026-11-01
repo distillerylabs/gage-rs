@@ -10,21 +10,20 @@
 //! the tool just printed would carry no information, and enrolling commits
 //! and pushes ("Why there is no `--enroll` flag").
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::exitcode::ExitCode;
 use clap::{Arg, ArgMatches};
 use gage::Prompter;
-use gage::VaultId;
 use gage::enrollment::DEFAULT_ENROLLMENT_TTL;
-use gage::storage::config::{GitMeta, VaultEntry};
-use gage::storage::vaultconfig::{self};
-use gage::sync::gitrepo::{self, RemoteOptions};
+use gage::storage::config::RegistryError;
+use gage::vault::CloneError;
+use gage::{CloneSpec, Vault};
 use gage::{storage::paths, vault};
 
 use super::enroll::enroll_device;
 use super::init::resolve_device_name;
-use super::{arg, dirs, fail, load_global, out};
+use super::{arg, dirs, fail, out};
 use crate::Io;
 use crate::error::CliError;
 
@@ -73,73 +72,44 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     };
 
     let dirs = dirs(io)?;
-    let (config_path, mut global) = load_global(io)?;
-    if global.vaults.contains_key(&name) {
-        return Err(fail(
-            ExitCode::Conflict,
-            format!(
-                "{name:?} is already a registered vault; pass --name to clone it under a different name"
-            ),
-        ));
-    }
     let path = match flag("dir") {
         Some(dir) => PathBuf::from(dir),
         None => paths::vaults_dir(&dirs).join(&name),
     };
-
-    // What to undo on failure is this command's own work only. A --dir
-    // that already existed is the user's: one that was empty is emptied
-    // again, and one that wasn't (libgit2 refuses it) is never touched.
-    let prior = Prior::of(&path);
-    let undo = |err: CliError| match roll_back(&path, prior) {
-        Ok(()) => err,
-        Err(e) => fail(
-            ExitCode::Internal,
-            format!(
-                "{err} (and removing the partial clone at {} failed: {e})",
-                path.display()
-            ),
-        ),
-    };
-
-    gitrepo::clone(url, &path, &RemoteOptions::new(&dirs)).map_err(|e| undo(e.into()))?;
-    // Read before anything is registered: a format_version this build
-    // doesn't know means it can't operate on the vault safely, and
-    // registering it anyway would trade one clear failure now for a
-    // confusing one on every later command.
-    let file =
-        vaultconfig::load(&path.join(".gage").join("config.toml")).map_err(|e| undo(e.into()))?;
-
-    let entry = VaultEntry {
-        path: path.clone(),
-        id: Some(file.vault.id.clone()),
-        vault_type: file.vault.vault_type,
+    let spec = CloneSpec {
+        name: name.clone(),
+        path,
+        url: url.to_string(),
         device: device.clone(),
-        // A clone holds no identity, so there is no public key to
-        // record until `identity add` puts one here.
-        pubkey: None,
-        // The vault's default is a suggestion for joining devices, and
-        // what a later `identity add` offers (ADR-0011).
-        method: file.method.default.clone(),
-        git: GitMeta {
-            origin: Some(url.to_string()),
-        },
     };
-    global.register(&name, entry.clone())?;
-    gage::storage::config::save_creating_dir(&config_path, &global)?;
+    // Clones, refuses a format_version this build doesn't know, and
+    // registers; a failed clone is undone, leaving a --dir that already
+    // existed as it was (ADR-0061).
+    let cloned = match Vault::clone_remote(&dirs, &spec) {
+        Ok(cloned) => cloned,
+        Err(CloneError::Registry(RegistryError::AlreadyRegistered(name))) => {
+            return Err(fail(
+                ExitCode::Conflict,
+                format!(
+                    "{name:?} is already a registered vault; pass --name to clone it under a different name"
+                ),
+            ));
+        }
+        Err(e) => return Err(e.into()),
+    };
 
     out(
         io,
-        &[format!("gage: cloned {name:?} to {}", path.display())],
+        &[format!("gage: cloned {name:?} to {}", spec.path.display())],
     );
-    let lines = access_lines(&dirs, &file.vault.id, &name, &device);
-    if lines.is_empty() {
+    if cloned.holds_identity {
         // This device already holds an identity for the vault. It was set
         // up deliberately and gage can't cheaply tell whether it is
         // already a recipient, so it is left alone: no message, and
         // certainly no prompt.
         return Ok(());
     }
+    let lines = access_lines(&name, &device);
     if !can_answer_new_passphrase(io) {
         out(io, &lines);
         return Ok(());
@@ -154,8 +124,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     // Under the device name clone already resolved, not one derived a
     // second time: `clone --device X` followed by a yes must publish a
     // request naming X.
-    let vault = vault::Vault::from_registration(&dirs, &name, &entry)?;
-    enroll_device(io, &vault, &device, DEFAULT_ENROLLMENT_TTL, prompter)
+    enroll_device(io, &cloned.vault, &device, DEFAULT_ENROLLMENT_TTL, prompter)
 }
 
 /// Whether a brand-new identity's passphrase can be answered in this run:
@@ -169,79 +138,25 @@ fn can_answer_new_passphrase(io: &Io) -> bool {
     io.stdin_is_terminal
 }
 
-/// Whether this device can read what it just cloned, answered from whether
-/// it holds an identity for the vault at all: no passphrase needed. Asking
-/// someone to unlock during a clone only to say the unlock was pointless
-/// would be backwards. An identity that exists was set up deliberately and
-/// is left alone, as is anything that can't be checked.
-fn access_lines(
-    dirs: &gage::storage::xdgpaths::Dirs,
-    id: &VaultId,
-    name: &str,
-    device: &str,
-) -> Vec<String> {
-    match paths::identity_file_path(dirs, id, device) {
-        Ok(path) if !path.exists() => vec![
-            format!(
-                "gage: this device ({device:?}) has no identity for {name:?}, so it cannot decrypt anything in it yet."
-            ),
-            "gage: run `gage identity enroll` here to generate a key and publish a request to join,"
-                .into(),
-            "gage: then give the code it prints to someone who can already read the vault.".into(),
-            "gage: or, if this device cannot write to the remote: run `gage identity add` here and"
-                .into(),
-            "gage: have someone with access add the printed key with `gage recipient add`.".into(),
-            // A sole owner holding the paper key has nobody to approve a
-            // request: for them, the two routes above are a dead end.
-            "gage: if you hold this vault's recovery key and there is nobody else to ask, run".into(),
-            "gage: `gage recovery enroll` — it admits this device and retires the key it used."
-                .into(),
-        ],
-        _ => Vec::new(),
-    }
-}
-
-/// What was at the clone's target before it ran.
-#[derive(Clone, Copy)]
-enum Prior {
-    Absent,
-    EmptyDir,
-    /// A file, a non-empty directory, or something unreadable: not ours.
-    Other,
-}
-
-impl Prior {
-    fn of(path: &Path) -> Prior {
-        if !path.exists() {
-            return Prior::Absent;
-        }
-        match std::fs::read_dir(path).map(|mut entries| entries.next().is_none()) {
-            Ok(true) => Prior::EmptyDir,
-            _ => Prior::Other,
-        }
-    }
-}
-
-/// Undoes a failed clone so a retry isn't blocked by a leftover: removes
-/// the directory it made, or empties the empty one it was given.
-fn roll_back(path: &Path, prior: Prior) -> std::io::Result<()> {
-    match prior {
-        Prior::Other => return Ok(()),
-        Prior::Absent => {
-            return match std::fs::remove_dir_all(path) {
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-                other => other,
-            };
-        }
-        Prior::EmptyDir => {}
-    }
-    for entry in std::fs::read_dir(path)? {
-        let entry = entry?;
-        if entry.file_type()?.is_dir() {
-            std::fs::remove_dir_all(entry.path())?;
-        } else {
-            std::fs::remove_file(entry.path())?;
-        }
-    }
-    Ok(())
+/// What to tell a device that holds no identity for the vault it just
+/// cloned: it can't read anything yet, and the ways in. Whether it holds
+/// one is `Vault::clone_remote`'s answer, from the file's presence alone:
+/// asking someone to unlock during a clone only to say the unlock was
+/// pointless would be backwards.
+fn access_lines(name: &str, device: &str) -> Vec<String> {
+    vec![
+        format!(
+            "gage: this device ({device:?}) has no identity for {name:?}, so it cannot decrypt anything in it yet."
+        ),
+        "gage: run `gage identity enroll` here to generate a key and publish a request to join,"
+            .into(),
+        "gage: then give the code it prints to someone who can already read the vault.".into(),
+        "gage: or, if this device cannot write to the remote: run `gage identity add` here and"
+            .into(),
+        "gage: have someone with access add the printed key with `gage recipient add`.".into(),
+        // A sole owner holding the paper key has nobody to approve a
+        // request: for them, the two routes above are a dead end.
+        "gage: if you hold this vault's recovery key and there is nobody else to ask, run".into(),
+        "gage: `gage recovery enroll` — it admits this device and retires the key it used.".into(),
+    ]
 }

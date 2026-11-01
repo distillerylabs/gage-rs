@@ -7,18 +7,22 @@
 //!
 //! [ADR-0060]: https://github.com/distillerylabs/gage-rs/blob/main/doc/decisions/0060-mobile-bindings.md
 
-use std::fmt::Display;
+use std::fmt::{self, Display};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use gage::entry::{CandidateList, Timestamp};
+use gage::enrollment::DEFAULT_ENROLLMENT_TTL;
+use gage::entry::{CandidateList, Entry, Extra, Timestamp};
 use gage::prompter::{self as core_prompter, Kind, Purpose};
+use gage::recovery::new_recovery_key;
+use gage::storage::config::RegistryError;
 use gage::storage::xdgpaths::Dirs;
 use gage::storage::{config, paths};
-use gage::{ErrorKind, HasKind};
+use gage::sync::remoteauth;
+use gage::{CloneSpec, ErrorKind, HasKind, InitSpec, UnlockMethod, VaultType};
 use uuid::Uuid;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 uniffi::setup_scaffolding!();
 
@@ -41,41 +45,161 @@ impl Roots {
     }
 }
 
-/// Every failure, keyed by the library's [`ErrorKind`] and carrying its
-/// message unchanged (ADR-0054).
+/// What the person can do next about an error or a warning: an action, as
+/// data, which the app words for itself (ADR-0063). No command text crosses.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum Remedy {
+    /// Sync the vault with its remote, resolving what diverged.
+    Sync,
+    /// Sync again: some conflicts were left unresolved.
+    SyncAgain,
+    /// Check the vault's two recipient files against each other.
+    RecipientVerify,
+    /// Rewrite the recipient file from the vault's config.
+    RecipientRepair,
+    /// Store a token for `host`: an existing one may have expired or been
+    /// revoked.
+    AuthLogin { host: String },
+    /// Store `host`'s token again: the stored file's permissions are too loose.
+    AuthLoginAgain { host: String },
+    /// Use the remote's HTTPS URL with a stored token instead of SSH.
+    UseHttps,
+    /// Forget the registration `name` and clone the vault again.
+    ReRegister { name: String },
+    /// Ask to join the vault from this device, or enroll with the recovery
+    /// key.
+    EnrollOrRecover,
+    /// Configure a remote for the vault.
+    SetRemote,
+    /// Forget `vault` here, clone it again, then ask to join it.
+    Reclone { vault: String },
+    /// Ask to join the vault again; after storing a token first when the
+    /// remote refused access, for `host` if it is known.
+    EnrollAgain {
+        auth_refused: bool,
+        host: Option<String>,
+    },
+    /// Push what was committed locally.
+    Push,
+    /// Ask again, allowing a duplicate title.
+    Force,
+    /// Choose another device name.
+    ChooseDevice,
+    /// Approve under another device name.
+    ApproveWithDevice,
+    /// Name the vault explicitly; `plain` when the given one had to be a
+    /// plain name.
+    PassName { plain: bool },
+    /// Ask someone who can answer, or pre-approve the answer.
+    Yes,
+    /// A remedy newer than these bindings. Treat it as no suggestion; the
+    /// message still says what happened.
+    Other,
+}
+
+impl From<&gage::Remedy> for Remedy {
+    fn from(remedy: &gage::Remedy) -> Remedy {
+        use gage::Remedy as R;
+        match remedy {
+            R::Sync => Remedy::Sync,
+            R::SyncAgain => Remedy::SyncAgain,
+            R::RecipientVerify => Remedy::RecipientVerify,
+            R::RecipientRepair => Remedy::RecipientRepair,
+            R::AuthLogin { host } => Remedy::AuthLogin { host: host.clone() },
+            R::AuthLoginAgain { host } => Remedy::AuthLoginAgain { host: host.clone() },
+            R::UseHttps => Remedy::UseHttps,
+            R::ReRegister { name } => Remedy::ReRegister { name: name.clone() },
+            R::EnrollOrRecover => Remedy::EnrollOrRecover,
+            R::SetRemote => Remedy::SetRemote,
+            R::Reclone { vault } => Remedy::Reclone {
+                vault: vault.clone(),
+            },
+            R::EnrollAgain { auth_refused, host } => Remedy::EnrollAgain {
+                auth_refused: *auth_refused,
+                host: host.clone(),
+            },
+            R::Push => Remedy::Push,
+            R::Force => Remedy::Force,
+            R::ChooseDevice => Remedy::ChooseDevice,
+            R::ApproveWithDevice => Remedy::ApproveWithDevice,
+            R::PassName { plain } => Remedy::PassName { plain: *plain },
+            R::Yes => Remedy::Yes,
+            _ => Remedy::Other,
+        }
+    }
+}
+
+/// Every failure, keyed by the library's [`ErrorKind`], carrying its message
+/// unchanged (ADR-0054) and its remedy if it has one (ADR-0063).
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum GageError {
     #[error("{message}")]
-    Conflict { message: String },
+    Conflict {
+        message: String,
+        remedy: Option<Remedy>,
+    },
     #[error("{message}")]
-    Usage { message: String },
+    Usage {
+        message: String,
+        remedy: Option<Remedy>,
+    },
     #[error("{message}")]
-    NotFound { message: String },
+    NotFound {
+        message: String,
+        remedy: Option<Remedy>,
+    },
     #[error("{message}")]
-    Ambiguous { message: String },
+    Ambiguous {
+        message: String,
+        remedy: Option<Remedy>,
+    },
     #[error("{message}")]
-    LockedOrAuth { message: String },
+    LockedOrAuth {
+        message: String,
+        remedy: Option<Remedy>,
+    },
     #[error("{message}")]
-    Internal { message: String },
+    Internal {
+        message: String,
+        remedy: Option<Remedy>,
+    },
     #[error("{message}")]
-    Unreachable { message: String },
+    Unreachable {
+        message: String,
+        remedy: Option<Remedy>,
+    },
 }
 
 impl GageError {
-    fn new(kind: ErrorKind, message: String) -> GageError {
+    fn new(kind: ErrorKind, message: String, remedy: Option<Remedy>) -> GageError {
         match kind {
-            ErrorKind::Conflict => GageError::Conflict { message },
-            ErrorKind::Usage => GageError::Usage { message },
-            ErrorKind::NotFound => GageError::NotFound { message },
-            ErrorKind::Ambiguous => GageError::Ambiguous { message },
-            ErrorKind::LockedOrAuth => GageError::LockedOrAuth { message },
-            ErrorKind::Internal => GageError::Internal { message },
-            ErrorKind::Unreachable => GageError::Unreachable { message },
+            ErrorKind::Conflict => GageError::Conflict { message, remedy },
+            ErrorKind::Usage => GageError::Usage { message, remedy },
+            ErrorKind::NotFound => GageError::NotFound { message, remedy },
+            ErrorKind::Ambiguous => GageError::Ambiguous { message, remedy },
+            ErrorKind::LockedOrAuth => GageError::LockedOrAuth { message, remedy },
+            ErrorKind::Internal => GageError::Internal { message, remedy },
+            ErrorKind::Unreachable => GageError::Unreachable { message, remedy },
         }
     }
 
     fn from_core<E: HasKind + Display>(e: E) -> GageError {
-        GageError::new(e.kind(), e.to_string())
+        let remedy = e.remedy().as_ref().map(Remedy::from);
+        GageError::new(e.kind(), e.to_string(), remedy)
+    }
+
+    /// The remedy, whichever case carries it.
+    #[cfg(test)]
+    fn remedy(&self) -> Option<Remedy> {
+        match self {
+            GageError::Conflict { remedy, .. }
+            | GageError::Usage { remedy, .. }
+            | GageError::NotFound { remedy, .. }
+            | GageError::Ambiguous { remedy, .. }
+            | GageError::LockedOrAuth { remedy, .. }
+            | GageError::Internal { remedy, .. }
+            | GageError::Unreachable { remedy, .. } => remedy.clone(),
+        }
     }
 }
 
@@ -134,6 +258,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for PromptError {
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct Warning {
     pub text: String,
+    pub remedy: Option<Remedy>,
 }
 
 /// The human decisions an unlock needs, implemented by the app.
@@ -209,6 +334,7 @@ impl core_prompter::Prompter for Bridge<'_> {
     fn warn(&self, warning: &core_prompter::Warning) {
         self.0.warn(Warning {
             text: warning.text.clone(),
+            remedy: warning.remedy.as_ref().map(Remedy::from),
         });
     }
 }
@@ -242,10 +368,253 @@ fn system_time(t: Timestamp) -> SystemTime {
     }
 }
 
+/// One search match. Where it matched, never what.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SearchResult {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    /// The match came from the value or a field rather than the title or
+    /// description.
+    pub matched_body: bool,
+}
+
+/// One entry without its secrets: [`Vault::reveal`] asks for those one at a
+/// time (ADR-0063).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EntryDetails {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub created: Option<SystemTime>,
+    pub updated: Option<SystemTime>,
+    pub updated_by: String,
+    /// The names [`Vault::reveal`] takes, sorted. The values stay encrypted.
+    pub field_names: Vec<String>,
+}
+
+/// A decrypted entry, wiped when the call that read it ends. The library's
+/// `Entry` wipes nothing on drop, and can't: it moves fields out of itself.
+struct Decrypted(Entry);
+
+impl Drop for Decrypted {
+    fn drop(&mut self) {
+        wipe_entry(&mut self.0);
+    }
+}
+
+/// Wipes everything in `entry` that could be secret: the value, field values
+/// and unknown fields.
+fn wipe_entry(entry: &mut Entry) {
+    entry.value.zeroize();
+    entry.fields.values_mut().for_each(Zeroize::zeroize);
+    entry.extra.values_mut().for_each(wipe_extra);
+}
+
+fn wipe_extra(extra: &mut Extra) {
+    match extra {
+        Extra::Plain(text) | Extra::Text(text) => text.zeroize(),
+        Extra::Seq(items) => items.iter_mut().for_each(wipe_extra),
+        Extra::Map(pairs) => pairs.iter_mut().for_each(|(_, value)| wipe_extra(value)),
+    }
+}
+
+/// An entry's id as `list` and `search` return it. Checked here so that only
+/// a real UUID ever reaches a path.
+fn parse_id(id: &str) -> Result<Uuid, GageError> {
+    Uuid::parse_str(id)
+        .map_err(|_| GageError::new(ErrorKind::Usage, format!("{id:?} is not an entry id"), None))
+}
+
+/// A vault [`init_vault`] created and registered.
+#[derive(uniffi::Record)]
+pub struct InitializedVault {
+    pub vault: Arc<Vault>,
+    /// This device's public key.
+    pub pubkey: String,
+    /// The recovery key's private half, when asked for: `AGE-SECRET-KEY-1...`.
+    /// gage keeps no copy, so this is the one chance to deliver it. It is not
+    /// encrypted; treat it as you would the secrets it opens.
+    pub recovery_key: Option<String>,
+}
+
+// Hand-written so a stray `{:?}` can never print the recovery key (ADR-0063).
+impl fmt::Debug for InitializedVault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InitializedVault")
+            .field("vault", &self.vault)
+            .field("pubkey", &self.pubkey)
+            .field(
+                "recovery_key",
+                &self.recovery_key.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
+/// A vault [`clone_vault`] cloned and registered.
+#[derive(Debug, uniffi::Record)]
+pub struct ClonedVault {
+    pub vault: Arc<Vault>,
+    /// Whether this device already has an identity file for the vault. When
+    /// false it can't read anything here yet, and [`Vault::enroll`] is how it
+    /// asks to.
+    pub holds_identity: bool,
+}
+
+/// What [`Vault::enroll`] produced.
+#[derive(uniffi::Record)]
+pub struct EnrollmentRequest {
+    pub device: String,
+    pub pubkey: String,
+    /// The code to show the person, to carry to someone who can already read
+    /// the vault. It is not the passphrase, and the passphrase is never to be
+    /// shown or sent. Empty when `published` is false.
+    pub code: String,
+    /// When the request lapses. Meaningless when `published` is false.
+    pub expires: SystemTime,
+    /// False in one case: this device is already a recipient, so nothing was
+    /// asked for.
+    pub published: bool,
+}
+
+// Hand-written so a stray `{:?}` can never print the code (ADR-0063).
+impl fmt::Debug for EnrollmentRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EnrollmentRequest")
+            .field("device", &self.device)
+            .field("pubkey", &self.pubkey)
+            .field("code", &"<redacted>")
+            .field("expires", &self.expires)
+            .field("published", &self.published)
+            .finish()
+    }
+}
+
+/// What a sync did.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct SyncReport {
+    /// A fast-forward moved the local branch.
+    pub pulled: bool,
+    /// A divergence was reconciled into a merge commit.
+    pub merged: bool,
+    /// Commits were sent to the remote.
+    pub pushed: bool,
+    /// Both sides had moved on. It stays true after a merge: it says what was
+    /// found, not what was left.
+    pub diverged: bool,
+    /// How many local commits the remote lacks.
+    pub ahead: u64,
+}
+
+/// Creates a vault under `roots` with this device as its first recipient, and
+/// registers it as `name`. Asks `prompter` for the new identity's passphrase,
+/// with purpose `Create`.
+///
+/// `remote` becomes `origin` and is not pushed to; [`Vault::sync`] publishes
+/// the vault. `with_recovery_key` also makes an offline recovery key, returned
+/// only once the vault exists; without one, this device's identity file is the
+/// only way in.
+#[uniffi::export]
+pub fn init_vault(
+    roots: Roots,
+    name: String,
+    device: String,
+    remote: Option<String>,
+    with_recovery_key: bool,
+    prompter: Arc<dyn Prompter>,
+) -> Result<InitializedVault, GageError> {
+    let dirs = roots.dirs();
+    // The name becomes a path component below, so it is checked first.
+    gage::vault::check_name(&name).map_err(GageError::from_core)?;
+    let mut recovery = with_recovery_key
+        .then(new_recovery_key)
+        .transpose()
+        .map_err(GageError::from_core)?;
+    let made = gage::Vault::init(
+        &dirs,
+        &InitSpec {
+            path: paths::vaults_dir(&dirs).join(&name),
+            name,
+            vault_type: VaultType::Git,
+            method: UnlockMethod::Passphrase,
+            device,
+            recipients: Vec::new(),
+            recovery_key: recovery.as_ref().map(|key| key.pubkey.clone()),
+            remote,
+        },
+        &Bridge(prompter.as_ref()),
+    )
+    .map_err(GageError::from_core)?;
+    Ok(InitializedVault {
+        vault: Arc::new(Vault {
+            inner: made.vault,
+            dirs,
+        }),
+        pubkey: made.pubkey,
+        recovery_key: recovery
+            .as_mut()
+            .map(|key| std::mem::take(&mut *key.secret)),
+    })
+}
+
+/// Stores `host`'s token for fetches and pushes. It goes in and never comes
+/// back out: no call returns a stored token (ADR-0063).
+#[uniffi::export]
+pub fn save_remote_token(roots: Roots, host: String, token: String) -> Result<(), GageError> {
+    let token = Zeroizing::new(token);
+    remoteauth::save(&roots.dirs(), &host, &token).map_err(GageError::from_core)
+}
+
+/// Forgets `host`'s token. Forgetting one that isn't there is not an error.
+#[uniffi::export]
+pub fn remove_remote_token(roots: Roots, host: String) -> Result<(), GageError> {
+    remoteauth::remove(&roots.dirs(), &host).map_err(GageError::from_core)
+}
+
+/// Every host with a stored token, sorted.
+#[uniffi::export]
+pub fn remote_token_hosts(roots: Roots) -> Result<Vec<String>, GageError> {
+    remoteauth::hosts(&roots.dirs()).map_err(GageError::from_core)
+}
+
+/// Clones the vault at `url` and registers it as `name` for `device`. Cloning
+/// grants no access: see [`ClonedVault::holds_identity`]. A failed clone is
+/// undone.
+#[uniffi::export]
+pub fn clone_vault(
+    roots: Roots,
+    name: String,
+    url: String,
+    device: String,
+) -> Result<ClonedVault, GageError> {
+    let dirs = roots.dirs();
+    // The name becomes a path component below, so it is checked first.
+    gage::vault::check_name(&name).map_err(GageError::from_core)?;
+    let cloned = gage::Vault::clone_remote(
+        &dirs,
+        &CloneSpec {
+            path: paths::vaults_dir(&dirs).join(&name),
+            name,
+            url,
+            device,
+        },
+    )
+    .map_err(GageError::from_core)?;
+    Ok(ClonedVault {
+        vault: Arc::new(Vault {
+            inner: cloned.vault,
+            dirs,
+        }),
+        holds_identity: cloned.holds_identity,
+    })
+}
+
 /// One registered vault.
 #[derive(Debug, uniffi::Object)]
 pub struct Vault {
     inner: gage::Vault,
+    dirs: Dirs,
 }
 
 #[uniffi::export]
@@ -259,7 +628,7 @@ impl Vault {
         let entry = global.entry(&name).map_err(GageError::from_core)?;
         let inner =
             gage::Vault::from_registration(&dirs, &name, entry).map_err(GageError::from_core)?;
-        Ok(Arc::new(Vault { inner }))
+        Ok(Arc::new(Vault { inner, dirs }))
     }
 
     /// Unlocks this device's identity, asking `prompter` for as many tries
@@ -289,6 +658,148 @@ impl Vault {
                 updated_by: r.updated_by,
             })
             .collect())
+    }
+
+    /// Asks to join this vault: creates this device's identity (asking
+    /// `prompter` for its new passphrase, with purpose `Create`), publishes a
+    /// request sealed to a fresh code, and returns the code. `ttl_seconds`
+    /// defaults to 24 hours and may be at most 7 days.
+    ///
+    /// Fails outright if the remote can't be reached: a request that was never
+    /// published accomplishes nothing.
+    pub fn enroll(
+        &self,
+        device: String,
+        ttl_seconds: Option<u64>,
+        prompter: Arc<dyn Prompter>,
+    ) -> Result<EnrollmentRequest, GageError> {
+        let ttl = ttl_seconds.map_or(DEFAULT_ENROLLMENT_TTL, Duration::from_secs);
+        let mut request = self
+            .inner
+            .enroll(&device, ttl, &Bridge(prompter.as_ref()))
+            .map_err(GageError::from_core)?;
+        // After the push, so a registration only ever describes a request
+        // that reached the remote. Nothing is generated when nothing is
+        // published, so there is then nothing to record.
+        if request.published {
+            self.record_device(&device, &request.method, &request.pubkey)?;
+        }
+        Ok(EnrollmentRequest {
+            device: request.device,
+            pubkey: request.pubkey,
+            code: std::mem::take(&mut *request.code),
+            expires: request.expires.into(),
+            published: request.published,
+        })
+    }
+
+    /// Every entry `pattern` matches, ignoring case, in its title or
+    /// description, then its value and fields. Decrypts the whole vault.
+    pub fn search(
+        &self,
+        identity: Arc<Identity>,
+        pattern: String,
+    ) -> Result<Vec<SearchResult>, GageError> {
+        let results = self
+            .inner
+            .search(&identity.inner, &pattern)
+            .map_err(GageError::from_core)?;
+        Ok(results
+            .into_iter()
+            .map(|r| SearchResult {
+                id: r.id.hyphenated().to_string(),
+                title: r.title,
+                description: r.description,
+                matched_body: r.matched_body,
+            })
+            .collect())
+    }
+
+    /// One entry's metadata and field names, by the id `list` or `search`
+    /// returned. Its secrets stay out of this: see [`Vault::reveal`].
+    pub fn show(&self, identity: Arc<Identity>, id: String) -> Result<EntryDetails, GageError> {
+        let uuid = parse_id(&id)?;
+        let entry = self.read(uuid, &identity)?;
+        let entry = &entry.0;
+        Ok(EntryDetails {
+            id: uuid.hyphenated().to_string(),
+            title: entry.title.clone(),
+            description: entry.description.clone(),
+            created: entry.created.map(system_time),
+            updated: entry.updated.map(system_time),
+            updated_by: entry.updated_by.clone(),
+            field_names: entry.fields.keys().cloned().collect(),
+        })
+    }
+
+    /// One secret of one entry: the value, or the field named `field`. Call
+    /// this only when the person asks to see it, and don't keep the result:
+    /// these bindings wipe their own copy, and can't reach the one returned
+    /// (ADR-0063).
+    pub fn reveal(
+        &self,
+        identity: Arc<Identity>,
+        id: String,
+        field: Option<String>,
+    ) -> Result<String, GageError> {
+        let entry = self.read(parse_id(&id)?, &identity)?;
+        match field {
+            None => Ok(entry.0.value.clone()),
+            Some(name) => entry
+                .0
+                .field(&name)
+                .map(str::to_string)
+                .map_err(GageError::from_core),
+        }
+    }
+
+    /// Fetches, fast-forwards and publishes. Waits on the network. A real
+    /// conflict over an entry is refused with `Conflict`, after asking
+    /// `prompter` for the passphrase that reads it, as nothing yet answers
+    /// which side to keep.
+    pub fn sync(&self, prompter: Arc<dyn Prompter>) -> Result<SyncReport, GageError> {
+        let bridge = Bridge(prompter.as_ref());
+        let report = self
+            .inner
+            .sync_resolving(&bridge, &mut || self.inner.unlock(&bridge))
+            .map_err(GageError::from_core)?;
+        Ok(SyncReport {
+            pulled: report.pulled,
+            merged: report.merged,
+            pushed: report.pushed,
+            diverged: report.diverged,
+            ahead: report.ahead as u64,
+        })
+    }
+}
+
+impl Vault {
+    fn read(&self, id: Uuid, identity: &Identity) -> Result<Decrypted, GageError> {
+        self.inner
+            .read_entry(id, &identity.inner)
+            .map(Decrypted)
+            .map_err(GageError::from_core)
+    }
+
+    /// Records in the registration which device this is, as `Vault::enroll`
+    /// leaves to its caller.
+    fn record_device(
+        &self,
+        device: &str,
+        method: &UnlockMethod,
+        pubkey: &str,
+    ) -> Result<(), GageError> {
+        let path = paths::global_config_file(&self.dirs);
+        let mut global = config::load_or_default(&path).map_err(GageError::from_core)?;
+        let name = &self.inner.name;
+        let entry = global
+            .vaults
+            .get_mut(name)
+            .ok_or_else(|| GageError::from_core(RegistryError::NotRegistered(name.clone())))?;
+        entry.device = device.to_string();
+        entry.method = method.clone();
+        entry.pubkey = Some(pubkey.to_string());
+        config::save_creating_dir(&path, &global).map_err(GageError::from_core)
     }
 }
 
