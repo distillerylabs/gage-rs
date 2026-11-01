@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/gage", "crates/gage-cli", "crates/reset-local-state"]
+members = ["crates/gage", "crates/gage-cli", "crates/gage-ffi", "crates/reset-local-state"]
 
 [workspace.package]
 version = "0.1.1"

@@ -32,7 +32,7 @@ crate yields both Swift and Kotlin. The interface is declared with
 lints unchanged. rustc does not apply `unsafe_code` to code expanded from
 another crate's procedural macros, so UniFFI's generated `#[unsafe(no_mangle)]`
 functions and raw-pointer blocks never reach the lint: a probe crate on
-UniFFI 0.29.5 built clean under both `deny` and `forbid`. That generated
+UniFFI 0.29.5 and 0.32.2 built clean under both `deny` and `forbid`. That generated
 layer is trusted dependency code, like `libgit2-sys`, not code the lint
 vouches for. UDL mode is excluded partly because its `include!`d
 scaffolding was not tested against the lint. Hand-written `unsafe` in

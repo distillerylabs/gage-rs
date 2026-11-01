@@ -1,6 +1,6 @@
 //! `crates/gage` must not depend, directly or transitively, on any
 //! frontend concern: argument parsing, terminal input, line editing,
-//! clipboard, or QR rendering. A future GUI/TUI is a second in-process
+//! clipboard, QR rendering, or foreign-language bindings. A future GUI/TUI is a second in-process
 //! frontend over this library, so a frontend crate leaking in through a
 //! dependency would quietly couple the two. The lint in `clippy.toml`
 //! guards the code; this guards the dependency graph.
@@ -27,6 +27,9 @@ const DENYLIST: &[&str] = &[
     "qrcode",
     "dialoguer",
     "inquire",
+    // Foreign-language bindings: gage-ffi wraps the library, the library
+    // never carries them (ADR-0060).
+    "uniffi*",
 ];
 
 fn is_denied(name: &str) -> bool {
@@ -272,6 +275,9 @@ fn the_denylist_matches_prefixes_and_exact_names() {
         "crossterm",
         "rustyline",
         "qrcode",
+        "uniffi",
+        "uniffi_core",
+        "uniffi_macros",
     ] {
         assert!(is_denied(denied), "{denied} should be denied");
     }
