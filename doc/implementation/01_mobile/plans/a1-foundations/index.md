@@ -127,6 +127,14 @@ Not part of A1's acceptance.
   prompt failure always reports as `LockedOrAuth`, even when the prompt
   itself broke. It stayed out of A1 because fixing it changes a CLI exit
   code; see "Resolved decisions" above.
+- **Distributing the bindings
+  ([#191](https://github.com/distillerylabs/gage-rs/issues/191)).** `gage-ffi` isn't
+  published to crates.io, and `gage-ios` builds against
+  `make xcframework`'s output from a checkout. ADR-0060 expects an app to
+  pin a released version, and leaves how until there is something to
+  distribute. One likely shape is a Swift package with the XCFramework
+  attached to a GitHub release; nothing builds or publishes that yet.
+  Decide before `gage-ios` moves past local builds.
 - **Next phases.** A2 (writes) follows once the `gage-ios` app has used
   A1's prompter and error shapes, and A3 is Android. Both are on the
   [mobile plan](../index.md), and each files its issues when it starts.
