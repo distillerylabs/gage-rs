@@ -28,7 +28,7 @@ workspace = true
 [dependencies]
 anyhow = "1"
 clap = { version = "4", default-features = false, features = ["std", "help", "usage", "error-context", "suggestions", "string"] }
-gage = { package = "gage-core", path = "../gage", version = "0.1.1" }
+gage = { package = "gage-core", path = "../gage", version = "0.1.2" }
 # init's default device name; std has no hostname call.
 hostname = "0.4"
 # `log` renders commit times in the local zone, which needs jiff to find it;
@@ -62,7 +62,7 @@ thiserror = "2"
 
 [dev-dependencies]
 assert_cmd = "2"
-gage = { package = "gage-core", path = "../gage", version = "0.1.1", features = ["test-support"] }
+gage = { package = "gage-core", path = "../gage", version = "0.1.2", features = ["test-support"] }
 portable-pty = "0.9"
 age = "0.12.1"
 
