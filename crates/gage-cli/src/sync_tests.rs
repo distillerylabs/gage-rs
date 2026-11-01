@@ -992,7 +992,11 @@ fn clone_refuses_an_already_registered_name() {
         &FakePrompter::new(),
     );
     assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
-    assert!(r.stderr.contains("--name"), "{}", r.stderr);
+    // The library refuses the name; the --name hint is the CLI's own.
+    assert_eq!(
+        r.stderr,
+        "gage: \"personal\" is already a registered vault; pass --name to clone it under a different name\n"
+    );
 }
 
 #[test]

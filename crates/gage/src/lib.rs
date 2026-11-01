@@ -61,7 +61,7 @@ pub use crate::error::{ErrorKind, HasKind, Remedy};
 pub use crate::prompter::{Prompter, Warning};
 pub use crate::session::{Clock, Session, SessionConfig, SystemClock};
 pub use crate::storage::vaultconfig::{UnlockMethod, VaultId, VaultType};
-pub use crate::vault::{CreateSpec, Vault};
+pub use crate::vault::{CloneSpec, CreateSpec, InitSpec, Vault};
 
 #[cfg(test)]
 mod format_v2_bytes_tests;

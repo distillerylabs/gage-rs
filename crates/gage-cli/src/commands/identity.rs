@@ -93,7 +93,8 @@ pub fn add(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cli
 }
 
 /// Records this device's name, method and key for a vault in global config,
-/// never in the vault: the library never writes global config.
+/// never in the vault. The library writes a registration only when it
+/// creates or joins a vault (ADR-0061); this edit stays here.
 pub(super) fn record_local_identity(
     io: &Io,
     vault: &str,

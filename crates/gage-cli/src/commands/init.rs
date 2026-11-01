@@ -1,10 +1,10 @@
 //! `gage init`: resolves the defaults (device name, target path), refuses
-//! what is knowable from the flags, generates this device's identity (the
-//! passphrase prompt) and a recovery key, creates the vault through the
-//! library with both, and only once it exists registers it in global
-//! config and delivers the recovery key. If creating the vault fails, the
-//! identity is removed again; the recovery key was never shown or stored,
-//! so it needs no rollback.
+//! what is knowable from the flags, generates a recovery key, and hands
+//! the rest to `Vault::init`, which creates this device's identity (the
+//! passphrase prompt), creates the vault and registers it, removing the
+//! identity again if the vault can't be created (ADR-0061). Only once the
+//! vault is registered is the recovery key delivered; it was never shown
+//! or stored before then, so it needs no rollback.
 //!
 //! `--remote` sets origin and publishes the new vault at once, asking for
 //! the host's token first if none is stored (#38).
@@ -16,13 +16,12 @@ use clap::{Arg, ArgAction, ArgMatches};
 use gage::HasKind;
 use gage::Prompter;
 use gage::recovery::{RECOVERY_DEVICE_LABEL, check_device_label_free, new_recovery_key};
-use gage::storage::config::{GitMeta, RegistryError, VaultEntry};
-use gage::storage::vaultconfig::VaultId;
+use gage::storage::config::RegistryError;
 use gage::sync::syncerr::Kind;
-use gage::vault::LabelledRecipient;
-use gage::{CreateSpec, Vault};
+use gage::vault::Initialized;
+use gage::{InitSpec, Vault};
 use gage::{UnlockMethod, VaultType};
-use gage::{devicename, storage::identityfile, storage::paths, sync::remoteauth};
+use gage::{devicename, storage::paths, sync::remoteauth};
 
 use super::recoverykey::{
     KeyPlan, check_recovery_key_out_path, deliver_recovery_key, plan_recovery_key,
@@ -133,7 +132,10 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     check_device_label_free(&device)?;
 
     let dirs = dirs(io)?;
-    let (config_path, mut global) = load_global(io)?;
+    // Vault::init refuses a registered name too, and its check is the one
+    // that holds. This one runs first only so that a registered name is
+    // still reported ahead of a bad --recovery-key-out, below.
+    let (_, global) = load_global(io)?;
     if global.vaults.contains_key(name) {
         return Err(RegistryError::AlreadyRegistered(name.to_string()).into());
     }
@@ -149,83 +151,32 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
     if let KeyPlan::File(out) = &mut plan {
         *out = check_recovery_key_out_path(out, &cwd()?, &path, &dirs)?;
     }
+    let vault_type = flag("type").expect("defaulted").parse::<VaultType>()?;
 
-    // The id is minted here, before the identity, and handed to create
-    // rather than minted there: the identity file is filed under it, and
-    // an id that only existed after the file was written would leave the
-    // vault carrying one id and this device's only key filed under
-    // another, with nothing visibly wrong (ADR-0006).
-    let mut spec = CreateSpec {
-        name: name.to_string(),
-        id: VaultId::new(),
-        path,
-        vault_type: flag("type").expect("defaulted").parse::<VaultType>()?,
-        method: UnlockMethod::from(flag("method").expect("defaulted")),
-        device,
-        recipients: extra_recipients,
-        extra_recipients: Vec::new(),
-        remote: flag("remote"),
-    };
-    // Everything knowable from the flags fails before a human types a
-    // passphrase twice. The target directory is checked by
-    // create, after the key exists; the rollback below covers
-    // it.
-    spec.validate_without_device_key()?;
-
-    let pubkey = identityfile::create(&dirs, &spec.id, name, &spec.device, prompter)?;
-    // This device's key leads and --recipient keys follow in the order
-    // given: create labels the first recipient with the device name.
-    spec.recipients.insert(0, pubkey.clone());
-
-    // Generated here, after the identity, but not shown until the vault
-    // exists. Nothing needs rolling back if anything below fails: it was
-    // never written down, stored or seen.
+    // Generated before the vault, but not shown until it exists and is
+    // registered. Nothing needs rolling back if anything below fails: it
+    // was never written down, stored or seen. Only its public key goes to
+    // the library.
     let recovery_key = match plan {
         KeyPlan::None => None,
         KeyPlan::Show | KeyPlan::File(_) => Some(new_recovery_key()?),
     };
-    if let Some(key) = &recovery_key {
-        spec.extra_recipients = vec![LabelledRecipient {
-            device: RECOVERY_DEVICE_LABEL.into(),
-            pubkey: key.pubkey.clone(),
-        }];
-    }
-
-    let created = match Vault::create(&dirs, &spec) {
-        Ok(created) => created,
-        Err(err) => {
-            // Unconditionally: the key is referenced by nothing, and sits
-            // under an id that now belongs to no vault. `init` mints a new
-            // id every run, so without this every failed attempt would
-            // leave one orphaned private key behind.
-            if let Err(rollback) = identityfile::remove(&dirs, &spec.id, &spec.device) {
-                return Err(fail(
-                    ExitCode::Internal,
-                    format!("{err} (and rolling back the generated identity failed: {rollback})"),
-                ));
-            }
-            return Err(err.into());
-        }
+    let spec = InitSpec {
+        name: name.to_string(),
+        path,
+        vault_type,
+        method: UnlockMethod::from(flag("method").expect("defaulted")),
+        device,
+        recipients: extra_recipients,
+        recovery_key: recovery_key.as_ref().map(|key| key.pubkey.clone()),
+        remote: flag("remote"),
     };
-
-    global.register(
-        name,
-        VaultEntry {
-            path: created.path.clone(),
-            id: Some(created.id.clone()),
-            vault_type: spec.vault_type,
-            device: spec.device.clone(),
-            // Recorded now, the one moment gage holds this device's key
-            // without an unlock, so "is my key still a recipient?" can be
-            // answered by comparing keys (ADR-0013).
-            pubkey: Some(pubkey.clone()),
-            method: spec.method.clone(),
-            git: GitMeta {
-                origin: spec.remote.clone(),
-            },
-        },
-    )?;
-    gage::storage::config::save_creating_dir(&config_path, &global)?;
+    // Validates, asks for the new passphrase, creates and registers, and
+    // removes the identity again if the vault can't be created.
+    let Initialized {
+        vault: created,
+        pubkey,
+    } = Vault::init(&dirs, &spec, prompter)?;
 
     // After registration, so a key is never shown for a vault that isn't
     // usable yet, and before the summary, so the one thing needing action

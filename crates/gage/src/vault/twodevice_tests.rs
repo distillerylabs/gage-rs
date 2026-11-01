@@ -76,7 +76,7 @@ impl Machine {
 
     /// Registers this device's identity for the vault and returns its
     /// public key. Records it in global config as the CLI does, since the
-    /// library never writes global config.
+    /// library's `add_identity` doesn't write global config (ADR-0061).
     pub(crate) fn identity_add(&self, device: &str) -> String {
         let p = FakePrompter::new().with_passphrase(B_PASSPHRASE);
         let pubkey = self.vault.add_identity(device, &p).unwrap();

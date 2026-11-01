@@ -30,7 +30,11 @@ pub use crate::storage::identityfile::UnlockError;
 
 mod identities;
 pub use identities::{IdentityAddError, ListIdentitiesError, LocalIdentity};
+mod lifecycle;
+pub use lifecycle::{CloneError, CloneSpec, Cloned, InitError, InitSpec, Initialized};
 
+#[cfg(test)]
+pub(crate) mod lifecycle_tests;
 #[cfg(test)]
 pub(crate) mod reencrypt_tests;
 #[cfg(test)]

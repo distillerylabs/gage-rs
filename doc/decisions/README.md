@@ -32,6 +32,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0058](0058-release-and-versioning.md) Release and versioning policy
 - [0059](0059-release-pipeline.md) The release pipeline's trust model
 - [0060](0060-mobile-bindings.md) Mobile bindings live in this repo; the apps don't
+- [0061](0061-library-creates-and-registers.md) Creating or joining a vault is one library operation, registration included
 
 ### Format and storage
 
