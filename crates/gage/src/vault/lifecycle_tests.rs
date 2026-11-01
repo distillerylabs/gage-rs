@@ -3,7 +3,7 @@
 //! tests pin messages and exit codes; these pin the files.
 
 use std::cell::Cell;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use crate::error::{ErrorKind, HasKind};
@@ -123,7 +123,7 @@ impl Drop for Restore {
 /// Makes `dir` read-only until the guard drops; `None` when the process
 /// ignores directory permissions (root), so the caller can skip loudly.
 #[cfg(unix)]
-fn read_only(dir: &Path) -> Option<Restore> {
+fn read_only(dir: &std::path::Path) -> Option<Restore> {
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o500)).unwrap();
     let restore = Restore(dir.to_path_buf());
@@ -258,7 +258,7 @@ fn a_failed_create_removes_the_identity_and_registers_nothing() {
     let err = Vault::init(&m.dirs, &spec, &prompter).unwrap_err();
 
     assert!(
-        matches!(err, InitError::Create(CreateError::TargetNotEmpty(_))),
+        matches!(&err, InitError::Create(e) if matches!(**e, CreateError::TargetNotEmpty(_))),
         "{err:?}"
     );
     assert_eq!(err.kind(), ErrorKind::Conflict);
@@ -289,7 +289,7 @@ fn a_cancelled_passphrase_creates_nothing() {
     let err = Vault::init(&m.dirs, &spec, &prompter).unwrap_err();
 
     assert!(
-        matches!(err, InitError::Identity(UnlockError::Prompter(_))),
+        matches!(&err, InitError::Identity(e) if matches!(**e, UnlockError::Prompter(_))),
         "{err:?}"
     );
     assert!(m.identity_files().is_empty());
@@ -374,7 +374,10 @@ fn a_failed_rollback_is_reported_beside_the_failure() {
     let InitError::RollbackFailed { cause, rollback } = &err else {
         panic!("{err:?}");
     };
-    assert!(matches!(cause, CreateError::TargetNotEmpty(_)), "{cause:?}");
+    assert!(
+        matches!(**cause, CreateError::TargetNotEmpty(_)),
+        "{cause:?}"
+    );
     assert!(matches!(**rollback, UnlockError::Io { .. }), "{rollback:?}");
     assert_eq!(err.kind(), ErrorKind::Internal);
     assert_eq!(
@@ -401,7 +404,7 @@ fn a_failed_registry_save_leaves_the_vault_and_identity_in_place() {
     let err = Vault::init(&m.dirs, &spec, &passphrase()).unwrap_err();
 
     assert!(
-        matches!(err, InitError::SaveRegistry(config::Error::Write { .. })),
+        matches!(&err, InitError::SaveRegistry(e) if matches!(**e, config::Error::Write { .. })),
         "{err:?}"
     );
     assert_eq!(err.kind(), ErrorKind::Internal);
@@ -643,4 +646,14 @@ fn a_failed_clone_rollback_reads_as_both_failures() {
             path.display()
         )
     );
+}
+
+// Clippy's `result_large_err` limit is 128 bytes, and only Windows CI
+// crossed it (its `PathBuf` is 8 bytes larger), so it went unnoticed on
+// Linux and macOS. `Vault::init` returns `InitError`, so it stays small
+// here on every platform, with room to spare.
+#[test]
+fn init_error_stays_small_enough_to_carry() {
+    use std::mem::size_of;
+    assert!(size_of::<InitError>() <= 96, "{}", size_of::<InitError>());
 }
