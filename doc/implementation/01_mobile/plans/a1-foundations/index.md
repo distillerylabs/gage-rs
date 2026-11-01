@@ -97,11 +97,39 @@ From the planning Q&A (recorded on #177 and #178):
 - The macOS mobile CI job builds the XCFramework, and the Swift smoke
   passes in a simulator.
 - From Swift, in a simulator, against a local bare remote:
-  1. clone a vault the CLI created
-  2. enroll, and get approved by the CLI
+  1. clone a vault an existing device created through the library
+  2. enroll, and get approved by that device
   3. sync, then list, search and show
+
+  The other device runs in the smoke fixture, not the `gage` binary: an
+  iOS app doesn't require the CLI, and the CLI calls the same library
+  operations.
 - `make lint`, `make test`, `make qa` and `make audit` are clean.
 - CI is green on Linux, macOS and Windows.
+
+## After A1
+
+Not part of A1's acceptance.
+
+- **iOS container paths
+  ([#188](https://github.com/distillerylabs/gage-rs/issues/188)).** A
+  registration records absolute paths, and iOS can change an app's
+  container path across updates and restores, so a vault might stop
+  opening. Not yet reproduced: confirm it first. Settle it before a real
+  app ships.
+- **Keychain token store
+  ([#187](https://github.com/distillerylabs/gage-rs/issues/187)).** Remote
+  tokens are files under the app's `Roots` today. Not urgent.
+- **Real hardware.** Page locking and the vault lock have only run in the
+  simulator, which uses the Mac's kernel. Test them on an iPhone.
+- **`UnlockError::Prompter`'s kind
+  ([#190](https://github.com/distillerylabs/gage-rs/issues/190)).** An unlock
+  prompt failure always reports as `LockedOrAuth`, even when the prompt
+  itself broke. It stayed out of A1 because fixing it changes a CLI exit
+  code; see "Resolved decisions" above.
+- **Next phases.** A2 (writes) follows once the `gage-ios` app has used
+  A1's prompter and error shapes, and A3 is Android. Both are on the
+  [mobile plan](../index.md), and each files its issues when it starts.
 
 ## Process notes
 
