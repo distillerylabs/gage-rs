@@ -59,27 +59,39 @@ pub enum InitError {
     Registry(#[from] RegistryError),
     /// The global config couldn't be read.
     #[error(transparent)]
-    LoadRegistry(config::Error),
+    LoadRegistry(Box<config::Error>),
     /// The spec is invalid, or creating the vault failed. Any identity
     /// this call made has been removed again.
     #[error(transparent)]
-    Create(#[from] CreateError),
+    Create(Box<CreateError>),
     /// This device's identity couldn't be created: the prompter gave no
     /// passphrase, or the file couldn't be written.
     #[error(transparent)]
-    Identity(#[from] UnlockError),
+    Identity(Box<UnlockError>),
     /// Creating the vault failed, and removing the identity made for it
     /// failed too: that identity is still on disk.
     #[error("{cause} (and rolling back the generated identity failed: {rollback})")]
     RollbackFailed {
-        cause: CreateError,
-        /// Boxed only to keep the error small.
+        /// Boxed, like `rollback`, only to keep the error small.
+        cause: Box<CreateError>,
         rollback: Box<UnlockError>,
     },
     /// The vault and this device's identity exist, but registering them
     /// failed. Nothing is rolled back.
     #[error(transparent)]
-    SaveRegistry(config::Error),
+    SaveRegistry(Box<config::Error>),
+}
+
+impl From<UnlockError> for InitError {
+    fn from(e: UnlockError) -> InitError {
+        InitError::Identity(Box::new(e))
+    }
+}
+
+impl From<CreateError> for InitError {
+    fn from(e: CreateError) -> InitError {
+        InitError::Create(Box::new(e))
+    }
 }
 
 impl HasKind for InitError {
@@ -211,7 +223,8 @@ impl Vault {
         prompter: &dyn Prompter,
     ) -> Result<Initialized, InitError> {
         let config_path = paths::global_config_file(dirs);
-        let mut global = config::load_or_default(&config_path).map_err(InitError::LoadRegistry)?;
+        let mut global = config::load_or_default(&config_path)
+            .map_err(|e| InitError::LoadRegistry(Box::new(e)))?;
         if global.vaults.contains_key(&spec.name) {
             return Err(RegistryError::AlreadyRegistered(spec.name.clone()).into());
         }
@@ -256,7 +269,7 @@ impl Vault {
                     match identityfile::remove(dirs, &create.id, &create.device) {
                         Ok(()) => cause.into(),
                         Err(rollback) => InitError::RollbackFailed {
-                            cause,
+                            cause: Box::new(cause),
                             rollback: Box::new(rollback),
                         },
                     },
@@ -278,7 +291,8 @@ impl Vault {
                 },
             },
         )?;
-        config::save_creating_dir(&config_path, &global).map_err(InitError::SaveRegistry)?;
+        config::save_creating_dir(&config_path, &global)
+            .map_err(|e| InitError::SaveRegistry(Box::new(e)))?;
         Ok(Initialized { vault, pubkey })
     }
 
