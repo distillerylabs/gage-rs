@@ -13,3 +13,4 @@ pub mod locker;
 #[cfg(not(any(test, feature = "test-support")))]
 pub(crate) mod locker;
 pub(crate) mod memlock;
+pub mod vaultkey;

@@ -93,12 +93,13 @@ impl Vault {
     pub fn history(&self, id: Uuid, identity: &Identity) -> Result<Vec<Revision>, HistoryError> {
         let mut revisions = gitrepo::log(&self.path, &entry_file_path(id))?;
         revisions.reverse();
+        let mut reader = self.entry_reader(identity);
         revisions
             .into_iter()
             .map(|r| {
                 let entry = match &r.content {
                     Some(ciphertext) => {
-                        Some(self.decrypt_entry(ciphertext, identity).map_err(|source| {
+                        Some(reader.decrypt_revision(id, ciphertext).map_err(|source| {
                             HistoryError::Decrypt {
                                 hash: r.id.chars().take(SHORT_HASH_LEN).collect(),
                                 id,

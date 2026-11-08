@@ -94,7 +94,7 @@ fn write_verbs() -> Vec<(&'static str, Write)> {
                 title: "edited".into(),
                 ..f.read(existing, id).unwrap()
             };
-            f.vault.update(existing, &e, p).unwrap();
+            f.vault.update(id, existing, &e, p).unwrap();
         }),
         ("rename", |f, id, existing, p| {
             f.vault

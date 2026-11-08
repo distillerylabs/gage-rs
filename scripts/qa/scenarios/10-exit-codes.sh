@@ -75,7 +75,7 @@ cp "$V/entries/$F" "$QA_S/entry.bak"
 printf 'garbage' >"$V/entries/$F"
 g alice -i "$(unlock alice)" -- ls
 # crypt.rs maps CorruptCiphertext to Conflict on purpose; doc/cli/exit-codes.md
-# doesn't list it under 1 yet (a doc gap, not a behavior bug).
+# lists it under 1.
 expect_exit 1
 expect_err 'corrupt or truncated'
 expect_no_err 'panicked'

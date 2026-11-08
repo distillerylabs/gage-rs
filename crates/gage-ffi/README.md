@@ -125,6 +125,13 @@ A `GageError` case is what kind of failure it was (`Conflict`, `Usage`,
 is the library's own text. `Unreachable` is worth retrying unchanged once the
 network is back.
 
+An entry that fails authentication (forged, altered, or copied from another
+entry) is a `Conflict` with no remedy, and so is a damaged one. The message
+holds the entry's id and the reason, never anything from the entry. One such
+entry fails `list` and `search` outright rather than returning the rest, so a
+partial list never looks complete. Fixing it takes `git`, which the bindings
+don't offer.
+
 `remedy`, on an error or a `Warning`, is what the person can do next, as data
 that you word yourself: `.authLogin(host:)` might open your token screen. Most
 errors have none. Treat `.other`, a remedy newer than these bindings, as no

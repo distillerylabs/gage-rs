@@ -97,7 +97,7 @@ The no-commit/no-push rule above applies throughout: the exception is only what 
 
 ## Format stability
 
-The on-disk format is a versioned contract: [doc/format/v2.md](doc/format/v2.md) specifies every artifact gage reads or writes, and `tests/fixtures/format-v2/` is a golden vault that is never regenerated or edited. The `format_v2_*` tests may not be edited to make a change pass: a change that needs them edited is a format change.
+The on-disk format is a versioned contract: [doc/format/v3.md](doc/format/v3.md) specifies every artifact gage reads or writes, and `tests/fixtures/format-v3/` is a golden vault that is never regenerated or edited (nor is `format-v2/`, which this build refuses, [ADR-0065](doc/decisions/0065-entry-authentication.md)). The `format_v<N>_*` tests may not be edited to make a change pass: a change that needs them edited is a format change.
 
 A format change needs, in the same change: a `format_version` bump, a new spec (`doc/format/v<N>.md`), a new `tests/fixtures/format-v<N>/` fixture, and an ADR in [doc/decisions/](doc/decisions/README.md). See [doc/format/README.md](doc/format/README.md). Nothing is promised about vaults written by the earlier Go implementation.
 
@@ -136,6 +136,7 @@ The crate is grouped by concern ([ADR-0055](doc/decisions/0055-module-hierarchy.
 
 - **The on-disk format is a versioned contract.** See "Format stability" above.
 - **Entries are opaque.** One `.age` file per entry under `entries/`, named by random UUIDv4 — no human-readable path or directory structure ever encodes vault contents. All metadata (title, etc.) is inside the encrypted payload.
+- **Entries are authenticated.** Every payload ends in an `auth` line, an HMAC under the vault's MAC key (`.gage/vault-key.age`, sealed to the recipients) bound to the entry's id, and every read verifies it before parsing ([ADR-0065](doc/decisions/0065-entry-authentication.md)). Writing an entry therefore takes an `Identity`. Every path that produces an entry goes through the store's stamp, a re-encryption re-seals the key, and one that drops a recipient rotates it ([ADR-0066](doc/decisions/0066-mac-key-rotation.md)).
 - **A vault is the unit of trust.** Recipients (who can decrypt) are vault-wide, never per-directory — see "Why no per-directory sharing" in the design doc if you're tempted to add finer-grained sharing.
 - **Decryption method is per-device, not per-vault.** `[method].default` in `.gage/config.toml` is a suggestion for new devices, not a constraint; each device's actual method is local-only config, never committed.
 - **Identities, locks and the trust cache are keyed by vault id**, never by the local vault name (`$GAGE_DATA/identities/<vault-id>/`, `$GAGE_STATE/locks/<vault-id>.lock`, `$GAGE_STATE/<vault-id>/known-config.toml`). The vault id is untrusted input and is validated before any path is built from it.

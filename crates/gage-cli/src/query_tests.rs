@@ -37,7 +37,8 @@ impl Env {
             ..Entry::default()
         };
         let vault = self.vault("personal");
-        vault.write_entry(id, &e).unwrap();
+        let identity = vault.unlock(&unlocks()).unwrap();
+        vault.write_entry(id, &e, &identity).unwrap();
         // Committed, as a real write would be: an uncommitted file is what
         // the next write's dirty-tree reset discards.
         gage::sync::gitrepo::commit_all(&vault.path, &id.to_string()).unwrap();
@@ -54,7 +55,9 @@ impl Env {
         let day_ago = Timestamp::from_unix(e.created.unwrap().as_unix() - 86_400);
         e.created = day_ago;
         e.updated = day_ago;
-        vault.update(id, &e, &FakePrompter::new()).unwrap();
+        vault
+            .update(&identity, id, &e, &FakePrompter::new())
+            .unwrap();
     }
 
     /// Inserts `title` with a value and fields, through `insert -e`.

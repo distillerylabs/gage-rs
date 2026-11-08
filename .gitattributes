@@ -1,4 +1,5 @@
 * text=auto eol=lf
-# The golden vault is bytes, not text: no checkout may touch its line
+# The golden vaults are bytes, not text: no checkout may touch their line
 # endings (doc/format/README.md).
 tests/fixtures/format-v2/** -text
+tests/fixtures/format-v3/** -text

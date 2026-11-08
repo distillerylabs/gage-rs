@@ -454,3 +454,31 @@ fn clock_skew_names_the_requesting_devices_clock() {
     );
     assert!(err.to_string().contains("clock"), "{err}");
 }
+
+// The device an approval admits holds the MAC key: the re-seal rides the
+// approval's re-encryption (ADR-0066).
+#[test]
+fn an_approved_device_can_open_the_mac_key_and_verify_every_entry() {
+    let a = SyncVault::new();
+    insert_as(&a, "before the approval");
+    let (m, req) = enrolled(&a, "phone-1");
+    approve_one(&a, &req).unwrap();
+
+    assert!(reads_every_entry(&m), "read_entry authenticates");
+    let identity = m.unlock();
+    m.vault.vault_key(&identity).unwrap();
+    // It writes an entry its approver accepts, too.
+    m.vault
+        .insert(
+            &identity,
+            sample("from the phone"),
+            false,
+            &FakePrompter::new(),
+        )
+        .unwrap();
+    a.vault.pull().unwrap();
+    let owner = a.unlock();
+    for id in a.vault.entry_ids().unwrap() {
+        a.vault.read_entry(id, &owner).unwrap();
+    }
+}

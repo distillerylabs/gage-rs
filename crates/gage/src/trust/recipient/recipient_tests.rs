@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 use crate::crypto::identity::Identity;
+use crate::crypto::vaultkey::VaultKey;
 use crate::entry::{Entry, NewEntry};
 use crate::error::{ErrorKind, HasKind};
 use crate::prompter::FakePrompter;
@@ -492,7 +493,11 @@ fn recipient_add_commits_both_files_together() {
         ("phone-1", phone.as_str())
     );
     let mut want: Vec<String> = ids.iter().map(|id| format!("entries/{id}.age")).collect();
-    want.extend([".age-recipients".into(), ".gage/config.toml".into()]);
+    want.extend([
+        ".age-recipients".into(),
+        ".gage/config.toml".into(),
+        ".gage/vault-key.age".into(),
+    ]);
     want.sort();
     assert_eq!(commit_paths(&f.vault.path, &f.head()), want);
     let head = gitrepo::head_commit(&f.vault.path).unwrap();
@@ -812,4 +817,163 @@ fn add_is_not_refused_over_a_tree_the_reset_discards() {
     );
     assert!(f.recipients_file().contains(&third));
     assert!(f.config_keys().contains(&third));
+}
+
+// --- the MAC key across membership changes (ADR-0066) ------------------
+
+/// `e`, tagged under `key` and encrypted to the vault's recipients, as
+/// entry `id`: what a holder of `key` can file, committed.
+fn plant_under(f: &Fixture, id: Uuid, key: &VaultKey) {
+    let e = Entry {
+        title: "forged".into(),
+        ..Entry::default()
+    };
+    let to = f.vault.encrypt_recipients().unwrap();
+    let sealed = crate::entry::seal_entry(id, &e, &to, key).unwrap();
+    std::fs::write(f.vault.entry_path(id), sealed).unwrap();
+    gitrepo::commit_all(&f.vault.path, "test: a planted entry").unwrap();
+}
+
+fn unauthenticated(r: Result<Entry, crate::entry::Error>) -> bool {
+    matches!(r, Err(crate::entry::Error::Unauthenticated { .. }))
+}
+
+#[test]
+fn remove_rotates_so_the_removed_key_cannot_produce_a_valid_entry() {
+    let f = Fixture::new();
+    let ids = f.seed(3);
+    let phone = with_phone(&f);
+    let phone_id = Identity::for_tests(&phone);
+    // What the phone walks away with.
+    let its_copy = f.vault.vault_key(&phone_id).unwrap();
+
+    f.vault
+        .remove_recipient("phone-1", true, &f.identity(), &FakePrompter::new())
+        .unwrap();
+
+    // It can't open the key any more.
+    assert!(matches!(
+        f.vault.vault_key(&phone_id),
+        Err(crate::entry::Error::VaultKey(e))
+            if matches!(*e, crate::crypto::vaultkey::Error::Crypt {
+                source: crate::crypto::crypt::Error::NotARecipient, .. })
+    ));
+    // An entry under the key it kept is refused by everyone who can read.
+    let forged = Uuid::new_v4();
+    plant_under(&f, forged, &its_copy);
+    assert!(unauthenticated(f.read(forged, &f.identity())));
+    std::fs::remove_file(f.vault.entry_path(forged)).unwrap();
+    gitrepo::commit_all(&f.vault.path, "test: remove the planted entry").unwrap();
+    // And the recipients that stayed read every entry.
+    for id in ids {
+        f.read(id, &f.identity()).unwrap();
+    }
+}
+
+#[test]
+fn add_reseals_the_same_key_for_the_new_recipient() {
+    let f = Fixture::new();
+    let ids = f.seed(2);
+    let before = f.vault.vault_key(&f.identity()).unwrap();
+
+    let phone = with_phone(&f);
+    let phone_id = Identity::for_tests(&phone);
+
+    let opened = f.vault.vault_key(&phone_id).unwrap();
+    assert!(
+        opened.continues(&before) && before.continues(&opened),
+        "add re-seals, it doesn't rotate"
+    );
+    for id in ids {
+        f.read(id, &phone_id).unwrap();
+    }
+}
+
+// A key leaving is what rotates, wherever the change came from: the
+// decision is made where the list is written.
+#[test]
+fn a_list_that_only_grows_does_not_rotate_and_one_that_shrinks_does() {
+    let f = Fixture::new();
+    f.seed(1);
+    let before = f.vault.vault_key(&f.identity()).unwrap();
+    with_phone(&f);
+    let added = f.vault.vault_key(&f.identity()).unwrap();
+    assert!(added.continues(&before) && before.continues(&added));
+
+    f.vault
+        .remove_recipient("phone-1", true, &f.identity(), &FakePrompter::new())
+        .unwrap();
+    let removed = f.vault.vault_key(&f.identity()).unwrap();
+    assert!(removed.continues(&before), "the old key is retired");
+    assert!(!before.continues(&removed), "and a new one is current");
+}
+
+#[test]
+fn history_still_reads_every_revision_from_before_a_rotation() {
+    let f = Fixture::new();
+    let id = f.seed(1)[0];
+    let p = FakePrompter::new();
+    let mut edited = f.read(id, &f.identity()).unwrap();
+    edited.value = "second".into();
+    f.vault.update(&f.identity(), id, &edited, &p).unwrap();
+    with_phone(&f);
+    f.vault
+        .remove_recipient("phone-1", true, &f.identity(), &p)
+        .unwrap();
+    // A second rotation, so more than one key is retired.
+    with_phone(&f);
+    f.vault
+        .remove_recipient("phone-1", true, &f.identity(), &p)
+        .unwrap();
+
+    let revisions = f.vault.history(id, &f.identity()).unwrap();
+    assert!(revisions.len() >= 3, "{}", revisions.len());
+    assert!(revisions.iter().all(|r| r.entry.is_some()));
+    let values: Vec<_> = revisions
+        .iter()
+        .map(|r| r.entry.as_ref().unwrap().value.clone())
+        .collect();
+    assert!(values.contains(&"second".to_string()), "{values:?}");
+}
+
+// A retired key reads history and nothing else.
+#[test]
+fn a_live_entry_under_a_retired_key_is_refused_though_history_accepts_it() {
+    let f = Fixture::new();
+    f.seed(1);
+    let old = f.vault.vault_key(&f.identity()).unwrap();
+    with_phone(&f);
+    f.vault
+        .remove_recipient("phone-1", true, &f.identity(), &FakePrompter::new())
+        .unwrap();
+    let id = Uuid::new_v4();
+    plant_under(&f, id, &old);
+    assert!(unauthenticated(f.read(id, &f.identity())));
+    assert!(f.vault.history(id, &f.identity()).is_ok());
+}
+
+#[test]
+fn a_crash_during_rotation_leaves_head_intact_and_the_reset_restores_it() {
+    let f = Fixture::new();
+    let ids = f.seed(3);
+    with_phone(&f);
+    let head = f.head();
+    let identity = f.identity();
+
+    let dying = crashing_after(&f.vault, 2);
+    assert!(crashed(|| {
+        let _ = dying.remove_recipient("phone-1", true, &identity, &FakePrompter::new());
+    }));
+    assert_eq!(f.head(), head, "nothing was committed");
+    assert!(!f.is_clean(), "the crash left the rewrite behind");
+
+    // The next write's reset puts back the state HEAD describes, which
+    // this write's rotation then replaces whole.
+    f.vault
+        .remove_recipient("phone-1", true, &f.identity(), &FakePrompter::new())
+        .unwrap();
+    assert!(f.is_clean());
+    for id in ids {
+        f.read(id, &f.identity()).unwrap();
+    }
 }

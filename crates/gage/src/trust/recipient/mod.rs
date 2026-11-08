@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 mod file;
 pub use file::RecipientsFileError;
+pub(crate) use file::parse as parse_recipients;
 #[cfg(any(test, feature = "test-support"))]
 pub use file::{load, save};
 #[cfg(not(any(test, feature = "test-support")))]
@@ -330,11 +331,12 @@ impl Vault {
     /// entry, which the re-encryption itself reports. Asks nothing.
     pub(crate) fn require_full_access(&self, identity: &Identity) -> Result<(), RecipientError> {
         let ids = self.entry_ids()?;
+        let mut reader = self.entry_reader(identity);
         let unreadable = ids
             .iter()
             .filter(|id| {
                 matches!(
-                    self.read_entry(**id, identity),
+                    reader.read(**id),
                     Err(entry::Error::Crypt(crypt::Error::NotARecipient))
                 )
             })
@@ -646,18 +648,35 @@ impl Vault {
         Ok((reencrypted, commit))
     }
 
-    /// Rewrites every entry to `to`, returning how many. Every entry is
-    /// decrypted first, and the list parsed, before anything is written: a
-    /// failure in either aborts with nothing touched and names what failed.
+    /// Rewrites every entry to `to`, returning how many, then seals the
+    /// vault's MAC key to `to` (ADR-0065). Every entry is decrypted first,
+    /// the key opened and the list parsed, before anything is written: a
+    /// failure in any aborts with nothing touched and names what failed.
+    ///
+    /// A key leaving the list rotates the MAC key, so that its holder can
+    /// no longer produce a valid entry (ADR-0066). Decided here, from the
+    /// lists themselves, so no caller can forget to ask for it.
+    ///
+    /// The key is written after the entries and before the recipient
+    /// files, so an interrupted run's dirty surface stays inside what the
+    /// next write's reset discards.
     fn reencrypt_to(&self, to: &[Recipient], identity: &Identity) -> Result<usize, RecipientError> {
         let ids = self.entry_ids()?;
+        let mut reader = self.entry_reader(identity);
         let entries = ids
             .iter()
             .map(|&id| {
-                self.read_entry(id, identity)
+                reader
+                    .read(id)
                     .map_err(|source| RecipientError::Reencrypt { id, source })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        let key = self.vault_key(identity)?;
+        let dropped = self
+            .recipients()?
+            .iter()
+            .any(|r| !to.iter().any(|kept| kept.pubkey == r.pubkey));
+        let key = if dropped { key.rotated() } else { key };
         let parsed = to
             .iter()
             .map(|r| {
@@ -669,10 +688,11 @@ impl Vault {
             })
             .collect::<Result<Vec<_>, _>>()?;
         for (done, (&id, e)) in ids.iter().zip(&entries).enumerate() {
-            self.write_entry_to(id, e, &parsed)
+            self.write_entry_to(id, e, &parsed, &key)
                 .map_err(|source| RecipientError::Reencrypt { id, source })?;
             self.after_reencrypted_entry(done + 1);
         }
+        key.save(&self.path, &parsed).map_err(entry::Error::from)?;
         Ok(ids.len())
     }
 

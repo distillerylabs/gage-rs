@@ -379,18 +379,18 @@ impl<'a> Session<'a> {
         Ok(&self.hold(&name)?.vault)
     }
 
-    /// A source vault with its unlocked identity, and a second vault to
-    /// write into, for `mv`/`cp`. The destination is held (registered, so
-    /// a later pull still invalidates its index) but never unlocked:
-    /// encrypting to its recipients needs no private key. It is opened
-    /// first, so a destination that isn't registered fails before the
-    /// source asks for a passphrase. One method rather than two
-    /// [`Session::vault`] calls because each borrows the whole session.
+    /// A source vault and a second vault to write into, for `mv`/`cp`,
+    /// each with its unlocked identity. The destination is unlocked too:
+    /// only a member can write an entry a vault accepts, since stamping it
+    /// takes the destination's MAC key (ADR-0065). It is opened first, so a
+    /// destination that isn't registered fails before the source asks for
+    /// a passphrase. One method rather than two [`Session::vault`] calls
+    /// because each borrows the whole session.
     pub fn vault_and_destination(
         &mut self,
         source: Option<&str>,
         dest: &str,
-    ) -> Result<(&Vault, &Identity, &Vault), SessionError> {
+    ) -> Result<(&Vault, &Identity, &Vault, &Identity), SessionError> {
         if dest.is_empty() {
             return Err(SessionError::NoCurrentVault {
                 hint: "name the destination vault",
@@ -399,10 +399,12 @@ impl<'a> Session<'a> {
         self.enter();
         self.hold(dest)?;
         self.vault(source)?;
+        self.vault(Some(dest))?;
         let source = self.target(source)?;
         let (src, dst) = (&self.vaults[&source], &self.vaults[dest]);
         let identity = src.identity().expect("unlocked above");
-        Ok((&src.vault, identity, &dst.vault))
+        let dest_identity = dst.identity().expect("unlocked above");
+        Ok((&src.vault, identity, &dst.vault, dest_identity))
     }
 
     /// `gage sync` with interactive resolution in a vault (`None` is the

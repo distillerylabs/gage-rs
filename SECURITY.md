@@ -39,6 +39,11 @@ documented limits rather than vulnerabilities:
 
 - Write access to a vault's git remote is, transitively, the ability to add a
   recipient for *future* writes (already-encrypted entries stay unreadable).
+- Entry authentication says a current recipient wrote an entry, not which
+  one, and a removed member holds the key until its rotation happens.
+- Authentication is not freshness: someone with write access to the remote
+  can put back an older revision of an entry, delete one, roll back the whole
+  vault, or block reads by pushing an entry that doesn't verify.
 - A compromised local machine, or one where an attacker can read an unlocked
   session's memory or an identity file, is out of scope.
 - Remote authentication supports HTTPS with a token, or ssh-agent for SSH
@@ -46,7 +51,9 @@ documented limits rather than vulnerabilities:
   are intentionally not honored.
 
 Reports that break a guarantee the docs *do* make are in scope, for example:
-decrypting entries without a valid key, leaking titles or metadata into
-ciphertext filenames, commit messages, or logs, leaking a token or key into
-output, bypassing the recipient-change warning, path traversal via device or
-vault names, or unsafe file permissions on key material.
+decrypting entries without a valid key, getting gage to accept an entry
+written without the vault's key or filed under another entry's id, leaking
+titles or metadata into ciphertext filenames, commit messages, or logs,
+leaking a token or key into output, bypassing the recipient-change or
+vault-key-change warning, path traversal via device or vault names, or unsafe
+file permissions on key material.

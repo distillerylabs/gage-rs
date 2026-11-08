@@ -35,12 +35,16 @@ pub fn load(path: &Path) -> Result<Vec<String>, RecipientsFileError> {
         path: path.to_path_buf(),
         source,
     })?;
-    Ok(text
-        .lines()
+    Ok(parse(&text))
+}
+
+/// The keys in a recipients file's text.
+pub(crate) fn parse(text: &str) -> Vec<String> {
+    text.lines()
         .map(str::trim)
         .filter(|l| !l.is_empty())
         .map(String::from)
-        .collect())
+        .collect()
 }
 
 /// Atomically writes `keys` to `path` in order, one per line, each

@@ -16,7 +16,9 @@ fn edit(env: &Env, id: Uuid, change: impl FnOnce(&mut Entry)) {
     let identity = vault.unlock(&unlocks()).unwrap();
     let mut e = vault.read_entry(id, &identity).unwrap();
     change(&mut e);
-    vault.update(id, &e, &FakePrompter::new()).unwrap();
+    vault
+        .update(&identity, id, &e, &FakePrompter::new())
+        .unwrap();
 }
 
 /// An entry with a title, a value and a field, edited once, so every

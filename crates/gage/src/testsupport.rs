@@ -10,6 +10,7 @@ use crate::crypto::crypt;
 use crate::vault::Vault;
 
 pub mod format_v2;
+pub mod format_v3;
 
 /// What tests wrap and unlock identities at instead of the shipped,
 /// deliberately expensive factor. Still a real scrypt pass, so every test

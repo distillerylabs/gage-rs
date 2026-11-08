@@ -10,7 +10,7 @@
 //! line-level merge would union them, and only that committed file's
 //! `-merge` would stop it.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 
 use super::remote::head_and_tracking;
@@ -54,6 +54,13 @@ pub struct PendingMerge {
     conflicts: Vec<String>,
     /// Paths only the remote changed: taken without asking anyone.
     take_remote: Vec<String>,
+    /// What each side added or changed since the merge base, deletions
+    /// aside.
+    changed_local: BTreeSet<String>,
+    changed_remote: BTreeSet<String>,
+    /// Content that replaces a path in the merge result, whichever side it
+    /// came from: [`PendingMerge::replacing`].
+    replacements: BTreeMap<String, Vec<u8>>,
 }
 
 /// A path's content at one commit: blob id and mode, so a chmod counts as
@@ -65,9 +72,24 @@ type Version = Option<(git2::Oid, u32)>;
 /// [`prepare_merge`] then [`PendingMerge::commit`], with no choices: the
 /// one path, so the automatic merge and a resolved one can't drift.
 pub fn merge_remote(dir: &Path, message: &str) -> Result<MergeResult, Error> {
+    merge_remote_unless(dir, message, |_| Vec::new())
+}
+
+/// [`merge_remote`], also stopping on whatever paths `hold` names: a caller
+/// that can see a reason not to merge which this layer can't, reported as
+/// conflicts are, with nothing changed.
+pub fn merge_remote_unless(
+    dir: &Path,
+    message: &str,
+    hold: impl FnOnce(&PendingMerge) -> Vec<String>,
+) -> Result<MergeResult, Error> {
     let merge = prepare_merge(dir)?;
-    if !merge.conflicts.is_empty() {
-        return Ok(MergeResult::Conflicts(merge.conflicts));
+    let mut stopped = merge.conflicts.clone();
+    stopped.extend(hold(&merge));
+    if !stopped.is_empty() {
+        stopped.sort();
+        stopped.dedup();
+        return Ok(MergeResult::Conflicts(stopped));
     }
     merge.commit(message, &BTreeMap::new(), &BTreeMap::new())
 }
@@ -104,6 +126,14 @@ pub fn prepare_merge(dir: &Path) -> Result<PendingMerge, Error> {
     let ours = changes(&repo, dir, base_tree.as_ref(), &local_tree)?;
     let theirs = changes(&repo, dir, base_tree.as_ref(), &remote_tree)?;
 
+    let present = |side: &BTreeMap<String, Version>| -> BTreeSet<String> {
+        side.iter()
+            .filter(|(_, version)| version.is_some())
+            .map(|(path, _)| path.clone())
+            .collect()
+    };
+    let (changed_local, changed_remote) = (present(&ours), present(&theirs));
+
     let (mut conflicts, mut take_remote) = (Vec::new(), Vec::new());
     for (path, their_version) in theirs {
         match ours.get(&path) {
@@ -130,6 +160,9 @@ pub fn prepare_merge(dir: &Path) -> Result<PendingMerge, Error> {
         local_paths,
         conflicts,
         take_remote,
+        changed_local,
+        changed_remote,
+        replacements: BTreeMap::new(),
     })
 }
 
@@ -200,6 +233,22 @@ impl PendingMerge {
     /// [`PendingMerge::commit`] can proceed.
     pub fn conflicts(&self) -> &[String] {
         &self.conflicts
+    }
+
+    /// The paths `side` added or changed since the merge base, deletions
+    /// aside.
+    pub fn changed(&self, side: MergeSide) -> &BTreeSet<String> {
+        match side {
+            MergeSide::Local => &self.changed_local,
+            MergeSide::Remote => &self.changed_remote,
+        }
+    }
+
+    /// The same merge, with `replacements` written over whatever it would
+    /// have left at those paths.
+    pub fn replacing(mut self, replacements: BTreeMap<String, Vec<u8>>) -> PendingMerge {
+        self.replacements = replacements;
+        self
     }
 
     /// One side's version of `path`, read from the git objects, or `None`
@@ -278,16 +327,18 @@ impl PendingMerge {
         );
         // A path joins `applied` before its write starts, so one that
         // failed halfway is still rolled back.
-        let mut applied: Vec<&str> =
-            Vec::with_capacity(self.take_remote.len() + self.conflicts.len() + adds.len());
+        let mut applied: Vec<&str> = Vec::with_capacity(
+            self.take_remote.len() + self.conflicts.len() + adds.len() + self.replacements.len(),
+        );
         for path in take {
             applied.push(path);
             if let Err(e) = self.apply_remote_version(&repo, &remote_tree, path) {
                 return Err(self.rollback(&repo, &applied, e));
             }
         }
-        // A BTreeMap: written in the same order on every platform.
-        for (path, content) in adds {
+        // BTreeMaps: written in the same order on every platform. The
+        // replacements go last, over what the merge just left there.
+        for (path, content) in adds.iter().chain(&self.replacements) {
             applied.push(path);
             if let Err(e) = self.write_add(path, content) {
                 return Err(self.rollback(&repo, &applied, e));

@@ -45,9 +45,9 @@ fn titles(f: &Fixture) -> Vec<String> {
         .collect()
 }
 
-// The destination
-// is never unlocked: nothing in it is decrypted by the move, and a key
-// that is only on the destination's recipient list reads the copy.
+// Nothing in the destination is decrypted by the move, and a key that is
+// only on the destination's recipient list reads the copy. The
+// destination's identity only stamps it (ADR-0065).
 #[test]
 fn move_removes_from_source_and_decrypts_at_destination() {
     let (src, dst) = (Fixture::new(), Fixture::new());
@@ -55,7 +55,13 @@ fn move_removes_from_source_and_decrypts_at_destination() {
 
     let r = src
         .vault
-        .move_to("GitHub", &dst.vault, &src.identity(), &FakePrompter::new())
+        .move_to(
+            "GitHub",
+            &dst.vault,
+            &src.identity(),
+            &dst.identity(),
+            &FakePrompter::new(),
+        )
         .unwrap();
 
     assert_eq!(r.source_id, id);
@@ -85,7 +91,13 @@ fn copy_leaves_source_and_adds_decryptable_copy() {
 
     let r = src
         .vault
-        .copy_to("GitHub", &dst.vault, &src.identity(), &FakePrompter::new())
+        .copy_to(
+            "GitHub",
+            &dst.vault,
+            &src.identity(),
+            &dst.identity(),
+            &FakePrompter::new(),
+        )
         .unwrap();
 
     assert_eq!(src.vault.entry_ids().unwrap(), vec![id]);
@@ -112,7 +124,13 @@ fn move_produces_one_commit_in_each_vault() {
 
     let r = src
         .vault
-        .move_to("GitHub", &dst.vault, &src.identity(), &FakePrompter::new())
+        .move_to(
+            "GitHub",
+            &dst.vault,
+            &src.identity(),
+            &dst.identity(),
+            &FakePrompter::new(),
+        )
         .unwrap();
 
     assert_eq!(src.commits(), before_src + 1);
@@ -140,11 +158,19 @@ fn move_gives_the_destination_copy_fresh_provenance() {
         updated_by: "someone-else".into(),
         ..src.read(id, &src.identity()).unwrap()
     };
-    src.vault.update(id, &aged, &FakePrompter::new()).unwrap();
+    src.vault
+        .update(&src.identity(), id, &aged, &FakePrompter::new())
+        .unwrap();
 
     let r = src
         .vault
-        .copy_to("GitHub", &dst.vault, &src.identity(), &FakePrompter::new())
+        .copy_to(
+            "GitHub",
+            &dst.vault,
+            &src.identity(),
+            &dst.identity(),
+            &FakePrompter::new(),
+        )
         .unwrap();
 
     let got = dst.read(r.dest_id, &dst.identity()).unwrap();
@@ -165,7 +191,13 @@ fn move_allows_a_title_collision_in_the_destination() {
     put(&dst, "GitHub");
 
     src.vault
-        .move_to("GitHub", &dst.vault, &src.identity(), &FakePrompter::new())
+        .move_to(
+            "GitHub",
+            &dst.vault,
+            &src.identity(),
+            &dst.identity(),
+            &FakePrompter::new(),
+        )
         .unwrap();
 
     assert_eq!(
@@ -182,7 +214,13 @@ fn move_rejects_the_source_vault_as_its_own_destination() {
 
     let err = f
         .vault
-        .move_to("GitHub", &f.vault, &f.identity(), &FakePrompter::new())
+        .move_to(
+            "GitHub",
+            &f.vault,
+            &f.identity(),
+            &f.identity(),
+            &FakePrompter::new(),
+        )
         .unwrap_err();
 
     assert!(matches!(err, MoveError::SameVault { .. }), "{err}");
@@ -203,7 +241,13 @@ fn move_rejects_two_registrations_of_one_vault() {
     let started = Instant::now();
     let err = f
         .vault
-        .copy_to("GitHub", &alias, &f.identity(), &FakePrompter::new())
+        .copy_to(
+            "GitHub",
+            &alias,
+            &f.identity(),
+            &f.identity(),
+            &FakePrompter::new(),
+        )
         .unwrap_err();
 
     assert!(matches!(err, MoveError::SameVault { .. }), "{err}");
@@ -236,14 +280,18 @@ fn move_checks_the_destinations_trust_cache_not_the_sources() {
     // no recipient answers fails any question it is asked.
     commit_routine_change(&s.vault, "phone-1", &new_key());
     let p = unlocking();
-    s.vault.copy_to("GitHub", &d.vault, &id, &p).unwrap();
+    s.vault
+        .copy_to("GitHub", &d.vault, &id, &d.unlock(&unlocking()), &p)
+        .unwrap();
     assert!(p.recipient_changes().is_empty(), "asked about the source");
 
     // Now the destination's moved: that is the one asked about.
     let shared = with_name(&d.vault, "shared");
     commit_routine_change(&shared, "phone-2", &new_key());
     let p = trusting(&[true]);
-    s.vault.copy_to("GitHub", &shared, &id, &p).unwrap();
+    s.vault
+        .copy_to("GitHub", &shared, &id, &d.unlock(&unlocking()), &p)
+        .unwrap();
     let asked = p.recipient_changes();
     assert_eq!(asked.len(), 1);
     assert_eq!(asked[0].vault, "shared");
@@ -261,7 +309,9 @@ fn the_first_move_into_an_unseen_destination_asks_nothing() {
 
     // No recipient answers scripted: a question would fail the test.
     let p = unlocking();
-    s.vault.copy_to("GitHub", &d.vault, &id, &p).unwrap();
+    s.vault
+        .copy_to("GitHub", &d.vault, &id, &d.unlock(&unlocking()), &p)
+        .unwrap();
 
     assert!(p.recipient_changes().is_empty());
     assert_eq!(d.vault.entry_ids().unwrap().len(), 1);
@@ -280,7 +330,10 @@ fn move_declining_the_trust_check_aborts_the_whole_operation() {
     let (s_head, d_head, d_cache) = (s.head(), d.head(), d.cache());
 
     let p = trusting(&[false]);
-    let err = s.vault.move_to("GitHub", &d.vault, &id, &p).unwrap_err();
+    let err = s
+        .vault
+        .move_to("GitHub", &d.vault, &id, &d.unlock(&unlocking()), &p)
+        .unwrap_err();
 
     assert!(
         matches!(err, MoveError::Trust(TrustError::ChangeDeclined { .. })),
@@ -386,8 +439,14 @@ fn two_vault_locks_are_both_held_for_the_whole_operation() {
         *record.lock().unwrap() = Some((lock_is_held_elsewhere(&a), lock_is_held_elsewhere(&b)));
     });
 
-    v.move_to("GitHub", &dst.vault, &src.identity(), &FakePrompter::new())
-        .unwrap();
+    v.move_to(
+        "GitHub",
+        &dst.vault,
+        &src.identity(),
+        &dst.identity(),
+        &FakePrompter::new(),
+    )
+    .unwrap();
 
     assert_eq!(*seen.lock().unwrap(), Some((true, true)));
     assert!(!lock_is_held_elsewhere(&src_lock));
@@ -407,8 +466,14 @@ fn a_move_calls_the_move_hook_once() {
         .clone()
         .with_move_hook(move || *seen.lock().unwrap() += 1);
 
-    v.move_to("GitHub", &dst.vault, &src.identity(), &FakePrompter::new())
-        .unwrap();
+    v.move_to(
+        "GitHub",
+        &dst.vault,
+        &src.identity(),
+        &dst.identity(),
+        &FakePrompter::new(),
+    )
+    .unwrap();
 
     assert_eq!(*calls.lock().unwrap(), 1);
 }
@@ -430,7 +495,13 @@ fn move_crash_between_the_two_writes_leaves_a_recoverable_duplicate() {
         .with_move_hook(|| panic_any(SimulatedCrash));
 
     let died = crashed(|| {
-        let _ = v.move_to("GitHub", &dst.vault, &src.identity(), &FakePrompter::new());
+        let _ = v.move_to(
+            "GitHub",
+            &dst.vault,
+            &src.identity(),
+            &dst.identity(),
+            &FakePrompter::new(),
+        );
     });
 
     assert!(died, "the crash seam never fired");
@@ -459,7 +530,13 @@ fn a_move_that_cannot_resolve_its_query_touches_nothing() {
 
     let err = src
         .vault
-        .move_to("nope", &dst.vault, &src.identity(), &FakePrompter::new())
+        .move_to(
+            "nope",
+            &dst.vault,
+            &src.identity(),
+            &dst.identity(),
+            &FakePrompter::new(),
+        )
         .unwrap_err();
 
     assert!(matches!(err, MoveError::Resolve(_)), "{err}");

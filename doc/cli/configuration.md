@@ -122,7 +122,7 @@ are `0644`.
 name = "personal"
 id = "208a0837-10f0-4024-b564-ffadc204c69f"
 type = "git"
-format_version = 2
+format_version = 3
 created = "2026-10-12"
 
 [method]

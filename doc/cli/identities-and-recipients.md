@@ -290,9 +290,14 @@ cancels the write (exit `1`) and leaves the vault and the cache as they
 were, so the same question comes back next time.
 
 - **What counts as a change.** The cache holds a verbatim copy of
-  `.gage/config.toml` and a hash of `.age-recipients`. The first is what
-  gets diffed and shown, since device names make a legible warning; the
-  second catches someone editing only the file encryption actually reads.
+  `.gage/config.toml`, a hash of `.age-recipients` and a hash of
+  `.gage/vault-key.age`. The first is what gets diffed and shown, since
+  device names make a legible warning; the second catches someone editing
+  only the file encryption actually reads; the third catches the vault's
+  key file being replaced on its own, which anyone with push access can do
+  and which would otherwise let a vault of forged entries pass as genuine.
+  A change to the key file alone is reported as its own case
+  ("`.gage/vault-key.age` was replaced on its own").
   The first time you use a vault there is nothing to compare against, and
   that first look is trusted.
 - **Two outcomes.** If the two recipient files still agree, confirming

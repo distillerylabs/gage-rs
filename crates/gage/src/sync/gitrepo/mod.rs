@@ -16,7 +16,9 @@ mod merge;
 mod remote;
 
 pub use history::{Revision, head_committer_time, log};
-pub use merge::{MergeResult, MergeSide, PendingMerge, merge_remote, prepare_merge};
+pub use merge::{
+    MergeResult, MergeSide, PendingMerge, merge_remote, merge_remote_unless, prepare_merge,
+};
 pub use remote::{
     REMOTE_OP_TIMEOUT, RemoteOptions, RemoteState, ahead_count, clone, compare, fast_forward,
     fetch, push,

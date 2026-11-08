@@ -7,6 +7,7 @@
 //! delegate "this string comes back byte for byte" to a library's style
 //! heuristics: see `yaml` for the rules and the check behind them.
 
+pub(crate) mod auth;
 mod crud;
 pub mod history;
 mod layout;
@@ -34,12 +35,14 @@ use crate::crypto::crypt;
 use crate::crypto::identity::Identity;
 use crate::error::{ErrorKind, HasKind, Remedy};
 
+pub use auth::AuthFailure;
 pub(crate) use crud::sort_list;
 pub use crud::{
     Candidate, CandidateList, ListEntry, LockError, NewEntry, ResolveError, WRITE_LOCK_TIMEOUT,
     WriteError, resolve_query,
 };
 pub use layout::{KeyLine, key_layout};
+pub(crate) use store::seal_entry;
 
 /// The vault-relative directory every entry file lives under ("On-disk
 /// layout").
@@ -287,9 +290,23 @@ pub enum Error {
     /// entry" by variant.
     #[error(transparent)]
     Crypt(#[from] crypt::Error),
+    /// The payload decrypted but did not authenticate (ADR-0065): it was
+    /// produced without this vault's key, altered, or is filed under an id
+    /// it wasn't written for. Nothing in it was parsed.
+    #[error("entry {id} failed authentication: {failure}")]
+    Unauthenticated { id: Uuid, failure: AuthFailure },
+    /// The vault's MAC key couldn't be opened, so no entry can be stamped
+    /// or verified. Boxed: it carries two paths, and every error that wraps
+    /// this one would otherwise grow with it.
+    #[error(transparent)]
+    VaultKey(Box<crate::crypto::vaultkey::Error>),
     /// The decrypted bytes are not an entry.
     #[error("parsing entry: {0}")]
     Parse(String),
+    /// An unknown field under a name gage reserves (the payload's `auth`
+    /// line is the vault's, never the entry's).
+    #[error("an entry can't carry a field named {0:?}: gage reserves it")]
+    ReservedKey(&'static str),
     /// The entry would not survive its own YAML round trip, even fully
     /// quoted, so nothing was written: a corrupted secret written without
     /// complaint is the one outcome this layer must never produce.
@@ -310,12 +327,20 @@ pub enum Error {
     },
 }
 
+impl From<crate::crypto::vaultkey::Error> for Error {
+    fn from(e: crate::crypto::vaultkey::Error) -> Error {
+        Error::VaultKey(Box::new(e))
+    }
+}
+
 impl HasKind for Error {
     fn kind(&self) -> ErrorKind {
         match self {
             Error::EntryNotFound { .. } => ErrorKind::NotFound,
             Error::Crypt(e) => e.kind(),
-            Error::Parse(_) => ErrorKind::Conflict,
+            Error::VaultKey(e) => e.kind(),
+            Error::Parse(_) | Error::Unauthenticated { .. } => ErrorKind::Conflict,
+            Error::ReservedKey(_) => ErrorKind::Usage,
             Error::Unfaithful(_)
             | Error::Recipients(_)
             | Error::Io { .. }
@@ -326,6 +351,7 @@ impl HasKind for Error {
     fn remedy(&self) -> Option<Remedy> {
         match self {
             Error::Crypt(e) => e.remedy(),
+            Error::VaultKey(e) => e.remedy(),
             _ => None,
         }
     }

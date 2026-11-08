@@ -9,12 +9,17 @@
 //! the config copy is what gets diffed and shown, because device names make
 //! a legible warning; the hash is what catches someone editing only the
 //! file encryption actually reads.
+//!
+//! It also records the SHA-256 of `.gage/vault-key.age`. Anyone can seal a
+//! key to the public recipient list, so this check is what stands between
+//! a replaced key file and a vault of forged entries (ADR-0066).
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::crypto::vaultkey::VAULT_KEY_FILE;
 use crate::entry::Timestamp;
 use crate::entry::WRITE_LOCK_TIMEOUT;
 use crate::error::{ErrorKind, HasKind, Remedy};
@@ -61,6 +66,10 @@ pub struct RecipientChangeWarning {
     /// When this device last confirmed a list for this vault: the date the
     /// design doc's diff header carries.
     pub last_confirmed: Option<Timestamp>,
+    /// `.gage/vault-key.age` changed and both recipient files did not. No
+    /// legitimate change does that: every one that replaces the key also
+    /// changes the list.
+    pub vault_key_only: bool,
 }
 
 impl RecipientChangeWarning {
@@ -102,6 +111,9 @@ impl RecipientChangeWarning {
     /// since one line has no room for keys.
     pub(crate) fn delta(&self) -> String {
         match (self.added.len(), self.removed.len()) {
+            (0, 0) if self.vault_key_only => {
+                ".gage/vault-key.age was replaced on its own".to_string()
+            }
             (0, 0) => {
                 // config.toml shows no recipient change, so there is
                 // nothing to count: the case with the least to say and the
@@ -128,6 +140,9 @@ pub(crate) struct TrustCache {
     /// with `config.toml`: "the mismatch was seen". It never clears the
     /// inconsistency, and neither half above moves for it.
     pub(crate) mismatch_seen: Option<String>,
+    /// The hex SHA-256 of `.gage/vault-key.age` as last confirmed. `None`
+    /// when the record predates it, or the file was absent.
+    pub(crate) vault_key_hash: Option<String>,
 }
 
 /// `trust.toml`'s shape: everything but the config copy,
@@ -143,6 +158,11 @@ pub(crate) struct TrustRecord {
         skip_serializing_if = "Option::is_none"
     )]
     pub(crate) mismatch_seen: Option<String>,
+    #[serde(
+        deserialize_with = "empty_as_none",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub(crate) vault_key_hash: Option<String>,
 }
 
 /// Why the trust cache couldn't be consulted, or refused a write.
@@ -348,6 +368,7 @@ impl Vault {
             recipients_hash: record.recipients_hash,
             confirmed_at: record.confirmed_at.and_then(|d| d.to_string().parse().ok()),
             mismatch_seen: record.mismatch_seen,
+            vault_key_hash: record.vault_key_hash,
         }))
     }
 
@@ -368,6 +389,7 @@ impl Vault {
             recipients_hash: cache.recipients_hash.clone(),
             confirmed_at: cache.confirmed_at.and_then(|t| t.to_string().parse().ok()),
             mismatch_seen: cache.mismatch_seen.clone(),
+            vault_key_hash: cache.vault_key_hash.clone(),
         };
         let text = toml::to_string(&record)?;
         atomicfile::write(&dir.join(TRUST_FILE), text.as_bytes(), 0o600)?;
@@ -380,11 +402,13 @@ impl Vault {
     fn current_trust_state(&self) -> Result<TrustCache, TrustError> {
         let known_config = read_file(&self.config_path())?;
         let keys = read_file(&self.path.join(".age-recipients"))?;
+        let vault_key = read_optional(&self.path.join(VAULT_KEY_FILE))?;
         Ok(TrustCache {
             known_config,
             recipients_hash: sha256_hex(&keys),
             confirmed_at: Some(Timestamp::now()),
             mismatch_seen: None,
+            vault_key_hash: vault_key.as_deref().map(sha256_hex),
         })
     }
 
@@ -406,9 +430,19 @@ impl Vault {
             self.save_trust_cache(&current)?;
             return Ok(None);
         };
-        if cache.known_config == current.known_config
-            && cache.recipients_hash == current.recipients_hash
-        {
+        let recipients_same = cache.known_config == current.known_config
+            && cache.recipients_hash == current.recipients_hash;
+        // A record from before the key file was tracked has no opinion.
+        let key_changed =
+            cache.vault_key_hash.is_some() && cache.vault_key_hash != current.vault_key_hash;
+        if recipients_same && !key_changed {
+            if cache.vault_key_hash.is_none() && current.vault_key_hash.is_some() {
+                // It adopts the file now, as a device with no record does.
+                self.save_trust_cache(&TrustCache {
+                    vault_key_hash: current.vault_key_hash,
+                    ..cache
+                })?;
+            }
             return Ok(None);
         }
         let diff = if cache.known_config == current.known_config {
@@ -433,6 +467,7 @@ impl Vault {
             added,
             removed,
             last_confirmed: cache.confirmed_at,
+            vault_key_only: recipients_same && key_changed,
         }))
     }
 

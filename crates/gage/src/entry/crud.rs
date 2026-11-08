@@ -260,9 +260,10 @@ impl Vault {
     /// Every entry, decrypted: one pass over the vault. Callers drop what
     /// they don't keep (a listing keeps no value or field).
     pub(crate) fn decrypt_all(&self, identity: &Identity) -> Result<Vec<(Uuid, Entry)>, Error> {
+        let mut reader = self.entry_reader(identity);
         self.entry_ids()?
             .into_iter()
-            .map(|id| Ok((id, self.read_entry(id, identity)?)))
+            .map(|id| Ok((id, reader.read(id)?)))
             .collect()
     }
 
@@ -330,7 +331,7 @@ impl Vault {
                 extra: new.extra,
             };
             let id = new_id();
-            self.write_entry(id, &entry)?;
+            self.write_entry(id, &entry, identity)?;
             // A failed commit leaves the entry file in the working tree; the next write's
             // commit picks it up.
             gitrepo::commit_all(&self.path, &id.to_string())?;
@@ -378,11 +379,18 @@ impl Vault {
     /// the final entry (`edit` re-stamps `updated`/`updated_by` and keeps
     /// the original `created`), so it can rewrite an entry as-is.
     ///
-    /// It takes no identity: the entry is encrypted to the vault's
-    /// recipients, not to the writer. `prompter` reports the automatic push.
-    pub fn update(&self, id: Uuid, e: &Entry, prompter: &dyn Prompter) -> Result<(), WriteError> {
+    /// The entry is encrypted to the vault's recipients, not to the writer;
+    /// `identity` opens the vault's MAC key to stamp it. `prompter` reports
+    /// the automatic push.
+    pub fn update(
+        &self,
+        identity: &Identity,
+        id: Uuid,
+        e: &Entry,
+        prompter: &dyn Prompter,
+    ) -> Result<(), WriteError> {
         self.with_encrypting_write(WRITE_LOCK_TIMEOUT, prompter, || {
-            self.write_entry(id, e)?;
+            self.write_entry(id, e, identity)?;
             gitrepo::commit_all(&self.path, &id.to_string())?;
             self.push_after_write(prompter);
             Ok(())
@@ -420,7 +428,7 @@ impl Vault {
             e.title = new_title.to_string();
             e.updated = Some(Timestamp::now());
             e.updated_by = identity.device().to_string();
-            self.write_entry(id, &e)?;
+            self.write_entry(id, &e, identity)?;
             gitrepo::commit_all(&self.path, &id.to_string())?;
             self.push_after_write(prompter);
             Ok(id)
@@ -1055,7 +1063,7 @@ mod tests {
                 value: value.into(),
                 ..Entry::default()
             };
-            self.vault.write_entry(id, &e).unwrap();
+            self.vault.write_entry(id, &e, &self.identity()).unwrap();
             id
         }
 
@@ -1235,7 +1243,7 @@ mod tests {
         let mut e = f.vault.read_entry(id, &f.identity()).unwrap();
         e.created = Some(old);
         e.updated = Some(old);
-        f.vault.write_entry(id, &e).unwrap();
+        f.vault.write_entry(id, &e, &f.identity()).unwrap();
         gitrepo::commit_all(&f.vault.path, "backdate").unwrap();
         old
     }
@@ -1248,7 +1256,9 @@ mod tests {
         let mut e = f.vault.read_entry(id, &f.identity()).unwrap();
         e.value = "rotated-secret".into();
 
-        f.vault.update(id, &e, &FakePrompter::new()).unwrap();
+        f.vault
+            .update(&f.identity(), id, &e, &FakePrompter::new())
+            .unwrap();
 
         assert_eq!(f.commits(), before + 1);
         assert_eq!(f.head().message, id.to_string());
@@ -1277,7 +1287,7 @@ mod tests {
         let old = backdate(&f, id);
         let mut was = f.vault.read_entry(id, &f.identity()).unwrap();
         was.updated_by = "another-device".into();
-        f.vault.write_entry(id, &was).unwrap();
+        f.vault.write_entry(id, &was, &f.identity()).unwrap();
         // Committed: left in the working tree, the rename's dirty-tree
         // reset would discard it and the re-stamp below would prove nothing.
         gitrepo::commit_all(&f.vault.path, "another device's write").unwrap();

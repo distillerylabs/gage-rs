@@ -17,6 +17,12 @@
 //! - **Unlocking is lazy.** A fast-forward and a disjoint merge decrypt
 //!   nothing, so they never reach the unlock; neither does a conflict on a
 //!   path that isn't an entry.
+//!
+//! A merge can also straddle a key change: one side replaced
+//! `.gage/vault-key.age` and the other changed entries, which are then
+//! tagged under a key the merged vault no longer accepts, and encrypted to
+//! a list it no longer has. Those are re-sealed here, unasked, in the merge
+//! commit (ADR-0066).
 
 use std::cell::OnceCell;
 use std::collections::BTreeMap;
@@ -24,15 +30,18 @@ use std::time::Instant;
 
 use uuid::Uuid;
 
+use crate::crypto::crypt;
 use crate::crypto::identity::Identity;
-use crate::entry::{ENTRIES_DIR_NAME, ENTRY_FILE_EXT, Entry, new_id};
+use crate::crypto::vaultkey::{self, VAULT_KEY_FILE, VaultKey};
+use crate::entry::{self, ENTRIES_DIR_NAME, ENTRY_FILE_EXT, Entry, new_id, seal_entry};
 use crate::prompter::Prompter;
 use crate::storage::identityfile::UnlockError;
 use crate::sync::gitrepo::{self, MergeSide, PendingMerge};
 use crate::sync::remotesync::{
-    ConflictKind, MERGE_COMMIT_MESSAGE, REMOTE_OP_TIMEOUT, SyncCause, SyncError, SyncReport, local,
-    remote,
+    ConflictKind, MERGE_COMMIT_MESSAGE, RECIPIENTS_FILE, REMOTE_OP_TIMEOUT, SyncCause, SyncError,
+    SyncReport, local, remote,
 };
+use crate::trust::recipient::parse_recipients;
 use crate::vault::Vault;
 
 /// One device's version of a conflicted entry, decrypted. `None` is the
@@ -130,6 +139,67 @@ pub(crate) fn entry_id_from_path(path: &str) -> Option<Uuid> {
         .strip_suffix(ENTRY_FILE_EXT)?;
     let id = Uuid::try_parse(stem).ok()?;
     (id.hyphenated().to_string() == stem).then_some(id)
+}
+
+/// The side a key change left behind: the one that didn't touch
+/// `.gage/vault-key.age` while the other did. `None` when neither did, or
+/// when both did, which is a conflict on the key file itself.
+fn stale_side(merge: &PendingMerge) -> Option<MergeSide> {
+    let changed = |side| merge.changed(side).contains(VAULT_KEY_FILE);
+    match (changed(MergeSide::Local), changed(MergeSide::Remote)) {
+        (true, false) => Some(MergeSide::Remote),
+        (false, true) => Some(MergeSide::Local),
+        _ => None,
+    }
+}
+
+/// The entries `merge` would land carrying a stale tag, sorted: what the
+/// side a key change left behind added or changed. One both sides changed
+/// is a conflict, and is settled by its answer instead.
+pub(crate) fn stale_entries(merge: &PendingMerge) -> Vec<String> {
+    let Some(side) = stale_side(merge) else {
+        return Vec::new();
+    };
+    merge
+        .changed(side)
+        .iter()
+        .filter(|p| entry_id_from_path(p).is_some() && !merge.conflicts().contains(p))
+        .cloned()
+        .collect()
+}
+
+/// The keys a merge reads and writes under.
+struct MergeKeys {
+    local: VaultKey,
+    /// The remote's key, when a key change makes it differ from `local`.
+    remote: Option<VaultKey>,
+    /// The side a key change left behind.
+    stale: Option<MergeSide>,
+    /// Who the merged vault encrypts to.
+    to: Vec<crypt::Recipient>,
+}
+
+impl MergeKeys {
+    /// The key `side`'s entries are tagged under.
+    fn of(&self, side: MergeSide) -> &VaultKey {
+        match (side, &self.remote) {
+            (MergeSide::Remote, Some(remote)) => remote,
+            _ => &self.local,
+        }
+    }
+
+    /// The key the merged vault carries: the side that changed it.
+    fn merged(&self) -> &VaultKey {
+        match self.stale {
+            Some(MergeSide::Local) => self.of(MergeSide::Remote),
+            _ => &self.local,
+        }
+    }
+
+    /// `e` as entry `id`, under the merged key and list.
+    fn seal(&self, id: Uuid, e: &Entry) -> Result<Vec<u8>, SyncCause> {
+        seal_entry(id, e, &self.to, self.merged()).map_err(SyncCause::Entry)
+    }
 }
 
 impl Vault {
@@ -232,13 +302,32 @@ impl Vault {
 
         // The lazy unlock, at the one point plaintext is needed.
         let identity = unlock().map_err(|e| fail(SyncCause::Unlock(e), &report))?;
+        let keys = self
+            .merge_keys(&merge, identity)
+            .map_err(|cause| fail(cause, &report))?;
 
         let mut choices = BTreeMap::new();
         let mut adds = BTreeMap::new();
+        let mut restamped = BTreeMap::new();
         let mut skipped = 0;
+        // The version a human kept, re-sealed if a key change left it
+        // behind. A deletion has nothing to seal.
+        let keep = |side: MergeSide,
+                    c: &EntryConflict,
+                    restamped: &mut BTreeMap<String, Vec<u8>>|
+         -> Result<(), SyncCause> {
+            let kept = match side {
+                MergeSide::Local => &c.local.entry,
+                MergeSide::Remote => &c.remote.entry,
+            };
+            if let (true, Some(e)) = (keys.stale == Some(side), kept) {
+                restamped.insert(c.path.clone(), keys.seal(c.id, e)?);
+            }
+            Ok(())
+        };
         for (path, id) in conflicts.iter().zip(ids) {
             let conflict = self
-                .conflict_at(&merge, id, path, identity)
+                .conflict_at(&merge, id, path, identity, &keys)
                 .map_err(|cause| fail(cause, &report))?;
             let answer = prompter
                 .resolve_conflict(&conflict)
@@ -246,9 +335,13 @@ impl Vault {
             match answer {
                 Resolution::KeepLocal => {
                     choices.insert(path.clone(), MergeSide::Local);
+                    keep(MergeSide::Local, &conflict, &mut restamped)
+                        .map_err(|cause| fail(cause, &report))?;
                 }
                 Resolution::KeepRemote => {
                     choices.insert(path.clone(), MergeSide::Remote);
+                    keep(MergeSide::Remote, &conflict, &mut restamped)
+                        .map_err(|cause| fail(cause, &report))?;
                 }
                 Resolution::KeepBoth => {
                     // This side's version stays at its own id (a deletion
@@ -256,16 +349,19 @@ impl Vault {
                     // Nothing to add when the other side deleted it: its one
                     // version is the one staying put.
                     choices.insert(path.clone(), MergeSide::Local);
+                    keep(MergeSide::Local, &conflict, &mut restamped)
+                        .map_err(|cause| fail(cause, &report))?;
                     if let Some(theirs) = &conflict.remote.entry {
                         // Re-encrypted rather than copied: normalized to
-                        // this vault's current recipients. Written through
-                        // verbatim: its created/updated/updated_by are the
-                        // losing side's own, the provenance the prompt just
-                        // showed.
-                        let ciphertext = self
-                            .encrypt_entry(theirs)
-                            .map_err(|e| fail(SyncCause::Entry(e), &report))?;
-                        adds.insert(entry_file_path(new_id()), ciphertext);
+                        // the merged vault's recipients and stamped under
+                        // its key. Written through verbatim: its
+                        // created/updated/updated_by are the losing side's
+                        // own, the provenance the prompt just showed.
+                        let new = new_id();
+                        let ciphertext = keys
+                            .seal(new, theirs)
+                            .map_err(|cause| fail(cause, &report))?;
+                        adds.insert(entry_file_path(new), ciphertext);
                     }
                 }
                 Resolution::Skip => skipped += 1,
@@ -283,7 +379,101 @@ impl Vault {
             let total = conflicts.len();
             return Err(fail(SyncCause::Unresolved { total }, &report));
         }
-        self.apply_resolution(merge, report, &choices, &adds)
+        for path in stale_entries(&merge) {
+            let sealed = self
+                .restamp_stale(&merge, &path, identity, &keys)
+                .map_err(|cause| fail(cause, &report))?;
+            restamped.insert(path, sealed);
+        }
+        // Only what a human actually answered stays listed as a conflict.
+        report.conflicts.retain(|p| conflicts.contains(p));
+        let report = self.apply_resolution(merge.replacing(restamped), report, &choices, &adds)?;
+        // A list the merge brought in, which the entries above were just
+        // encrypted to. This device hasn't reviewed it, and nothing pulled
+        // it in ahead of the check that runs after a pull.
+        if keys.stale == Some(MergeSide::Local) {
+            self.warn_recipient_trust(prompter);
+        }
+        Ok(report)
+    }
+
+    /// The keys and list `merge` works with. When a key change splits the
+    /// two sides, the side that changed it has to descend from the side
+    /// that didn't, or its file wasn't written by a holder of this vault's
+    /// key: anyone can seal a key to the public recipient list (ADR-0066).
+    fn merge_keys(
+        &self,
+        merge: &PendingMerge,
+        identity: &Identity,
+    ) -> Result<MergeKeys, SyncCause> {
+        let local = self.vault_key(identity).map_err(SyncCause::Entry)?;
+        let stale = stale_side(merge);
+        let Some(stale_side) = stale else {
+            let to = self.encrypt_recipients().map_err(SyncCause::Entry)?;
+            return Ok(MergeKeys {
+                local,
+                remote: None,
+                stale,
+                to,
+            });
+        };
+        let path = self.path.join(VAULT_KEY_FILE);
+        let keyed = |e| SyncCause::Entry(entry::Error::from(e));
+        let sealed = merge
+            .content(MergeSide::Remote, VAULT_KEY_FILE)
+            .map_err(SyncCause::Local)?
+            .ok_or_else(|| keyed(vaultkey::Error::Missing { path: path.clone() }))?;
+        let remote = VaultKey::open(&sealed, identity).map_err(|e| keyed(e.at(path.clone())))?;
+        let descends = match stale_side {
+            MergeSide::Local => remote.continues(&local),
+            MergeSide::Remote => local.continues(&remote),
+        };
+        if !descends {
+            return Err(keyed(vaultkey::Error::Unrelated { path }));
+        }
+        let to = match stale_side {
+            MergeSide::Remote => self.encrypt_recipients().map_err(SyncCause::Entry)?,
+            MergeSide::Local => {
+                let list = merge
+                    .content(MergeSide::Remote, RECIPIENTS_FILE)
+                    .map_err(SyncCause::Local)?
+                    .unwrap_or_default();
+                parse_recipients(&String::from_utf8_lossy(&list))
+                    .iter()
+                    .map(|k| crypt::Recipient::parse(k))
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| SyncCause::Entry(entry::Error::Crypt(e)))?
+            }
+        };
+        Ok(MergeKeys {
+            local,
+            remote: Some(remote),
+            stale,
+            to,
+        })
+    }
+
+    /// One of the entries a key change left behind, read and authenticated
+    /// under its own side's key and sealed under the merged one.
+    fn restamp_stale(
+        &self,
+        merge: &PendingMerge,
+        path: &str,
+        identity: &Identity,
+        keys: &MergeKeys,
+    ) -> Result<Vec<u8>, SyncCause> {
+        let side = keys
+            .stale
+            .expect("only a straddling merge has stale entries");
+        let id = entry_id_from_path(path).expect("stale entries are entry paths");
+        let ciphertext = merge
+            .content(side, path)
+            .map_err(SyncCause::Local)?
+            .expect("a stale entry is one its side has");
+        let entry = self
+            .decrypt_entry_under(id, &ciphertext, identity, keys.of(side))
+            .map_err(SyncCause::Entry)?;
+        keys.seal(id, &entry)
     }
 
     /// Writes every answer as one merge commit, and publishes it.
@@ -295,8 +485,14 @@ impl Vault {
         adds: &BTreeMap<String, Vec<u8>>,
     ) -> Result<SyncReport, SyncError> {
         let resolved = choices.len();
+        // Nothing answered means a merge that only re-stamped: to history,
+        // an ordinary merge.
+        let message = match resolved {
+            0 => MERGE_COMMIT_MESSAGE.to_string(),
+            n => resolution_message(n),
+        };
         merge
-            .commit(&resolution_message(resolved), choices, adds)
+            .commit(&message, choices, adds)
             .map_err(|e| local(e).with_report(report.clone()))?;
         report.merged = true;
         report.resolved = resolved;
@@ -330,11 +526,12 @@ impl Vault {
         id: Uuid,
         path: &str,
         identity: &Identity,
+        keys: &MergeKeys,
     ) -> Result<EntryConflict, SyncCause> {
         let side = |side| -> Result<ConflictSide, SyncCause> {
             let entry = match merge.content(side, path).map_err(SyncCause::Local)? {
                 Some(ciphertext) => Some(
-                    self.decrypt_entry(&ciphertext, identity)
+                    self.decrypt_entry_under(id, &ciphertext, identity, keys.of(side))
                         .map_err(SyncCause::Entry)?,
                 ),
                 None => None,

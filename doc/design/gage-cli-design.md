@@ -427,11 +427,13 @@ gage mv family-wifi --to-vault shared-family
 ```
 
 `mv --to-vault` decrypts the entry from the source vault (which has to be
-unlocked) and re-encrypts it for the destination vault's recipients — and
-notably, that destination doesn't need to be unlocked at all, since
-encrypting *to* a set of public keys never requires holding any of the
-matching private keys. `cp --to-vault` does the same but leaves the
-original in place.
+unlocked) and re-encrypts it for the destination vault's recipients.
+Encrypting *to* a set of public keys needs none of the matching private
+keys, but since format v3 the destination is unlocked too: every entry
+carries a tag under its vault's MAC key, which only that vault's
+recipients hold, so only a member can write an entry the destination
+accepts ([ADR-0065](../decisions/0065-entry-authentication.md)).
+`cp --to-vault` does the same but leaves the original in place.
 
 This isn't just simpler to implement — it removes an entire class of
 problem rather than mitigating it. Per-directory recipients meant "which
