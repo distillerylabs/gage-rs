@@ -10,9 +10,11 @@
 //! a legible warning; the hash is what catches someone editing only the
 //! file encryption actually reads.
 //!
-//! It also records the SHA-256 of `.gage/vault-key.age`. Anyone can seal a
-//! key to the public recipient list, so this check is what stands between
-//! a replaced key file and a vault of forged entries (ADR-0066).
+//! It also records the SHA-256 of `.gage/vault-key.age`, so a change to that
+//! file alone is reported (ADR-0066). Refusing a key file that doesn't
+//! descend from this vault's is [`keycontinuity`]'s job (ADR-0067).
+//!
+//! [`keycontinuity`]: crate::trust::keycontinuity
 
 use std::path::{Path, PathBuf};
 
@@ -28,6 +30,7 @@ use crate::storage::serde_opt::empty_as_none;
 use crate::storage::vaultconfig::{self, Recipient, VaultId};
 use crate::storage::xdgpaths::Dirs;
 use crate::sync::gitrepo;
+use crate::trust::keycontinuity::KEY_CONTINUITY_FILE;
 use crate::trust::recipient::{RecipientError, RecipientVerification, VerifyError};
 use crate::vault::Vault;
 use crate::{storage::atomicfile, storage::paths};
@@ -297,7 +300,7 @@ pub fn difference_lines(v: &RecipientVerification) -> String {
 /// cache is not an error.
 pub fn remove(dirs: &Dirs, vault_id: &VaultId) -> Result<(), TrustError> {
     let dir = paths::trust_cache_dir(dirs, vault_id);
-    for name in [KNOWN_CONFIG_FILE, TRUST_FILE] {
+    for name in [KNOWN_CONFIG_FILE, TRUST_FILE, KEY_CONTINUITY_FILE] {
         let path = dir.join(name);
         match std::fs::remove_file(&path) {
             Ok(()) => {}

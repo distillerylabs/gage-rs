@@ -92,6 +92,9 @@ pub enum Remedy {
     PassName { plain: bool },
     /// Ask someone who can answer, or pre-approve the answer.
     Yes,
+    /// Ask another member whether the vault's key changed, before trusting
+    /// anything in it.
+    KeyContinuity,
     /// A remedy newer than these bindings. Treat it as no suggestion; the
     /// message still says what happened.
     Other,
@@ -105,6 +108,7 @@ impl From<&gage::Remedy> for Remedy {
             R::SyncAgain => Remedy::SyncAgain,
             R::RecipientVerify => Remedy::RecipientVerify,
             R::RecipientRepair => Remedy::RecipientRepair,
+            R::KeyContinuity => Remedy::KeyContinuity,
             R::AuthLogin { host } => Remedy::AuthLogin { host: host.clone() },
             R::AuthLoginAgain { host } => Remedy::AuthLoginAgain { host: host.clone() },
             R::UseHttps => Remedy::UseHttps,

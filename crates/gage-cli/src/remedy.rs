@@ -14,6 +14,10 @@ pub fn render(remedy: &Remedy) -> String {
         Remedy::Sync => "; run `gage sync`".into(),
         Remedy::SyncAgain => "; run `gage sync` again to finish".into(),
         Remedy::RecipientVerify => "; run `gage recipient verify`".into(),
+        Remedy::KeyContinuity => "; ask another member whether the vault's key changed, and see \
+                                  \"When the vault key is refused\" in the identities and \
+                                  recipients guide"
+            .into(),
         Remedy::RecipientRepair => format!(
             "\n{ERROR_PREFIX}fix this with `gage recipient verify --repair`, which rewrites \
              .age-recipients from .gage/config.toml and says what it drops"
@@ -86,6 +90,11 @@ mod tests {
             (Remedy::Sync, "; run `gage sync`"),
             (Remedy::SyncAgain, "; run `gage sync` again to finish"),
             (Remedy::RecipientVerify, "; run `gage recipient verify`"),
+            (
+                Remedy::KeyContinuity,
+                "; ask another member whether the vault's key changed, and see \"When the vault \
+                 key is refused\" in the identities and recipients guide",
+            ),
             (
                 Remedy::RecipientRepair,
                 "\ngage: fix this with `gage recipient verify --repair`, which rewrites .age-recipients from .gage/config.toml and says what it drops",

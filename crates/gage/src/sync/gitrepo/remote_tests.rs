@@ -109,6 +109,50 @@ fn compare_with_no_remote_tracking_ref_is_remote_none() {
 }
 
 #[test]
+fn published_content_is_what_origin_last_showed_not_a_local_commit() {
+    let (dir, _remote) = published_repo();
+    commit_file(dir.path(), "seed.txt", "local only");
+    assert_eq!(
+        published_content(dir.path(), "seed.txt").unwrap().unwrap(),
+        b"seed"
+    );
+    push(dir.path(), &opts()).unwrap();
+    assert_eq!(
+        published_content(dir.path(), "seed.txt").unwrap().unwrap(),
+        b"local only"
+    );
+}
+
+#[test]
+fn published_content_of_a_path_origin_lacks_is_none() {
+    let (dir, _remote) = published_repo();
+    assert_eq!(published_content(dir.path(), "absent.txt").unwrap(), None);
+}
+
+#[test]
+fn published_content_without_a_remote_is_heads() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "seed.txt", "seed");
+    init_and_commit(dir.path(), "initial commit").unwrap();
+    write(dir.path(), "seed.txt", "uncommitted");
+    assert_eq!(
+        published_content(dir.path(), "seed.txt").unwrap().unwrap(),
+        b"seed"
+    );
+}
+
+// A remote exists and has never been reached: HEAD hasn't been published,
+// and is not a stand-in for what has.
+#[test]
+fn published_content_with_a_remote_never_fetched_is_none() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), "seed.txt", "seed");
+    init_and_commit(dir.path(), "initial commit").unwrap();
+    set_remote(dir.path(), &gittest::refused_url()).unwrap();
+    assert_eq!(published_content(dir.path(), "seed.txt").unwrap(), None);
+}
+
+#[test]
 fn ahead_count_counts_a_plain_run_of_commits() {
     let (dir, _remote) = published_repo();
     assert_eq!(ahead_count(dir.path()).unwrap(), 0);

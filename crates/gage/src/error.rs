@@ -55,6 +55,9 @@ pub enum Remedy {
     SyncAgain,
     /// Check the vault's two recipient files against each other.
     RecipientVerify,
+    /// Ask another member whether the vault's key changed, before trusting
+    /// anything in it.
+    KeyContinuity,
     /// Rewrite `.age-recipients` from `.gage/config.toml`, reporting what
     /// it drops.
     RecipientRepair,

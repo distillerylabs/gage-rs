@@ -1483,7 +1483,9 @@ The mechanism behind "change detection" above:
   would miss anyone who edits `.age-recipients` directly without touching
   `config.toml` to match. Together, "the cache" means: what recipients did
   I last see and approve, as of the last time I encrypted (or explicitly
-  reviewed) here.
+  reviewed) here. A separate `key-continuity.toml` holds a fingerprint of
+  the vault key this device last saw, which every use of the key must
+  continue ([ADR-0067](../decisions/0067-key-continuity.md)).
 - **When it's checked.** Before any operation that encrypts
   (`insert`, `edit`, `generate`, `rename`, and `mv`/`cp --to-vault` against
   the *destination* vault's cache), `gage` compares the current committed

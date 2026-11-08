@@ -802,7 +802,7 @@ fn a_failed_unlock_does_not_bootstrap_the_cache() {
         .with_unlock_error(crate::prompter::PromptError::TooManyAttempts);
     t.vault.unlock(&p).unwrap_err();
     assert!(t.cache().is_none(), "a failed unlock wrote the cache");
-    assert!(!t.dirs.state.join(&t.vault.id).exists());
+    assert!(!t.known_config_path().exists());
 }
 
 // A fast-forward unlocks nothing, so

@@ -35,6 +35,9 @@ pub const KEY_LEN: usize = 32;
 /// mistaken for one computed over anything else under the same key.
 const ENTRY_DOMAIN: &[u8] = b"gage-entry-auth-v3\n";
 
+/// What a fingerprint's input is, for the same reason.
+const FINGERPRINT_DOMAIN: &[u8] = b"gage-vault-key-fingerprint-v3\n";
+
 /// The MAC key, opened, with the keys it replaced. Wiped on drop; not
 /// `Clone`, and its `Debug` shows nothing, like every secret here.
 pub struct VaultKey {
@@ -82,22 +85,36 @@ pub enum Error {
         path.display()
     )]
     Unrelated { path: PathBuf },
+    /// The key file doesn't continue the key this device last saw for the
+    /// vault (ADR-0067). Nothing was read: anyone can seal a key to the
+    /// public recipient list.
+    #[error(
+        "{} does not continue the key this device last saw for {vault:?}, so someone without the \
+         vault's key may have replaced it; nothing was read or written",
+        path.display()
+    )]
+    Discontinuous { vault: String, path: PathBuf },
+    /// This device's own record of the key is damaged.
+    #[error("{} is not a key-continuity record", path.display())]
+    BadRecord { path: PathBuf },
 }
 
 impl HasKind for Error {
     fn kind(&self) -> ErrorKind {
         match self {
-            Error::Missing { .. } | Error::Malformed { .. } | Error::Unrelated { .. } => {
-                ErrorKind::Conflict
-            }
+            Error::Missing { .. }
+            | Error::Malformed { .. }
+            | Error::Unrelated { .. }
+            | Error::Discontinuous { .. } => ErrorKind::Conflict,
             Error::Crypt { source, .. } => source.kind(),
-            Error::Io { .. } | Error::Write { .. } => ErrorKind::Internal,
+            Error::Io { .. } | Error::Write { .. } | Error::BadRecord { .. } => ErrorKind::Internal,
         }
     }
 
     fn remedy(&self) -> Option<Remedy> {
         match self {
             Error::Crypt { source, .. } => source.remedy(),
+            Error::Discontinuous { .. } => Some(Remedy::KeyContinuity),
             _ => None,
         }
     }
@@ -133,6 +150,22 @@ impl VaultKey {
         *self.current == *other.current || self.retired.contains(&*other.current)
     }
 
+    /// A one-way commitment to the current key, as lowercase hex: what a
+    /// device records of the key it last saw (ADR-0067). The key is 32
+    /// random bytes, so the fingerprint gives nothing away, and matching
+    /// one takes holding the key it was made from.
+    pub(crate) fn fingerprint(&self) -> String {
+        fingerprint_of(&self.current)
+    }
+
+    /// Whether the key `fingerprint` was made from is this key or one it
+    /// replaced: [`VaultKey::continues`], against what a device recorded.
+    pub(crate) fn descends_from(&self, fingerprint: &str) -> bool {
+        std::iter::once(&*self.current)
+            .chain(self.retired.iter())
+            .any(|key| fingerprint_of(key) == fingerprint)
+    }
+
     /// The key as an age file encrypted to `to`: the current key, then the
     /// retired ones.
     pub(crate) fn seal(&self, to: &[crypt::Recipient]) -> Result<Vec<u8>, crypt::Error> {
@@ -156,7 +189,18 @@ impl VaultKey {
     }
 
     /// Opens `<vault>/`[`VAULT_KEY_FILE`] with `identity`.
+    #[cfg(test)]
     pub(crate) fn load(vault: &Path, identity: &Identity) -> Result<VaultKey, Error> {
+        Ok(VaultKey::load_sealed(vault, identity)?.0)
+    }
+
+    /// [`VaultKey::load`], returning the sealed bytes too: what was opened
+    /// is what a caller can compare, with no second read for the file to
+    /// change between.
+    pub(crate) fn load_sealed(
+        vault: &Path,
+        identity: &Identity,
+    ) -> Result<(VaultKey, Vec<u8>), Error> {
         let path = vault.join(VAULT_KEY_FILE);
         let sealed = match std::fs::read(&path) {
             Ok(bytes) => bytes,
@@ -171,7 +215,8 @@ impl VaultKey {
                 });
             }
         };
-        VaultKey::open(&sealed, identity).map_err(|e| e.at(path))
+        let key = VaultKey::open(&sealed, identity).map_err(|e| e.at(path))?;
+        Ok((key, sealed))
     }
 
     /// The key out of sealed bytes, wherever they came from.
@@ -230,6 +275,16 @@ fn entry_mac(key: &[u8; KEY_LEN], id: Uuid, body: &[u8]) -> Hmac<Sha256> {
     mac.update(b"\n");
     mac.update(body);
     mac
+}
+
+fn fingerprint_of(key: &[u8; KEY_LEN]) -> String {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC takes a key of any size");
+    mac.update(FINGERPRINT_DOMAIN);
+    mac.finalize()
+        .into_bytes()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 /// Why [`VaultKey::open`] produced no key.
@@ -349,6 +404,30 @@ mod tests {
         assert!(old.continues(&old), "a re-seal changes nothing");
         assert!(!VaultKey::generate().continues(&old));
         assert!(!new.continues(&VaultKey::generate()));
+    }
+
+    // The input spelled out, as the entry tag's is: a known construction,
+    // not a round trip.
+    #[test]
+    fn the_fingerprint_is_hmac_of_its_domain_under_the_key() {
+        let key = VaultKey::from_bytes_for_tests([0x42; KEY_LEN]);
+        let mut mac = Hmac::<Sha256>::new_from_slice(&[0x42; KEY_LEN]).unwrap();
+        mac.update(b"gage-vault-key-fingerprint-v3\n");
+        let want: [u8; 32] = mac.finalize().into_bytes().into();
+        assert_eq!(key.fingerprint(), hex(&want));
+        assert_eq!(key.fingerprint().len(), 64);
+    }
+
+    #[test]
+    fn a_key_descends_from_its_own_fingerprint_and_every_retired_one() {
+        let first = VaultKey::generate();
+        let second = first.rotated();
+        let third = second.rotated();
+        for ancestor in [&first, &second, &third] {
+            assert!(third.descends_from(&ancestor.fingerprint()));
+        }
+        assert!(!first.descends_from(&third.fingerprint()), "a rollback");
+        assert!(!third.descends_from(&VaultKey::generate().fingerprint()));
     }
 
     #[test]

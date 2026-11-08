@@ -134,35 +134,65 @@ expect_exit 1
 expect_out 'vault-key.age was replaced'
 expect_true "nothing was committed" test "$(head_of alice keyrep)" = "$BEFORE"
 
-step "vault replaced wholesale: every entry and the key file"
-# Pinned today, and a known gap: someone with push access replaces the key
-# file and every entry, and gage prints the forged value and exits 0, with
-# one line on stderr. The warning stops after one --yes write. #207 fixes
-# this and flips these assertions; do not loosen them until it does.
+step "vault replaced wholesale: every entry and the key file are refused"
+# Someone with push access replaces the key file and every entry, each
+# entry tagged under the replacement key. A device that has seen the vault
+# refuses it, however it reads (ADR-0067).
 R3="$(bare_remote swap)"
 new_vault alice swap "$R3"
 put alice Pw genuine -u swap
 SW="$(vault_dir alice swap)"
 GENUINE_ID="$(full_id alice swap Pw)"
+cp "$SW/.gage/vault-key.age" "$QA_S/swap-key.good"
+cp "$SW/entries/$GENUINE_ID.age" "$QA_S/swap-entry.good"
 forge_entry "$R3" Pw forged
 stranger_push "$R3" "replace everything" "rm:entries/$GENUINE_ID.age" \
     "put:$FORGED_FILE:entries/$FORGED_ID.age" "put:$FORGED_KEY:.gage/vault-key.age"
 g alice -i "$(unlock alice)" -- show Pw -u swap
-expect_exit 0
-expect_out '^forged$'
-expect_err 'was replaced on its own'
+expect_exit 1
+expect_err 'does not continue the key this device last saw'
+expect_no_out 'forged'
 g alice -i "$(unlock alice)" -- ls -u swap
-expect_exit 0
-expect_out '^Pw '
+expect_exit 1
+expect_no_out 'Pw'
 g alice -e "GAGE_PASSPHRASE=$(pw alice)" -i "$(lines 'show --use swap Pw')" -- --stdin
-expect_exit 0
-expect_out '^forged$'
+expect_err 'does not continue the key this device last saw'
+expect_no_out 'forged'
+BEFORE="$(head_of alice swap)"
 g alice -i "$(unlock alice)"$'\nw' -- --yes insert After --value-stdin -u swap
-expect_exit 0
+expect_exit 1
+expect_err 'does not continue the key this device last saw'
+expect_true "nothing was committed" test "$(head_of alice swap)" = "$BEFORE"
+g alice -i "$(unlock alice)" -- show Pw -u swap
+expect_exit 1
+expect_no_out 'forged'
+
+step "restoring the good files through git reads again"
+stranger_push "$R3" "restore" "rm:entries/$FORGED_ID.age" \
+    "put:$QA_S/swap-entry.good:entries/$GENUINE_ID.age" "put:$QA_S/swap-key.good:.gage/vault-key.age"
 g alice -i "$(unlock alice)" -- show Pw -u swap
 expect_exit 0
-expect_out '^forged$'
-expect_no_err 'was replaced on its own'
+expect_out '^genuine$'
+
+step "the refusal holds when the stranger also adds a recipient"
+R4="$(bare_remote swaplist)"
+new_vault alice swaplist "$R4"
+put alice Pw genuine -u swaplist
+SL="$(vault_dir alice swaplist)"
+GENUINE_ID="$(full_id alice swaplist Pw)"
+forge_entry "$R4" Pw forged
+MK="$(grep -vxFf "$SL/.age-recipients" "$(dirname "$(dirname "$FORGED_KEY")")/.age-recipients" | head -1)"
+cp "$SL/.age-recipients" "$QA_S/swaplist.keys"
+echo "$MK" >>"$QA_S/swaplist.keys"
+cp "$SL/.gage/config.toml" "$QA_S/swaplist.config"
+printf '\n[[recipients]]\ndevice = "mallory"\npubkey = "%s"\n' "$MK" >>"$QA_S/swaplist.config"
+stranger_push "$R4" "add a member" "rm:entries/$GENUINE_ID.age" \
+    "put:$FORGED_FILE:entries/$FORGED_ID.age" "put:$FORGED_KEY:.gage/vault-key.age" \
+    "put:$QA_S/swaplist.keys:.age-recipients" "put:$QA_S/swaplist.config:.gage/config.toml"
+g alice -i "$(unlock alice)" -- show Pw -u swaplist
+expect_exit 1
+expect_err 'does not continue the key this device last saw'
+expect_no_out 'forged'
 
 step "auth is a reserved top-level key; as a --field it is just a field"
 # A hand-written auth: line would be taken for the entry's tag.

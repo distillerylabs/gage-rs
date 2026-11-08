@@ -1496,7 +1496,10 @@ mod tests {
             "{err}"
         );
         assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
-        assert!(!f.dirs.state.exists(), "no lock directory was created");
+        assert!(
+            !f.dirs.state.join("locks").exists(),
+            "no lock directory was created"
+        );
     }
 
     // --- process-level lock tests ----------------------------------------

@@ -1188,7 +1188,12 @@ fn a_vault_without_an_id_fails_loudly_on_every_derived_path() {
 fn vault_remove_drops_registration_but_leaves_files() {
     let env = Env::new();
     let path = env.init("personal", &[]);
-    let before = env.tree();
+    // The trust cache goes with the registration, on purpose.
+    let before: Vec<_> = env
+        .tree()
+        .into_iter()
+        .filter(|p| !p.starts_with(&env.dirs.state))
+        .collect();
 
     env.ok(&["vault", "remove", "personal"]);
 
