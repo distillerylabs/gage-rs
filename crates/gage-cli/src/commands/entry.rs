@@ -306,7 +306,7 @@ fn ambiguous(list: &CandidateList) -> CliError {
         list.candidates.len()
     );
     for c in &list.candidates {
-        msg.push_str(&format!("\n  {}  {}", c.id, c.title));
+        msg.push_str(&format!("\n  {}  {}", c.id, crate::display::line(&c.title)));
     }
     fail(ExitCode::Ambiguous, msg)
 }

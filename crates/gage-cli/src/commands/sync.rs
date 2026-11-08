@@ -164,7 +164,11 @@ pub(crate) fn report_conflicts(vault: &Vault, r: &SyncReport) -> Vec<String> {
         "gage: {} path(s) changed on both sides:",
         r.conflicts.len()
     )];
-    lines.extend(r.conflicts.iter().map(|path| format!("  {path}")));
+    lines.extend(
+        r.conflicts
+            .iter()
+            .map(|path| format!("  {}", crate::display::line(path))),
+    );
     if r.conflict_kind() == ConflictKind::Recipients {
         lines.push(
             "gage: these define who can read this vault, so gage will never merge them for you."

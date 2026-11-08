@@ -248,10 +248,11 @@ fn arg<'a>(matches: &'a ArgMatches, id: &str) -> &'a str {
 }
 
 /// Writes lines to stdout. A failed write (a closed pipe) is dropped, as
-/// `print` in lib.rs does: the outcome is already decided.
+/// `print` in lib.rs does: the outcome is already decided. Each is one line
+/// whatever it holds (ADR-0069), so a title can't add a row to `| wc -l`.
 fn out(io: &mut Io, lines: &[String]) {
     for line in lines {
-        let _ = writeln!(io.stdout, "{line}");
+        let _ = writeln!(io.stdout, "{}", crate::display::line(line));
     }
 }
 

@@ -500,6 +500,25 @@ fn sync_reports_no_push_when_nothing_was_sent() {
     assert!(!r.stdout.contains("pushed"), "{}", r.stdout);
 }
 
+// A path comes from the remote's tree, so it can say anything (ADR-0069).
+#[test]
+fn report_conflicts_shows_a_hostile_path_as_one_line_of_text() {
+    let env = Env::new();
+    let (_path, _remote) = env.init_with_remote("personal");
+    let report = SyncReport {
+        diverged: true,
+        conflicts: vec!["entries/a\x1b[2K\nb.age".to_string()],
+        ..SyncReport::default()
+    };
+
+    let lines = report_conflicts(&env.vault("personal"), &report);
+
+    assert!(
+        lines.contains(&r"  entries/a\u{1b}[2K\nb.age".to_string()),
+        "{lines:?}"
+    );
+}
+
 #[test]
 fn report_conflicts_says_recipient_files_are_never_merged() {
     let env = Env::new();

@@ -24,6 +24,7 @@ use serde::{Deserialize, Serialize};
 pub use id::{InvalidVaultId, VaultId, valid_id};
 pub use kind::{UnknownVaultType, UnlockMethod, VaultType};
 
+use crate::crypto::agekey;
 use crate::devicename;
 use crate::error::{ErrorKind, HasKind};
 use crate::storage::atomicfile;
@@ -172,6 +173,9 @@ pub enum Error {
     /// A recipient's device name fails the filesystem-safe allowlist.
     #[error("{path}: recipient device name {device:?} is invalid")]
     InvalidDeviceName { path: PathBuf, device: String },
+    /// A recipient's public key isn't an age recipient.
+    #[error("{path}: recipient key {pubkey:?} is not an age recipient")]
+    InvalidRecipient { path: PathBuf, pubkey: String },
     #[error("encoding {path}: {source}")]
     Encode {
         path: PathBuf,
@@ -185,22 +189,23 @@ pub enum Error {
 }
 
 impl HasKind for Error {
-    // The three refusals are anticipated states a human resolves
-    // (upgrade gage, re-create or repair the vault), not gage bugs, so a
-    // script can tell them from Internal.
+    // The refusals are anticipated states a human resolves (upgrade gage,
+    // re-create or repair the vault), not gage bugs, so a script can tell
+    // them from Internal.
     fn kind(&self) -> ErrorKind {
         match self {
             Error::UnsupportedFormatVersion { .. }
             | Error::InvalidVaultId { .. }
-            | Error::InvalidDeviceName { .. } => ErrorKind::Conflict,
+            | Error::InvalidDeviceName { .. }
+            | Error::InvalidRecipient { .. } => ErrorKind::Conflict,
             _ => ErrorKind::Internal,
         }
     }
 }
 
 /// Parses and validates a vault's `.gage/config.toml`: the format version
-/// first, then the id, then every recipient's device name. Nothing in a
-/// file that fails one check is looked at by the next.
+/// first, then the id, then every recipient's device name and key. Nothing
+/// in a file that fails one check is looked at by the next.
 pub fn load(path: &Path) -> Result<File, Error> {
     let at = || path.to_path_buf();
     let text = std::fs::read_to_string(path).map_err(|source| {
@@ -238,6 +243,19 @@ pub fn load(path: &Path) -> Result<File, Error> {
         return Err(Error::InvalidDeviceName {
             path: at(),
             device: bad.device.clone(),
+        });
+    }
+    // With every key here valid, a line of `.age-recipients` that isn't one
+    // can never be on both sides, so it is always a difference `recipient
+    // verify` reports and `--repair` clears (ADR-0069).
+    if let Some(bad) = file
+        .recipients
+        .iter()
+        .find(|r| agekey::validate_recipient(&r.pubkey).is_err())
+    {
+        return Err(Error::InvalidRecipient {
+            path: at(),
+            pubkey: bad.pubkey.clone(),
         });
     }
     Ok(file)
@@ -410,6 +428,20 @@ mod tests {
             ),
             "{err:?}"
         );
+    }
+
+    // Validated with the device name beside it, and for the same reason:
+    // both are vault text that gets shown to someone deciding about it.
+    #[test]
+    fn read_refuses_a_pubkey_that_is_not_an_age_recipient() {
+        let mut file = valid_file();
+        file.recipients[0].pubkey = "age1evil\x1b[2Kkey".into();
+
+        let err = write_then_read(&file).unwrap_err();
+
+        assert!(matches!(err, Error::InvalidRecipient { .. }), "{err:?}");
+        assert_eq!(err.kind(), ErrorKind::Conflict);
+        assert!(err.to_string().contains("is not an age recipient"), "{err}");
     }
 
     // Telling the owner of a v1 vault to upgrade gage is advice that
