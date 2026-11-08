@@ -160,7 +160,7 @@ fn a_module_prefixed_format_version_refusal() {
     let text = std::fs::read_to_string(&config).unwrap();
     std::fs::write(
         &config,
-        text.replace("format_version = 2", "format_version = 3"),
+        text.replace("format_version = 3", "format_version = 4"),
     )
     .unwrap();
     let r = env.cmd(&["ls"]);
@@ -168,7 +168,7 @@ fn a_module_prefixed_format_version_refusal() {
         &env,
         &r,
         ExitCode::Conflict,
-        "gage: $ROOT/data/gage/vaults/personal/.gage/config.toml has format_version 3, this gage understands 2 — upgrade gage\n",
+        "gage: $ROOT/data/gage/vaults/personal/.gage/config.toml has format_version 4, this gage understands 3 — upgrade gage\n",
     );
 }
 

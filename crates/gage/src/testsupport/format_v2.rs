@@ -147,7 +147,12 @@ pub struct Installed {
 /// and fills in the global config's paths. The committed tree is only
 /// read: everything a test does lands in the copy.
 pub fn install() -> Installed {
-    let fixture = fixture_dir();
+    install_from(&fixture_dir())
+}
+
+/// [`install`] for any golden fixture laid out as this one is (every
+/// format's, from v2 on), whose vault is registered as [`VAULT_NAME`].
+pub fn install_from(fixture: &Path) -> Installed {
     let root = tempfile::tempdir().expect("format_v2: creating temp dir");
     let dirs = Dirs {
         config: root.path().join("config").join("gage"),

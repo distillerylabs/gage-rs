@@ -4,7 +4,6 @@ use crate::exitcode::ExitCode;
 use gage::prompter::FakePrompter;
 use gage::sync::gitrepo;
 
-use crate::entry_tests::unlocks;
 use crate::lifecycle_tests::{Env, PASSPHRASE};
 use crate::repl_tests::passphrase_prompts;
 use crate::trustcache_cli_tests::commit_routine_change;
@@ -16,7 +15,23 @@ fn two_vaults() -> Env {
     env
 }
 
+/// The source's passphrase, then the destination's: `mv` and `cp` unlock
+/// both, since only a member can stamp an entry a vault accepts (ADR-0065).
+fn unlocks_both() -> FakePrompter {
+    FakePrompter::new().with_passphrases(&[PASSPHRASE, PASSPHRASE])
+}
+
 impl Env {
+    /// A one-shot `mv` or `cp` that must succeed.
+    fn transfer_ok(&self, args: &[&str]) -> crate::lifecycle_tests::CliResult {
+        let p = unlocks_both();
+        let r = self.run_with(args, &p);
+        assert_eq!(r.code, ExitCode::Success, "{args:?} failed:\n{}", r.stderr);
+        let vaults: Vec<String> = p.unlock_requests().into_iter().map(|u| u.vault).collect();
+        assert_eq!(vaults.len(), 2, "{vaults:?}");
+        r
+    }
+
     fn titles_in(&self, vault: &str) -> String {
         self.cmd_ok(&["ls", "--use", vault]).stdout
     }
@@ -31,7 +46,7 @@ fn mv_through_the_cli_moves_entry_between_vaults() {
     let env = two_vaults();
     env.add("personal", "GitHub", "hunter2");
 
-    let r = env.cmd_ok(&["mv", "GitHub", "--to-vault", "shared", "--use", "personal"]);
+    let r = env.transfer_ok(&["mv", "GitHub", "--to-vault", "shared", "--use", "personal"]);
 
     assert!(r.stdout.contains("moved"), "{}", r.stdout);
     assert!(r.stdout.contains("shared"), "{}", r.stdout);
@@ -58,7 +73,7 @@ fn cp_through_the_cli_leaves_original_and_adds_copy() {
     let env = two_vaults();
     env.add("personal", "GitHub", "hunter2");
 
-    let r = env.cmd_ok(&["cp", "GitHub", "--to-vault", "shared", "--use", "personal"]);
+    let r = env.transfer_ok(&["cp", "GitHub", "--to-vault", "shared", "--use", "personal"]);
 
     assert!(r.stdout.contains("copied"), "{}", r.stdout);
     for vault in ["personal", "shared"] {
@@ -159,7 +174,7 @@ fn mv_declining_the_trust_check_aborts_through_the_cli() {
     );
     let before = (env.commits_in("personal"), env.commits_in("shared"));
 
-    let p = unlocks().with_recipient_answers(&[false]);
+    let p = unlocks_both().with_recipient_answers(&[false]);
     let r = env.run_with(
         &["mv", "GitHub", "--to-vault", "shared", "--use", "personal"],
         &p,
@@ -181,23 +196,27 @@ fn mv_declining_the_trust_check_aborts_through_the_cli() {
     assert!(gitrepo::is_clean(&shared).unwrap());
 }
 
-// One passphrase, for the
-// source; the entry arrives, and the session's own index follows.
+// One passphrase each, for the source and for the destination, which
+// stamps the copy (ADR-0065); the entry arrives, and the session's own
+// index follows. A second move asks for neither again.
 #[test]
-fn mv_in_a_session_never_unlocks_the_destination() {
+fn mv_in_a_session_unlocks_the_destination_once() {
     let env = two_vaults();
     env.add("personal", "GitHub", "hunter2");
+    env.add("personal", "GitLab", "hunter3");
 
     let r = env.session_ok(&[
         "use personal",
         PASSPHRASE,
         "ls",
         "mv GitHub --to-vault shared",
+        PASSPHRASE,
         "ls",
+        "mv GitLab --to-vault shared",
         "exit",
     ]);
 
-    assert_eq!(passphrase_prompts(&r), 1, "{}{}", r.stdout, r.stderr);
+    assert_eq!(passphrase_prompts(&r), 2, "{}{}", r.stdout, r.stderr);
     assert!(r.stdout.contains("moved"), "{}", r.stdout);
     assert!(r.stdout.contains("shared"), "{}", r.stdout);
     // The second `ls` ran from the updated index: the entry's row (a

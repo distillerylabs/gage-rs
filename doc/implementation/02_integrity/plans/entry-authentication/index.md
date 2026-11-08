@@ -49,7 +49,7 @@ per-device provenance.
 
 | # | Doc | Model | Depends on | Status |
 |---|---|---|---|---|
-| M0 | [m0-library-mac-and-v3.md](m0-library-mac-and-v3.md) | Opus | — | Not started |
+| M0 | [m0-library-mac-and-v3.md](m0-library-mac-and-v3.md) | Opus | — | Done, in review |
 | M1 | [m1-membership-and-sync.md](m1-membership-and-sync.md) | Opus | M0 | Not started |
 | M2 | [m2-frontend-and-docs.md](m2-frontend-and-docs.md) | Sonnet | M1 | Not started |
 

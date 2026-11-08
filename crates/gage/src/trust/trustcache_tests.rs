@@ -524,7 +524,7 @@ fn blocking_check_hooks_every_encrypting_vault_method() {
         ("update", |t, id, p| {
             let (uuid, mut e) = t.vault.resolve(id, "ProtonMail").unwrap();
             e.value = "rewritten".into();
-            t.vault.update(uuid, &e, p)
+            t.vault.update(id, uuid, &e, p)
         }),
         ("rename", |t, id, p| {
             t.vault

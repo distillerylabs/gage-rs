@@ -558,10 +558,10 @@ fn sync_verbs_in_a_session_need_no_unlock() {
 // --- conflict resolution ----------------------------------------------------
 
 /// A vault genuinely diverged on one entry, both versions real ciphertext
-/// this device can read. The other device's
-/// version of Alpha is a copy of Beta's file: a real entry for this
-/// vault's recipients, now at Alpha's path. Returns the vault's path,
-/// Alpha's id, and the remote, which lives as long as the test holds it.
+/// this device can read. The other device's version of Alpha has Beta's
+/// contents, written as Alpha: a real, authenticated entry for this
+/// vault's recipients at Alpha's path. Returns the vault's path, Alpha's
+/// id, and the remote, which lives as long as the test holds it.
 fn conflicting_vault(env: &Env) -> (PathBuf, uuid::Uuid, BareRemote) {
     let (path, remote) = env.init_with_remote("personal");
     let alpha = env.insert_ok("alpha-secret", &["Alpha"]);
@@ -570,15 +570,19 @@ fn conflicting_vault(env: &Env) -> (PathBuf, uuid::Uuid, BareRemote) {
     let vault = env.vault("personal");
     let identity = vault.unlock(&unlocks()).unwrap();
     let other = Device::clone(remote.path());
-    let beta_file = std::fs::read(path.join(format!("entries/{beta}.age"))).unwrap();
-    other.write_bytes(&format!("entries/{alpha}.age"), &beta_file);
+    let mut there = vault.clone();
+    there.path = other.path().to_path_buf();
+    let beta_entry = vault.read_entry(beta, &identity).unwrap();
+    there.write_entry(alpha, &beta_entry, &identity).unwrap();
     other.commit("the other device's edit");
     other.push();
 
     // This device edits the same entry; its push finds the remote moved.
     let mut e = vault.read_entry(alpha, &identity).unwrap();
     e.value = "alpha-rotated-locally".into();
-    vault.update(alpha, &e, &FakePrompter::new()).unwrap();
+    vault
+        .update(&identity, alpha, &e, &FakePrompter::new())
+        .unwrap();
     (path, alpha, remote)
 }
 

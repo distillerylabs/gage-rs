@@ -3,7 +3,7 @@
 //! command. A frontend adds its own name and renders a typed `Remedy`.
 //!
 //! Commit messages are the exception. They are on-disk format
-//! (`doc/format/v2.md`), not UI, so a `"gage: ` literal is allowed only as
+//! (`doc/format/v3.md`), not UI, so a `"gage: ` literal is allowed only as
 //! the start of one of the commit subjects below.
 //!
 //! Std-only and line-based, like `no_frontend_deps.rs`: it reads the

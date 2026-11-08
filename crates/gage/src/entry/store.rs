@@ -7,7 +7,9 @@ use std::path::PathBuf;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+use super::auth::{self, AUTH_KEY};
 use super::{ENTRIES_DIR_NAME, ENTRY_FILE_EXT, Entry, Error};
+use crate::crypto::vaultkey::VaultKey;
 use crate::vault::Vault;
 use crate::{crypto::crypt, crypto::identity::Identity, storage::atomicfile, trust::recipient};
 
@@ -26,7 +28,7 @@ impl Vault {
     /// that can read a freshly written entry. A plugin recipient
     /// (`age1yubikey1…`) is legal there but not encryptable by this build,
     /// and fails here, before anything is written.
-    fn encrypt_recipients(&self) -> Result<Vec<crypt::Recipient>, Error> {
+    pub(crate) fn encrypt_recipients(&self) -> Result<Vec<crypt::Recipient>, Error> {
         let keys = recipient::load(&self.path.join(".age-recipients"))?;
         Ok(keys
             .iter()
@@ -34,28 +36,37 @@ impl Vault {
             .collect::<Result<_, _>>()?)
     }
 
+    /// The vault's MAC key, opened with `identity` (ADR-0065).
+    pub(crate) fn vault_key(&self, identity: &Identity) -> Result<VaultKey, Error> {
+        Ok(VaultKey::load(&self.path, identity)?)
+    }
+
     /// Encrypts `e` and writes it to `entries/<id>.age`, atomically, at
     /// `0600`, to every recipient currently listed in `.age-recipients`.
     /// `id` is the caller's to choose: a fresh [`super::new_id`] for an
     /// insert, or an existing entry's own id to rewrite it in place.
+    /// `identity` opens the vault's MAC key, which stamps the entry's
+    /// `auth` tag; it is not who the entry is encrypted to.
     ///
     /// The caller holds the vault's write lock and commits; this only
     /// writes the file.
-    pub fn write_entry(&self, id: Uuid, e: &Entry) -> Result<(), Error> {
-        self.write_entry_to(id, e, &self.encrypt_recipients()?)
+    pub fn write_entry(&self, id: Uuid, e: &Entry, identity: &Identity) -> Result<(), Error> {
+        let to = self.encrypt_recipients()?;
+        self.write_entry_to(id, e, &to, &self.vault_key(identity)?)
     }
 
-    /// [`Vault::write_entry`] to an explicit recipient list rather than
-    /// the one on disk: what a re-encryption needs, since it writes every
-    /// entry to the new list *before* the recipient files change (that
-    /// order is its crash safety).
+    /// [`Vault::write_entry`] to an explicit recipient list and key rather
+    /// than the ones on disk: what a re-encryption needs, since it writes
+    /// every entry to the new list *before* the recipient files change
+    /// (that order is its crash safety).
     pub(crate) fn write_entry_to(
         &self,
         id: Uuid,
         e: &Entry,
         to: &[crypt::Recipient],
+        key: &VaultKey,
     ) -> Result<(), Error> {
-        let ciphertext = crypt::encrypt(&e.to_yaml()?, to)?;
+        let ciphertext = seal_entry(id, e, to, key)?;
 
         let dir = self.entries_dir();
         std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
@@ -75,48 +86,51 @@ impl Vault {
             .map_err(|source| Error::Write { id, source })
     }
 
-    /// `e` encrypted to every recipient currently listed in
-    /// `.age-recipients`, without writing it anywhere: what [`Vault::write_entry`] writes, and what a
-    /// conflict resolution's keep-both hands the merge to create. Stamps
-    /// nothing: the entry is encrypted exactly as given.
-    pub(crate) fn encrypt_entry(&self, e: &Entry) -> Result<Vec<u8>, Error> {
+    /// `e`, as entry `id`, encrypted to every recipient currently listed in
+    /// `.age-recipients`, without writing it anywhere: what
+    /// [`Vault::write_entry`] writes, and what a conflict resolution's
+    /// keep-both hands the merge to create. Stamps only the `auth` tag: the
+    /// entry's own fields are encrypted exactly as given.
+    pub(crate) fn encrypt_entry(
+        &self,
+        id: Uuid,
+        e: &Entry,
+        identity: &Identity,
+    ) -> Result<Vec<u8>, Error> {
         let to = self.encrypt_recipients()?;
-        let plaintext = e.to_yaml()?;
-        Ok(crypt::encrypt(&plaintext, &to)?)
+        seal_entry(id, e, &to, &self.vault_key(identity)?)
     }
 
-    /// Decrypts and parses one entry's ciphertext, wherever it came from:
-    /// a file, or a git object a merge read.
+    /// Decrypts, authenticates and parses entry `id`'s ciphertext, wherever
+    /// it came from: a file, or a git object a merge read. `id` is the one
+    /// the ciphertext is filed under, which its `auth` tag must name.
     pub(crate) fn decrypt_entry(
         &self,
+        id: Uuid,
         ciphertext: &[u8],
         identity: &Identity,
     ) -> Result<Entry, Error> {
-        self.count_decrypt();
-        let plaintext = Zeroizing::new(crypt::decrypt(ciphertext, identity)?);
-        Entry::from_yaml(&plaintext)
+        self.entry_reader(identity).decrypt(id, ciphertext)
     }
 
-    /// Reads and decrypts `entries/<id>.age` with `identity` and parses
-    /// the result. Ciphertext `identity` isn't a recipient of fails with
+    /// Reads and decrypts `entries/<id>.age` with `identity`, checks its
+    /// `auth` tag against this vault's key and `id`, and parses the result.
+    /// Ciphertext `identity` isn't a recipient of fails with
     /// `crypt::Error::NotARecipient`, unwrapped, so a caller can tell
-    /// "wrong key" from "damaged file" from "no such entry".
+    /// "wrong key" from "damaged file" from "no such entry", and all three
+    /// from [`Error::Unauthenticated`].
     pub fn read_entry(&self, id: Uuid, identity: &Identity) -> Result<Entry, Error> {
-        let path = self.entry_path(id);
-        let ciphertext = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                return Err(Error::EntryNotFound { id });
-            }
-            Err(source) => {
-                return Err(Error::Io {
-                    action: "reading",
-                    path,
-                    source,
-                });
-            }
-        };
-        self.decrypt_entry(&ciphertext, identity)
+        self.entry_reader(identity).read(id)
+    }
+
+    /// A reader for many entries that opens the MAC key once, on the
+    /// first entry that decrypts.
+    pub(crate) fn entry_reader<'a>(&'a self, identity: &'a Identity) -> EntryReader<'a> {
+        EntryReader {
+            vault: self,
+            identity,
+            key: None,
+        }
     }
 
     /// The ids of every entry file in `entries/`, sorted. It reads only
@@ -166,6 +180,70 @@ impl Vault {
     }
 }
 
+/// Reads entries with one identity, opening the vault's MAC key once.
+/// The key is opened only after an entry has decrypted, so a wrong
+/// identity still fails as `NotARecipient` on the entry itself.
+pub(crate) struct EntryReader<'a> {
+    vault: &'a Vault,
+    identity: &'a Identity,
+    key: Option<VaultKey>,
+}
+
+impl EntryReader<'_> {
+    /// [`Vault::read_entry`].
+    pub(crate) fn read(&mut self, id: Uuid) -> Result<Entry, Error> {
+        let path = self.vault.entry_path(id);
+        let ciphertext = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(Error::EntryNotFound { id });
+            }
+            Err(source) => {
+                return Err(Error::Io {
+                    action: "reading",
+                    path,
+                    source,
+                });
+            }
+        };
+        self.decrypt(id, &ciphertext)
+    }
+
+    /// [`Vault::decrypt_entry`]. Authenticated before anything is parsed.
+    pub(crate) fn decrypt(&mut self, id: Uuid, ciphertext: &[u8]) -> Result<Entry, Error> {
+        self.vault.count_decrypt();
+        let plaintext = Zeroizing::new(crypt::decrypt(ciphertext, self.identity)?);
+        let key = match &mut self.key {
+            Some(key) => key,
+            empty => empty.insert(self.vault.vault_key(self.identity)?),
+        };
+        let body = auth::verify(key, id, &plaintext)
+            .map_err(|failure| Error::Unauthenticated { id, failure })?;
+        let entry = Entry::from_yaml(body)?;
+        if entry.extra.contains_key(AUTH_KEY) {
+            return Err(Error::Parse(format!(
+                "{AUTH_KEY:?} appears in the entry body as well as its last line"
+            )));
+        }
+        Ok(entry)
+    }
+}
+
+/// `e` as entry `id`'s ciphertext: its YAML, stamped with the `auth` tag
+/// under `key`, encrypted to `to`.
+fn seal_entry(
+    id: Uuid,
+    e: &Entry,
+    to: &[crypt::Recipient],
+    key: &VaultKey,
+) -> Result<Vec<u8>, Error> {
+    if e.extra.contains_key(AUTH_KEY) {
+        return Err(Error::ReservedKey(AUTH_KEY));
+    }
+    let payload = auth::stamp(key, id, &e.to_yaml()?);
+    Ok(crypt::encrypt(&payload, to)?)
+}
+
 #[cfg(unix)]
 fn restrict_dir(dir: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -180,7 +258,7 @@ fn restrict_dir(_dir: &std::path::Path) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entry::{Extra, Timestamp, new_id};
+    use crate::entry::{AuthFailure, Extra, Timestamp, new_id};
     use crate::error::{ErrorKind, HasKind};
     use crate::storage::xdgpaths::Dirs;
     use crate::testsupport::fast_scrypt;
@@ -211,6 +289,10 @@ mod tests {
                 .collect();
             let public: Vec<String> = keys.iter().map(|k| k.to_public().to_string()).collect();
             recipient::save(&vault.path.join(".age-recipients"), &public).unwrap();
+            std::fs::create_dir_all(vault.path.join(".gage")).unwrap();
+            VaultKey::generate()
+                .save(&vault.path, &vault.encrypt_recipients().unwrap())
+                .unwrap();
             Fixture {
                 _root: root,
                 vault,
@@ -224,6 +306,25 @@ mod tests {
 
         fn entry_file(&self, id: Uuid) -> PathBuf {
             self.vault.entry_path(id)
+        }
+
+        fn write(&self, id: Uuid, e: &Entry) -> Result<(), Error> {
+            self.vault.write_entry(id, e, &self.identity(0))
+        }
+
+        /// The decrypted payload of entry `id`'s file.
+        fn payload(&self, id: Uuid) -> Vec<u8> {
+            let ciphertext = std::fs::read(self.entry_file(id)).unwrap();
+            crypt::decrypt(&ciphertext, &self.identity(0)).unwrap()
+        }
+
+        /// Encrypts `payload` to every recipient, as anyone holding only
+        /// the public keys can, and files it as entry `id`.
+        fn plant(&self, id: Uuid, payload: &[u8]) {
+            let ciphertext =
+                crypt::encrypt(payload, &self.vault.encrypt_recipients().unwrap()).unwrap();
+            std::fs::create_dir_all(self.vault.entries_dir()).unwrap();
+            std::fs::write(self.entry_file(id), ciphertext).unwrap();
         }
     }
 
@@ -244,12 +345,12 @@ mod tests {
     fn write_entry_then_read_entry_round_trips() {
         let f = Fixture::new(1);
         let id = new_id();
-        f.vault.write_entry(id, &sample()).unwrap();
+        f.write(id, &sample()).unwrap();
         assert_eq!(f.vault.read_entry(id, &f.identity(0)).unwrap(), sample());
         // Rewriting in place under the same id replaces it.
         let mut changed = sample();
         changed.value = "rotated".into();
-        f.vault.write_entry(id, &changed).unwrap();
+        f.write(id, &changed).unwrap();
         assert_eq!(f.vault.read_entry(id, &f.identity(0)).unwrap(), changed);
         assert_eq!(f.vault.entry_ids().unwrap(), vec![id]);
     }
@@ -269,7 +370,7 @@ mod tests {
             ..Entry::default()
         };
         let id = new_id();
-        f.vault.write_entry(id, &e).unwrap();
+        f.write(id, &e).unwrap();
         let back = f.vault.read_entry(id, &f.identity(0)).unwrap();
         assert_eq!(back.value.as_bytes(), nasty.as_bytes());
         assert_eq!(back, e);
@@ -279,7 +380,7 @@ mod tests {
     fn entry_is_decryptable_by_every_recipient() {
         let f = Fixture::new(3);
         let id = new_id();
-        f.vault.write_entry(id, &sample()).unwrap();
+        f.write(id, &sample()).unwrap();
         for i in 0..3 {
             assert_eq!(
                 f.vault.read_entry(id, &f.identity(i)).unwrap(),
@@ -295,7 +396,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let f = Fixture::new(1);
         let id = new_id();
-        f.vault.write_entry(id, &sample()).unwrap();
+        f.write(id, &sample()).unwrap();
         let mode = |p: PathBuf| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(f.entry_file(id)), 0o600);
         assert_eq!(mode(f.vault.entries_dir()), 0o700);
@@ -309,7 +410,7 @@ mod tests {
         let dir = f.vault.entries_dir();
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
-        f.vault.write_entry(new_id(), &sample()).unwrap();
+        f.write(new_id(), &sample()).unwrap();
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o700
@@ -324,7 +425,7 @@ mod tests {
     fn write_entry_is_atomic() {
         let f = Fixture::new(1);
         let id = new_id();
-        f.vault.write_entry(id, &sample()).unwrap();
+        f.write(id, &sample()).unwrap();
         let before = std::fs::read(f.entry_file(id)).unwrap();
 
         let names = || -> Vec<String> {
@@ -341,10 +442,7 @@ mod tests {
             extra: [("k".to_string(), Extra::Plain("a\nb: c".into()))].into(),
             ..sample()
         };
-        assert!(matches!(
-            f.vault.write_entry(id, &bad),
-            Err(Error::Unfaithful(_))
-        ));
+        assert!(matches!(f.write(id, &bad), Err(Error::Unfaithful(_))));
         assert_eq!(std::fs::read(f.entry_file(id)).unwrap(), before);
         assert_eq!(names(), vec![format!("{id}.age")]);
     }
@@ -363,7 +461,7 @@ mod tests {
             ..Entry::default()
         };
         let id = new_id();
-        f.vault.write_entry(id, &e).unwrap();
+        f.write(id, &e).unwrap();
         let file = std::fs::read(f.entry_file(id)).unwrap();
         assert!(file.starts_with(b"age-encryption.org/v1\n"));
         for marker in ["MARKER", "title", "value", "fields"] {
@@ -380,7 +478,7 @@ mod tests {
         let mut keys = recipient::load(&f.vault.path.join(".age-recipients")).unwrap();
         keys.push("age1yubikey1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9hkmc0".into());
         recipient::save(&f.vault.path.join(".age-recipients"), &keys).unwrap();
-        let err = f.vault.write_entry(new_id(), &sample()).unwrap_err();
+        let err = f.write(new_id(), &sample()).unwrap_err();
         assert!(
             matches!(&err, Error::Crypt(crypt::Error::InvalidRecipient { .. })),
             "{err}"
@@ -393,12 +491,12 @@ mod tests {
     fn write_entry_without_a_recipients_file_fails() {
         let f = Fixture::new(1);
         std::fs::remove_file(f.vault.path.join(".age-recipients")).unwrap();
-        let err = f.vault.write_entry(new_id(), &sample()).unwrap_err();
+        let err = f.write(new_id(), &sample()).unwrap_err();
         assert!(matches!(err, Error::Recipients(_)), "{err}");
         assert!(!f.vault.entries_dir().exists());
         // An empty file is refused too: a file nobody can read is never made.
         std::fs::write(f.vault.path.join(".age-recipients"), "").unwrap();
-        let err = f.vault.write_entry(new_id(), &sample()).unwrap_err();
+        let err = f.write(new_id(), &sample()).unwrap_err();
         assert!(
             matches!(err, Error::Crypt(crypt::Error::NoRecipients)),
             "{err}"
@@ -422,7 +520,7 @@ mod tests {
     fn read_entry_with_a_non_recipient_identity_fails_typed() {
         let f = Fixture::new(1);
         let id = new_id();
-        f.vault.write_entry(id, &sample()).unwrap();
+        f.write(id, &sample()).unwrap();
         let stranger = Identity::for_tests(&age::x25519::Identity::generate());
         let err = f.vault.read_entry(id, &stranger).unwrap_err();
         assert!(
@@ -436,7 +534,7 @@ mod tests {
     fn read_entry_on_corrupt_ciphertext_fails() {
         let f = Fixture::new(1);
         let id = new_id();
-        f.vault.write_entry(id, &sample()).unwrap();
+        f.write(id, &sample()).unwrap();
         let path = f.entry_file(id);
         let mut bytes = std::fs::read(&path).unwrap();
         let last = bytes.len() - 1;
@@ -456,20 +554,200 @@ mod tests {
         );
     }
 
+    // Authenticated first, parsed after: a payload that verifies but
+    // isn't an entry is a parse error, not an authentication failure.
     #[test]
-    fn read_entry_of_a_valid_ciphertext_that_is_not_an_entry_is_a_parse_error() {
+    fn read_entry_of_an_authenticated_payload_that_is_not_an_entry_is_a_parse_error() {
         let f = Fixture::new(1);
         let id = new_id();
-        let to = [crypt::Recipient::parse(&f.keys[0].to_public().to_string()).unwrap()];
-        std::fs::create_dir_all(f.vault.entries_dir()).unwrap();
-        std::fs::write(
-            f.entry_file(id),
-            crypt::encrypt(b"- just\n- a list\n", &to).unwrap(),
-        )
-        .unwrap();
+        let key = f.vault.vault_key(&f.identity(0)).unwrap();
+        f.plant(id, &auth::stamp(&key, id, b"- just\n- a list\n"));
         let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
         assert!(matches!(err, Error::Parse(_)), "{err}");
         assert_eq!(err.kind(), ErrorKind::Conflict);
+    }
+
+    // Stamp on write: the payload is the entry's YAML and an auth line
+    // whose tag verifies under the vault's key for this id.
+    #[test]
+    fn write_entry_stamps_an_auth_tag_that_verifies() {
+        let f = Fixture::new(1);
+        let id = new_id();
+        f.write(id, &sample()).unwrap();
+        let payload = f.payload(id);
+        let key = f.vault.vault_key(&f.identity(0)).unwrap();
+        let body = auth::verify(&key, id, &payload).unwrap();
+        assert_eq!(body, &sample().to_yaml().unwrap()[..]);
+        let text = String::from_utf8(payload.clone()).unwrap();
+        let last = text.trim_end_matches('\n').rsplit('\n').next().unwrap();
+        assert!(last.starts_with("auth: hmac-sha256:"), "{text}");
+    }
+
+    #[test]
+    fn read_entry_rejects_a_wrong_auth_tag() {
+        let f = Fixture::new(1);
+        let id = new_id();
+        f.write(id, &sample()).unwrap();
+        let mut payload = f.payload(id);
+        // Flip one hex digit of the tag.
+        let at = payload.len() - 2;
+        payload[at] = if payload[at] == b'0' { b'1' } else { b'0' };
+        f.plant(id, &payload);
+        let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
+        assert!(
+            matches!(&err, Error::Unauthenticated { id: got, failure: AuthFailure::Mismatch } if *got == id),
+            "{err}"
+        );
+        assert_eq!(err.kind(), ErrorKind::Conflict);
+        assert!(err.to_string().contains(&id.to_string()), "{err}");
+    }
+
+    #[test]
+    fn read_entry_rejects_an_entry_without_an_auth_tag() {
+        let f = Fixture::new(1);
+        let id = new_id();
+        f.plant(id, &sample().to_yaml().unwrap());
+        let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::Unauthenticated {
+                    failure: AuthFailure::Missing,
+                    ..
+                }
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn read_entry_rejects_a_tag_computed_for_a_different_id() {
+        let f = Fixture::new(1);
+        let (id, other) = (new_id(), new_id());
+        let key = f.vault.vault_key(&f.identity(0)).unwrap();
+        f.plant(id, &auth::stamp(&key, other, &sample().to_yaml().unwrap()));
+        let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::Unauthenticated {
+                    failure: AuthFailure::Mismatch,
+                    ..
+                }
+            ),
+            "{err}"
+        );
+    }
+
+    // The forgery check: someone with only the public keys in
+    // `.age-recipients` encrypts a well-formed entry to every recipient,
+    // with a tag under a key of their own. Every recipient rejects it.
+    #[test]
+    fn an_entry_produced_without_the_vault_key_is_rejected() {
+        let f = Fixture::new(2);
+        let id = new_id();
+        let forged_key = VaultKey::generate();
+        f.plant(
+            id,
+            &auth::stamp(&forged_key, id, &sample().to_yaml().unwrap()),
+        );
+        for i in 0..2 {
+            let err = f.vault.read_entry(id, &f.identity(i)).unwrap_err();
+            assert!(
+                matches!(
+                    err,
+                    Error::Unauthenticated {
+                        failure: AuthFailure::Mismatch,
+                        ..
+                    }
+                ),
+                "recipient {i}: {err}"
+            );
+        }
+        // And a listing doesn't quietly include it.
+        assert!(matches!(
+            f.vault.list(&f.identity(0)),
+            Err(Error::Unauthenticated { .. })
+        ));
+    }
+
+    // A genuine entry's file, copied under another id (over an existing
+    // entry or as a new one), is rejected: the tag names the id.
+    #[test]
+    fn an_entry_file_placed_under_a_different_id_is_rejected() {
+        let f = Fixture::new(1);
+        let (id, victim) = (new_id(), new_id());
+        f.write(id, &sample()).unwrap();
+        f.write(
+            victim,
+            &Entry {
+                title: "victim".into(),
+                ..sample()
+            },
+        )
+        .unwrap();
+        std::fs::copy(f.entry_file(id), f.entry_file(victim)).unwrap();
+        let err = f.vault.read_entry(victim, &f.identity(0)).unwrap_err();
+        assert!(
+            matches!(&err, Error::Unauthenticated { id: got, failure: AuthFailure::Mismatch } if *got == victim),
+            "{err}"
+        );
+        // The original, under its own id, still reads.
+        assert_eq!(f.vault.read_entry(id, &f.identity(0)).unwrap(), sample());
+    }
+
+    // Without its key file a v3 vault reads nothing, rather than reading
+    // unauthenticated.
+    #[test]
+    fn read_and_write_without_the_vault_key_fail_typed() {
+        let f = Fixture::new(1);
+        let id = new_id();
+        f.write(id, &sample()).unwrap();
+        std::fs::remove_file(f.vault.path.join(crate::crypto::vaultkey::VAULT_KEY_FILE)).unwrap();
+        let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::VaultKey(crate::crypto::vaultkey::Error::Missing { .. })
+            ),
+            "{err}"
+        );
+        assert_eq!(err.kind(), ErrorKind::Conflict);
+        let err = f.write(new_id(), &sample()).unwrap_err();
+        assert!(matches!(err, Error::VaultKey(_)), "{err}");
+    }
+
+    #[test]
+    fn auth_is_a_reserved_field_name() {
+        let f = Fixture::new(1);
+        let e = Entry {
+            extra: [("auth".to_string(), Extra::Plain("x".into()))].into(),
+            ..sample()
+        };
+        let err = f.write(new_id(), &e).unwrap_err();
+        assert!(matches!(err, Error::ReservedKey("auth")), "{err}");
+        assert_eq!(err.kind(), ErrorKind::Usage);
+        // A body that carries one, even under a valid tag, is refused too.
+        let id = new_id();
+        let key = f.vault.vault_key(&f.identity(0)).unwrap();
+        f.plant(id, &auth::stamp(&key, id, b"title: t\nauth: x\n"));
+        let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
+        assert!(matches!(err, Error::Parse(_)), "{err}");
+    }
+
+    // A wrong identity still fails on the entry, before the key is
+    // looked at.
+    #[test]
+    fn a_non_recipient_fails_on_the_entry_not_the_key() {
+        let f = Fixture::new(1);
+        let id = new_id();
+        f.write(id, &sample()).unwrap();
+        std::fs::remove_file(f.vault.path.join(crate::crypto::vaultkey::VAULT_KEY_FILE)).unwrap();
+        let stranger = Identity::for_tests(&age::x25519::Identity::generate());
+        assert!(matches!(
+            f.vault.read_entry(id, &stranger),
+            Err(Error::Crypt(crypt::Error::NotARecipient))
+        ));
     }
 
     #[test]
@@ -477,7 +755,7 @@ mod tests {
         let f = Fixture::new(1);
         let mut ids: Vec<Uuid> = (0..5).map(|_| new_id()).collect();
         for id in &ids {
-            f.vault.write_entry(*id, &sample()).unwrap();
+            f.write(*id, &sample()).unwrap();
         }
         ids.sort();
         assert_eq!(f.vault.entry_ids().unwrap(), ids);
@@ -487,7 +765,7 @@ mod tests {
     fn entry_ids_skips_subdirectories_and_stray_files() {
         let f = Fixture::new(1);
         let id = new_id();
-        f.vault.write_entry(id, &sample()).unwrap();
+        f.write(id, &sample()).unwrap();
         let dir = f.vault.entries_dir();
         let other = new_id();
         std::fs::create_dir(dir.join(format!("{other}.age"))).unwrap(); // a directory named like an entry

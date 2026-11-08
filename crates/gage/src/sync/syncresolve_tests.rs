@@ -55,8 +55,10 @@ fn path_of(id: Uuid) -> String {
 /// encrypted to this vault's recipients: a genuine, decryptable entry.
 fn publish(s: &SyncVault, writes: &[(&str, &Entry)]) -> Device {
     let other = s.other();
+    let identity = s.unlock();
     for (path, e) in writes {
-        other.write_bytes(path, &s.vault.encrypt_entry(e).unwrap());
+        let id = crate::sync::syncresolve::entry_id_from_path(path).expect("an entry path");
+        other.write_bytes(path, &s.vault.encrypt_entry(id, e, &identity).unwrap());
     }
     other.commit("the other device's edit");
     other.push();
@@ -88,7 +90,7 @@ impl Fixture {
             .insert(&identity, sample("ProtonMail"), false, &p)
             .unwrap();
         let original = base();
-        s.vault.update(id, &original, &p).unwrap();
+        s.vault.update(&identity, id, &original, &p).unwrap();
         let path = path_of(id);
 
         let mut theirs = original.clone();
@@ -102,7 +104,7 @@ impl Fixture {
         mine.updated = at("2026-08-30T14:22:00Z");
         mine.updated_by = DEVICE.into();
         // Its automatic push is what discovers the divergence.
-        s.vault.update(id, &mine, &p).unwrap();
+        s.vault.update(&identity, id, &mine, &p).unwrap();
         assert!(
             p.warnings().iter().any(|w| w.contains("diverged")),
             "{:?}",
@@ -139,8 +141,8 @@ impl Fixture {
         let first_base = base();
         let mut second_base = base();
         second_base.title = "Bank".into();
-        s.vault.update(first, &first_base, &p).unwrap();
-        s.vault.update(second, &second_base, &p).unwrap();
+        s.vault.update(&identity, first, &first_base, &p).unwrap();
+        s.vault.update(&identity, second, &second_base, &p).unwrap();
 
         let mut their_first = first_base.clone();
         their_first.value = "their-rotated-password".into();
@@ -160,8 +162,8 @@ impl Fixture {
         mine.value = "my-rotated-password".into();
         let mut mine_second = second_base;
         mine_second.value = "my-bank-password".into();
-        s.vault.update(first, &mine, &p).unwrap();
-        s.vault.update(second, &mine_second, &p).unwrap();
+        s.vault.update(&identity, first, &mine, &p).unwrap();
+        s.vault.update(&identity, second, &mine_second, &p).unwrap();
 
         let head_before = head(&s.vault);
         Fixture {
@@ -186,7 +188,7 @@ impl Fixture {
             .insert(&identity, sample("ProtonMail"), false, &p)
             .unwrap();
         let original = base();
-        s.vault.update(id, &original, &p).unwrap();
+        s.vault.update(&identity, id, &original, &p).unwrap();
         let path = path_of(id);
 
         let mut theirs = original.clone();
@@ -554,7 +556,7 @@ fn keep_both_when_the_remote_deleted_keeps_the_local_edit() {
     other.push();
     let mut mine = s.vault.read_entry(id, &identity).unwrap();
     mine.value = "my edit".into();
-    s.vault.update(id, &mine, &p).unwrap();
+    s.vault.update(&identity, id, &mine, &p).unwrap();
 
     let p = answering(&[Resolution::KeepBoth]);
     s.vault

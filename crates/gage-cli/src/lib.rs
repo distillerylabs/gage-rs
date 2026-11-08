@@ -232,6 +232,8 @@ mod entry_tests;
 #[cfg(test)]
 mod format_v2_tests;
 #[cfg(test)]
+mod format_v3_tests;
+#[cfg(test)]
 mod help_snapshot_tests;
 #[cfg(test)]
 mod identity_cli_tests;

@@ -22,7 +22,7 @@ use crate::{BuildInfo, Io};
 const RECIPIENT_1: &str = "age1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0savhh7m";
 /// What every [`Env::run`] answers a passphrase request with.
 pub(crate) const PASSPHRASE: &str = "correct horse battery staple";
-const RECIPIENT_2: &str = "age1yubikey1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9hkmc0";
+const RECIPIENT_2: &str = "age1g6ltwxkauxtfhedctepamjta92w5cteyxe0zuxju4twpaleleamsjjgs30";
 
 /// The hostname every [`Env`] reports unless a test sets another.
 const HOSTNAME: &str = "Test-Host.local";
@@ -715,6 +715,25 @@ fn init_malformed_recipient_fails_before_creating_files() {
     }
 }
 
+// A plugin recipient is well-formed but can't be sealed to, and the vault's
+// MAC key is sealed to every recipient at init (ADR-0065).
+#[test]
+fn init_with_a_recipient_it_cannot_encrypt_to_fails_before_creating_files() {
+    let env = Env::new();
+    let plugin = "age1yubikey1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9hkmc0";
+    let r = env.run(&[
+        "init",
+        "personal",
+        "--no-recovery-key",
+        "--recipient",
+        plugin,
+    ]);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
+    assert!(r.stderr.contains(plugin), "{}", r.stderr);
+    assert!(!env.default_vault_path("personal").exists());
+    assert!(env.global().vaults.is_empty());
+}
+
 // This device's key first, then
 // every --recipient in the order given (repeats included), labelled by
 // position.
@@ -883,10 +902,10 @@ fn init_mints_a_distinct_uuid_v4_per_vault() {
 }
 
 #[test]
-fn init_writes_format_version_two() {
+fn init_writes_format_version_three() {
     let env = Env::new();
     env.init("personal", &[]);
-    assert_eq!(env.vault_config("personal").vault.format_version, 2);
+    assert_eq!(env.vault_config("personal").vault.format_version, 3);
 }
 
 // init's help describes what has shipped: the identity it generates, an
@@ -1060,7 +1079,7 @@ fn a_vault_from_before_this_change_is_refused_with_a_recreate_message() {
     let env = Env::new();
     let path = env.init("personal", &[]);
     let raw = std::fs::read_to_string(config_file(&path)).unwrap();
-    let v1 = raw.replacen("format_version = 2", "format_version = 1", 1);
+    let v1 = raw.replacen("format_version = 3", "format_version = 1", 1);
     assert_ne!(v1, raw);
     let v1: String = v1
         .lines()

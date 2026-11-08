@@ -262,10 +262,11 @@ impl Vault {
                         // verbatim: its created/updated/updated_by are the
                         // losing side's own, the provenance the prompt just
                         // showed.
+                        let new = new_id();
                         let ciphertext = self
-                            .encrypt_entry(theirs)
+                            .encrypt_entry(new, theirs, identity)
                             .map_err(|e| fail(SyncCause::Entry(e), &report))?;
-                        adds.insert(entry_file_path(new_id()), ciphertext);
+                        adds.insert(entry_file_path(new), ciphertext);
                     }
                 }
                 Resolution::Skip => skipped += 1,
@@ -334,7 +335,7 @@ impl Vault {
         let side = |side| -> Result<ConflictSide, SyncCause> {
             let entry = match merge.content(side, path).map_err(SyncCause::Local)? {
                 Some(ciphertext) => Some(
-                    self.decrypt_entry(&ciphertext, identity)
+                    self.decrypt_entry(id, &ciphertext, identity)
                         .map_err(SyncCause::Entry)?,
                 ),
                 None => None,

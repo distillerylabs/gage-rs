@@ -117,7 +117,11 @@ fn several_recipients_land_in_one_commit() {
         paths.contains(&".gage/config.toml".to_string()),
         "{paths:?}"
     );
-    assert_eq!(paths.len(), 2 + 3, "{paths:?}");
+    assert!(
+        paths.contains(&".gage/vault-key.age".to_string()),
+        "the key is re-sealed: {paths:?}"
+    );
+    assert_eq!(paths.len(), 3 + 3, "{paths:?}");
     for key in [&a_key, &b_key] {
         let who = Identity::for_tests(key);
         for &id in &ids {

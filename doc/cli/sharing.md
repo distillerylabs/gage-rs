@@ -11,13 +11,15 @@ gage mv <query> --to-vault <name> [--use NAME]   # move
 gage cp <query> --to-vault <name> [--use NAME]   # copy, keeping the original
 ```
 
-Both decrypt the entry from its source vault (which has to be unlocked) and
-re-encrypt it to the destination vault's recipients. The destination itself
-does **not** need to be unlocked: encrypting *to* a set of public keys
-never requires holding any of the matching private keys, so the destination
-never asks for a passphrase, in a session or out of one. `mv` then removes
-the entry from the source; `cp` leaves the original in place, so the same
-secret ends up readable by both vaults' recipient sets.
+Both decrypt the entry from its source vault and re-encrypt it to the
+destination vault's recipients. **Both vaults are unlocked**, the source
+first: every entry carries a tag under its vault's key, which only the
+vault's recipients hold, so writing one into the destination takes this
+device's identity there ([ADR-0065](../decisions/0065-entry-authentication.md)).
+You can only move or copy into a vault you are a member of. In a session,
+each vault asks for its passphrase once. `mv` then removes the entry from
+the source; `cp` leaves the original in place, so the same secret ends up
+readable by both vaults' recipient sets.
 
 ```
 $ gage init shared-family --method passphrase --recipient <family-member-pubkey>

@@ -1305,9 +1305,11 @@ fn both_swaps_refuse_an_actor_who_cannot_read_every_entry() {
     /// partial add from before ADR-0009 would have left.
     fn readable_only_by(f: &Recover, to: &str) {
         let id = f.vault.entry_ids().unwrap()[0];
-        let entry = f.vault.read_entry(id, &f.unlock()).unwrap();
+        let identity = f.unlock();
+        let entry = f.vault.read_entry(id, &identity).unwrap();
         let to = crate::crypto::crypt::Recipient::parse(to).unwrap();
-        f.vault.write_entry_to(id, &entry, &[to]).unwrap();
+        let key = f.vault.vault_key(&identity).unwrap();
+        f.vault.write_entry_to(id, &entry, &[to], &key).unwrap();
         gitrepo::commit_all(&f.vault.path, "test: an entry only one key opens").unwrap();
     }
 

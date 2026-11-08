@@ -68,4 +68,8 @@ mod format_v2_bytes_tests;
 #[cfg(test)]
 mod format_v2_tests;
 #[cfg(test)]
+mod format_v3_bytes_tests;
+#[cfg(test)]
+mod format_v3_tests;
+#[cfg(test)]
 mod session_tests;

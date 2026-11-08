@@ -93,9 +93,10 @@ impl Vault {
         query: &str,
         dest: &Vault,
         identity: &Identity,
+        dest_identity: &Identity,
         prompter: &dyn Prompter,
     ) -> Result<MoveResult, MoveError> {
-        self.move_or_copy(query, dest, identity, prompter, true)
+        self.move_or_copy(query, dest, identity, dest_identity, prompter, true)
     }
 
     /// Like [`Vault::move_to`], leaving the original where it is.
@@ -104,9 +105,10 @@ impl Vault {
         query: &str,
         dest: &Vault,
         identity: &Identity,
+        dest_identity: &Identity,
         prompter: &dyn Prompter,
     ) -> Result<MoveResult, MoveError> {
-        self.move_or_copy(query, dest, identity, prompter, false)
+        self.move_or_copy(query, dest, identity, dest_identity, prompter, false)
     }
 
     /// The copy is a new entry: a fresh id, fresh `created` and `updated`,
@@ -114,11 +116,16 @@ impl Vault {
     /// carry over. A title the destination already has is allowed: there
     /// is no `-f`, and refusing would make sharing fail on the entry most
     /// likely to be shared twice.
+    ///
+    /// `dest_identity` is this device's identity in `dest`: only a member
+    /// can write an entry a vault will accept, since stamping it takes
+    /// `dest`'s MAC key (ADR-0065).
     fn move_or_copy(
         &self,
         query: &str,
         dest: &Vault,
         identity: &Identity,
+        dest_identity: &Identity,
         prompter: &dyn Prompter,
         remove_source: bool,
     ) -> Result<MoveResult, MoveError> {
@@ -144,7 +151,7 @@ impl Vault {
                 ..original
             };
             let dest_id = new_id();
-            dest.write_entry(dest_id, &copy)?;
+            dest.write_entry(dest_id, &copy, dest_identity)?;
             gitrepo::commit_all(&dest.path, &dest_id.to_string())?;
             dest.push_after_write(prompter);
 

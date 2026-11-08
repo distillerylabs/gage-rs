@@ -35,7 +35,11 @@ use crate::storage::serde_opt::empty_as_none;
 /// 2 added `[vault].id` (ADR-0006). A v1 vault has no id at all, so there is
 /// nothing to key its identities directory, trust cache or lock by, which
 /// is why the refusal in `read` is not a formality it could parse past.
-pub const CURRENT_FORMAT_VERSION: i64 = 2;
+///
+/// 3 authenticated entries (ADR-0065): `.gage/vault-key.age` and every
+/// entry's `auth` line. A v2 vault has neither, and no unauthenticated read
+/// path is kept, so it is refused like v1.
+pub const CURRENT_FORMAT_VERSION: i64 = 3;
 
 /// The `[vault]` table.
 ///
@@ -118,8 +122,10 @@ struct PreambleMeta {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VersionSkew {
     /// Written by an older gage (or missing). It can't be upgraded in
-    /// place: version 2 added `[vault].id` and there is no id to invent for a
-    /// vault that never had one, so the remedy is to re-create it.
+    /// place: version 2 added `[vault].id`, with no id to invent for a vault
+    /// that never had one, and version 3 authenticated every entry, which
+    /// trusting a v2 vault's entries as they stand would defeat. The remedy
+    /// is to re-create it.
     Older,
     /// Written by a newer gage: upgrade this one.
     Newer,
@@ -129,7 +135,7 @@ impl fmt::Display for VersionSkew {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             VersionSkew::Older => {
-                "re-create this vault (`make reset-local-state` clears this machine's vaults and identities first)"
+                "the vault is in an older format this gage no longer reads; re-create it (`make reset-local-state` clears this machine's vaults and identities first)"
             }
             VersionSkew::Newer => "upgrade gage",
         })
@@ -319,7 +325,7 @@ mod tests {
             "name = \"myvault\"",
             "id = \"9f3a1c2e-7b41-4d58-a0c6-2e5f81b3d497\"",
             "type = \"git\"",
-            "format_version = 2",
+            "format_version = 3",
             "created = \"2026-08-29\"",
             "[method]",
             "default = \"passphrase\"",
@@ -436,8 +442,8 @@ mod tests {
     // The "re-create the vault" story
     // only works if the marker that triggers it actually moved.
     #[test]
-    fn current_format_version_is_two() {
-        assert_eq!(CURRENT_FORMAT_VERSION, 2);
+    fn current_format_version_is_three() {
+        assert_eq!(CURRENT_FORMAT_VERSION, 3);
     }
 
     // Rust adds a distinguishable variant.

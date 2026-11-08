@@ -492,7 +492,11 @@ fn recipient_add_commits_both_files_together() {
         ("phone-1", phone.as_str())
     );
     let mut want: Vec<String> = ids.iter().map(|id| format!("entries/{id}.age")).collect();
-    want.extend([".age-recipients".into(), ".gage/config.toml".into()]);
+    want.extend([
+        ".age-recipients".into(),
+        ".gage/config.toml".into(),
+        ".gage/vault-key.age".into(),
+    ]);
     want.sort();
     assert_eq!(commit_paths(&f.vault.path, &f.head()), want);
     let head = gitrepo::head_commit(&f.vault.path).unwrap();

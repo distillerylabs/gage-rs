@@ -50,6 +50,9 @@ age = "0.12.1"
 # The trust cache's `.age-recipients` hash (ADR-0004). The version age
 # already uses, so the tree gains no second copy.
 sha2 = "0.11"
+# Entry authentication's HMAC-SHA256 (ADR-0065), on the same digest line as
+# sha2 above.
+hmac = "0.13"
 zeroize = "1"
 # remoteauth's remote-URL parsing. Already in the graph through git2's
 # `cred` feature.

@@ -628,7 +628,7 @@ fn every_write_pushes() {
     assert_eq!(remote_head(), s.head(), "insert");
     let mut e = s.vault.read_entry(id, &identity).unwrap();
     e.value = "rotated".into();
-    s.vault.update(id, &e, &p).unwrap();
+    s.vault.update(&identity, id, &e, &p).unwrap();
     assert_eq!(remote_head(), s.head(), "update");
     s.vault.rename(&identity, "a", "b", false, &p).unwrap();
     assert_eq!(remote_head(), s.head(), "rename");
@@ -812,7 +812,7 @@ fn conflicting_divergence_is_detected_and_left_alone() {
     );
     let mut e = s.vault.read_entry(id, &identity).unwrap();
     e.value = "rotated-locally".into();
-    s.vault.update(id, &e, &p).unwrap();
+    s.vault.update(&identity, id, &e, &p).unwrap();
     let head = s.head();
 
     let err = s.vault.push().unwrap_err();
@@ -846,7 +846,7 @@ fn warning_from_conflicting_write() -> Warning {
     let p = FakePrompter::new();
     let mut e = s.vault.read_entry(id, &identity).unwrap();
     e.value = "rotated-locally".into();
-    s.vault.update(id, &e, &p).unwrap();
+    s.vault.update(&identity, id, &e, &p).unwrap();
     let warnings = p.warned();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     warnings[0].clone()

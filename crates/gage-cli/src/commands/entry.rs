@@ -552,7 +552,9 @@ pub fn edit(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
         keys.with_resolved(matches, io, query, |io, vault, identity, id, original| {
             let mut edited = editor::edit_yaml(io.editor.as_deref(), &original)?.entry;
             edited.restamp_after_edit(&original, identity);
-            vault.update(id, &edited, prompter).map_err(write_failure)?;
+            vault
+                .update(identity, id, &edited, prompter)
+                .map_err(write_failure)?;
             Ok((id, edited))
         })?;
     keys.note(matches, id, &edited);

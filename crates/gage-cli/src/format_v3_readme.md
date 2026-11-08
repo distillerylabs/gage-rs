@@ -1,7 +1,7 @@
-# The format-v2 golden vault
+# The format-v3 golden vault
 
 This directory is a vault and one device's local state, as gage-rs wrote
-them in format v2. It is specified by [`doc/format/v2.md`](../../../doc/format/v2.md).
+them in format v3. It is specified by [`doc/format/v3.md`](../../../doc/format/v3.md).
 
 **Nothing here is a secret.** The passphrase, the recovery key and the
 enrollment code below are public, and they open nothing but this
@@ -9,13 +9,14 @@ fixture.
 
 ## Never edit it
 
-The fixture was written once by the generator, `write_format_v2_fixture`
-in `crates/gage-cli/src/format_v2_tests.rs`, and is never regenerated in
-place. `format_v2_fixture_is_byte_stable` checks every file against
+The fixture was written once by the generator, `write_format_v3_fixture`
+in `crates/gage-cli/src/format_v3_tests.rs`, and is never regenerated in
+place. `format_v3_fixture_is_byte_stable` checks every file against
 `SHA256SUMS`.
 
-A change to the format adds a `format-v3/` fixture beside this one. This
-one stays, as the proof that v2 still reads or still migrates. See
+A change to the format adds a `format-v4/` fixture beside this one. This
+one stays, as the proof that v3 still reads, still migrates, or is
+refused as its ADR says. See
 [`doc/format/README.md`](../../../doc/format/README.md).
 
 `.gitattributes` marks this tree `-text`, so no checkout rewrites its
@@ -39,6 +40,8 @@ The vault:
 - **Recipients:**
   - `laptop-1`: `@DEVICE_PUBKEY@`
   - `recovery-paper-key`: `@RECOVERY_PUBKEY@`
+- **MAC key:** `.gage/vault-key.age`, sealed to both recipients. Every
+  entry's payload ends in an `auth` line under it.
 - **Entries:**
   - `github`: a description, two `fields`, and two keys this build
     doesn't know (`x-future-plain`, `x-future-map`)
@@ -57,7 +60,7 @@ The vault:
 
 `laptop-1`'s identity file:
 
-- **Passphrase:** `format-v2 fixture passphrase`
+- **Passphrase:** `format-v3 fixture passphrase`
 - **Wrapped at:** scrypt work factor 10, not the shipped 19. Readers cap
   the factor at 22 and set no floor, so this is the real unwrap path,
   only cheaper.

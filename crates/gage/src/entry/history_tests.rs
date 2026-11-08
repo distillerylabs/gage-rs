@@ -28,7 +28,9 @@ fn insert(f: &Fixture, title: &str, value: &str) -> Uuid {
 fn set_value(f: &Fixture, id: Uuid, value: &str) {
     let mut e: Entry = f.vault.read_entry(id, &f.identity()).unwrap();
     e.value = value.into();
-    f.vault.update(id, &e, &FakePrompter::new()).unwrap();
+    f.vault
+        .update(&f.identity(), id, &e, &FakePrompter::new())
+        .unwrap();
 }
 
 fn remove(f: &Fixture, id: Uuid) {

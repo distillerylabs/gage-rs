@@ -10,8 +10,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::crypto::agekey;
+use crate::crypto::crypt;
 use crate::crypto::identity::{Identity, PageLock, Unlocked};
 use crate::crypto::locker::{Locker, MemLocker};
+use crate::crypto::vaultkey::{self, VaultKey};
 use crate::devicename;
 use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::prompter::{Prompter, Warning};
@@ -52,10 +54,12 @@ pub const INIT_COMMIT_MESSAGE: &str = "gage: initialize vault";
 /// uncommitted ("On-disk layout").
 const GITIGNORE: &str = ".DS_Store\nThumbs.db\n";
 
-/// `.gitattributes`: any divergence in either recipient-defining file is a
-/// real conflict, rather than git silently line-merging a recipient list
-/// neither device wrote ("On-disk layout", ADR-0021).
-const GITATTRIBUTES: &str = ".age-recipients -merge\n.gage/config.toml -merge\n";
+/// `.gitattributes`: any divergence in either recipient-defining file, or
+/// in the MAC key sealed to them, is a real conflict, rather than git
+/// silently line-merging a recipient list neither device wrote ("On-disk
+/// layout", ADR-0021, ADR-0065).
+const GITATTRIBUTES: &str =
+    ".age-recipients -merge\n.gage/config.toml -merge\n.gage/vault-key.age -merge\n";
 
 #[derive(Debug, Clone)]
 pub struct Vault {
@@ -212,6 +216,13 @@ pub enum CreateError {
     NoRecipients,
     #[error(transparent)]
     InvalidRecipient(#[from] agekey::Error),
+    /// Well-formed, but not a key this build can encrypt to (a plugin
+    /// recipient): the vault's MAC key is sealed to every recipient at
+    /// creation, so each must be one (ADR-0065).
+    #[error(transparent)]
+    UnencryptableRecipient(crypt::Error),
+    #[error(transparent)]
+    VaultKey(#[from] vaultkey::Error),
     /// A labelled extra collides with another recipient: the key, or the
     /// label, is already taken. Mirrors `RecipientError::RecipientExists`.
     #[error("this vault already lists that recipient: {}", exists(.device, .pubkey))]
@@ -260,6 +271,7 @@ impl HasKind for CreateError {
             | InvalidDeviceName(_)
             | NoRecipients
             | InvalidRecipient(_)
+            | UnencryptableRecipient(_)
             | EmptyPath
             | ReservedDeviceLabel(_) => ErrorKind::Usage,
             TargetNotADirectory(_) | TargetNotEmpty(_) | RecipientExists { .. } => {
@@ -271,6 +283,7 @@ impl HasKind for CreateError {
             | Recipients(_)
             | WriteFile { .. }
             | Git(_) => ErrorKind::Internal,
+            VaultKey(e) => e.kind(),
         }
     }
 }
@@ -372,7 +385,8 @@ impl HasKind for InfoError {
 
 impl Vault {
     /// Lays out a brand-new vault: the directory, `.gage/config.toml`,
-    /// `.age-recipients`, `.gitignore`, `.gitattributes`, an empty
+    /// `.age-recipients`, `.gage/vault-key.age` (a fresh MAC key sealed to
+    /// every recipient), `.gitignore`, `.gitattributes`, an empty
     /// `entries/`, a git repository and one commit of all of it, plus
     /// `origin` if a remote is given. No encryption and no identity: the
     /// vault it returns is created, not unlocked.
@@ -381,8 +395,9 @@ impl Vault {
     /// than trusted to a frontend: a GUI may call this directly.
     pub fn create(dirs: &Dirs, spec: &CreateSpec) -> Result<Vault, CreateError> {
         validate(spec)?;
+        let seal_to = seal_recipients(spec)?;
         require_empty_or_absent(&spec.path)?;
-        write_skeleton(spec)?;
+        write_skeleton(spec, &seal_to)?;
         gitrepo::init_and_commit(&spec.path, INIT_COMMIT_MESSAGE)?;
         if let Some(remote) = &spec.remote {
             gitrepo::set_remote(&spec.path, remote)?;
@@ -937,9 +952,19 @@ fn require_empty_or_absent(path: &Path) -> Result<(), CreateError> {
     Ok(())
 }
 
+/// Every recipient `create` writes, ready to seal the MAC key to, or the
+/// first this build can't encrypt to.
+fn seal_recipients(spec: &CreateSpec) -> Result<Vec<crypt::Recipient>, CreateError> {
+    spec.recipients
+        .iter()
+        .chain(spec.extra_recipients.iter().map(|e| &e.pubkey))
+        .map(|k| crypt::Recipient::parse(k).map_err(CreateError::UnencryptableRecipient))
+        .collect()
+}
+
 /// Writes every file `create` promises; the git plumbing is separate, so
 /// what's on disk and how it's versioned stay easy to reason about apart.
-fn write_skeleton(spec: &CreateSpec) -> Result<(), CreateError> {
+fn write_skeleton(spec: &CreateSpec, seal_to: &[crypt::Recipient]) -> Result<(), CreateError> {
     // entries/ holds ciphertext, but its listing still leaks how many
     // secrets exist and when each changed, so 0700 like the identities
     // directory, where the rest of the committed config gets 0750. It is
@@ -988,6 +1013,7 @@ fn write_skeleton(spec: &CreateSpec) -> Result<(), CreateError> {
     };
     vaultconfig::save(&config_path(&spec.path), &file)?;
     crate::trust::recipient::save(&spec.path.join(".age-recipients"), &pubkeys)?;
+    VaultKey::generate().save(&spec.path, seal_to)?;
     for (name, content) in [(".gitignore", GITIGNORE), (".gitattributes", GITATTRIBUTES)] {
         let path = spec.path.join(name);
         atomicfile::write(&path, content.as_bytes(), 0o644)
@@ -1040,7 +1066,10 @@ mod tests {
     }
 
     const RECIPIENT_1: &str = "age1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0savhh7m";
-    const RECIPIENT_2: &str =
+    const RECIPIENT_2: &str = "age1g6ltwxkauxtfhedctepamjta92w5cteyxe0zuxju4twpaleleamsjjgs30";
+    /// Well-formed, legal in `.age-recipients`, and not something this
+    /// build can encrypt to.
+    const PLUGIN_RECIPIENT: &str =
         "age1yubikey1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0s9hkmc0";
 
     /// A valid spec targeting a not-yet-existing directory inside `root`.
@@ -1134,7 +1163,7 @@ mod tests {
     }
 
     // Entries/ is absent: git can't
-    // track an empty directory, so a new vault commits four files.
+    // track an empty directory, so a new vault commits five files.
     #[test]
     fn create_commits_the_skeleton_files() {
         let root = tempfile::tempdir().unwrap();
@@ -1145,6 +1174,7 @@ mod tests {
             [
                 ".age-recipients",
                 ".gage/config.toml",
+                ".gage/vault-key.age",
                 ".gitattributes",
                 ".gitignore"
             ]
@@ -1288,7 +1318,63 @@ mod tests {
         let file = vaultconfig::load(&vault.config_path()).unwrap();
         assert_eq!(file.vault.id, spec.id);
         assert_eq!(vault.id, spec.id);
-        assert_eq!(file.vault.format_version, 2);
+        assert_eq!(file.vault.format_version, 3);
+    }
+
+    // Init mints the key: create leaves a vault-key.age that every initial
+    // recipient, labelled extras included, opens to the same key.
+    #[test]
+    fn create_seals_a_fresh_vault_key_to_every_initial_recipient() {
+        let root = tempfile::tempdir().unwrap();
+        let keys: Vec<_> = (0..3).map(|_| age::x25519::Identity::generate()).collect();
+        let public = |i: usize| keys[i].to_public().to_string();
+        let mut spec = valid_spec(&root, "myvault");
+        spec.recipients = vec![public(0), public(1)];
+        spec.extra_recipients = vec![LabelledRecipient {
+            device: "recovery-paper-key".into(),
+            pubkey: public(2),
+        }];
+        Vault::create(&test_dirs(), &spec).unwrap();
+
+        let sealed = std::fs::read(spec.path.join(vaultkey::VAULT_KEY_FILE)).unwrap();
+        let tags: Vec<_> = keys
+            .iter()
+            .map(|k| {
+                VaultKey::open(&sealed, &Identity::for_tests(k))
+                    .unwrap()
+                    .entry_tag(uuid::Uuid::nil(), b"probe")
+            })
+            .collect();
+        assert!(tags.windows(2).all(|w| w[0] == w[1]), "one key for all");
+        let stranger = Identity::for_tests(&age::x25519::Identity::generate());
+        assert!(VaultKey::open(&sealed, &stranger).is_err());
+
+        // A second vault gets a key of its own.
+        let mut other = valid_spec(&root, "other");
+        other.recipients = vec![public(0)];
+        Vault::create(&test_dirs(), &other).unwrap();
+        let sealed = std::fs::read(other.path.join(vaultkey::VAULT_KEY_FILE)).unwrap();
+        let theirs = VaultKey::open(&sealed, &Identity::for_tests(&keys[0])).unwrap();
+        assert_ne!(theirs.entry_tag(uuid::Uuid::nil(), b"probe"), tags[0]);
+    }
+
+    // The key is sealed to every recipient, so each must be one this build
+    // can encrypt to; refused before anything is written.
+    #[test]
+    fn create_refuses_a_recipient_it_cannot_seal_the_key_to() {
+        let root = tempfile::tempdir().unwrap();
+        let mut spec = valid_spec(&root, "myvault");
+        spec.recipients = vec![RECIPIENT_1.into(), PLUGIN_RECIPIENT.into()];
+        let err = Vault::create(&test_dirs(), &spec).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                CreateError::UnencryptableRecipient(crypt::Error::InvalidRecipient { .. })
+            ),
+            "{err:?}"
+        );
+        assert_eq!(err.kind(), ErrorKind::Usage);
+        assert!(!spec.path.exists(), "nothing written");
     }
 
     // The first check, ahead of every

@@ -1,0 +1,18 @@
+current = "personal"
+
+[vaults.personal]
+path = "@VAULT_PATH@"
+id = "9acc298b-a964-494d-94ed-9a84413baada"
+type = "git"
+device = "laptop-1"
+pubkey = "age1ehftancy2fdl4vnanneal77z4s2qmfr5lcjwnr4jvv5qyzlduydqxgzaej"
+method = "passphrase"
+
+[vaults.personal.git]
+origin = "@ORIGIN@"
+
+[shell]
+prompt = "{vault}{lock} fixture> "
+idle_timeout = "15m"
+history_file = "$GAGE_STATE/history"
+clipboard_timeout = "1m30s"

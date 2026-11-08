@@ -988,8 +988,9 @@ fn a_move_updates_both_indexes_without_a_rebuild() {
 
     let r = {
         let prompter = s.prompter();
-        let (src, identity, dest) = s.vault_and_destination(None, "shared").unwrap();
-        src.move_to("AWS", dest, identity, prompter).unwrap()
+        let (src, identity, dest, dest_identity) = s.vault_and_destination(None, "shared").unwrap();
+        src.move_to("AWS", dest, identity, dest_identity, prompter)
+            .unwrap()
     };
     // The baseline is taken here, after the move's own reads and before
     // the index is told: the update itself must decrypt nothing.
@@ -1037,19 +1038,26 @@ fn a_move_updates_both_indexes_without_a_rebuild() {
     );
 }
 
-// Moving in a session never unlocks the destination, at the library: the
-// destination is held, not unlocked, so it is never asked for a passphrase.
+// Moving in a session unlocks the destination as well as the source, once
+// each: only a member can stamp an entry the destination accepts
+// (ADR-0065). An unregistered destination fails before anything is asked.
 #[test]
-fn the_destination_of_a_move_is_held_but_never_unlocked() {
+fn the_destination_of_a_move_is_unlocked_once_like_the_source() {
     let d = Device::new(&["personal", "shared"]);
     d.seed("personal", &["AWS"]);
-    let p = unlocks(1);
+    let p = unlocks(2);
     let mut s = d.session(&p, current_personal());
     s.use_vault("personal").unwrap();
 
     s.vault_and_destination(None, "shared").unwrap();
+    s.vault_and_destination(None, "shared").unwrap();
 
-    assert_eq!(unlock_count(&p, "shared"), 0);
+    assert_eq!(unlock_count(&p, "shared"), 1);
+    assert_eq!(
+        s.current(),
+        Some("personal"),
+        "the destination isn't made current"
+    );
     let err = s.vault_and_destination(None, "nope").err().unwrap();
     assert!(matches!(err, SessionError::Open(_)), "{err}");
     assert_eq!(

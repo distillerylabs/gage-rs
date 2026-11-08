@@ -1,50 +1,25 @@
-//! Byte-exact re-serialization of every TOML schema in `doc/format/v2.md`.
+//! Byte-exact re-serialization of the TOML schemas in `doc/format/v2.md`,
+//! where it doesn't need v2's vault opened: format v3 kept every schema
+//! unchanged, but this build refuses a v2 vault (`format_v2_tests`), so the
+//! committed vault config and trust record are re-serialized in
+//! `format_v3_bytes_tests` instead.
 //!
-//! `format_v2_schemas_round_trip` compares *values*, so a change to a
-//! field's Rust type that reorders keys, or turns `key = ""` into an
-//! omission, would leave it green. These compare *bytes*: each committed
-//! file is read the way gage reads it and written the way gage writes it,
-//! and must come back identical. They were written green against the
-//! `String`-typed schemas, before D3a re-typed them.
+//! These compare *bytes*: each committed file is read the way gage reads
+//! it and written the way gage writes it, and must come back identical.
+//! They were written green against the `String`-typed schemas, before D3a
+//! re-typed them.
 
 use std::path::Path;
 
 use crate::crypto::crypt;
 use crate::enrollment::{Payload, normalize_code};
 use crate::storage::config;
-use crate::testsupport::format_v2::{self as fx, Installed};
-use crate::trust::trustcache::{KNOWN_CONFIG_FILE, TRUST_FILE, TrustRecord};
-use crate::vault::Vault;
-use crate::{storage::paths, storage::vaultconfig};
-
-fn vault(i: &Installed) -> Vault {
-    let global = config::load(&paths::global_config_file(&i.dirs)).unwrap();
-    Vault::from_registration(&i.dirs, fx::VAULT_NAME, &global.vaults[fx::VAULT_NAME]).unwrap()
-}
+use crate::storage::vaultconfig;
+use crate::testsupport::format_v2 as fx;
+use crate::trust::trustcache::TrustRecord;
 
 fn text(path: &Path) -> String {
     std::fs::read_to_string(path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
-}
-
-/// `committed`, read with `vaultconfig::load` and written back with
-/// `vaultconfig::save`.
-fn rewrite_vault_config(committed: &str) -> String {
-    let dir = tempfile::tempdir().unwrap();
-    let (src, dst) = (dir.path().join("in.toml"), dir.path().join("out.toml"));
-    std::fs::write(&src, committed).unwrap();
-    vaultconfig::save(&dst, &vaultconfig::load(&src).unwrap()).unwrap();
-    text(&dst)
-}
-
-#[test]
-fn format_v2_vault_config_reserializes_byte_identically() {
-    let i = fx::install();
-    let committed = text(&i.vault.join(".gage/config.toml"));
-    assert_eq!(rewrite_vault_config(&committed), committed);
-
-    let trust_dir = i.dirs.state.join(fx::VAULT_ID);
-    let known = text(&trust_dir.join(KNOWN_CONFIG_FILE));
-    assert_eq!(rewrite_vault_config(&known), known);
 }
 
 // The template, not the installed copy: install fills in temp paths, and a
@@ -63,29 +38,6 @@ fn format_v2_global_config_reserializes_byte_identically() {
     std::fs::write(&src, &committed).unwrap();
     config::save(&dst, &config::load(&src).unwrap()).unwrap();
     assert_eq!(text(&dst), committed);
-}
-
-// Through the vault's own load and store, which convert the timestamp on
-// the way in and out.
-#[test]
-fn format_v2_trust_record_reserializes_byte_identically() {
-    let i = fx::install();
-    let trust_dir = i.dirs.state.join(fx::VAULT_ID);
-    let (known, trust) = (
-        text(&trust_dir.join(KNOWN_CONFIG_FILE)),
-        text(&trust_dir.join(TRUST_FILE)),
-    );
-    let vault = vault(&i);
-
-    let cache = vault
-        .load_trust_cache()
-        .unwrap()
-        .expect("the fixture has one");
-    std::fs::remove_dir_all(&trust_dir).unwrap();
-    vault.save_trust_cache(&cache).unwrap();
-
-    assert_eq!(text(&trust_dir.join(KNOWN_CONFIG_FILE)), known);
-    assert_eq!(text(&trust_dir.join(TRUST_FILE)), trust);
 }
 
 #[test]

@@ -24,7 +24,7 @@ the M1 branch.
   failure, not a usage error).
 - `crates/gage-cli/src/` command handlers that read entries (`show`, `ls`,
   session index) — the message a user sees when an entry fails to verify.
-- `crates/gage-ffi/` and [ADR-0063](../../../decisions/0063-what-crosses-the-bindings.md)
+- `crates/gage-ffi/` and [ADR-0063](../../../../decisions/0063-what-crosses-the-bindings.md)
   — the verification result and the new error crossing into Swift/Kotlin.
 - `doc/design/security-model.md`, `SECURITY.md`, `doc/cli/` — where the new
   guarantee and its scope are documented.

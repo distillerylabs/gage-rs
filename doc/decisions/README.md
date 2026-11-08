@@ -51,6 +51,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0013](0013-orphan-identity-by-pubkey.md) `vault remove` compares public keys and asks
 - [0052](0052-vault-id-type.md) Vault ids are a validated type
 - [0053](0053-vault-type-closed-method-open.md) Vault type is closed, unlock method is open
+- [0065](0065-entry-authentication.md) Entries are authenticated by a per-vault MAC key; format v3; v2 is refused
 
 ### Git and sync
 

@@ -20,8 +20,8 @@ fn new_session<'a>(s: &'a SyncVault, p: &'a FakePrompter) -> Session<'a> {
 }
 
 /// An entry another device writes: real ciphertext for this vault's
-/// recipients, committed and pushed from the other clone, which can't
-/// read it but doesn't need to.
+/// recipients, stamped with the vault's key, committed and pushed from the
+/// other clone.
 fn other_device_adds_an_entry(s: &SyncVault) {
     let other = s.other();
     let mut there = s.vault.clone();
@@ -38,6 +38,7 @@ fn other_device_adds_an_entry(s: &SyncVault) {
                 updated: Some(now),
                 ..Entry::default()
             },
+            &s.unlock(),
         )
         .unwrap();
     other.commit(&id.to_string());
@@ -195,13 +196,13 @@ fn diverge_on_one_entry(s: &SyncVault) -> uuid::Uuid {
     let other = s.other();
     other.write_bytes(
         &format!("entries/{id}.age"),
-        &s.vault.encrypt_entry(&theirs).unwrap(),
+        &s.vault.encrypt_entry(id, &theirs, &identity).unwrap(),
     );
     other.commit("their edit");
     other.push();
     let mut mine = s.vault.read_entry(id, &identity).unwrap();
     mine.value = "mine".into();
-    s.vault.update(id, &mine, &p).unwrap();
+    s.vault.update(&identity, id, &mine, &p).unwrap();
     id
 }
 

@@ -49,15 +49,27 @@ fn run(matches: &ArgMatches, io: &mut Io, keys: &mut Keys, remove: bool) -> Resu
             if source.name == dest.name || source.id == dest.id {
                 return Err(same_vault(to));
             }
+            // The destination is unlocked too: stamping the copy takes its
+            // MAC key (ADR-0065).
             with_unlocked(&source, prompter, |identity| {
-                transfer(&source, query, &dest, identity, prompter, remove)
+                with_unlocked(&dest, prompter, |dest_identity| {
+                    transfer(
+                        &source,
+                        query,
+                        identity,
+                        &dest,
+                        dest_identity,
+                        prompter,
+                        remove,
+                    )
+                })
             })?
         }
         Keys::Session(session) => {
             if use_name(matches).or(session.current()) == Some(to) {
                 return Err(same_vault(to));
             }
-            // Registers the destination without unlocking it, so an
+            // Registers the destination before anything is unlocked, so an
             // unknown one fails before the source's passphrase is asked.
             session
                 .vault_without_unlocking(Some(to))
@@ -67,10 +79,18 @@ fn run(matches: &ArgMatches, io: &mut Io, keys: &mut Keys, remove: bool) -> Resu
             let (id, _) = session
                 .resolve(use_name(matches), query)
                 .map_err(session_failure)?;
-            let (source, identity, dest) = session
+            let (source, identity, dest, dest_identity) = session
                 .vault_and_destination(use_name(matches), to)
                 .map_err(session_failure)?;
-            let moved = transfer(source, &id.to_string(), dest, identity, prompter, remove)?;
+            let moved = transfer(
+                source,
+                &id.to_string(),
+                identity,
+                dest,
+                dest_identity,
+                prompter,
+                remove,
+            )?;
             if remove {
                 session.forget_entry(use_name(matches), moved.source_id);
             }
@@ -92,15 +112,16 @@ fn run(matches: &ArgMatches, io: &mut Io, keys: &mut Keys, remove: bool) -> Resu
 fn transfer(
     source: &Vault,
     query: &str,
-    dest: &Vault,
     identity: &Identity,
+    dest: &Vault,
+    dest_identity: &Identity,
     prompter: &dyn Prompter,
     remove: bool,
 ) -> Result<MoveResult, CliError> {
     let result = if remove {
-        source.move_to(query, dest, identity, prompter)
+        source.move_to(query, dest, identity, dest_identity, prompter)
     } else {
-        source.copy_to(query, dest, identity, prompter)
+        source.copy_to(query, dest, identity, dest_identity, prompter)
     };
     result.map_err(|err| match err {
         MoveError::Resolve(e) => resolve_failure(e),
