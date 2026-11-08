@@ -41,7 +41,10 @@ lose or expose, and keep independent backups.
   are suppressed for the process.
 - **Plaintext on disk is short-lived.** `edit` writes a scratch file with an
   unpredictable name, mode 0600, preferring a tmpfs, and overwrites and
-  removes it on every exit path ([ADR-0036](../decisions/0036-editor.md)).
+  removes it however the edit ends, including on `SIGINT`, `SIGQUIT`,
+  `SIGTERM` and `SIGHUP` on Unix
+  ([ADR-0036](../decisions/0036-editor.md),
+  [ADR-0070](../decisions/0070-edit-scratch-signals.md)).
 - **Untrusted vault metadata is validated.** The vault id, device names and
   token hosts become path components, and they arrive from files anyone
   with git write access can edit. They are validated before any path is
@@ -121,6 +124,9 @@ Known, bounded, and not fixed on purpose.
 - **A SIGKILL leaves a copied secret on the clipboard** if `--clip` was in
   use: the clear runs in the process that wrote the value
   ([ADR-0035](../decisions/0035-clipboard.md)).
+- **A SIGKILL or power loss leaves the `edit` scratch file behind**, and so
+  can Ctrl-C or closing the console on Windows: nothing runs to remove it
+  ([ADR-0070](../decisions/0070-edit-scratch-signals.md)).
 - **The enrollment code reaches command history on the approving device**
   when given with `--code`. The exposure is device-local, the code dies in
   24 hours and the request is deleted on approval; omitting `--code` and

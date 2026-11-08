@@ -13,7 +13,8 @@
   `/dev/shm` that `statfs` reports as tmpfs; elsewhere
   `std::env::temp_dir()`. The file is created exclusively with an
   unpredictable name, 0600 on Unix, and on every exit path overwritten with
-  zeros at its length and unlinked, best-effort.
+  zeros at its length and unlinked, best-effort. [ADR-0070](0070-edit-scratch-signals.md)
+  says which signals count as exit paths.
 - On Unix the handle the file was written through stays open across the
   editor and is zeroed too, so an editor that saves by renaming a new file
   over the path cannot leave the original inode un-zeroed. Windows closes it
