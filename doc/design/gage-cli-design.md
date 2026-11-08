@@ -2068,7 +2068,9 @@ here" — by construction, nothing would replace it.
   value that was printed — an easy leak vector to overlook once you have a
   REPL with recallable history. Titles typed as *queries* are fine to log
   (you typed them yourself); it's only the decrypted `value`/`fields`
-  values that must never land in the history file.
+  values that must never land in the history file. `--field NAME=VALUE`
+  puts one on the typed line itself, so a line containing `=` isn't
+  recorded at all ([ADR-0071](../decisions/0071-values-on-a-typed-line.md)).
 - **`insert`'s value-input modes are mutually exclusive, and the
   per-value stdin flag isn't named `--stdin`.** The global `--stdin` flag
   already means "read whole command lines from stdin for non-interactive
