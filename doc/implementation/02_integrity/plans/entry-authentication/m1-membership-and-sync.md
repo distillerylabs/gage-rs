@@ -1,4 +1,4 @@
-[index](index.md) · [M0](m0-library-mac-and-v3.md) · **M1** · [M2](m2-frontend-and-docs.md)
+[index](index.md) · [M0](m0-library-mac-and-v3.md) · **M1** · [M2](m2-frontend-and-docs.md) · [M3](m3-qa-coverage.md)
 
 # M1 — Membership & sync: rotation, re-encryption, keep-both, enrollment, recovery
 

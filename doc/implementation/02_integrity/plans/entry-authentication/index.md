@@ -52,6 +52,7 @@ per-device provenance.
 | M0 | [m0-library-mac-and-v3.md](m0-library-mac-and-v3.md) | Opus | — | Done, in review |
 | M1 | [m1-membership-and-sync.md](m1-membership-and-sync.md) | Opus | M0 | Done, in review |
 | M2 | [m2-frontend-and-docs.md](m2-frontend-and-docs.md) | Sonnet | M1 | Done, in review |
+| M3 | [m3-qa-coverage.md](m3-qa-coverage.md) | Sonnet | M2 | Planned |
 
 ## Process notes
 
@@ -61,7 +62,7 @@ per-device provenance.
   `format_v2_*` tests change from "loads" to "refused", which is legitimate
   under a deliberate version bump.
 - Branches are a stack merging into `main`:
-  `main` ← `198-entry-authentication` (these plan docs) ← M0 ← M1 ← M2.
+  `main` ← `198-entry-authentication` (these plan docs) ← M0 ← M1 ← M2 ← M3.
 - Each milestone is tests-first, ends green on `make lint` and `make test`,
   and stops for review. The milestone doc's test list is its definition of
   done.

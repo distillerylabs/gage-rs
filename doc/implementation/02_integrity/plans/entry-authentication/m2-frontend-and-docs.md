@@ -1,4 +1,4 @@
-[index](index.md) · [M0](m0-library-mac-and-v3.md) · [M1](m1-membership-and-sync.md) · **M2**
+[index](index.md) · [M0](m0-library-mac-and-v3.md) · [M1](m1-membership-and-sync.md) · **M2** · [M3](m3-qa-coverage.md)
 
 # M2 — Frontend & docs: CLI errors, mobile FFI, docs
 

@@ -1,4 +1,4 @@
-[index](index.md) · **M0** · [M1](m1-membership-and-sync.md) · [M2](m2-frontend-and-docs.md)
+[index](index.md) · **M0** · [M1](m1-membership-and-sync.md) · [M2](m2-frontend-and-docs.md) · [M3](m3-qa-coverage.md)
 
 # M0 — Library: MAC key, authenticated entries, format v3
 
