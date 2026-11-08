@@ -6,7 +6,7 @@ use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use super::{Error, ORIGIN, fail, isolate, open, require_clean_work_tree};
+use super::{Error, ORIGIN, fail, has_remote, isolate, open, require_clean_work_tree};
 use crate::storage::xdgpaths::Dirs;
 use crate::sync::remoteauth::{self, Method};
 use crate::sync::syncerr::{self, Kind};
@@ -273,6 +273,33 @@ pub(crate) fn remote_branch(
                 branches: heads,
             }),
     }
+}
+
+/// `path`'s bytes as the vault's history has published them: at the
+/// remote-tracking ref, or at HEAD for a vault with no remote. `None` when
+/// that commit lacks the path, or a remote exists and nothing has reached
+/// it yet. No network, like [`compare`]: it answers from the last fetch.
+pub(crate) fn published_content(dir: &Path, path: &str) -> Result<Option<Vec<u8>>, Error> {
+    let repo = open(dir)?;
+    let (local, tracking) = head_and_tracking(&repo, dir)?;
+    let commit = match tracking {
+        Some(remote) => remote,
+        None if has_remote(dir)? => return Ok(None),
+        None => local,
+    };
+    let tree = repo
+        .find_commit(commit)
+        .and_then(|c| c.tree())
+        .map_err(fail("reading the published tree of", dir))?;
+    let entry = match tree.get_path(Path::new(path)) {
+        Ok(entry) => entry,
+        Err(e) if e.code() == git2::ErrorCode::NotFound => return Ok(None),
+        Err(e) => return Err(fail("reading the published tree of", dir)(e)),
+    };
+    let blob = repo
+        .find_blob(entry.id())
+        .map_err(fail("reading the published tree of", dir))?;
+    Ok(Some(blob.content().to_vec()))
 }
 
 /// How the current branch relates to its remote-tracking ref. No network:

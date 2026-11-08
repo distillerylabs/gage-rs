@@ -36,9 +36,13 @@ impl Vault {
             .collect::<Result<_, _>>()?)
     }
 
-    /// The vault's MAC key, opened with `identity` (ADR-0065).
+    /// The vault's MAC key, opened with `identity` (ADR-0065), once it has
+    /// passed the continuity check (ADR-0067). Every use of the key comes
+    /// through here.
     pub(crate) fn vault_key(&self, identity: &Identity) -> Result<VaultKey, Error> {
-        Ok(VaultKey::load(&self.path, identity)?)
+        let (key, sealed) = VaultKey::load_sealed(&self.path, identity)?;
+        self.check_key_continuity(&key, &sealed)?;
+        Ok(key)
     }
 
     /// Encrypts `e` and writes it to `entries/<id>.age`, atomically, at

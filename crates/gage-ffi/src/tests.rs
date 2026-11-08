@@ -499,6 +499,7 @@ fn every_library_remedy() -> Vec<gage::Remedy> {
         R::SyncAgain,
         R::RecipientVerify,
         R::RecipientRepair,
+        R::KeyContinuity,
         R::AuthLogin { host: "h".into() },
         R::AuthLoginAgain { host: "h".into() },
         R::UseHttps,

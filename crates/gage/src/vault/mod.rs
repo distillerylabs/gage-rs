@@ -404,17 +404,16 @@ impl Vault {
         validate(spec)?;
         let seal_to = seal_recipients(spec)?;
         require_empty_or_absent(&spec.path)?;
-        write_skeleton(spec, &seal_to)?;
+        let key = write_skeleton(spec, &seal_to)?;
         gitrepo::init_and_commit(&spec.path, INIT_COMMIT_MESSAGE)?;
         if let Some(remote) = &spec.remote {
             gitrepo::set_remote(&spec.path, remote)?;
         }
-        Ok(Vault::new(
-            spec.name.clone(),
-            spec.path.clone(),
-            spec.id.clone(),
-            dirs,
-        ))
+        let vault = Vault::new(spec.name.clone(), spec.path.clone(), spec.id.clone(), dirs);
+        // This device minted the key, so nothing is taken on faith. Failing
+        // here only leaves the first read to adopt it (ADR-0067).
+        let _ = vault.record_key(&key);
+        Ok(vault)
     }
 
     /// A vault value with the real seams: the one place a `Vault` is
@@ -971,7 +970,10 @@ fn seal_recipients(spec: &CreateSpec) -> Result<Vec<crypt::Recipient>, CreateErr
 
 /// Writes every file `create` promises; the git plumbing is separate, so
 /// what's on disk and how it's versioned stay easy to reason about apart.
-fn write_skeleton(spec: &CreateSpec, seal_to: &[crypt::Recipient]) -> Result<(), CreateError> {
+fn write_skeleton(
+    spec: &CreateSpec,
+    seal_to: &[crypt::Recipient],
+) -> Result<VaultKey, CreateError> {
     // entries/ holds ciphertext, but its listing still leaks how many
     // secrets exist and when each changed, so 0700 like the identities
     // directory, where the rest of the committed config gets 0750. It is
@@ -1020,13 +1022,14 @@ fn write_skeleton(spec: &CreateSpec, seal_to: &[crypt::Recipient]) -> Result<(),
     };
     vaultconfig::save(&config_path(&spec.path), &file)?;
     crate::trust::recipient::save(&spec.path.join(".age-recipients"), &pubkeys)?;
-    VaultKey::generate().save(&spec.path, seal_to)?;
+    let key = VaultKey::generate();
+    key.save(&spec.path, seal_to)?;
     for (name, content) in [(".gitignore", GITIGNORE), (".gitattributes", GITATTRIBUTES)] {
         let path = spec.path.join(name);
         atomicfile::write(&path, content.as_bytes(), 0o644)
             .map_err(|source| CreateError::WriteFile { path, source })?;
     }
-    Ok(())
+    Ok(key)
 }
 
 /// Creates `path` and any missing parents with `mode` (Unix), then sets

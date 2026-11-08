@@ -94,6 +94,9 @@ secret and lives apart from the data below.
   recipient list changed by someone else is shown to you before anything is
   encrypted to it. See
   [the recipient-change confirmation](identities-and-recipients.md#the-recipient-change-confirmation).
+  `key-continuity.toml` holds a fingerprint of the vault key this device
+  last saw; see
+  [when the vault key is refused](identities-and-recipients.md#when-the-vault-key-is-refused).
 
 ## Inside a vault
 

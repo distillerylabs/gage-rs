@@ -55,9 +55,13 @@ lose or expose, and keep independent backups.
   a recipient list neither device wrote
   ([ADR-0021](../decisions/0021-sync-conflict-resolution.md)). The cache
   also records `.gage/vault-key.age`, and a change to that file alone warns
-  as its own case: anyone can seal a new key to the public recipient list,
-  so this check is what stands between a replaced key file and a vault of
-  forged entries ([ADR-0066](../decisions/0066-mac-key-rotation.md)).
+  as its own case ([ADR-0066](../decisions/0066-mac-key-rotation.md)).
+- **A replaced vault key is refused.** Anyone can seal a new key to the
+  public recipient list, so each device records a one-way fingerprint of the
+  key it last saw and refuses a key file that doesn't contain that key as
+  its current or a retired key. Someone without the key can't write a file
+  that passes, even if they also add a recipient, and `--yes` doesn't get
+  past it ([ADR-0067](../decisions/0067-key-continuity.md)).
 
 ## Limits
 
@@ -84,6 +88,11 @@ lose or expose, and keep independent backups.
   a member, not that it is the newest version or that nothing is missing.
   Someone with git write access can put back an older revision still tagged
   under the current key, delete an entry, or roll back the whole vault.
+- **A device's first look at a vault is trusted.** The key check compares
+  against what the device has seen, so a device that has never read a vault
+  takes the key it finds. `pull` needs no key, so a replaced key file still
+  reaches a clone, where every read and write then refuses it
+  ([ADR-0067](../decisions/0067-key-continuity.md)).
 - **One unverifiable entry stops the vault's reads.** That is the
   fail-closed choice above, and it means anyone with git write access can
   deny service by pushing a bad file, as they could already by pushing a

@@ -294,8 +294,9 @@ were, so the same question comes back next time.
   `.gage/vault-key.age`. The first is what gets diffed and shown, since
   device names make a legible warning; the second catches someone editing
   only the file encryption actually reads; the third catches the vault's
-  key file being replaced on its own, which anyone with push access can do
-  and which would otherwise let a vault of forged entries pass as genuine.
+  key file being replaced on its own. A key file that isn't a continuation
+  of this vault's key is refused outright, whatever else changed: see
+  [When the vault key is refused](#when-the-vault-key-is-refused).
   A change to the key file alone is reported as its own case
   ("`.gage/vault-key.age` was replaced on its own").
   The first time you use a vault there is nothing to compare against, and
@@ -332,6 +333,34 @@ exists for: it answers the question for every write the script makes. It
 is refused in an *interactive* session: a human is sitting right there,
 and `gage --yes` entering a session would silently approve every recipient
 change for as long as the session lasted.
+
+## When the vault key is refused
+
+Each device remembers a fingerprint of the vault key it last saw, and
+refuses a key file that doesn't include that key as its current or a retired
+key. Every read and write stops with exit `1` (`conflict`), and `--yes`
+doesn't change that:
+
+```
+gage: <vault>/.gage/vault-key.age does not continue the key this device last saw for "team", so someone without the vault's key may have replaced it; nothing was read or written
+```
+
+Anyone with push access can seal a new key to the public recipient list, so
+**treat this as a possible attack, and don't trust what the vault holds.**
+Membership changes and key rotations never cause it, however many your
+device missed.
+
+1. Ask another member whether anything deliberate happened to the vault, and
+   compare with a device that still reads it.
+2. If the key file was replaced, restore the good key file and entries with
+   `git` from an unaffected clone or an earlier commit, and push. The next
+   read works, with nothing else to do.
+
+If everyone agrees the change was intended (for example, history was
+deliberately rewound past a rotation), `gage vault remove <name>` and a new
+`gage clone` make this device trust the vault as it is now, as a new device
+does. Only do this once you know why it happened: it accepts whatever the
+vault holds.
 
 ## Sharing an entry with someone else
 
