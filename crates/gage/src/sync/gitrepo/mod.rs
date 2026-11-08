@@ -198,16 +198,76 @@ pub fn isolate() {
     });
 }
 
-/// Sets `core.symlinks=false` on a vault repository, so libgit2's checkout
-/// (clone, fast-forward's reset) materializes a committed symlink blob as a
-/// regular file holding the link text rather than a traversable symlink.
-/// A vault never legitimately contains a symlink (ADR-0064), so this only
-/// ever neutralizes a hostile one; it is the checkout-side counterpart to
-/// the merge writer's own refusal to follow symlinks.
-pub(crate) fn disable_symlinks(repo: &git2::Repository, dir: &Path) -> Result<(), Error> {
+/// Sets the checkout behavior every vault repository needs.
+///
+/// `core.symlinks=false` makes libgit2's checkout (clone, fast-forward's
+/// reset) materialize a committed symlink blob as a regular file holding the
+/// link text rather than a traversable symlink. A vault never legitimately
+/// contains a symlink (ADR-0064), so this only ever neutralizes a hostile
+/// one; it is the checkout-side counterpart to the merge writer's own
+/// refusal to follow symlinks.
+///
+/// `core.fileMode=false` is because [`restrict_entries`] owns the modes under
+/// `entries/`: without it, removing the execute bit from a blob a tree
+/// records as 0755 reads as an uncommitted change, and a dirty tree refuses
+/// every later pull.
+pub(crate) fn configure_checkout(repo: &git2::Repository, dir: &Path) -> Result<(), Error> {
     repo.config()
-        .and_then(|mut cfg| cfg.set_bool("core.symlinks", false))
-        .map_err(fail("disabling symlinks in", dir))
+        .and_then(|mut cfg| {
+            cfg.set_bool("core.symlinks", false)?;
+            cfg.set_bool("core.fileMode", false)
+        })
+        .map_err(fail("configuring checkout in", dir))
+}
+
+/// Brings `entries/` to the modes the format specifies: 0600 files in a
+/// 0700 directory. libgit2's checkout honors the mode a tree records, and
+/// git only records 0644 or 0755, so every path that materializes entries
+/// from a tree calls this afterwards. How an entry arrived must not decide
+/// who can read its file.
+///
+/// Only regular files and a real directory are touched, since `chmod`
+/// follows symlinks and one left on disk must not redirect it outside the
+/// vault.
+#[cfg(unix)]
+pub(crate) fn restrict_entries(dir: &Path) -> Result<(), Error> {
+    use crate::entry::ENTRIES_DIR_NAME;
+    use std::os::unix::fs::PermissionsExt;
+    let chmod = |path: &Path, mode| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).map_err(|source| {
+            Error::Io {
+                op: "restricting",
+                path: path.display().to_string(),
+                source,
+            }
+        })
+    };
+    let entries = dir.join(ENTRIES_DIR_NAME);
+    let listing = |source| Error::Io {
+        op: "listing",
+        path: entries.display().to_string(),
+        source,
+    };
+    match std::fs::symlink_metadata(&entries) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => return Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(listing(e)),
+    }
+    for item in std::fs::read_dir(&entries).map_err(listing)? {
+        let item = item.map_err(listing)?;
+        // `DirEntry::file_type` reports a symlink as a symlink.
+        if item.file_type().map_err(listing)?.is_file() {
+            chmod(&item.path(), 0o600)?;
+        }
+    }
+    chmod(&entries, 0o700)
+}
+
+/// Windows applies no Unix modes (`doc/format/v3.md`).
+#[cfg(not(unix))]
+pub(crate) fn restrict_entries(_dir: &Path) -> Result<(), Error> {
+    Ok(())
 }
 
 /// Initializes a repository at `dir` (already holding the files to
@@ -220,7 +280,7 @@ pub fn init_and_commit(dir: &Path, message: &str) -> Result<String, Error> {
         git2::RepositoryInitOptions::new().initial_head(INITIAL_BRANCH),
     )
     .map_err(fail("initializing", dir))?;
-    disable_symlinks(&repo, dir)?;
+    configure_checkout(&repo, dir)?;
     let mut index = repo.index().map_err(fail("opening the index of", dir))?;
     index
         .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
@@ -408,6 +468,7 @@ pub fn reset_hard(dir: &Path) -> Result<Vec<String>, Error> {
         .map_err(fail("reading HEAD of", dir))?;
     repo.reset(head.as_object(), git2::ResetType::Hard, None)
         .map_err(fail("resetting to HEAD in", dir))?;
+    restrict_entries(dir)?;
     Ok(changed.into_iter().map(|(path, _)| path).collect())
 }
 
@@ -539,6 +600,8 @@ fn fail(op: &'static str, dir: &Path) -> impl Fn(git2::Error) -> Error + use<> {
     }
 }
 
+#[cfg(all(test, unix))]
+mod checkout_mode_tests;
 #[cfg(test)]
 mod history_tests;
 #[cfg(test)]

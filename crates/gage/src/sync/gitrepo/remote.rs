@@ -185,7 +185,7 @@ pub fn clone(url: &str, dir: &Path, opts: &RemoteOptions) -> Result<(), Error> {
         git2::RepositoryInitOptions::new().initial_head(&branch),
     )
     .map_err(classify)?;
-    super::disable_symlinks(&repo, dir)?;
+    super::configure_checkout(&repo, dir)?;
 
     let mut remote = repo.remote(ORIGIN, url).map_err(classify)?;
     let mut fetch = git2::FetchOptions::new();
@@ -210,7 +210,7 @@ pub fn clone(url: &str, dir: &Path, opts: &RemoteOptions) -> Result<(), Error> {
         .map_err(classify)?;
     repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
         .map_err(classify)?;
-    Ok(())
+    super::restrict_entries(dir)
 }
 
 /// Which branch of `url` to clone: the only one, else `main`, else
@@ -333,7 +333,7 @@ pub fn fast_forward(dir: &Path) -> Result<bool, Error> {
     let repo = open(dir)?;
     // The reset below checks out the target tree; neutralize any symlink blob
     // it carries before it reaches the working tree (ADR-0064).
-    super::disable_symlinks(&repo, dir)?;
+    super::configure_checkout(&repo, dir)?;
     let (_, Some(remote)) = head_and_tracking(&repo, dir)? else {
         return Ok(false);
     };
@@ -345,6 +345,7 @@ pub fn fast_forward(dir: &Path) -> Result<bool, Error> {
     // tree check above ruled out uncommitted work.
     repo.reset(&target, git2::ResetType::Hard, None)
         .map_err(fail("fast-forwarding", dir))?;
+    super::restrict_entries(dir)?;
     Ok(true)
 }
 
