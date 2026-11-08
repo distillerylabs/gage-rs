@@ -63,6 +63,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0019](0019-file-merge.md) gage's own file-level merge
 - [0020](0020-remote-auth.md) Tokens reach libgit2 through the credentials callback
 - [0021](0021-sync-conflict-resolution.md) Conflict resolution
+- [0064](0064-no-symlinks-in-a-vault.md) A vault contains only regular files; gage never follows or materializes a symlink
 
 ### Crypto and secret memory
 

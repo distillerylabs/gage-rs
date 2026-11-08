@@ -157,20 +157,60 @@ pub fn push(dir: &Path, opts: &RemoteOptions) -> Result<bool, Error> {
 /// once-per-vault operation.
 pub fn clone(url: &str, dir: &Path, opts: &RemoteOptions) -> Result<(), Error> {
     isolate();
+    // libgit2's `RepoBuilder::clone` refuses a non-empty target before it
+    // touches the network; this manual clone must too, so a clone into a
+    // directory holding the user's files fails fast and leaves them alone
+    // (the caller's rollback treats such a directory as "not ours").
+    if dir.exists() && dir.read_dir().is_ok_and(|mut d| d.next().is_some()) {
+        return Err(Error::Git {
+            op: "cloning into",
+            path: dir.to_path_buf(),
+            source: git2::Error::from_str(
+                "destination path already exists and is not an empty directory",
+            ),
+        });
+    }
     let method = remoteauth::method(&opts.dirs, url)?;
     let branch = remote_branch(url, &method, opts)?;
     let op = Op::new(&method, url, opts.timeout);
+    let classify = &|e| op.fail(e, Direction::Fetch, "cloning into", dir);
+
+    // Unlike `RepoBuilder::clone`, which fetches and checks out in one step,
+    // this inits the repository first so `core.symlinks=false` is set before
+    // any checkout: a hostile symlink blob is then materialized as a regular
+    // file, never a traversable symlink (ADR-0064). The merge writer's own
+    // no-follow guard is the counterpart for later pulls.
+    let repo = git2::Repository::init_opts(
+        dir,
+        git2::RepositoryInitOptions::new().initial_head(&branch),
+    )
+    .map_err(classify)?;
+    super::disable_symlinks(&repo, dir)?;
+
+    let mut remote = repo.remote(ORIGIN, url).map_err(classify)?;
     let mut fetch = git2::FetchOptions::new();
     fetch
         .remote_callbacks(op.callbacks())
         .follow_redirects(REDIRECTS)
         .download_tags(git2::AutotagOption::None);
-    git2::build::RepoBuilder::new()
-        .branch(&branch)
-        .fetch_options(fetch)
-        .clone(url, dir)
-        .map(drop)
-        .map_err(|e| op.fail(e, Direction::Fetch, "cloning into", dir))
+    // The remote's default refspec (`+refs/heads/*:refs/remotes/origin/*`)
+    // populates the remote-tracking refs the rest of the module reads by name.
+    remote
+        .fetch::<&str>(&[], Some(&mut fetch), None)
+        .map_err(classify)?;
+
+    // Point the local branch at the fetched one and check it out, forcing the
+    // files into the empty working tree.
+    let commit = repo
+        .find_reference(&format!("refs/remotes/{ORIGIN}/{branch}"))
+        .and_then(|r| r.peel_to_commit())
+        .map_err(classify)?;
+    repo.branch(&branch, &commit, true).map_err(classify)?;
+    repo.set_head(&format!("refs/heads/{branch}"))
+        .map_err(classify)?;
+    repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+        .map_err(classify)?;
+    Ok(())
 }
 
 /// Which branch of `url` to clone: the only one, else `main`, else
@@ -291,6 +331,9 @@ pub fn fast_forward(dir: &Path) -> Result<bool, Error> {
     }
     require_clean_work_tree(dir, "fast-forwarding over them")?;
     let repo = open(dir)?;
+    // The reset below checks out the target tree; neutralize any symlink blob
+    // it carries before it reaches the working tree (ADR-0064).
+    super::disable_symlinks(&repo, dir)?;
     let (_, Some(remote)) = head_and_tracking(&repo, dir)? else {
         return Ok(false);
     };
