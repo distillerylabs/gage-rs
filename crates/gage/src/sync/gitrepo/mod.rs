@@ -80,6 +80,12 @@ pub enum Error {
     /// from whoever can push to the remote.
     #[error("refusing a remote path that escapes the vault: {0:?}")]
     UnsafePath(String),
+    /// A tree entry whose git filemode is not a regular file: a symlink or a
+    /// gitlink. A vault only ever holds regular files ([ADR-0064]), and a
+    /// symlink the merge writer materialized could redirect a later write
+    /// outside the vault, so a merge refuses one rather than write it.
+    #[error("refusing a remote tree entry that is not a regular file: {path:?} (mode {mode:#o})")]
+    UnsafeEntry { path: String, mode: u32 },
     /// A remote to clone has no branches: an empty repository, not a vault.
     #[error("{url} has no branches; it is an empty repository, not a vault")]
     NoBranches { url: String },
@@ -124,6 +130,7 @@ impl HasKind for Error {
             Error::RollbackFailed { cause, .. } => cause.kind(),
             Error::Git { .. }
             | Error::UnsafePath(_)
+            | Error::UnsafeEntry { .. }
             | Error::NoBranches { .. }
             | Error::AmbiguousBranch { .. }
             | Error::NothingFetched { .. }
@@ -189,6 +196,18 @@ pub fn isolate() {
     });
 }
 
+/// Sets `core.symlinks=false` on a vault repository, so libgit2's checkout
+/// (clone, fast-forward's reset) materializes a committed symlink blob as a
+/// regular file holding the link text rather than a traversable symlink.
+/// A vault never legitimately contains a symlink (ADR-0064), so this only
+/// ever neutralizes a hostile one; it is the checkout-side counterpart to
+/// the merge writer's own refusal to follow symlinks.
+pub(crate) fn disable_symlinks(repo: &git2::Repository, dir: &Path) -> Result<(), Error> {
+    repo.config()
+        .and_then(|mut cfg| cfg.set_bool("core.symlinks", false))
+        .map_err(fail("disabling symlinks in", dir))
+}
+
 /// Initializes a repository at `dir` (already holding the files to
 /// commit) and makes one commit of every file in the working tree, on
 /// [`INITIAL_BRANCH`], as gage. Returns the commit's id.
@@ -199,6 +218,7 @@ pub fn init_and_commit(dir: &Path, message: &str) -> Result<String, Error> {
         git2::RepositoryInitOptions::new().initial_head(INITIAL_BRANCH),
     )
     .map_err(fail("initializing", dir))?;
+    disable_symlinks(&repo, dir)?;
     let mut index = repo.index().map_err(fail("opening the index of", dir))?;
     index
         .add_all(["*"], git2::IndexAddOption::DEFAULT, None)
@@ -519,6 +539,8 @@ fn fail(op: &'static str, dir: &Path) -> impl Fn(git2::Error) -> Error + use<> {
 
 #[cfg(test)]
 mod history_tests;
+#[cfg(test)]
+mod hostile_checkout_tests;
 #[cfg(test)]
 mod isolation_tests;
 #[cfg(test)]

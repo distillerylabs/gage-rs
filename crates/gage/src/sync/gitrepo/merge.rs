@@ -155,7 +155,19 @@ fn changes(
             (delta.old_file(), None)
         } else {
             let file = delta.new_file();
-            let version = Some((file.id(), u32::from(file.mode())));
+            let mode = u32::from(file.mode());
+            // A vault only ever holds regular files (ADR-0064). A symlink or
+            // gitlink entry is refused here, before the merge writes
+            // anything: materializing a symlink would let a later write be
+            // redirected outside the vault, and gage never writes one.
+            if mode == SYMLINK_MODE || mode == GITLINK_MODE {
+                let path = file
+                    .path_bytes()
+                    .map(|p| String::from_utf8_lossy(p).into_owned())
+                    .unwrap_or_default();
+                return Err(Error::UnsafeEntry { path, mode });
+            }
+            let version = Some((file.id(), mode));
             (file, version)
         };
         let path = file
@@ -171,8 +183,17 @@ fn changes(
 /// 0644 git records for every blob: everything a vault merge writes is an
 /// entry's ciphertext or a file saying who can read it, and an entry gage
 /// writes directly is 0600, so how an entry arrived must not decide who
-/// can read its file. An overwrite keeps the file's existing mode.
+/// can read its file. Since [`write_file`] now replaces any existing path
+/// rather than opening it in place, an overwrite gets this mode too.
 const MERGED_FILE_MODE: u32 = 0o600;
+
+/// git's filemode for a symlink. A vault never contains one (ADR-0064);
+/// [`changes`] refuses a tree entry carrying it.
+const SYMLINK_MODE: u32 = 0o120_000;
+
+/// git's filemode for a gitlink (a submodule / embedded commit). Refused
+/// for the same reason as [`SYMLINK_MODE`].
+const GITLINK_MODE: u32 = 0o160_000;
 
 impl PendingMerge {
     /// The paths both sides changed differently, sorted. Empty means
@@ -307,9 +328,7 @@ impl PendingMerge {
                 source,
             }
         };
-        if let Some(parent) = full.parent() {
-            create_private_dirs(parent).map_err(io("creating the directory of"))?;
-        }
+        create_private_dirs(&self.dir, path).map_err(io("creating the directory of"))?;
         write_file(&full, blob.content()).map_err(io("writing"))
     }
 
@@ -323,9 +342,7 @@ impl PendingMerge {
                 source,
             }
         };
-        if let Some(parent) = full.parent() {
-            create_private_dirs(parent).map_err(io("creating the directory of"))?;
-        }
+        create_private_dirs(&self.dir, path).map_err(io("creating the directory of"))?;
         write_file(&full, content).map_err(io("writing"))
     }
 
@@ -410,24 +427,67 @@ impl PendingMerge {
     }
 }
 
+/// Creates the parent directories of `path` under `dir`, one level at a
+/// time, refusing to descend through a symlink. `create_dir_all` would
+/// happily traverse a symlinked directory a hostile commit left on disk
+/// (e.g. `entries` pointing outside the vault), so a later write would land
+/// outside; building the chain explicitly and rejecting a non-directory
+/// component is what stops that. `path` is slash-separated and already
+/// lexically safe (checked by [`safe_join`]); only the parents are created,
+/// not the final file.
+fn create_private_dirs(dir: &Path, path: &str) -> std::io::Result<()> {
+    let mut parts: Vec<&str> = path
+        .split('/')
+        .filter(|p| !p.is_empty() && *p != ".")
+        .collect();
+    parts.pop(); // the final component is the file, written by write_file
+    let mut cur = dir.to_path_buf();
+    for part in parts {
+        cur.push(part);
+        match std::fs::symlink_metadata(&cur) {
+            // A real directory: descend into it.
+            Ok(meta) if meta.is_dir() => {}
+            // A symlink or a plain file where a directory belongs: refuse,
+            // rather than write through or past it.
+            Ok(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AlreadyExists,
+                    "a vault path component is not a directory",
+                ));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => create_one_dir(&cur)?,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(())
+}
+
 #[cfg(unix)]
-fn create_private_dirs(dir: &Path) -> std::io::Result<()> {
+fn create_one_dir(dir: &Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
-    std::fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)
+    std::fs::DirBuilder::new().mode(0o700).create(dir)
 }
 
 #[cfg(not(unix))]
-fn create_private_dirs(dir: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(dir)
+fn create_one_dir(dir: &Path) -> std::io::Result<()> {
+    std::fs::DirBuilder::new().create(dir)
 }
 
+/// Writes `content` to `path` at [`MERGED_FILE_MODE`], replacing whatever is
+/// there rather than opening it in place. An existing path is removed first
+/// (by `remove_file`, which does not follow a symlink to its target), and
+/// the file is then created with `create_new` (O_EXCL): a symlink a hostile
+/// commit left on disk — or one raced in after the remove — is never
+/// followed, so a merged write can never reach a target outside the vault.
 fn write_file(path: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => std::fs::remove_file(path)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, MERGED_FILE_MODE);
     #[cfg(not(unix))]
