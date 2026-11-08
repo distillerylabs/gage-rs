@@ -15,7 +15,7 @@ use super::entry::use_flag;
 use super::sync::with_resolved_vault;
 use super::{Keys, arg, fail, out};
 use crate::Io;
-use crate::error::CliError;
+use crate::error::{CliError, prefixed};
 
 pub const ADD_LONG_ABOUT: &str = "Authorize a public key and re-encrypt the vault to include it.
 
@@ -178,7 +178,10 @@ pub fn verify(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), 
         for key in &verdict.only_in_recipients_file {
             let _ = writeln!(
                 io.stderr,
-                "gage: {key} is in .age-recipients but not in .gage/config.toml: entries are encrypted to a key the vault does not list"
+                "{}",
+                prefixed(format!(
+                    "{key} is in .age-recipients but not in .gage/config.toml: entries are encrypted to a key the vault does not list"
+                ))
             );
         }
         for key in &verdict.only_in_config {

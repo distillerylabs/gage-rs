@@ -21,6 +21,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::commands::short_id;
+use crate::display;
 
 /// gage's wrong-passphrase retry policy, which lives here rather than in
 /// the library on purpose: the library re-asks for as long as its prompter
@@ -93,10 +94,11 @@ impl<R: Read, W: Write> TerminalPrompter<R, W> {
 impl<R: Read, W: Write> TerminalPrompter<R, W> {
     /// Writes to the prompt stream. A failed write is dropped: there is
     /// nowhere better to report it, and the read that follows still
-    /// decides the outcome.
+    /// decides the outcome. Escaped here (ADR-0069), because what a
+    /// question quotes from the vault sits directly above its answer.
     fn say(&self, text: &str) {
         let mut out = self.out.borrow_mut();
-        let _ = out.write_all(text.as_bytes());
+        let _ = out.write_all(display::block(text).as_bytes());
         let _ = out.flush();
     }
 
@@ -258,7 +260,7 @@ impl<R: Read, W: Write> Prompter for TerminalPrompter<R, W> {
             text.push_str(&format!(
                 "  {}. {} ({})\n",
                 i + 1,
-                c.title,
+                display::line(&c.title),
                 short_id(&c.id.to_string())
             ));
         }
@@ -397,9 +399,9 @@ fn provenance(side: &ConflictSide) -> String {
         |t| t.as_jiff().strftime("%Y-%m-%d %H:%M").to_string(),
     );
     let by = if e.updated_by.is_empty() {
-        "-"
+        "-".into()
     } else {
-        &e.updated_by
+        display::line(&e.updated_by)
     };
     format!("updated {when}  by {by}")
 }
@@ -773,6 +775,73 @@ mod tests {
     ) {
         let (p, out) = prompter(input);
         (p.interactive(true), out)
+    }
+
+    // ADR-0069: everything in this prompt that came from the vault shows
+    // as text, directly above the question it could otherwise rewrite.
+    #[test]
+    fn recipient_change_prompt_shows_vault_text_as_text() {
+        let (p, out) = interactive("n\n");
+        let mut change = sample_change(RecipientVerification {
+            only_in_recipients_file: vec!["age1\x1b[2Kstray".into()],
+            ..Default::default()
+        });
+        change.diff = "+# \x1b[1Ahidden\r".into();
+
+        p.confirm_recipient_change(&change).unwrap();
+
+        let text = out.text();
+        assert!(!text.contains('\x1b') && !text.contains('\r'), "{text:?}");
+        assert!(text.contains(r"age1\u{1b}[2Kstray"), "{text}");
+        assert!(text.contains(r"+# \u{1b}[1Ahidden\r"), "{text}");
+        assert!(text.contains("[y/N]"), "{text}");
+    }
+
+    #[test]
+    fn confirm_shows_vault_text_as_text() {
+        let (p, out) = prompter("n\n");
+        p.confirm("drop age1\x1b[2Kstray?").unwrap();
+        let text = out.text();
+        assert!(!text.contains('\x1b'), "{text:?}");
+        assert!(text.contains(r"age1\u{1b}[2Kstray?"), "{text}");
+    }
+
+    #[test]
+    fn warn_shows_vault_text_as_text() {
+        let (p, out) = prompter("");
+        p.warn(&Warning::from("a\x1b[2Kb\nc"));
+        assert_eq!(out.text(), "gage: a\\u{1b}[2Kb\nc\n");
+    }
+
+    // A title can't draw a row of its own in the numbered list.
+    #[test]
+    fn choose_shows_each_title_on_its_own_line() {
+        let (p, out) = prompter("1\n");
+        let mut list = mail_candidates();
+        list.candidates[0].title = "a\x1b[1A\n  2. forged".into();
+
+        p.choose(&list).unwrap();
+
+        let text = out.text();
+        assert!(!text.contains('\x1b'), "{text:?}");
+        assert!(text.contains(r"a\u{1b}[1A\n  2. forged"), "{text}");
+    }
+
+    #[test]
+    fn conflict_menu_shows_provenance_on_one_line() {
+        let (p, out) = interactive("q\n");
+        let mut conflict = sample_conflict();
+        conflict.remote.entry.as_mut().unwrap().updated_by =
+            "phone\x1b[2K\n  [k] keep forged".into();
+
+        p.resolve_conflict(&conflict).unwrap();
+
+        let text = out.text();
+        assert!(!text.contains('\x1b'), "{text:?}");
+        assert!(
+            text.contains(r"phone\u{1b}[2K\n  [k] keep forged"),
+            "{text}"
+        );
     }
 
     /// A conflict built by hand, for the tests of the menu alone.

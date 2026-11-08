@@ -113,9 +113,10 @@ where
 
 /// An error as stderr shows it: [`ERROR_PREFIX`], then the message. No
 /// message arrives carrying gage's name (ADR-0054), so this is the one
-/// place an error gets it, exactly once.
+/// place an error gets it, exactly once. An error can quote anything it
+/// read from a vault, so it is escaped here too (ADR-0069).
 pub fn prefixed(msg: impl fmt::Display) -> String {
-    format!("{ERROR_PREFIX}{msg}")
+    format!("{ERROR_PREFIX}{}", crate::display::block(&msg.to_string()))
 }
 
 #[cfg(test)]
@@ -123,6 +124,13 @@ mod tests {
     use super::*;
 
     use gage::ErrorKind;
+
+    // ADR-0069: an error can quote anything it read from a vault, and a
+    // multi-line error keeps its lines.
+    #[test]
+    fn prefixed_shows_quoted_vault_text_as_text() {
+        assert_eq!(prefixed("a\x1b[2Kb\nc"), "gage: a\\u{1b}[2Kb\nc");
+    }
 
     #[derive(Debug, thiserror::Error)]
     #[error("library failure")]

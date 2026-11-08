@@ -277,6 +277,12 @@ path. Every one of them that changes the recipient list (`add`, `remove`,
   ciphertext should be rewritten, and it does not clear the trust cache,
   so the next write still shows you the recipient list for review.
 
+A vault's contents are untrusted, so `gage` shows control characters from
+them as visible escapes such as `\u{1b}`. A line in `.age-recipients` that
+isn't a key is reported as a difference like any other. A `.gage/config.toml`
+whose `pubkey` isn't an age recipient is refused and exits `1`. `show` is the
+exception: it prints a value byte for byte, so it can be piped.
+
 ## The recipient-change confirmation
 
 Before encrypting to a vault's current recipient list, `gage` compares it

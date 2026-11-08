@@ -29,6 +29,7 @@ pub mod clipboard;
 mod commands;
 mod complete;
 pub mod coredump;
+mod display;
 mod duration;
 mod editor;
 pub mod error;
@@ -273,3 +274,5 @@ mod tests;
 mod trustcache_cli_tests;
 #[cfg(test)]
 mod vault_remove_tests;
+#[cfg(test)]
+mod vault_text_tests;
