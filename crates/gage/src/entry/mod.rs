@@ -295,9 +295,10 @@ pub enum Error {
     #[error("entry {id} failed authentication: {failure}")]
     Unauthenticated { id: Uuid, failure: AuthFailure },
     /// The vault's MAC key couldn't be opened, so no entry can be stamped
-    /// or verified.
+    /// or verified. Boxed: it carries two paths, and every error that wraps
+    /// this one would otherwise grow with it.
     #[error(transparent)]
-    VaultKey(#[from] crate::crypto::vaultkey::Error),
+    VaultKey(Box<crate::crypto::vaultkey::Error>),
     /// The decrypted bytes are not an entry.
     #[error("parsing entry: {0}")]
     Parse(String),
@@ -323,6 +324,12 @@ pub enum Error {
         id: Uuid,
         source: crate::storage::atomicfile::Error,
     },
+}
+
+impl From<crate::crypto::vaultkey::Error> for Error {
+    fn from(e: crate::crypto::vaultkey::Error) -> Error {
+        Error::VaultKey(Box::new(e))
+    }
 }
 
 impl HasKind for Error {

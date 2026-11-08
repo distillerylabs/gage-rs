@@ -707,8 +707,8 @@ mod tests {
         let err = f.vault.read_entry(id, &f.identity(0)).unwrap_err();
         assert!(
             matches!(
-                err,
-                Error::VaultKey(crate::crypto::vaultkey::Error::Missing { .. })
+                &err,
+                Error::VaultKey(e) if matches!(**e, crate::crypto::vaultkey::Error::Missing { .. })
             ),
             "{err}"
         );

@@ -221,8 +221,9 @@ pub enum CreateError {
     /// creation, so each must be one (ADR-0065).
     #[error(transparent)]
     UnencryptableRecipient(crypt::Error),
+    /// Boxed, like `InitError`'s members, only to keep the error small.
     #[error(transparent)]
-    VaultKey(#[from] vaultkey::Error),
+    VaultKey(Box<vaultkey::Error>),
     /// A labelled extra collides with another recipient: the key, or the
     /// label, is already taken. Mirrors `RecipientError::RecipientExists`.
     #[error("this vault already lists that recipient: {}", exists(.device, .pubkey))]
@@ -260,6 +261,12 @@ pub enum CreateError {
     },
     #[error(transparent)]
     Git(#[from] gitrepo::Error),
+}
+
+impl From<vaultkey::Error> for CreateError {
+    fn from(e: vaultkey::Error) -> CreateError {
+        CreateError::VaultKey(Box::new(e))
+    }
 }
 
 impl HasKind for CreateError {
