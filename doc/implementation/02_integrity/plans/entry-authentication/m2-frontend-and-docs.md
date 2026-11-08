@@ -32,29 +32,40 @@ the M1 branch.
 
 ## Decisions to make first
 
-1. **Exit code / `ErrorKind` for `Unauthenticated`.** Likely `Conflict`
-   (exit-code-wise an integrity failure, like a corrupt ciphertext), so a
-   script can tell it apart from "wrong key" and "not found". Confirm.
-2. **What a failed verification says to the user.** A single rejected entry on
-   `show`; and on `ls` / session-index build (which decrypts many) — does one
-   bad entry fail the whole listing or is it reported and skipped? Decide and
-   keep it consistent with how a corrupt entry is handled today.
-3. **FFI shape.** Confirm the binding reports a verification failure as a
-   typed error per ADR-0063, with nothing secret in the message.
+1. **Exit code / `ErrorKind` for `Unauthenticated`.** Resolved: `Conflict`,
+   exit `1`, the kind M0 gave it. It is an integrity failure like a corrupt
+   ciphertext, which is also `Conflict`, and a script can tell it apart from
+   "wrong key" (`5`) and "not found" (`3`). A human has to decide what to do
+   about the file, which is what `conflict` means.
+2. **What a failed verification says to the user.** Resolved: one bad entry
+   fails the whole command, on `show` and on everything that decrypts many
+   (`ls`, `search`, the session index, and so resolving any query), exactly
+   as a corrupt entry does today. Nothing is skipped: a listing that silently
+   lost a row looks complete when it isn't (the rule `history --decrypt`
+   already follows), and a forged entry could otherwise hide a real one's
+   absence. The message is the library's own, `entry <id> failed
+   authentication: <why>`: the id is what a person needs to go and look, and
+   nothing from the rejected payload appears in it. The way out is `git` in
+   the vault's directory, since gage can't address the entry either; the CLI
+   docs say so.
+3. **FFI shape.** Resolved: no new case. A verification failure crosses as
+   `GageError::Conflict` with the library's message unchanged (ADR-0054) and
+   no remedy, like every other failure keyed by `ErrorKind` (ADR-0063). The
+   message holds an id and a reason, never payload bytes.
 
 ## Tasks (tests first)
 
-- [ ] **Exit code.** Test: a command that hits an unverifiable entry exits
+- [x] **Exit code.** Test: a command that hits an unverifiable entry exits
       with the chosen code and a clear message.
-- [ ] **`ls` / index behavior.** Test: the decided behavior (fail vs
+- [x] **`ls` / index behavior.** Test: the decided behavior (fail vs
       report-and-skip) for one unverifiable entry among many.
-- [ ] **FFI.** Test: the binding surfaces the verification failure as its
+- [x] **FFI.** Test: the binding surfaces the verification failure as its
       typed error, message free of secrets.
-- [ ] **Docs.** Update `security-model.md` (the guarantee, and the
+- [x] **Docs.** Update `security-model.md` (the guarantee, and the
       out-of-scope limits: intra-recipient, removed-member window),
       `SECURITY.md` scope, and `doc/cli/` where entry integrity is described.
       No code; docs describe shipped behavior.
-- [ ] **Help snapshots.** Update `tests/fixtures/help/` only if the surface
+- [x] **Help snapshots.** Update `tests/fixtures/help/` only if the surface
       changed; otherwise confirm they are unchanged.
 
 ## Definition of done

@@ -6,10 +6,11 @@ section of the [design document](gage-cli-design.md). To report a
 vulnerability, see [SECURITY.md](../../SECURITY.md).
 
 gage is pre-1.0 and has **not been independently audited**. It leans on the
-[age](https://age-encryption.org/) library for all cryptography and
-implements none of its own, but the surrounding vault, sync and key-handling
-logic is new. Evaluate it accordingly before trusting it with secrets you
-cannot afford to lose or expose, and keep independent backups.
+[age](https://age-encryption.org/) library for encryption and on the
+RustCrypto HMAC-SHA256 for entry authentication, and implements no primitive
+of its own, but the surrounding vault, sync and key-handling logic is new.
+Evaluate it accordingly before trusting it with secrets you cannot afford to
+lose or expose, and keep independent backups.
 
 ## What gage protects
 
@@ -17,6 +18,17 @@ cannot afford to lose or expose, and keep independent backups.
   to the repository but no vault key sees only opaque `.age` files with
   random names. Titles, descriptions and categories are inside the encrypted
   payload, and no filename or directory structure encodes vault contents.
+- **Only a vault member can write an entry gage accepts.** age alone doesn't
+  give this: encrypting takes only the public keys, which are committed.
+  Every entry therefore carries an HMAC tag under a per-vault key that is
+  sealed to the recipients, bound to the id in its filename. Every read
+  checks the tag before parsing anything, so a forged entry, an altered one,
+  or a genuine one moved to another id is refused
+  ([ADR-0065](../decisions/0065-entry-authentication.md)). A refused entry
+  fails the command rather than being skipped, so a listing never looks
+  complete when it isn't. Removing a recipient replaces the key in the same
+  commit, and a live entry verifies against the current key only
+  ([ADR-0066](../decisions/0066-mac-key-rotation.md)).
 - **No long-lived agent.** Unlocking happens in-process; the decrypted key
   lives only as long as that `gage` process (or session) runs. There is no
   daemon or socket holding a key after you walk away.
@@ -35,13 +47,17 @@ cannot afford to lose or expose, and keep independent backups.
   with git write access can edit. They are validated before any path is
   built from them ([ADR-0006](../decisions/0006-vault-id-keying.md),
   [ADR-0010](../decisions/0010-device-name.md)).
-- **The recipient list is guarded.** gage keeps a local trust cache and
-  warns, and asks for confirmation, when `.age-recipients` changes
-  unexpectedly ([ADR-0004](../decisions/0004-trust-hash.md),
+- **The recipient list and the vault key are guarded.** gage keeps a local
+  trust cache and warns, and asks for confirmation, when `.age-recipients`
+  changes unexpectedly ([ADR-0004](../decisions/0004-trust-hash.md),
   [ADR-0005](../decisions/0005-trust-cache-path.md),
   [ADR-0033](../decisions/0033-recipient-prompt.md)). A merge never builds
   a recipient list neither device wrote
-  ([ADR-0021](../decisions/0021-sync-conflict-resolution.md)).
+  ([ADR-0021](../decisions/0021-sync-conflict-resolution.md)). The cache
+  also records `.gage/vault-key.age`, and a change to that file alone warns
+  as its own case: anyone can seal a new key to the public recipient list,
+  so this check is what stands between a replaced key file and a vault of
+  forged entries ([ADR-0066](../decisions/0066-mac-key-rotation.md)).
 
 ## Limits
 
@@ -50,7 +66,30 @@ cannot afford to lose or expose, and keep independent backups.
   vault can add their own key, and future writes will encrypt to it.
   Already-encrypted entries are never exposed this way, but treat write
   access to a vault as equivalent to eventual read access. The trust cache
-  exists to make such a change visible.
+  exists to make such a change visible. Adding a key does not hand over the
+  vault key, which stays sealed to the keys it was sealed to until a member
+  re-encrypts the vault.
+- **Entry authentication says a recipient wrote this, not which one.** Every
+  current recipient holds the same key, so any of them can write or alter
+  any entry. There is no per-device provenance, and `updated_by` is what the
+  writer said. A vault is the unit of trust.
+- **A removed member has a window.** They hold the key until the removal's
+  rotation happens, so what they push before it is accepted like any other
+  write from before the rotation. Afterwards their key produces nothing a
+  live read accepts, though someone who can still push can forge a past
+  revision, visible only through `history`, which accepts retired keys. They
+  also keep whatever they could already read from git history
+  ([ADR-0066](../decisions/0066-mac-key-rotation.md)).
+- **Authentication is not freshness.** A tag proves an entry was written by
+  a member, not that it is the newest version or that nothing is missing.
+  Someone with git write access can put back an older revision still tagged
+  under the current key, delete an entry, or roll back the whole vault.
+- **One unverifiable entry stops the vault's reads.** That is the
+  fail-closed choice above, and it means anyone with git write access can
+  deny service by pushing a bad file, as they could already by pushing a
+  corrupt one. gage can't address such an entry either, so the way out is
+  `git` in the vault's directory; see
+  [When an entry fails to verify](../cli/entries.md#when-an-entry-fails-to-verify).
 - **A compromised local machine is out of scope.** If an attacker controls
   the device while a vault is unlocked, or can read your identity file,
   gage cannot help.

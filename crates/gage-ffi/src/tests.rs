@@ -8,8 +8,9 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
+use gage::crypto::crypt::{self, Recipient};
 use gage::enrollment::Approval;
-use gage::entry::NewEntry;
+use gage::entry::{AuthFailure, NewEntry};
 use gage::gittest::{self, Answer as RecorderAnswer, BareRemote, HttpRecorder};
 use gage::prompter::FakePrompter;
 use gage::storage::config::{self, Global, VaultEntry};
@@ -18,7 +19,9 @@ use gage::storage::{identityfile, paths};
 use gage::sync::remotesync::RemoteSyncer;
 use gage::sync::{gitrepo, syncerr};
 use gage::testsupport::fast_scrypt;
+use gage::trust::recipient;
 use gage::{CreateSpec, ErrorKind, InitSpec, UnlockMethod, VaultId, VaultType};
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::{
@@ -412,6 +415,78 @@ fn an_error_with_no_remedy_has_none() {
     let err = Vault::open(f.roots(), "nope".into()).unwrap_err();
 
     assert_eq!(err.remedy(), None);
+}
+
+const FORGED_SECRET: &str = "forged-secret-value";
+
+/// Plants what anyone with write access to the repository can make: a
+/// well-formed payload sealed to the public recipients, with no `auth` line.
+fn plant_forgery(vault: &Vault) -> Uuid {
+    let path = &vault.inner.path;
+    let to: Vec<Recipient> = recipient::load(&path.join(".age-recipients"))
+        .unwrap()
+        .iter()
+        .map(|key| Recipient::parse(key).unwrap())
+        .collect();
+    let payload = format!("title: Forged\nvalue: {FORGED_SECRET}\n");
+    let id = Uuid::new_v4();
+    std::fs::write(
+        path.join(format!("entries/{id}.age")),
+        crypt::encrypt(payload.as_bytes(), &to).unwrap(),
+    )
+    .unwrap();
+    id
+}
+
+/// The failure crosses as `Conflict` with the library's own message, and
+/// nothing from the rejected payload rides along.
+fn assert_unauthenticated(err: &GageError, id: Uuid, failure: AuthFailure, secret: &str) {
+    let expected = gage::entry::Error::Unauthenticated { id, failure }.to_string();
+    assert!(
+        matches!(err, GageError::Conflict { message, remedy: None } if *message == expected),
+        "{err:?}"
+    );
+    assert!(!format!("{err:?}").contains(secret), "{err:?}");
+}
+
+#[test]
+fn a_forged_entry_crosses_as_conflict_from_every_read() {
+    let f = Fixture::new(&["Alpha", "Beta"]);
+    let vault = f.open();
+    let identity = unlock(&vault);
+    let id = plant_forgery(&vault);
+    let id_text = id.hyphenated().to_string();
+
+    let errors = [
+        vault.list(identity.clone()).unwrap_err(),
+        vault.search(identity.clone(), "Alpha".into()).unwrap_err(),
+        vault.show(identity.clone(), id_text.clone()).unwrap_err(),
+        vault.reveal(identity.clone(), id_text, None).unwrap_err(),
+    ];
+
+    for err in &errors {
+        assert_unauthenticated(err, id, AuthFailure::Missing, FORGED_SECRET);
+    }
+}
+
+#[test]
+fn a_genuine_entry_moved_to_another_id_crosses_as_conflict_without_its_value() {
+    let f = Fixture::new(&["Alpha", "Beta"]);
+    let vault = f.open();
+    let identity = unlock(&vault);
+    let rows = vault.list(identity.clone()).unwrap();
+    let (source, victim) = (&rows[0].id, &rows[1].id);
+    let entries = vault.inner.path.join("entries");
+    std::fs::copy(
+        entries.join(format!("{source}.age")),
+        entries.join(format!("{victim}.age")),
+    )
+    .unwrap();
+
+    let err = vault.reveal(identity, victim.clone(), None).unwrap_err();
+
+    let victim = Uuid::parse_str(victim).unwrap();
+    assert_unauthenticated(&err, victim, AuthFailure::Mismatch, "v-Alpha");
 }
 
 /// One of every remedy the library has today. `#[non_exhaustive]` stops this

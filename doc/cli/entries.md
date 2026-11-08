@@ -343,6 +343,46 @@ of an id (the short id `ls` prints works). A query that matches more than
 one entry does nothing and lists the candidates (exit `4`). The full rules
 are in [Addressing entries](addressing-entries.md).
 
+## When an entry fails to verify
+
+Every entry carries a tag made with a key only the vault's recipients hold,
+and bound to the entry's id. gage checks it on every read, before it looks
+at anything else in the entry. An entry that doesn't pass stops the command
+with exit `1` (`conflict`):
+
+```
+gage: entry 0c1d2e3f-... failed authentication: it carries no auth tag
+```
+
+The reason is either that the tag is missing or that it doesn't match, which
+means the entry was written without this vault's key, altered, or copied
+from another entry. Nothing from the rejected entry is shown.
+
+**One such entry fails the whole command.** `ls`, `search` and a session's
+first listing decrypt every entry, and so does anything that takes a query
+(`show`, `cat`, `edit`, `rm` and so on), because finding a title means
+reading all of them. gage never skips the entry and carries on: a listing
+with a row silently missing would look complete when it isn't. A damaged
+entry file behaves the same way.
+
+gage can't address the entry either, so the way out is `git`, in the vault's
+directory. The message gives you the id, and the file is `entries/<id>.age`:
+
+```
+$ git log -- entries/<id>.age
+$ git restore --source=<commit> entries/<id>.age    # or: git rm entries/<id>.age
+$ git commit -am "<id>"
+```
+
+An older revision only verifies if no recipient has been removed since it
+was written, because removing one replaces the key. If you can't explain the
+file, treat it as tampering before you remove it: the commits are all
+authored as `gage`, so look at who your git host says pushed it.
+
+A passing tag means a current recipient wrote this entry for this id. It
+doesn't say which recipient, or that this is the newest version. See the
+[security model](../design/security-model.md#limits).
+
 ## Commits and concurrency
 
 Each write is one git commit: its message is the entry's id and nothing

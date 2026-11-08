@@ -228,6 +228,8 @@ mod complete_tests;
 #[cfg(test)]
 mod enroll_cli_tests;
 #[cfg(test)]
+mod entry_auth_cli_tests;
+#[cfg(test)]
 mod entry_tests;
 #[cfg(test)]
 mod format_v2_tests;
