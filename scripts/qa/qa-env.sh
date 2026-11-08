@@ -337,6 +337,93 @@ unlock() {
     lines "$(pw "$who")" "$@"
 }
 
+# entry_file <persona> <vault> <id>: that entry's file in the persona's clone.
+entry_file() { printf '%s/entries/%s.age' "$(vault_dir "$1" "$2")" "$3"; }
+
+# full_id <persona> <vault> <title>: the entry's whole UUID, found by running
+# `ls` as that persona and matching the short id against its entries/ files.
+full_id() {
+    local short f
+    g "$1" -i "$(unlock "$1")" -- ls -u "$2"
+    short="$(entry_id "$3")"
+    for f in "$(vault_dir "$1" "$2")"/entries/"$short"*.age; do
+        basename "$f" .age
+    done
+}
+
+# head_of <persona> <vault>: the vault clone's HEAD commit.
+head_of() { git -C "$(vault_dir "$1" "$2")" rev-parse HEAD; }
+
+# forge_entry <remote> <title> <value>: build an entry as a stranger would.
+# mallory runs a vault of her own, adds the team's public keys (from the
+# committed .age-recipients) as recipients, and writes one entry. The file is
+# well-formed and decrypts for the team, but its tag is under her key, not
+# the team's. Sets FORGED_ID, FORGED_FILE and FORGED_KEY (her vault-key.age, sealed to the
+# team's public keys, which proves nothing about who wrote it); nothing reaches the remote
+# until stranger_push.
+FORGE_N=0
+forge_entry() {
+    local remote="$1" title="$2" value="$3" v key i=0
+    FORGE_N=$((FORGE_N + 1))
+    v="forge$FORGE_N"
+    new_vault mallory "$v" ""
+    while read -r key; do
+        [[ -z "$key" ]] && continue
+        i=$((i + 1))
+        g mallory -i "$(unlock mallory)" -- recipient add "$key" --device "victim-$i" -u "$v"
+        expect_exit 0
+    done < <(git -C "$remote" show main:.age-recipients)
+    put mallory "$title" "$value" -u "$v"
+    FORGED_FILE="$(ls "$(vault_dir mallory "$v")"/entries/*.age | head -1)"
+    FORGED_ID="$(basename "$FORGED_FILE" .age)"
+    FORGED_KEY="$(vault_dir mallory "$v")/.gage/vault-key.age"
+}
+
+# stranger_push <remote> <message> <op>...: someone with push access and no
+# vault key changes the remote with plain git, in a throwaway clone. Each op
+# is "put:<src>:<dst>" (copy a local file to a path in the repo) or
+# "rm:<dst>". Paths in the repo are relative to its root.
+stranger_push() {
+    local remote="$1" msg="$2" w="$QA_S/stranger-work" op
+    shift 2
+    rm -rf "$w"
+    as mallory -- git clone -q "$remote" "$w"
+    for op in "$@"; do
+        case "$op" in
+        put:*)
+            local rest="${op#put:}"
+            mkdir -p "$w/$(dirname "${rest#*:}")"
+            cp "${rest%%:*}" "$w/${rest#*:}"
+            as mallory -- git -C "$w" add -A
+            ;;
+        rm:*) as mallory -- git -C "$w" rm -q "${op#rm:}" ;;
+        esac
+    done
+    as mallory -- git -C "$w" -c user.name=mallory -c user.email=mallory@example.invalid commit -q -m "$msg"
+    as mallory -- git -C "$w" push -q origin HEAD:main
+}
+
+# join_by_key <who> <remote> <admin> [admin-args...]: <who> clones the
+# (JOINED_KEY is the key they registered)
+# remote under their own name, registers a key, and <admin> adds it as a
+# recipient. The vault is named after the remote. Asserts each step, and
+# leaves the admin's HEAD at the add commit.
+join_by_key() {
+    local who="$1" remote="$2" admin="$3" v key
+    shift 3
+    v="$(basename "$remote" .git)"
+    g "$who" -- clone "$remote" --device "$who-laptop"
+    expect_exit 0
+    g "$who" -i "$(lines "$(pw "$who")" "$(pw "$who")")" -- identity add --device "$who-laptop" -u "$v"
+    expect_exit 0
+    key="$(grep -oE 'age1[0-9a-z]{58}' <<<"$OUT$ERR" | head -1)"
+    JOINED_KEY="$key"
+    g "$admin" -i "$(unlock "$admin")" -- recipient add "$key" --device "$who-laptop" -u "$v" "$@"
+    expect_exit 0
+    g "$who" -- pull -u "$v"
+    expect_exit 0
+}
+
 # finish: summarise and exit non-zero if anything failed.
 finish() {
     printf '   %d passed, %d failed  (transcript: %s)\n' "$QA_PASSES" "$QA_FAILS" "$QA_S/log/transcript.txt"

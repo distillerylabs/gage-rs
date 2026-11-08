@@ -107,31 +107,31 @@ to file, the mallory vault, a stranger's push) go in `qa-env.sh`.
 
 ### `13-entry-auth-forgery.sh`: forgery and failure surface
 
-- [ ] **Format.** A new vault has `format_version = 3`, a tracked
+- [x] **Format.** A new vault has `format_version = 3`, a tracked
       `.gage/vault-key.age`, and `.gage/vault-key.age -merge` in
       `.gitattributes`.
-- [ ] **Stranger's forged entry.** Pushed as above: `show`, `ls`, `search`
+- [x] **Stranger's forged entry.** Pushed as above: `show`, `ls`, `search`
       and `--stdin` each exit `1` with `failed authentication` and the id.
       The forged value appears in neither stream.
-- [ ] **Bound to the id.** Two entries' files swapped, and an entry copied to
+- [x] **Bound to the id.** Two entries' files swapped, and an entry copied to
       a new id, each exit `1`.
-- [ ] **Everything stops.** With a bad entry present, a write exits `1` too.
-- [ ] **The documented way out.** `git rm`, commit and push the named file:
+- [x] **Everything stops.** With a bad entry present, a write exits `1` too.
+- [x] **The documented way out.** `git rm`, commit and push the named file:
       `ls` exits `0` and the real entries are intact.
-- [ ] **Key file states.** Uncommitted delete: read exits `1` (`is missing`),
+- [x] **Key file states.** Uncommitted delete: read exits `1` (`is missing`),
       the next write discards the change and reads work. Committed delete:
       read and write both exit `1`. Garbage bytes: read exits `1` (`corrupt`).
-- [ ] **Key file replaced, entries genuine.** Unlock warns `was replaced on
+- [x] **Key file replaced, entries genuine.** Unlock warns `was replaced on
       its own`, and the read exits `1`. A piped write exits `1` (`nobody is at
       a terminal`). On a pty the review says `vault-key.age was replaced`, and
       declining writes nothing.
-- [ ] **Vault replaced wholesale.** Every entry and the key file replaced:
+- [x] **Vault replaced wholesale.** Every entry and the key file replaced:
       `show`, `ls` and `--stdin` exit `0` and show the forged value, unlock
       warns `was replaced on its own`, and after one `--yes` write the warning
       stops. Pins decision 1; a comment names #207.
-- [ ] **Reserved key.** `edit` adding a top-level `auth:` exits `2` and the
+- [x] **Reserved key.** `edit` adding a top-level `auth:` exits `2` and the
       entry is unchanged. `--field auth=x` is a user field and round-trips.
-- [ ] **v2 refused.** A *copy* of `tests/fixtures/format-v2/vault.git`:
+- [x] **v2 refused.** A *copy* of `tests/fixtures/format-v2/vault.git`:
       `clone` exits `1` (`older format`), registering nothing and leaving no
       directory. An existing vault edited to `format_version = 2` exits `1`
       on `show`. A copy of the `format-v3` fixture clones with exit `0`.
@@ -140,75 +140,75 @@ to file, the mallory vault, a stranger's push) go in `qa-env.sh`.
 
 Adding:
 
-- [ ] **Re-seal on `recipient add`.** The add's commit touches
+- [x] **Re-seal on `recipient add`.** The add's commit touches
       `.gage/vault-key.age`. The new recipient reads every existing entry,
       including one another recipient wrote.
-- [ ] **New recipient writes.** Every other recipient reads it.
-- [ ] **Add doesn't rotate.** A file saved before the add still verifies when
+- [x] **New recipient writes.** Every other recipient reads it.
+- [x] **Add doesn't rotate.** A file saved before the add still verifies when
       restored.
-- [ ] **Enrollment.** `recipient approve`: the same three, for the approved
+- [x] **Enrollment.** `recipient approve`: the same three, for the approved
       device.
-- [ ] **First recovery key.** `recovery rotate` on a vault that had none only
+- [x] **First recovery key.** `recovery rotate` on a vault that had none only
       grows the list: a saved file still verifies.
-- [ ] **New member's history.** `history --decrypt` of a revision from before
+- [x] **New member's history.** `history --decrypt` of a revision from before
       they joined exits `5` (encrypted to the old list), and one from after
       exits `0`.
 
 Removing:
 
-- [ ] **One commit.** `recipient remove --reencrypt` puts entries, key file
+- [x] **One commit.** `recipient remove --reencrypt` puts entries, key file
       and recipient files in a single commit.
-- [ ] **Those left keep working.** The remover and a remaining recipient read
+- [x] **Those left keep working.** The remover and a remaining recipient read
       every entry. Each reads what the other writes afterwards.
-- [ ] **A saved file is refused.** A file saved before the removal, restored,
+- [x] **A saved file is refused.** A file saved before the removal, restored,
       exits `1` with `failed authentication` for someone who can still decrypt
       it.
-- [ ] **`history` across rotations.** A remaining recipient's `history
+- [x] **`history` across rotations.** A remaining recipient's `history
       --decrypt` exits `0` after one removal and after two.
-- [ ] **Removed member's forged write.** Pushed as above: remaining
+- [x] **Removed member's forged write.** Pushed as above: remaining
       recipients exit `1` naming the id, and the documented way out clears it.
-- [ ] **Removed member through gage.** `sync` exits `5` with HEAD unmoved and
+- [x] **Removed member through gage.** `sync` exits `5` with HEAD unmoved and
       nothing pushed. `pull` and `push` exit `1`.
-- [ ] **Remove, then re-add.** The returning member reads current entries and
+- [x] **Remove, then re-add.** The returning member reads current entries and
       writes one the others accept.
-- [ ] **Every write path after a rotation.** `insert`, `generate`, `edit`,
+- [x] **Every write path after a rotation.** `insert`, `generate`, `edit`,
       `rename`, and `cp`/`mv` from another vault: a remaining recipient's
       `ls` and `show` exit `0`.
-- [ ] **Recovery rotates.** `recovery rotate` replacing a key, and `recovery
+- [x] **Recovery rotates.** `recovery rotate` replacing a key, and `recovery
       enroll --replaces`, each change the key file and refuse a saved file. The
       recovering device reads every entry and writes one a remaining recipient
       accepts.
 
 ### `15-entry-auth-sync.sh`: merges across a key change
 
-- [ ] **Offline writer across a removal.** `pull` and `push` exit `1` and
+- [x] **Offline writer across a removal.** `pull` and `push` exit `1` and
       don't merge; a further write commits locally and warns. Piped `sync`
       exits `0`. Remaining recipients read the entry, and the removed one
       exits `5` on it.
-- [ ] **Offline writer across an add.** `sync` exits `0`, and the *new*
+- [x] **Offline writer across an add.** `sync` exits `0`, and the *new*
       recipient reads the offline entry (the gap ADR-0066 closes).
-- [ ] **The rotator was offline.** A writer stays online during it: the
+- [x] **The rotator was offline.** A writer stays online during it: the
       rotator's `sync` exits `0` and its reader verifies the entry.
-- [ ] **Real conflict across a rotation.** Piped: exit `1`, neither value in
+- [x] **Real conflict across a rotation.** Piped: exit `1`, neither value in
       either stream. On a pty, `l`, `r` and `b` each leave a vault everyone
       remaining can `ls` and `show`.
-- [ ] **A key that doesn't continue.** A replaced key on the remote while a
+- [x] **A key that doesn't continue.** A replaced key on the remote while a
       device has a local write: `sync` exits `1` (`does not continue`), HEAD
       unmoved, nothing pushed.
-- [ ] **Half-applied rotation.** Post-rotation entries with the pre-rotation
+- [x] **Half-applied rotation.** Post-rotation entries with the pre-rotation
       key file in the working tree: read exits `1`, the next write discards it
       and the vault reads. This simulates the state; the crash itself stays
       in-process.
 
 ### Docs and harness
 
-- [ ] `doc/cli/sync.md`: an entry written across a key change needs `gage
+- [x] `doc/cli/sync.md`: an entry written across a key change needs `gage
       sync`, and a removed device can't complete it. It says neither today.
-- [ ] `doc/cli/identities-and-recipients.md` "What counts as a change": add
+- [x] `doc/cli/identities-and-recipients.md` "What counts as a change": add
       the key file.
-- [ ] `doc/cli/configuration.md` shows `format_version = 2`, and
+- [x] `doc/cli/configuration.md` shows `format_version = 2`, and
       `doc/cli/vaults.md` explains only format 2's change. Bring both to v3.
-- [ ] `scripts/qa/README.md`: its example uses scenario number `13`, so
+- [x] `scripts/qa/README.md`: its example uses scenario number `13`, so
       renumber it; describe how scenarios forge input.
 
 ### Left to the in-process suite

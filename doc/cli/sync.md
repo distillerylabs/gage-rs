@@ -117,6 +117,35 @@ Two devices that each add a different recipient conflict on
 gage decides that itself, file by file; it does not depend on the vault's
 `.gitattributes`.
 
+### Entries written across a key change
+
+Removing a recipient, `recovery rotate` and `recovery enroll --replaces`
+replace the vault's MAC key (see
+[the security model](../design/security-model.md)). An entry that another
+device wrote offline before it saw the change is tagged under the old key
+and was encrypted to the old recipient list, so it can't be merged as it
+is. The same goes for an entry written across an `add`: it was encrypted
+without the new recipient.
+
+- **Only `gage sync` completes it.** `pull` and `push` stop and report a
+  divergence instead of merging, and a background push after a write does
+  the same. `sync` unlocks, checks each such entry under its own side's
+  key, and re-seals it under the merged key and list in the merge commit.
+  It works without anyone choosing anything unless the same entry also
+  changed on both sides, in which case the usual menu applies and the
+  version you keep is re-sealed the same way.
+- **A device that was removed can't complete it.** It can't open the new
+  key, so its `sync` fails with exit `5`, nothing applied and nothing
+  pushed. An entry it wrote while offline is not carried into the vault.
+- **A key that doesn't continue this one is refused.** `sync` requires
+  one side's current key to be the other's current or an earlier key.
+  A replaced key file that fails this exits `1` (`does not continue`) with
+  your history and the remote untouched.
+
+The report may list entries that only one side wrote among the paths that
+"changed on both sides". Run `gage sync`; the list is not a count of
+conflicts.
+
 ### Resolving an entry conflict
 
 ```

@@ -59,7 +59,7 @@ tokens the scenarios create are not.
 ```bash
 #!/usr/bin/env bash
 source "$(dirname "$0")/../qa-env.sh"
-scenario 13-my-flow
+scenario 16-my-flow
 
 R="$(bare_remote team)"
 new_vault alice team "$R"
@@ -73,6 +73,15 @@ expect_exit 5
 finish
 ```
 
+- To put something on a remote that gage itself would never write, build it
+  and push it as a stranger would. `forge_entry` makes an entry as `mallory`
+  does: she runs a vault of her own with the team's public keys (from the
+  committed `.age-recipients`) as recipients, so her entry decrypts for the
+  team but carries a tag under her key. `stranger_push` puts files on, or
+  removes them from, the team's remote with plain `git` in a throwaway
+  clone. To show a key rotated, don't parse the key file: save an entry's
+  `.age` file, change membership, put the saved file back, and see whether
+  it is still accepted (`14-entry-auth-membership.sh`).
 - Assert the documented behavior and cite the doc in a comment when it is
   non-obvious. When the docs are silent, pin today's behavior and say so.
 - Status lines go to stdout. Prompts, warnings and errors go to stderr.

@@ -219,8 +219,11 @@ all exit `1` (`conflict`), and nothing is reported from the file:
 
 - **An unrecognized `format_version`.** A vault written by a newer `gage`
   asks you to upgrade `gage`. A vault written by an older one (or with no
-  `format_version`) asks you to re-create it: format 2 added the vault id,
-  and there is no id to invent for a vault that never had one.
+  `format_version`) asks you to re-create it. Format 2 added the vault id,
+  and there is no id to invent for a vault that never had one. Format 3
+  added the vault's MAC key and a tag on every entry, and an older entry
+  has no tag to check, so a format 2 vault is refused, not upgraded in
+  place. `clone` refuses it the same way and leaves nothing registered.
 - **An id or a recipient's device name that isn't safe.** Both become file
   names on this machine, so one that could escape its directory
   (`../../etc/x`, `/etc/passwd`, a separator) is refused, never cleaned up.
