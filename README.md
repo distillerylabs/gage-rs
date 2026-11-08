@@ -74,11 +74,12 @@ that ties it to the workflow run that built it.
 
 ```
 sha256sum -c gage-cli-x86_64-unknown-linux-gnu.tar.xz.sha256    # shasum -a 256 -c on macOS
-gh attestation verify gage-cli-x86_64-unknown-linux-gnu.tar.xz --repo distillerylabs/gage-rs
+gh attestation verify gage-cli-x86_64-unknown-linux-gnu.tar.xz --repo distillerylabs/gage-rs --source-ref refs/tags/vX.Y.Z
 ```
 
-The checksum catches a corrupt download; the attestation is what shows the
-archive came from this repository's release workflow. The installers and the
+Replace `vX.Y.Z` with the version you downloaded. The checksum catches a
+corrupt download; the attestation, pinned to the release's tag, is what shows
+the archive is that release. The installers and the
 Homebrew formula download these same archives. macOS binaries are not
 notarized and Windows binaries are not code-signed.
 

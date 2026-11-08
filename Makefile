@@ -158,13 +158,19 @@ audit: $(CARGO_DENY_BIN)
 	"$(CARGO_DENY_BIN)" --locked check
 
 .PHONY: lint
-lint: fmt-check clippy action-pins
+lint: fmt-check clippy action-pins release-attest
 
 # Every `uses:` in .github/workflows is pinned to a commit SHA with a
 # version comment; see scripts/check-action-pins.sh.
 .PHONY: action-pins
 action-pins:
 	sh scripts/check-action-pins.sh
+
+# Only release.yml's announce job can attest; see
+# scripts/check-release-attest.sh.
+.PHONY: release-attest
+release-attest:
+	sh scripts/check-release-attest.sh
 
 .PHONY: fmt
 fmt:
@@ -185,6 +191,7 @@ clippy:
 lint-selftest:
 	sh scripts/lint-selftest.sh
 	sh scripts/check-action-pins-selftest.sh
+	sh scripts/check-release-attest-selftest.sh
 
 # Black-box QA of the built binary: several personas sharing vaults through
 # local bare repos, offline (scripts/qa/README.md). Slow (real scrypt
