@@ -49,10 +49,10 @@ per-device provenance.
 
 | # | Doc | Model | Depends on | Status |
 |---|---|---|---|---|
-| M0 | [m0-library-mac-and-v3.md](m0-library-mac-and-v3.md) | Opus | — | Done, in review |
-| M1 | [m1-membership-and-sync.md](m1-membership-and-sync.md) | Opus | M0 | Done, in review |
-| M2 | [m2-frontend-and-docs.md](m2-frontend-and-docs.md) | Sonnet | M1 | Done, in review |
-| M3 | [m3-qa-coverage.md](m3-qa-coverage.md) | Sonnet | M2 | Done, awaiting review |
+| M0 | [m0-library-mac-and-v3.md](m0-library-mac-and-v3.md) | Opus | — | Done |
+| M1 | [m1-membership-and-sync.md](m1-membership-and-sync.md) | Opus | M0 | Done |
+| M2 | [m2-frontend-and-docs.md](m2-frontend-and-docs.md) | Sonnet | M1 | Done |
+| M3 | [m3-qa-coverage.md](m3-qa-coverage.md) | Sonnet | M2 | Done |
 
 ## Process notes
 
