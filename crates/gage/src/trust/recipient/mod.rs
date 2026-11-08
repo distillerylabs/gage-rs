@@ -14,6 +14,7 @@ use uuid::Uuid;
 
 mod file;
 pub use file::RecipientsFileError;
+pub(crate) use file::parse as parse_recipients;
 #[cfg(any(test, feature = "test-support"))]
 pub use file::{load, save};
 #[cfg(not(any(test, feature = "test-support")))]
@@ -647,10 +648,14 @@ impl Vault {
         Ok((reencrypted, commit))
     }
 
-    /// Rewrites every entry to `to`, returning how many, then re-seals the
+    /// Rewrites every entry to `to`, returning how many, then seals the
     /// vault's MAC key to `to` (ADR-0065). Every entry is decrypted first,
     /// the key opened and the list parsed, before anything is written: a
     /// failure in any aborts with nothing touched and names what failed.
+    ///
+    /// A key leaving the list rotates the MAC key, so that its holder can
+    /// no longer produce a valid entry (ADR-0066). Decided here, from the
+    /// lists themselves, so no caller can forget to ask for it.
     ///
     /// The key is written after the entries and before the recipient
     /// files, so an interrupted run's dirty surface stays inside what the
@@ -667,6 +672,11 @@ impl Vault {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let key = self.vault_key(identity)?;
+        let dropped = self
+            .recipients()?
+            .iter()
+            .any(|r| !to.iter().any(|kept| kept.pubkey == r.pubkey));
+        let key = if dropped { key.rotated() } else { key };
         let parsed = to
             .iter()
             .map(|r| {

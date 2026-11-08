@@ -42,6 +42,7 @@ pub use crud::{
     WriteError, resolve_query,
 };
 pub use layout::{KeyLine, key_layout};
+pub(crate) use store::seal_entry;
 
 /// The vault-relative directory every entry file lives under ("On-disk
 /// layout").

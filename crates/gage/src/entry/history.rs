@@ -98,13 +98,15 @@ impl Vault {
             .into_iter()
             .map(|r| {
                 let entry = match &r.content {
-                    Some(ciphertext) => Some(reader.decrypt(id, ciphertext).map_err(|source| {
-                        HistoryError::Decrypt {
-                            hash: r.id.chars().take(SHORT_HASH_LEN).collect(),
-                            id,
-                            source,
-                        }
-                    })?),
+                    Some(ciphertext) => {
+                        Some(reader.decrypt_revision(id, ciphertext).map_err(|source| {
+                            HistoryError::Decrypt {
+                                hash: r.id.chars().take(SHORT_HASH_LEN).collect(),
+                                id,
+                                source,
+                            }
+                        })?)
+                    }
                     None => None,
                 };
                 Ok(Revision {

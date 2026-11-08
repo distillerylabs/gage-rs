@@ -1349,3 +1349,67 @@ fn both_swaps_refuse_an_actor_who_cannot_read_every_entry() {
     );
     assert_wrote_nothing(&f, &head, &labels, "rotate");
 }
+
+// --- the MAC key (ADR-0066) --------------------------------------------
+
+#[test]
+fn the_recovery_key_opens_the_mac_key_and_verifies_every_entry() {
+    let f = Recover::new();
+    f.insert("first");
+    f.insert("second");
+    let identity = f
+        .vault
+        .recovery_identity(f.pasted(), &FakePrompter::new())
+        .unwrap();
+    f.vault.vault_key(&identity).unwrap();
+    for id in f.vault.entry_ids().unwrap() {
+        f.vault.read_entry(id, &identity).unwrap();
+    }
+}
+
+// Retiring the recovery key drops a key, so the swap rotates: the retired
+// secret, typed into a terminal, no longer produces anything valid.
+#[test]
+fn both_swaps_rotate_the_mac_key() {
+    fn assert_rotated(f: &Recover, retired: &Identity, before: &crate::crypto::vaultkey::VaultKey) {
+        let owner = f.unlock();
+        let now = f.vault.vault_key(&owner).unwrap();
+        assert!(now.continues(before) && !before.continues(&now));
+        assert!(f.vault.vault_key(retired).is_err(), "retired key opens it");
+        for id in f.vault.entry_ids().unwrap() {
+            f.vault.read_entry(id, &owner).unwrap();
+        }
+    }
+
+    let f = Recover::new();
+    f.insert("first");
+    let retired = f
+        .vault
+        .recovery_identity(f.pasted(), &FakePrompter::new())
+        .unwrap();
+    let before = f.vault.vault_key(&f.unlock()).unwrap();
+    f.recover(&spec("laptop-2", &fresh_pubkey()), &FakePrompter::new())
+        .unwrap();
+    assert_rotated(&f, &retired, &before);
+
+    let f = Recover::new();
+    f.insert("first");
+    let retired = f
+        .vault
+        .recovery_identity(f.pasted(), &FakePrompter::new())
+        .unwrap();
+    let before = f.vault.vault_key(&f.unlock()).unwrap();
+    f.rotate(&fresh_pubkey(), &FakePrompter::new()).unwrap();
+    assert_rotated(&f, &retired, &before);
+}
+
+// Adding a first recovery key drops nobody.
+#[test]
+fn adding_the_first_recovery_key_reseals_without_rotating() {
+    let f = Recover::without_recovery_key();
+    f.insert("first");
+    let before = f.vault.vault_key(&f.unlock()).unwrap();
+    f.rotate(&fresh_pubkey(), &FakePrompter::new()).unwrap();
+    let now = f.vault.vault_key(&f.unlock()).unwrap();
+    assert!(now.continues(&before) && before.continues(&now));
+}

@@ -23,7 +23,7 @@ write an entry the client trusts was therefore not enforced.
   `.age-recipients`, exactly as an entry is. Opening it takes a
   recipient's private key. Every re-encryption to a new recipient list
   writes it to that list too. Rotating it when a recipient is removed is
-  M1's work.
+  [ADR-0066](0066-mac-key-rotation.md).
 - **The tag.** Every entry payload is the entry's YAML body followed by
   one last line, `auth: hmac-sha256:<64 lowercase hex>`. The tag is
   `HMAC-SHA256(key, "gage-entry-auth-v3\n" ‖ id ‖ "\n" ‖ body)`, with `id`
@@ -68,8 +68,7 @@ provenance guarantee nothing else in gage relies on.
   the bump's ADR refuses the old format. `format-v2/` stays, unedited, as
   the vault every command must refuse.
 - **Not covered.** Per-device provenance: any current recipient can write
-  any entry. A removed recipient keeps the key until it is rotated (M1),
-  just as it keeps the history it could already read. Rollback and
-  freshness of the vault as a whole are separate work. `history` checks
-  old revisions against the current key, so M1's rotation must keep them
-  readable.
+  any entry. A removed recipient keeps the key until it is rotated
+  ([ADR-0066](0066-mac-key-rotation.md)), just as it keeps the history it
+  could already read. Rollback and freshness of the vault as a whole are
+  separate work.

@@ -342,6 +342,12 @@ impl<R: Read, W: Write> TerminalPrompter<R, W> {
             text.push_str(&w.diff);
             text.push('\n');
         }
+        if w.vault_key_only {
+            text.push_str(
+                "gage: .gage/vault-key.age was replaced, but the recipient list did not change. \
+                 Nothing gage does replaces it alone.\n",
+            );
+        }
         if w.mismatched() {
             text.push_str(
                 "gage: .age-recipients and .gage/config.toml DISAGREE (gage recipient verify fails):\n",
@@ -995,6 +1001,22 @@ mod tests {
         ] {
             assert!(text.contains(want), "missing {want:?}:\n{text}");
         }
+    }
+
+    // A replaced key file has no diff and no counts to show, so the
+    // question has to say what changed.
+    #[test]
+    fn confirm_recipient_change_says_when_only_the_vault_key_changed() {
+        let (p, out) = interactive("n\n");
+        let w = RecipientChangeWarning {
+            vault: "personal".into(),
+            verification: in_sync(),
+            vault_key_only: true,
+            ..Default::default()
+        };
+        assert!(!p.confirm_recipient_change(&w).unwrap(), "`n` approved");
+        let text = out.text();
+        assert!(text.contains("vault-key.age was replaced"), "{text}");
     }
 
     // The design

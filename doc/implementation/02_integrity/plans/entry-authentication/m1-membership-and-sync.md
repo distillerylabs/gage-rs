@@ -33,39 +33,62 @@ M0 (the MAC key, `auth` stamp/verify, format v3). Branch off the M0 branch.
 - `crates/gage/src/recovery/swap.rs` — the recovery key is a recipient;
   confirm it receives the MAC key through the same sealing.
 
-## Decisions to make first
+## Decisions (resolved)
 
-1. **Rotation ordering and crash-safety.** On `remove --reencrypt`: mint a new
-   MAC key, rewrite every entry's `auth` under it, write the new sealed
-   `vault-key.age`, then drop the removed recipient — all in the existing
-   atomic re-encryption commit. Specify the order so a crash never leaves
-   entries authenticated under a key no current recipient holds.
-2. **Does the trust check cover `vault-key.age`?** A change to the sealed key
-   file is a recipient-set change; confirm the recipient-change warning fires
-   when it changes unexpectedly, and that a normal `add`/`remove` regenerates
-   the cache as today.
-3. **Enrollment delivery.** Approving a device adds its pubkey as a recipient;
-   re-sealing the MAC key to the new recipient set (the same step that
-   re-encrypts entries, if approval does) delivers it. Confirm approval runs
-   that re-seal, or add it.
+Recorded in [ADR-0066](../../../../decisions/0066-mac-key-rotation.md).
+
+1. **Rotation ordering and crash-safety.** Every entry is read and the new
+   key minted in memory first. Then, in order: entries are rewritten under
+   the new key, `vault-key.age` is written, the recipient files are written,
+   and one commit takes all of it. Nothing is committed until all of it is
+   on disk, so HEAD never holds an entry tagged under a key its own
+   `vault-key.age` doesn't carry. A crash leaves a dirty tree, which the
+   next write's reset discards. Reads of that tree refuse until then.
+   **Any change that drops a key rotates**, decided where the list is
+   written: `remove`, `recovery enroll` and `recovery rotate` alike.
+2. **The trust check covers `vault-key.age`.** The cache records the key
+   file's hash, and a change to it alone warns as its own case. A normal
+   add or remove regenerates the cache as before.
+3. **Enrollment delivery.** Approval runs through `add_recipient_locked`,
+   which re-seals. Nothing to add; a test pins it.
+4. **Old revisions after a rotation** (not in the original plan; ADR-0065
+   required it). The key file keeps retired keys behind the current one.
+   Live entries verify against the current key only; `history` also accepts
+   retired keys.
+5. **A merge that straddles a key change** (not in the original plan). When
+   one side replaced the key file and the other changed entries, the
+   automatic merge stops, and `gage sync` re-stamps the other side's entries
+   under the merged key and list, in the merge commit.
+6. **Amending v3.** v3 has not shipped, so ADR-0066 amends it in this stack
+   rather than bumping. The frozen fixture and `format_v3_*` tests are
+   unedited.
 
 ## Tasks (tests first)
 
-- [ ] **Rotate on remove.** Test: after `recipient remove --reencrypt`, the
+- [x] **Rotate on remove.** Test: after `recipient remove --reencrypt`, the
       removed key can no longer produce an entry that verifies (the new MAC
       key is unknown to it), and current recipients still read every entry.
-- [ ] **Re-seal on add.** Test: after `recipient add`, the newly added
+- [x] **Re-seal on add.** Test: after `recipient add`, the newly added
       recipient can open `vault-key.age` and verify every entry.
-- [ ] **keep-both re-MACs.** Test: resolving a conflict with "keep both"
+- [x] **keep-both re-MACs.** Test: resolving a conflict with "keep both"
       produces a new entry whose `auth` verifies.
-- [ ] **Merge preserves `auth`.** Test: an automatic merge that takes a
+- [x] **Merge preserves `auth`.** Test: an automatic merge that takes a
       remote entry leaves its `auth` intact and verifiable.
-- [ ] **Enrollment.** Test: a device approved by enrollment can open the MAC
+- [x] **Enrollment.** Test: a device approved by enrollment can open the MAC
       key and verify entries.
-- [ ] **Recovery.** Test: the recovery key opens the MAC key and verifies
+- [x] **Recovery.** Test: the recovery key opens the MAC key and verifies
       entries.
-- [ ] **Trust check.** Test: an out-of-band change to `vault-key.age` is
+- [x] **Trust check.** Test: an out-of-band change to `vault-key.age` is
       surfaced by the recipient-change check, not silently accepted.
+- [x] **History survives rotation.** Test: every revision from before a
+      rotation still reads through `history`, and a retired key is accepted
+      nowhere else.
+- [x] **Crash during rotation.** Test: an interrupted rotation leaves HEAD
+      intact, and the next write's reset restores a vault that verifies.
+- [x] **Straddling merge.** Tests: the automatic merge stops; `gage sync`
+      re-stamps a new entry in both directions; a kept stale-side version of
+      a real conflict verifies; a remote key that doesn't continue this
+      device's is refused.
 
 ## Definition of done
 

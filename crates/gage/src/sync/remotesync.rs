@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
+use crate::crypto::vaultkey::VAULT_KEY_FILE;
 use crate::entry::{self, LockError, WRITE_LOCK_TIMEOUT};
 use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::prompter::{PromptError, Prompter, Warning};
@@ -29,6 +30,7 @@ use crate::storage::identityfile::UnlockError;
 use crate::storage::xdgpaths::Dirs;
 use crate::sync::gitrepo::{self, MergeResult, RemoteOptions, RemoteState};
 use crate::sync::syncerr::Kind;
+use crate::sync::syncresolve::stale_entries;
 use crate::vault::Vault;
 
 pub use crate::sync::gitrepo::REMOTE_OP_TIMEOUT;
@@ -186,7 +188,7 @@ impl SyncReport {
     pub fn conflict_kind(&self) -> ConflictKind {
         let mut kind = ConflictKind::None;
         for path in &self.conflicts {
-            if path == RECIPIENTS_FILE || path == VAULT_CONFIG_FILE {
+            if path == RECIPIENTS_FILE || path == VAULT_CONFIG_FILE || path == VAULT_KEY_FILE {
                 return ConflictKind::Recipients;
             }
             kind = ConflictKind::Entries;
@@ -622,7 +624,10 @@ impl Vault {
         match gitrepo::compare(&self.path).map_err(|e| with(local(e), &report))? {
             RemoteState::Behind => report = self.fast_forward(report)?,
             RemoteState::Diverged => {
-                match gitrepo::merge_remote(&self.path, MERGE_COMMIT_MESSAGE)
+                // Entries a key change left behind need an identity to
+                // re-stamp, which this path doesn't have: they go to
+                // `gage sync` as a conflict does (ADR-0066).
+                match gitrepo::merge_remote_unless(&self.path, MERGE_COMMIT_MESSAGE, stale_entries)
                     .map_err(|e| with(local(e), &report))?
                 {
                     MergeResult::Conflicts(paths) => {

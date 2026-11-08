@@ -88,9 +88,9 @@ impl Vault {
 
     /// `e`, as entry `id`, encrypted to every recipient currently listed in
     /// `.age-recipients`, without writing it anywhere: what
-    /// [`Vault::write_entry`] writes, and what a conflict resolution's
-    /// keep-both hands the merge to create. Stamps only the `auth` tag: the
+    /// [`Vault::write_entry`] writes. Stamps only the `auth` tag: the
     /// entry's own fields are encrypted exactly as given.
+    #[cfg(test)]
     pub(crate) fn encrypt_entry(
         &self,
         id: Uuid,
@@ -101,16 +101,19 @@ impl Vault {
         seal_entry(id, e, &to, &self.vault_key(identity)?)
     }
 
-    /// Decrypts, authenticates and parses entry `id`'s ciphertext, wherever
-    /// it came from: a file, or a git object a merge read. `id` is the one
-    /// the ciphertext is filed under, which its `auth` tag must name.
-    pub(crate) fn decrypt_entry(
+    /// Decrypts entry `id`'s ciphertext and authenticates it under `key`
+    /// rather than the key on disk: what a merge needs, since each side of
+    /// it may be tagged under its own side's key.
+    pub(crate) fn decrypt_entry_under(
         &self,
         id: Uuid,
         ciphertext: &[u8],
         identity: &Identity,
+        key: &VaultKey,
     ) -> Result<Entry, Error> {
-        self.entry_reader(identity).decrypt(id, ciphertext)
+        self.count_decrypt();
+        let plaintext = Zeroizing::new(crypt::decrypt(ciphertext, identity)?);
+        authenticated(id, key, &plaintext, auth::verify)
     }
 
     /// Reads and decrypts `entries/<id>.age` with `identity`, checks its
@@ -211,27 +214,47 @@ impl EntryReader<'_> {
 
     /// [`Vault::decrypt_entry`]. Authenticated before anything is parsed.
     pub(crate) fn decrypt(&mut self, id: Uuid, ciphertext: &[u8]) -> Result<Entry, Error> {
+        self.open(id, ciphertext, auth::verify)
+    }
+
+    /// [`EntryReader::decrypt`] for a past revision out of git history,
+    /// which may be tagged under a retired key (ADR-0066). Never for a
+    /// live entry.
+    pub(crate) fn decrypt_revision(&mut self, id: Uuid, ciphertext: &[u8]) -> Result<Entry, Error> {
+        self.open(id, ciphertext, auth::verify_revision)
+    }
+
+    fn open(&mut self, id: Uuid, ciphertext: &[u8], check: Check) -> Result<Entry, Error> {
         self.vault.count_decrypt();
         let plaintext = Zeroizing::new(crypt::decrypt(ciphertext, self.identity)?);
         let key = match &mut self.key {
             Some(key) => key,
             empty => empty.insert(self.vault.vault_key(self.identity)?),
         };
-        let body = auth::verify(key, id, &plaintext)
-            .map_err(|failure| Error::Unauthenticated { id, failure })?;
-        let entry = Entry::from_yaml(body)?;
-        if entry.extra.contains_key(AUTH_KEY) {
-            return Err(Error::Parse(format!(
-                "{AUTH_KEY:?} appears in the entry body as well as its last line"
-            )));
-        }
-        Ok(entry)
+        authenticated(id, key, &plaintext, check)
     }
+}
+
+/// How a payload is checked against a key: [`auth::verify`] or
+/// [`auth::verify_revision`].
+type Check = for<'p> fn(&VaultKey, Uuid, &'p [u8]) -> Result<&'p [u8], auth::AuthFailure>;
+
+/// The entry in `plaintext`, once `check` has authenticated it.
+fn authenticated(id: Uuid, key: &VaultKey, plaintext: &[u8], check: Check) -> Result<Entry, Error> {
+    let body =
+        check(key, id, plaintext).map_err(|failure| Error::Unauthenticated { id, failure })?;
+    let entry = Entry::from_yaml(body)?;
+    if entry.extra.contains_key(AUTH_KEY) {
+        return Err(Error::Parse(format!(
+            "{AUTH_KEY:?} appears in the entry body as well as its last line"
+        )));
+    }
+    Ok(entry)
 }
 
 /// `e` as entry `id`'s ciphertext: its YAML, stamped with the `auth` tag
 /// under `key`, encrypted to `to`.
-fn seal_entry(
+pub(crate) fn seal_entry(
     id: Uuid,
     e: &Entry,
     to: &[crypt::Recipient],

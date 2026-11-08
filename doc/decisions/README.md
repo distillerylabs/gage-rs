@@ -52,6 +52,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0052](0052-vault-id-type.md) Vault ids are a validated type
 - [0053](0053-vault-type-closed-method-open.md) Vault type is closed, unlock method is open
 - [0065](0065-entry-authentication.md) Entries are authenticated by a per-vault MAC key; format v3; v2 is refused
+- [0066](0066-mac-key-rotation.md) The MAC key rotates when a key is dropped; retired keys stay for history; a merge straddling a key change is re-stamped
 
 ### Git and sync
 

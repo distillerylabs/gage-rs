@@ -6,6 +6,10 @@
 //! `age` alone can't say a recipient wrote it. The key can: only a holder
 //! of a recipient's private key can open it, and every entry carries an
 //! HMAC under it, bound to the entry's id (see `doc/format/v3.md`).
+//!
+//! The file also carries the keys this one replaced (ADR-0066). Only the
+//! current key authenticates a live entry. The retired ones exist for the
+//! revisions git still holds.
 
 use std::path::{Path, PathBuf};
 
@@ -23,7 +27,7 @@ use crate::storage::atomicfile;
 /// Where the sealed key lives, relative to the vault root.
 pub const VAULT_KEY_FILE: &str = ".gage/vault-key.age";
 
-/// The key's length, in bytes: HMAC-SHA256's block-sized-or-less key, at
+/// One key's length, in bytes: HMAC-SHA256's block-sized-or-less key, at
 /// the hash's own strength.
 pub const KEY_LEN: usize = 32;
 
@@ -31,9 +35,13 @@ pub const KEY_LEN: usize = 32;
 /// mistaken for one computed over anything else under the same key.
 const ENTRY_DOMAIN: &[u8] = b"gage-entry-auth-v3\n";
 
-/// The MAC key, opened. Wiped on drop; not `Clone`, and its `Debug` shows
-/// nothing, like every secret here.
-pub struct VaultKey(Zeroizing<[u8; KEY_LEN]>);
+/// The MAC key, opened, with the keys it replaced. Wiped on drop; not
+/// `Clone`, and its `Debug` shows nothing, like every secret here.
+pub struct VaultKey {
+    current: Zeroizing<[u8; KEY_LEN]>,
+    /// Newest first.
+    retired: Zeroizing<Vec<[u8; KEY_LEN]>>,
+}
 
 impl std::fmt::Debug for VaultKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -64,14 +72,24 @@ pub enum Error {
     #[error("vault key {}: {source}", path.display())]
     Crypt { path: PathBuf, source: crypt::Error },
     /// It decrypted, to something that isn't a key.
-    #[error("{} holds {len} bytes, not a {KEY_LEN}-byte key", path.display())]
+    #[error("{} holds {len} bytes, not a whole number of {KEY_LEN}-byte keys", path.display())]
     Malformed { path: PathBuf, len: usize },
+    /// Neither side of a merge knows the other's key, so the file was not
+    /// written by anyone holding this vault's key: anyone can seal a new
+    /// key to the public recipient list.
+    #[error(
+        "{} on origin does not continue this vault's key, so it was not written by a holder of it",
+        path.display()
+    )]
+    Unrelated { path: PathBuf },
 }
 
 impl HasKind for Error {
     fn kind(&self) -> ErrorKind {
         match self {
-            Error::Missing { .. } | Error::Malformed { .. } => ErrorKind::Conflict,
+            Error::Missing { .. } | Error::Malformed { .. } | Error::Unrelated { .. } => {
+                ErrorKind::Conflict
+            }
             Error::Crypt { source, .. } => source.kind(),
             Error::Io { .. } | Error::Write { .. } => ErrorKind::Internal,
         }
@@ -88,14 +106,42 @@ impl HasKind for Error {
 impl VaultKey {
     /// A fresh key from the OS CSPRNG.
     pub(crate) fn generate() -> VaultKey {
-        let mut key = Zeroizing::new([0u8; KEY_LEN]);
-        OsRng.fill_bytes(key.as_mut());
-        VaultKey(key)
+        let mut current = Zeroizing::new([0u8; KEY_LEN]);
+        OsRng.fill_bytes(current.as_mut());
+        VaultKey {
+            current,
+            retired: Zeroizing::new(Vec::new()),
+        }
     }
 
-    /// The key as an age file encrypted to `to`.
+    /// A fresh key that replaces this one, which it keeps as its newest
+    /// retired key.
+    pub(crate) fn rotated(&self) -> VaultKey {
+        let mut retired = Zeroizing::new(Vec::with_capacity(self.retired.len() + 1));
+        retired.push(*self.current);
+        retired.extend_from_slice(&self.retired);
+        VaultKey {
+            retired,
+            ..VaultKey::generate()
+        }
+    }
+
+    /// Whether this key descends from `other`: `other`'s current key is
+    /// this one's current key or among its retired ones. Only a holder of
+    /// `other` can produce such a file.
+    pub(crate) fn continues(&self, other: &VaultKey) -> bool {
+        *self.current == *other.current || self.retired.contains(&*other.current)
+    }
+
+    /// The key as an age file encrypted to `to`: the current key, then the
+    /// retired ones.
     pub(crate) fn seal(&self, to: &[crypt::Recipient]) -> Result<Vec<u8>, crypt::Error> {
-        crypt::encrypt(self.0.as_ref(), to)
+        let mut plain = Zeroizing::new(Vec::with_capacity(KEY_LEN * (1 + self.retired.len())));
+        plain.extend_from_slice(self.current.as_ref());
+        for key in self.retired.iter() {
+            plain.extend_from_slice(key);
+        }
+        crypt::encrypt(&plain, to)
     }
 
     /// Writes the key sealed to `to` at `<vault>/`[`VAULT_KEY_FILE`],
@@ -125,49 +171,65 @@ impl VaultKey {
                 });
             }
         };
-        VaultKey::open(&sealed, identity).map_err(|e| match e {
-            OpenError::Crypt(source) => Error::Crypt { path, source },
-            OpenError::Malformed(len) => Error::Malformed { path, len },
-        })
+        VaultKey::open(&sealed, identity).map_err(|e| e.at(path))
     }
 
     /// The key out of sealed bytes, wherever they came from.
     pub(crate) fn open(sealed: &[u8], identity: &Identity) -> Result<VaultKey, OpenError> {
         let plain = Zeroizing::new(crypt::decrypt(sealed, identity).map_err(OpenError::Crypt)?);
-        let bytes: [u8; KEY_LEN] = plain
-            .as_slice()
-            .try_into()
-            .map_err(|_| OpenError::Malformed(plain.len()))?;
-        Ok(VaultKey(Zeroizing::new(bytes)))
+        let (keys, rest) = plain.as_chunks::<KEY_LEN>();
+        let ([current, retired @ ..], []) = (keys, rest) else {
+            return Err(OpenError::Malformed(plain.len()));
+        };
+        Ok(VaultKey {
+            current: Zeroizing::new(*current),
+            retired: Zeroizing::new(retired.to_vec()),
+        })
     }
 
-    fn entry_mac(&self, id: Uuid, body: &[u8]) -> Hmac<Sha256> {
-        let mut mac =
-            Hmac::<Sha256>::new_from_slice(self.0.as_ref()).expect("HMAC takes a key of any size");
-        mac.update(ENTRY_DOMAIN);
-        mac.update(id.hyphenated().to_string().as_bytes());
-        mac.update(b"\n");
-        mac.update(body);
-        mac
-    }
-
-    /// The `auth` tag of entry `id` whose payload body is `body`.
+    /// The `auth` tag of entry `id` whose payload body is `body`, under
+    /// the current key.
     pub(crate) fn entry_tag(&self, id: Uuid, body: &[u8]) -> [u8; 32] {
-        self.entry_mac(id, body).finalize().into_bytes().into()
+        entry_mac(&self.current, id, body)
+            .finalize()
+            .into_bytes()
+            .into()
     }
 
-    /// Whether `tag` is entry `id`'s tag over `body`, compared in constant
-    /// time.
+    /// Whether `tag` is entry `id`'s tag over `body` under the current
+    /// key, compared in constant time.
     pub(crate) fn verify_entry(&self, id: Uuid, body: &[u8], tag: &[u8]) -> bool {
-        self.entry_mac(id, body).verify_slice(tag).is_ok()
+        entry_mac(&self.current, id, body).verify_slice(tag).is_ok()
+    }
+
+    /// [`VaultKey::verify_entry`], also accepting a retired key: for a
+    /// past revision only, never a live entry.
+    pub(crate) fn verify_revision(&self, id: Uuid, body: &[u8], tag: &[u8]) -> bool {
+        self.verify_entry(id, body, tag)
+            || self
+                .retired
+                .iter()
+                .any(|key| entry_mac(key, id, body).verify_slice(tag).is_ok())
     }
 
     /// A key with fixed bytes, for the golden fixture's generator and
     /// known-answer tests.
     #[cfg(test)]
     pub(crate) fn from_bytes_for_tests(bytes: [u8; KEY_LEN]) -> VaultKey {
-        VaultKey(Zeroizing::new(bytes))
+        VaultKey {
+            current: Zeroizing::new(bytes),
+            retired: Zeroizing::new(Vec::new()),
+        }
     }
+}
+
+fn entry_mac(key: &[u8; KEY_LEN], id: Uuid, body: &[u8]) -> Hmac<Sha256> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC takes a key of any size");
+    mac.update(ENTRY_DOMAIN);
+    mac.update(id.hyphenated().to_string().as_bytes());
+    mac.update(b"\n");
+    mac.update(body);
+    mac
 }
 
 /// Why [`VaultKey::open`] produced no key.
@@ -175,6 +237,16 @@ impl VaultKey {
 pub(crate) enum OpenError {
     Crypt(crypt::Error),
     Malformed(usize),
+}
+
+impl OpenError {
+    /// This failure, as the error for the key file at `path`.
+    pub(crate) fn at(self, path: PathBuf) -> Error {
+        match self {
+            OpenError::Crypt(source) => Error::Crypt { path, source },
+            OpenError::Malformed(len) => Error::Malformed { path, len },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -193,7 +265,7 @@ mod tests {
         let sealed = key.seal(&[recipient(&alice), recipient(&bob)]).unwrap();
         for who in [&alice, &bob] {
             let opened = VaultKey::open(&sealed, &Identity::for_tests(who)).unwrap();
-            assert_eq!(*opened.0, *key.0);
+            assert_eq!(*opened.current, *key.current);
         }
     }
 
@@ -210,7 +282,7 @@ mod tests {
 
     #[test]
     fn generated_keys_differ() {
-        assert_ne!(*VaultKey::generate().0, *VaultKey::generate().0);
+        assert_ne!(*VaultKey::generate().current, *VaultKey::generate().current);
     }
 
     #[test]
@@ -221,6 +293,62 @@ mod tests {
             VaultKey::open(&sealed, &Identity::for_tests(&alice)),
             Err(OpenError::Malformed(31))
         ));
+    }
+
+    #[test]
+    fn a_rotated_key_keeps_the_old_one_newest_first_through_a_seal() {
+        let alice = age::x25519::Identity::generate();
+        let first = VaultKey::generate();
+        let second = first.rotated();
+        let third = second.rotated();
+        assert_ne!(*third.current, *second.current);
+        let sealed = third.seal(&[recipient(&alice)]).unwrap();
+        let opened = VaultKey::open(&sealed, &Identity::for_tests(&alice)).unwrap();
+        assert_eq!(*opened.current, *third.current);
+        assert_eq!(*opened.retired, vec![*second.current, *first.current]);
+    }
+
+    #[test]
+    fn a_sealed_file_between_whole_keys_is_malformed() {
+        let alice = age::x25519::Identity::generate();
+        for len in [0, 33, 63] {
+            let sealed = crypt::encrypt(&vec![7u8; len], &[recipient(&alice)]).unwrap();
+            assert!(
+                matches!(
+                    VaultKey::open(&sealed, &Identity::for_tests(&alice)),
+                    Err(OpenError::Malformed(n)) if n == len
+                ),
+                "{len} bytes"
+            );
+        }
+    }
+
+    // A live entry takes the current key alone; a past revision may also
+    // take a retired one.
+    #[test]
+    fn only_a_revision_verifies_under_a_retired_key() {
+        let old = VaultKey::generate();
+        let id = Uuid::new_v4();
+        let tag = old.entry_tag(id, b"body");
+        let new = old.rotated();
+        assert!(!new.verify_entry(id, b"body", &tag), "live entry");
+        assert!(new.verify_revision(id, b"body", &tag), "past revision");
+        let tag = new.entry_tag(id, b"body");
+        assert!(new.verify_entry(id, b"body", &tag));
+        assert!(new.verify_revision(id, b"body", &tag));
+        let unrelated = VaultKey::generate().entry_tag(id, b"body");
+        assert!(!new.verify_revision(id, b"body", &unrelated));
+    }
+
+    #[test]
+    fn continues_means_knowing_the_others_current_key() {
+        let old = VaultKey::generate();
+        let new = old.rotated();
+        assert!(new.continues(&old));
+        assert!(!old.continues(&new), "the old key has never seen the new");
+        assert!(old.continues(&old), "a re-seal changes nothing");
+        assert!(!VaultKey::generate().continues(&old));
+        assert!(!new.continues(&VaultKey::generate()));
     }
 
     #[test]
@@ -236,7 +364,10 @@ mod tests {
 
         let key = VaultKey::generate();
         key.save(dir.path(), &[recipient(&alice)]).unwrap();
-        assert_eq!(*VaultKey::load(dir.path(), &id).unwrap().0, *key.0);
+        assert_eq!(
+            *VaultKey::load(dir.path(), &id).unwrap().current,
+            *key.current
+        );
 
         let stranger = Identity::for_tests(&age::x25519::Identity::generate());
         let err = VaultKey::load(dir.path(), &stranger).unwrap_err();

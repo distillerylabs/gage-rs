@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::crypto::identity::Identity;
+use crate::crypto::vaultkey::{VAULT_KEY_FILE, VaultKey};
 use crate::entry::{NewEntry, WriteError};
 use crate::error::{ErrorKind, HasKind};
 use crate::prompter::FakePrompter;
@@ -1275,4 +1276,104 @@ fn trust_error_stays_small_enough_to_carry() {
     use std::mem::size_of;
     assert!(size_of::<TrustError>() <= 96, "{}", size_of::<TrustError>());
     assert!(size_of::<WriteError>() <= 96, "{}", size_of::<WriteError>());
+}
+
+// --- the MAC key file (ADR-0066) ----------------------------------------
+
+/// What anyone holding only the public recipient list can do: seal a key
+/// of their own and commit it.
+fn replace_vault_key(vault: &Vault) {
+    let to = vault.encrypt_recipients().unwrap();
+    VaultKey::generate().save(&vault.path, &to).unwrap();
+    gitrepo::commit_all(&vault.path, "someone else's key").unwrap();
+}
+
+#[test]
+fn replacing_the_vault_key_alone_is_surfaced_and_blocks_a_write() {
+    let t = TrustVault::new();
+    t.bootstrap();
+    replace_vault_key(&t.vault);
+
+    let warning = t.vault.check_recipient_trust().unwrap().expect("a warning");
+    assert!(warning.vault_key_only);
+    assert!(warning.diff.is_empty());
+    assert!(!warning.mismatched());
+    assert!(
+        warning.summary().contains("vault-key.age was replaced"),
+        "{}",
+        warning.summary()
+    );
+
+    let identity = t.unlock(&unlocking());
+    let head = t.head();
+    let p = trusting(&[false]);
+    assert!(t.try_insert(&identity, "x", &p).is_err());
+    assert_eq!(p.recipient_changes().len(), 1);
+    assert!(p.recipient_changes()[0].vault_key_only);
+    assert_eq!(t.head(), head, "declined, nothing written");
+}
+
+#[test]
+fn unlock_warns_about_a_replaced_vault_key() {
+    let t = TrustVault::new();
+    t.bootstrap();
+    replace_vault_key(&t.vault);
+    let p = unlocking();
+    t.unlock(&p);
+    assert!(
+        p.warnings().iter().any(|w| w.contains("vault-key.age")),
+        "{:?}",
+        p.warnings()
+    );
+}
+
+#[test]
+fn a_deleted_vault_key_is_surfaced() {
+    let t = TrustVault::new();
+    t.bootstrap();
+    std::fs::remove_file(t.vault.path.join(VAULT_KEY_FILE)).unwrap();
+    let warning = t.vault.check_recipient_trust().unwrap().expect("a warning");
+    assert!(warning.vault_key_only);
+}
+
+#[test]
+fn confirming_a_replaced_vault_key_regenerates_the_record() {
+    let t = TrustVault::new();
+    t.bootstrap();
+    replace_vault_key(&t.vault);
+    t.vault.confirm_recipient_trust(&trusting(&[true])).unwrap();
+    assert_eq!(
+        t.cache().unwrap().vault_key_hash,
+        Some(sha256_hex(&t.vault.path.join(VAULT_KEY_FILE)))
+    );
+    assert_eq!(t.vault.check_recipient_trust().unwrap(), None);
+}
+
+// A record from before the key file was tracked has no opinion about it,
+// and adopts it silently, as a device with no record does.
+#[test]
+fn a_record_without_a_key_hash_adopts_the_file() {
+    let t = TrustVault::new();
+    t.bootstrap();
+    let mut cache = t.cache().unwrap();
+    cache.vault_key_hash = None;
+    t.vault.save_trust_cache(&cache).unwrap();
+
+    assert_eq!(t.vault.check_recipient_trust().unwrap(), None);
+    assert_eq!(
+        t.cache().unwrap().vault_key_hash,
+        Some(sha256_hex(&t.vault.path.join(VAULT_KEY_FILE)))
+    );
+}
+
+// A local add changes the key file too, and is its operator's own review.
+#[test]
+fn a_local_recipient_add_needs_no_review_of_its_own_key_file() {
+    let t = TrustVault::new();
+    let p = unlocking();
+    let identity = t.unlock(&p);
+    t.vault
+        .add_recipient("phone-1", &new_key(), &identity, &p)
+        .unwrap();
+    assert_eq!(t.vault.check_recipient_trust().unwrap(), None);
 }

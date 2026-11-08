@@ -1046,3 +1046,289 @@ fn a_resolution_report_says_it_diverged_and_how_much_it_resolved() {
     assert_eq!(report.conflicts, std::slice::from_ref(&f.path));
     assert!(!report.aborted);
 }
+
+// --- entries across a key change (ADR-0066) -----------------------------
+
+use crate::crypto::crypt;
+use crate::crypto::vaultkey;
+use crate::sync::remotesync::tests::FakeSyncer;
+use crate::vault::twodevice_tests::{B_DEVICE, Machine};
+
+/// Two devices that can both read the vault, plus a third recipient whose
+/// removal rotates the key without locking out either of them.
+struct Straddle {
+    a: SyncVault,
+    b: Machine,
+    id_a: Identity,
+    id_b: Identity,
+    shared: Uuid,
+    gone: age::x25519::Identity,
+}
+
+fn straddle() -> Straddle {
+    let a = SyncVault::new();
+    let id_a = a.unlock();
+    let shared = a
+        .vault
+        .insert(&id_a, sample("shared"), false, &unlocks())
+        .unwrap();
+    let b = Machine::cloned_from(&a, B_DEVICE);
+    let b_key = b.identity_add(B_DEVICE);
+    a.vault
+        .add_recipient(B_DEVICE, &b_key, &id_a, &unlocks())
+        .unwrap();
+    let gone = age::x25519::Identity::generate();
+    a.vault
+        .add_recipient("gone", &gone.to_public().to_string(), &id_a, &unlocks())
+        .unwrap();
+    b.vault.pull().unwrap();
+    let id_b = b.unlock();
+    Straddle {
+        a,
+        b,
+        id_a,
+        id_b,
+        shared,
+        gone,
+    }
+}
+
+impl Straddle {
+    fn rotate(&self, on: &Vault) {
+        on.remove_recipient("gone", true, &self.id_a, &unlocks())
+            .unwrap();
+    }
+
+    fn edit(&self, on: &Vault, identity: &Identity, value: &str) {
+        let mut e = on.read_entry(self.shared, identity).unwrap();
+        e.value = value.into();
+        on.update(identity, self.shared, &e, &FakePrompter::new())
+            .unwrap();
+    }
+
+    /// Both devices, caught up, read every entry through full
+    /// authentication.
+    fn assert_all_read(&self) {
+        self.a.vault.pull().unwrap();
+        self.b.vault.pull().unwrap();
+        for (v, i) in [(&self.a.vault, &self.id_a), (&self.b.vault, &self.id_b)] {
+            let ids = v.entry_ids().unwrap();
+            assert!(!ids.is_empty());
+            for id in ids {
+                v.read_entry(id, i)
+                    .unwrap_or_else(|e| panic!("{id} on {}: {e}", v.name));
+            }
+        }
+    }
+
+    fn gone_cannot_open(&self, on: &Vault, id: Uuid) {
+        let sealed = std::fs::read(on.entry_path(id)).unwrap();
+        assert!(matches!(
+            crypt::decrypt(&sealed, &Identity::for_tests(&self.gone)),
+            Err(crypt::Error::NotARecipient)
+        ));
+    }
+}
+
+fn offline(v: &Vault) -> Vault {
+    v.clone().with_remote_syncer(FakeSyncer::offline())
+}
+
+fn resolve_on(v: &Vault, identity: &Identity, p: &dyn Prompter) -> Result<SyncReport, SyncError> {
+    v.sync_resolving_with(p, &mut || Ok(identity))
+}
+
+#[test]
+fn keep_both_stamps_a_new_entry_that_verifies() {
+    let f = Fixture::new();
+    f.resolve(&answering(&[Resolution::KeepBoth])).unwrap();
+    let others = f.others();
+    assert_eq!(others.len(), 1);
+    assert_eq!(f.read(others[0]).value, "their-rotated-password");
+    assert_eq!(f.read(f.id).value, "my-rotated-password");
+}
+
+#[test]
+fn an_automatic_merge_leaves_a_remote_entrys_auth_intact() {
+    let s = SyncVault::new();
+    let identity = s.unlock();
+    let p = FakePrompter::new();
+    let theirs = crate::entry::new_id();
+    publish(&s, &[(&path_of(theirs), &base())]);
+    // The push this write attempts is what merges.
+    let mine = s
+        .vault
+        .insert(&identity, sample("mine"), false, &p)
+        .unwrap();
+    assert_eq!(
+        s.vault.read_entry(theirs, &identity).unwrap().value,
+        base().value
+    );
+    s.vault.read_entry(mine, &identity).unwrap();
+}
+
+#[test]
+fn a_key_change_alone_still_merges_without_unlocking() {
+    let t = straddle();
+    commit_offline(&t.a, "notes.txt", "nothing an entry");
+    t.b.vault
+        .remove_recipient("gone", true, &t.id_b, &unlocks())
+        .unwrap();
+    let counting = Counting::new(&t.id_a);
+    counting.run(&t.a.vault, &FakePrompter::new()).unwrap();
+    assert_eq!(counting.calls(), 0);
+    t.assert_all_read();
+}
+
+// This device wrote an entry offline while the other rotated and pushed.
+#[test]
+fn an_entry_written_during_a_rotation_elsewhere_is_restamped_by_sync() {
+    let t = straddle();
+    let y = offline(&t.b.vault)
+        .insert(&t.id_b, sample("offline"), false, &FakePrompter::new())
+        .unwrap();
+    t.rotate(&t.a.vault);
+    let head_before = head(&t.b.vault);
+
+    // Nothing unattended can fix it: it stops and names the entry.
+    let err = t.b.vault.sync().unwrap_err();
+    assert!(matches!(*err.cause, SyncCause::Conflict), "{err}");
+    assert_eq!(err.report.conflicts, vec![path_of(y)]);
+    assert_eq!(err.report.conflict_kind(), ConflictKind::Entries);
+    assert_eq!(head(&t.b.vault), head_before, "nothing was merged");
+
+    let report = resolve_on(&t.b.vault, &t.id_b, &answering(&[])).unwrap();
+    assert!(report.merged);
+    assert!(report.conflicts.is_empty(), "{:?}", report.conflicts);
+    assert_eq!(head_message(&t.b.vault.path), MERGE_COMMIT_MESSAGE);
+    t.assert_all_read();
+    t.gone_cannot_open(&t.b.vault, y);
+}
+
+// This device rotated offline while the other published an entry.
+#[test]
+fn an_entry_published_during_a_local_rotation_is_restamped_by_sync() {
+    let t = straddle();
+    t.rotate(&offline(&t.a.vault));
+    let y =
+        t.b.vault
+            .insert(&t.id_b, sample("published"), false, &FakePrompter::new())
+            .unwrap();
+
+    let err = t.a.vault.sync().unwrap_err();
+    assert_eq!(err.report.conflicts, vec![path_of(y)], "{err}");
+
+    resolve_on(&t.a.vault, &t.id_a, &answering(&[])).unwrap();
+    t.assert_all_read();
+    t.gone_cannot_open(&t.a.vault, y);
+}
+
+#[test]
+fn the_kept_side_of_a_conflict_across_a_rotation_verifies() {
+    // The stale side is local, and kept.
+    let t = straddle();
+    t.edit(&offline(&t.b.vault), &t.id_b, "edited on b");
+    t.rotate(&t.a.vault);
+    resolve_on(&t.b.vault, &t.id_b, &answering(&[Resolution::KeepLocal])).unwrap();
+    t.assert_all_read();
+    assert_eq!(
+        t.a.vault.read_entry(t.shared, &t.id_a).unwrap().value,
+        "edited on b"
+    );
+    t.gone_cannot_open(&t.a.vault, t.shared);
+
+    // The stale side is remote, and kept.
+    let t = straddle();
+    t.rotate(&offline(&t.a.vault));
+    t.edit(&t.b.vault, &t.id_b, "edited on b");
+    resolve_on(&t.a.vault, &t.id_a, &answering(&[Resolution::KeepRemote])).unwrap();
+    t.assert_all_read();
+    assert_eq!(
+        t.b.vault.read_entry(t.shared, &t.id_b).unwrap().value,
+        "edited on b"
+    );
+    t.gone_cannot_open(&t.b.vault, t.shared);
+
+    // Keeping the rotated side needs no re-seal, and still verifies.
+    let t = straddle();
+    t.edit(&offline(&t.b.vault), &t.id_b, "edited on b");
+    t.rotate(&t.a.vault);
+    resolve_on(&t.b.vault, &t.id_b, &answering(&[Resolution::KeepRemote])).unwrap();
+    t.assert_all_read();
+}
+
+#[test]
+fn keep_both_across_a_rotation_seals_both_under_the_merged_key() {
+    let t = straddle();
+    t.edit(&offline(&t.b.vault), &t.id_b, "edited on b");
+    t.rotate(&t.a.vault);
+    resolve_on(&t.b.vault, &t.id_b, &answering(&[Resolution::KeepBoth])).unwrap();
+    t.assert_all_read();
+    let ids = t.a.vault.entry_ids().unwrap();
+    assert_eq!(ids.len(), 2);
+    for id in ids {
+        t.gone_cannot_open(&t.a.vault, id);
+    }
+}
+
+// Anyone can seal a key to the public list. One that doesn't descend from
+// this vault's isn't trusted to re-stamp anything.
+#[test]
+fn a_remote_key_that_does_not_continue_this_vaults_is_refused() {
+    let s = SyncVault::new();
+    let identity = s.unlock();
+    let p = FakePrompter::new();
+    s.vault
+        .insert(&identity, sample("before"), false, &p)
+        .unwrap();
+    offline(&s.vault)
+        .insert(&identity, sample("offline"), false, &p)
+        .unwrap();
+    let other = s.other();
+    let to = s.vault.encrypt_recipients().unwrap();
+    other.write_bytes(VAULT_KEY_FILE, &VaultKey::generate().seal(&to).unwrap());
+    other.commit("a key nobody here holds");
+    other.push();
+    let before = head(&s.vault);
+
+    let err = resolve_on(&s.vault, &identity, &answering(&[])).unwrap_err();
+    assert!(
+        matches!(&*err.cause, SyncCause::Entry(entry::Error::VaultKey(e))
+            if matches!(**e, vaultkey::Error::Unrelated { .. })),
+        "{err}"
+    );
+    assert_eq!(err.kind(), ErrorKind::Conflict);
+    assert_eq!(head(&s.vault), before, "nothing was applied");
+}
+
+// A device the rotation removed can't open the new key, so it can't finish
+// the merge: typed, with nothing applied.
+#[test]
+fn a_device_removed_by_the_rotation_cannot_restamp() {
+    let t = straddle();
+    offline(&t.b.vault)
+        .insert(&t.id_b, sample("offline"), false, &FakePrompter::new())
+        .unwrap();
+    t.a.vault
+        .remove_recipient(B_DEVICE, true, &t.id_a, &unlocks())
+        .unwrap();
+    let before = head(&t.b.vault);
+
+    let err = resolve_on(&t.b.vault, &t.id_b, &answering(&[])).unwrap_err();
+    assert!(
+        matches!(&*err.cause, SyncCause::Entry(entry::Error::VaultKey(e))
+            if matches!(**e, vaultkey::Error::Crypt {
+                source: crypt::Error::NotARecipient, .. })),
+        "{err}"
+    );
+    assert_eq!(head(&t.b.vault), before);
+}
+
+#[test]
+fn a_conflict_on_the_key_file_is_a_recipient_conflict() {
+    let report = SyncReport {
+        conflicts: vec![VAULT_KEY_FILE.to_string()],
+        ..SyncReport::default()
+    };
+    assert_eq!(report.conflict_kind(), ConflictKind::Recipients);
+}

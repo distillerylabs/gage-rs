@@ -58,12 +58,38 @@ pub(crate) fn stamp(key: &VaultKey, id: Uuid, body: &[u8]) -> Zeroizing<Vec<u8>>
     out
 }
 
-/// The body of entry `id`'s `payload`, once its `auth` line has verified.
+/// The body of entry `id`'s `payload`, once its `auth` line has verified
+/// under the current key.
 pub(crate) fn verify<'p>(
     key: &VaultKey,
     id: Uuid,
     payload: &'p [u8],
 ) -> Result<&'p [u8], AuthFailure> {
+    let (body, tag) = split(payload)?;
+    if key.verify_entry(id, body, &tag) {
+        Ok(body)
+    } else {
+        Err(AuthFailure::Mismatch)
+    }
+}
+
+/// [`verify`] for a past revision: a tag under a retired key also counts,
+/// because it was current when git recorded that revision (ADR-0066).
+pub(crate) fn verify_revision<'p>(
+    key: &VaultKey,
+    id: Uuid,
+    payload: &'p [u8],
+) -> Result<&'p [u8], AuthFailure> {
+    let (body, tag) = split(payload)?;
+    if key.verify_revision(id, body, &tag) {
+        Ok(body)
+    } else {
+        Err(AuthFailure::Mismatch)
+    }
+}
+
+/// A payload's body and the tag on its last line.
+fn split(payload: &[u8]) -> Result<(&[u8], [u8; 32]), AuthFailure> {
     let content = payload.strip_suffix(b"\n").ok_or(AuthFailure::Missing)?;
     let start = content
         .iter()
@@ -75,11 +101,7 @@ pub(crate) fn verify<'p>(
         .filter(|h| h.len() == HEX_LEN)
         .ok_or(AuthFailure::Missing)?;
     let tag = decode_hex(hex).ok_or(AuthFailure::Missing)?;
-    if key.verify_entry(id, body, &tag) {
-        Ok(body)
-    } else {
-        Err(AuthFailure::Mismatch)
-    }
+    Ok((body, tag))
 }
 
 /// Lower-case hex only: the one spelling [`stamp`] writes.
