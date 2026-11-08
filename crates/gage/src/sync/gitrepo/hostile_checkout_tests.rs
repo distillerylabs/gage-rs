@@ -14,7 +14,7 @@ use std::path::Path;
 
 use super::remote_tests::{commit_file, published_repo};
 use super::*;
-use crate::gittest::{self, BareRemote, Device};
+use crate::gittest::{self, BareRemote};
 
 fn opts() -> RemoteOptions {
     gittest::remote_options()
@@ -112,6 +112,7 @@ fn fast_forward_does_not_lay_down_a_traversable_symlink() {
 #[cfg(unix)]
 #[test]
 fn merge_does_not_write_through_a_committed_symlink() {
+    use crate::gittest::Device;
     use std::os::unix::fs::symlink;
 
     // A file outside the vault the attacker wants overwritten.
