@@ -218,6 +218,13 @@ erase: on a copy-on-write filesystem the old blocks may survive, which is
 why Linux prefers tmpfs. A non-zero exit from the editor fails the edit
 with exit `6`.
 
+On Unix that includes gage being told to stop. `SIGTERM` and `SIGHUP`, such
+as from a closed terminal, are passed to the editor, which is killed if it
+hasn't exited within two seconds. The file is then destroyed and gage exits
+with that signal. Ctrl-C and `SIGQUIT` are left to the editor: the edit
+ends only if the editor does. The limits: `SIGKILL` or power loss leaves
+the file behind, and so can Ctrl-C or closing the console on Windows.
+
 ## `gage rename <query> <new-title>`
 
 Changes only the title, stamping `updated`/`updated_by`; no editor. A

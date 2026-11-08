@@ -11,12 +11,14 @@
 //! exists, its bytes are overwritten with zeros and it is unlinked. On Unix
 //! gage keeps the file it created open across the editor, so the original
 //! is zeroed even when the editor saves by writing a new file and renaming
-//! it over the path.
+//! it over the path. A signal that would end the process gets the same
+//! cleanup, on Unix (ADR-0070).
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Child, Command, ExitStatus};
+use std::time::{Duration, Instant};
 
 use crate::exitcode::ExitCode;
 use gage::Entry;
@@ -32,6 +34,13 @@ pub(crate) struct Edited {
     pub(crate) unchanged: bool,
 }
 
+/// How often the wait for the editor looks for a signal.
+const EDITOR_POLL: Duration = Duration::from_millis(50);
+
+/// How long an editor gets to act on a forwarded signal before it is killed
+/// (ADR-0070).
+const EDITOR_GRACE: Duration = Duration::from_secs(2);
+
 /// Opens `seed`'s YAML in `editor` (`$EDITOR`'s value) and parses what it
 /// saves.
 pub(crate) fn edit_yaml(editor: Option<&str>, seed: &Entry) -> Result<Edited, CliError> {
@@ -42,14 +51,20 @@ pub(crate) fn edit_yaml(editor: Option<&str>, seed: &Entry) -> Result<Edited, Cl
 fn edit_yaml_in(dir: &Path, editor: Option<&str>, seed: &Entry) -> Result<Edited, CliError> {
     let (program, args) = resolve_editor(editor)?;
     let template = seed.to_yaml()?;
+    // Declared before `scratch`, so it drops after: a signal caught along
+    // the way is only re-raised once the file is gone.
+    let signals = signals::Signals::catch();
     // From here on the plaintext is on disk; `scratch`'s Drop overwrites
     // and unlinks it on every path out, an error or a panic included.
     let scratch = Scratch::create(dir, &template)?;
-    let status = Command::new(&program)
+    let running_editor =
+        |e: std::io::Error| CliError::new(ExitCode::Internal, format!("running $EDITOR: {e}"));
+    let mut child = Command::new(&program)
         .args(&args)
         .arg(&scratch.path)
-        .status()
-        .map_err(|e| CliError::new(ExitCode::Internal, format!("running $EDITOR: {e}")))?;
+        .spawn()
+        .map_err(running_editor)?;
+    let status = wait_for_editor(&mut child, &signals).map_err(running_editor)?;
     if !status.success() {
         return Err(CliError::new(
             ExitCode::Internal,
@@ -67,6 +82,36 @@ fn edit_yaml_in(dir: &Path, editor: Option<&str>, seed: &Entry) -> Result<Edited
         entry,
         unchanged: *edited == *template,
     })
+}
+
+/// The editor's exit status, once it has exited by itself or a caught
+/// signal has stopped it.
+fn wait_for_editor(child: &mut Child, signals: &signals::Signals) -> std::io::Result<ExitStatus> {
+    loop {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        if let Some(signal) = signals.pending() {
+            return stop_editor(child, signal);
+        }
+        std::thread::sleep(EDITOR_POLL);
+    }
+}
+
+/// Passes `signal` on to the editor and waits for it to exit, killing it if
+/// it won't: an editor still running after the cleanup could write the path
+/// back.
+fn stop_editor(child: &mut Child, signal: i32) -> std::io::Result<ExitStatus> {
+    signals::forward(child, signal);
+    let deadline = Instant::now() + EDITOR_GRACE;
+    while Instant::now() < deadline {
+        if let Some(status) = child.try_wait()? {
+            return Ok(status);
+        }
+        std::thread::sleep(EDITOR_POLL);
+    }
+    child.kill()?;
+    child.wait()
 }
 
 /// `$EDITOR` as a program and its arguments, checked before anything
@@ -146,6 +191,116 @@ impl Drop for Scratch {
         }
         let _ = overwrite_then_remove(&self.path);
     }
+}
+
+/// What happens to signals while a scratch file exists (ADR-0070).
+#[cfg(unix)]
+#[allow(unsafe_code)]
+mod signals {
+    use std::process::Child;
+    use std::sync::atomic::{AtomicI32, Ordering};
+
+    /// The signals that would otherwise end gage with the file on disk.
+    const CAUGHT: [libc::c_int; 4] = [libc::SIGINT, libc::SIGQUIT, libc::SIGTERM, libc::SIGHUP];
+
+    /// The `SIGTERM` or `SIGHUP` caught, 0 if none.
+    static PENDING: AtomicI32 = AtomicI32::new(0);
+
+    /// Async-signal-safe: it touches only an atomic. `SIGINT` and `SIGQUIT`
+    /// are absorbed here: the terminal delivers them to the editor too, and
+    /// what they mean is the editor's call. A handler rather than `SIG_IGN`
+    /// because the editor inherits `SIG_IGN` across exec.
+    extern "C" fn on_signal(signal: libc::c_int) {
+        if signal == libc::SIGTERM || signal == libc::SIGHUP {
+            PENDING.store(signal, Ordering::SeqCst);
+        }
+    }
+
+    /// Handlers for [`CAUGHT`], replaced by the previous dispositions on
+    /// drop, which then re-raises a pending signal so that gage still dies
+    /// by it.
+    pub(super) struct Signals {
+        previous: Vec<(libc::c_int, libc::sigaction)>,
+    }
+
+    impl Signals {
+        /// Leaves alone any signal already ignored, as under `nohup`.
+        pub(super) fn catch() -> Signals {
+            // SAFETY: an all-zero sigaction is valid: an empty mask, no
+            // flags, and SIG_DFL until the handler is set below.
+            let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+            action.sa_sigaction = on_signal as extern "C" fn(libc::c_int) as libc::sighandler_t;
+            action.sa_flags = libc::SA_RESTART;
+            let mut previous = Vec::with_capacity(CAUGHT.len());
+            for signal in CAUGHT {
+                // SAFETY: as above, overwritten by the query.
+                let mut old: libc::sigaction = unsafe { std::mem::zeroed() };
+                // SAFETY: `old` is valid for writing and a null new action
+                // only queries.
+                let queried = unsafe { libc::sigaction(signal, std::ptr::null(), &mut old) };
+                if queried != 0 || old.sa_sigaction == libc::SIG_IGN {
+                    continue;
+                }
+                // SAFETY: `action` is initialized, and its handler is
+                // async-signal-safe and lives as long as the process.
+                if unsafe { libc::sigaction(signal, &action, std::ptr::null_mut()) } == 0 {
+                    previous.push((signal, old));
+                }
+            }
+            Signals { previous }
+        }
+
+        /// The `SIGTERM` or `SIGHUP` caught so far.
+        pub(super) fn pending(&self) -> Option<i32> {
+            match PENDING.load(Ordering::SeqCst) {
+                0 => None,
+                signal => Some(signal),
+            }
+        }
+    }
+
+    impl Drop for Signals {
+        fn drop(&mut self) {
+            for (signal, old) in &self.previous {
+                // SAFETY: `old` is what sigaction returned for `signal`.
+                unsafe { libc::sigaction(*signal, old, std::ptr::null_mut()) };
+            }
+            let signal = PENDING.swap(0, Ordering::SeqCst);
+            if signal != 0 {
+                // SAFETY: raise has no preconditions.
+                unsafe { libc::raise(signal) };
+            }
+        }
+    }
+
+    /// Sends `signal` to the editor. If it has already exited this reaches
+    /// its zombie, since nothing has waited on it yet.
+    pub(super) fn forward(child: &Child, signal: i32) {
+        // SAFETY: kill takes any pid and signal number, and the pid is the
+        // unreaped child's own.
+        unsafe { libc::kill(child.id() as libc::pid_t, signal) };
+    }
+}
+
+/// Windows has no signals to catch here; its console events are outside
+/// what the scratch file's cleanup covers (ADR-0070).
+#[cfg(not(unix))]
+mod signals {
+    use std::process::Child;
+
+    pub(super) struct Signals;
+
+    impl Signals {
+        pub(super) fn catch() -> Signals {
+            Signals
+        }
+
+        pub(super) fn pending(&self) -> Option<i32> {
+            None
+        }
+    }
+
+    pub(super) fn forward(_child: &Child, _signal: i32) {}
 }
 
 /// Zeroes `path`'s contents in place, keeping its length, so the plaintext
@@ -258,6 +413,11 @@ pub(crate) mod fake {
     /// The config file's suffix: how the trampoline knows it was run as an
     /// editor rather than as part of the suite.
     const CONFIG_SUFFIX: &str = ".gage-fake-editor";
+    /// Beside the record file: an [`Action::Hold`] editor's pid, once it is
+    /// holding.
+    const READY: &str = "ready.txt";
+    /// Beside the record file: its existence ends an [`Action::Hold`].
+    const RELEASE: &str = "release.txt";
 
     /// One configured fake editor, and where it reports what it saw.
     pub(crate) struct FakeEditor {
@@ -286,6 +446,11 @@ pub(crate) mod fake {
         /// rename-based editors do: write a new file with `value: replaced`
         /// and rename it over the path, unlinking the original inode.
         Replace,
+        /// Hard-link it to [`FakeEditor::witness`], report ready, and stay
+        /// running until [`FakeEditor::release`], so a test can signal gage
+        /// mid-edit. With `ignore_term` it survives a `SIGTERM`.
+        #[cfg(unix)]
+        Hold { ignore_term: bool },
         /// Parse it, apply these, write it back.
         Set(&'a [Set<'a>]),
     }
@@ -312,6 +477,8 @@ pub(crate) mod fake {
                 format!("record={}", record.display()),
                 format!("template={}", template.display()),
                 format!("witness={}", witness.display()),
+                format!("ready={}", dir.path().join(READY).display()),
+                format!("release={}", dir.path().join(RELEASE).display()),
             ];
             match action {
                 Action::Noop => lines.push("mode=noop".into()),
@@ -320,6 +487,13 @@ pub(crate) mod fake {
                 Action::Delete => lines.push("mode=delete".into()),
                 Action::LinkWitness => lines.push("mode=link-witness".into()),
                 Action::Replace => lines.push("mode=replace".into()),
+                #[cfg(unix)]
+                Action::Hold { ignore_term } => {
+                    lines.push("mode=hold".into());
+                    if ignore_term {
+                        lines.push("ignore-term=1".into());
+                    }
+                }
                 Action::Set(sets) => {
                     lines.push("mode=set".into());
                     for s in sets {
@@ -390,6 +564,27 @@ pub(crate) mod fake {
             assert!(!path.exists(), "{} survived", path.display());
         }
 
+        /// Blocks until an [`Action::Hold`] editor is holding, and returns
+        /// its pid.
+        #[cfg(unix)]
+        pub(crate) fn wait_ready(&self) -> libc::pid_t {
+            let ready = self.record.with_file_name(READY);
+            for _ in 0..600 {
+                let pid = std::fs::read_to_string(&ready).ok();
+                if let Some(pid) = pid.and_then(|p| p.parse().ok()) {
+                    return pid;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            panic!("the fake editor never reported ready");
+        }
+
+        /// Lets an [`Action::Hold`] editor exit 0.
+        #[cfg(unix)]
+        pub(crate) fn release(&self) {
+            std::fs::write(self.record.with_file_name(RELEASE), "").unwrap();
+        }
+
         /// The file's contents as the editor first saw them.
         pub(crate) fn template(&self) -> Vec<u8> {
             std::fs::read(&self.template).expect("the fake editor never ran")
@@ -450,6 +645,8 @@ pub(crate) mod fake {
                 std::fs::rename(&new, path).unwrap();
                 0
             }
+            #[cfg(unix)]
+            "hold" => hold(path, &cfg),
             "invalid-yaml" => {
                 std::fs::write(path, "title: [this is not\nvalid: yaml").unwrap();
                 0
@@ -483,6 +680,25 @@ pub(crate) mod fake {
             }
             other => panic!("unknown fake editor mode {other}"),
         }
+    }
+
+    /// Capped, so an editor whose test failed can't outlive the suite.
+    #[cfg(unix)]
+    #[allow(unsafe_code)]
+    fn hold(path: &Path, cfg: &BTreeMap<&str, &str>) -> i32 {
+        if cfg.contains_key("ignore-term") {
+            // SAFETY: SIG_IGN is a valid disposition for SIGTERM.
+            unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN) };
+        }
+        let _ = std::fs::hard_link(path, cfg["witness"]);
+        std::fs::write(cfg["ready"], std::process::id().to_string()).unwrap();
+        for _ in 0..600 {
+            if Path::new(cfg["release"]).exists() {
+                return 0;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        1
     }
 }
 
@@ -700,6 +916,182 @@ mod tests {
         let template = seed.to_yaml().unwrap();
         assert_eq!(witness.len(), template.len(), "overwritten in place");
         assert!(witness.iter().all(|b| *b == 0), "the original survived");
+    }
+
+    /// Signals end a process, so these run the edit in a child: the test
+    /// binary re-executed to run only [`signal_exits::edit_child_trampoline`].
+    #[cfg(unix)]
+    #[allow(unsafe_code)]
+    mod signal_exits {
+        use super::*;
+        use std::os::unix::process::ExitStatusExt;
+        use std::process::{Child, ExitStatus, Stdio};
+        use std::time::{Duration, Instant};
+
+        const CHILD_DIR: &str = "GAGE_TEST_EDIT_CHILD_DIR";
+        const CHILD_EDITOR: &str = "GAGE_TEST_EDIT_CHILD_EDITOR";
+        const CHILD_IGNORE_SIGHUP: &str = "GAGE_TEST_EDIT_CHILD_IGNORE_SIGHUP";
+        const CHILD_RAISE_AFTER: &str = "GAGE_TEST_EDIT_CHILD_RAISE_AFTER";
+
+        /// Long enough for a signal to have ended a process it was going to.
+        const SETTLE: Duration = Duration::from_millis(300);
+
+        /// The edit side. Run as part of the suite, it finds no directory
+        /// to work in and returns.
+        #[test]
+        fn edit_child_trampoline() {
+            let Some(dir) = std::env::var_os(CHILD_DIR) else {
+                return;
+            };
+            if std::env::var_os(CHILD_IGNORE_SIGHUP).is_some() {
+                // SAFETY: SIG_IGN is a valid disposition for SIGHUP.
+                unsafe { libc::signal(libc::SIGHUP, libc::SIG_IGN) };
+            }
+            let editor = std::env::var(CHILD_EDITOR).unwrap();
+            let result = edit_yaml_in(Path::new(&dir), Some(&editor), &secret_seed());
+            if std::env::var_os(CHILD_RAISE_AFTER).is_some() {
+                // SAFETY: raise has no preconditions.
+                unsafe { libc::raise(libc::SIGTERM) };
+            }
+            std::process::exit(if result.is_ok() { 0 } else { 3 });
+        }
+
+        fn secret_seed() -> Entry {
+            Entry {
+                value: "correcthorsebatterystaple".into(),
+                ..seed()
+            }
+        }
+
+        struct Editing {
+            dir: tempfile::TempDir,
+            fake: FakeEditor,
+            child: Child,
+        }
+
+        impl Editing {
+            fn start(action: Action, flag: Option<&str>) -> Editing {
+                let dir = tempfile::tempdir().unwrap();
+                let fake = FakeEditor::new(action);
+                let mut command = Command::new(std::env::current_exe().unwrap());
+                command
+                    .args([
+                        "editor::tests::signal_exits::edit_child_trampoline",
+                        "--exact",
+                        "--nocapture",
+                        "--quiet",
+                        "--test-threads=1",
+                    ])
+                    .env(CHILD_DIR, dir.path())
+                    .env(CHILD_EDITOR, &fake.command)
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null());
+                if let Some(flag) = flag {
+                    command.env(flag, "1");
+                }
+                let child = command.spawn().unwrap();
+                Editing { dir, fake, child }
+            }
+
+            fn signal(&self, signal: libc::c_int) {
+                // SAFETY: kill takes any pid and signal number; the child
+                // isn't reaped until `exit` below, so the pid is its own.
+                assert_eq!(unsafe { libc::kill(self.child.id() as i32, signal) }, 0);
+            }
+
+            fn is_running(&mut self) -> bool {
+                self.child.try_wait().unwrap().is_none()
+            }
+
+            fn exit(&mut self) -> ExitStatus {
+                let deadline = Instant::now() + Duration::from_secs(30);
+                while Instant::now() < deadline {
+                    if let Some(status) = self.child.try_wait().unwrap() {
+                        return status;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                let _ = self.child.kill();
+                panic!("the edit never ended");
+            }
+
+            fn assert_scratch_destroyed(&self) {
+                assert!(is_empty(self.dir.path()), "a file was left behind");
+                let witness = self
+                    .fake
+                    .witness()
+                    .expect("the fake editor's hard link failed");
+                assert!(!witness.is_empty());
+                assert!(witness.iter().all(|b| *b == 0), "the plaintext survived");
+            }
+        }
+
+        fn is_gone(pid: libc::pid_t) -> bool {
+            // SAFETY: signal 0 only checks that the pid exists.
+            unsafe { libc::kill(pid, 0) != 0 }
+        }
+
+        #[test]
+        fn edit_yaml_destroys_the_scratch_file_and_dies_by_the_signal() {
+            for signal in [libc::SIGTERM, libc::SIGHUP] {
+                let mut edit = Editing::start(Action::Hold { ignore_term: false }, None);
+                let editor = edit.fake.wait_ready();
+                edit.signal(signal);
+                assert_eq!(edit.exit().signal(), Some(signal));
+                edit.assert_scratch_destroyed();
+                assert!(is_gone(editor), "signal {signal}: the editor is running");
+            }
+        }
+
+        // Removing the file under a live editor would let it write the
+        // path back on its way out.
+        #[test]
+        fn edit_yaml_kills_an_editor_that_ignores_the_signal() {
+            let mut edit = Editing::start(Action::Hold { ignore_term: true }, None);
+            let editor = edit.fake.wait_ready();
+            edit.signal(libc::SIGTERM);
+            assert_eq!(edit.exit().signal(), Some(libc::SIGTERM));
+            edit.assert_scratch_destroyed();
+            assert!(is_gone(editor), "the editor is running");
+        }
+
+        #[test]
+        fn edit_yaml_leaves_keyboard_signals_to_the_editor() {
+            for signal in [libc::SIGINT, libc::SIGQUIT] {
+                let mut edit = Editing::start(Action::Hold { ignore_term: false }, None);
+                edit.fake.wait_ready();
+                edit.signal(signal);
+                std::thread::sleep(SETTLE);
+                assert!(edit.is_running(), "signal {signal} ended the edit");
+                edit.fake.release();
+                assert_eq!(edit.exit().code(), Some(0), "signal {signal}");
+                edit.assert_scratch_destroyed();
+            }
+        }
+
+        #[test]
+        fn edit_yaml_leaves_an_ignored_signal_ignored() {
+            let mut edit = Editing::start(
+                Action::Hold { ignore_term: false },
+                Some(CHILD_IGNORE_SIGHUP),
+            );
+            edit.fake.wait_ready();
+            edit.signal(libc::SIGHUP);
+            std::thread::sleep(SETTLE);
+            assert!(edit.is_running(), "an ignored SIGHUP ended the edit");
+            edit.fake.release();
+            assert_eq!(edit.exit().code(), Some(0));
+            edit.assert_scratch_destroyed();
+        }
+
+        // A signal after the edit gets the default action again.
+        #[test]
+        fn edit_yaml_restores_the_signal_dispositions_it_replaced() {
+            let mut edit = Editing::start(Action::Noop, Some(CHILD_RAISE_AFTER));
+            assert_eq!(edit.exit().signal(), Some(libc::SIGTERM));
+            assert!(is_empty(edit.dir.path()));
+        }
     }
 
     #[test]
