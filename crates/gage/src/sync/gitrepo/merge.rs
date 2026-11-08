@@ -467,7 +467,8 @@ impl PendingMerge {
         let reset = repo
             .find_object(self.local, Some(git2::ObjectType::Commit))
             .and_then(|head| repo.reset(&head, git2::ResetType::Hard, None))
-            .map_err(fail("rolling back the merge in", &self.dir));
+            .map_err(fail("rolling back the merge in", &self.dir))
+            .and_then(|()| super::restrict_entries(&self.dir));
         match reset.err().or(failure) {
             None => cause,
             Some(rollback) => Error::RollbackFailed {
