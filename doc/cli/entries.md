@@ -76,7 +76,9 @@ read from stdin must be UTF-8.
 contain `=`. Every whitespace character is removed from `NAME`; `VALUE` is
 kept exactly, and may be empty. A field with no `=`, a `NAME` that is empty
 once stripped, or the same `NAME` twice is a usage error before any unlock:
-there is no silent last-wins.
+there is no silent last-wins. Run from your shell, the value lands in that
+shell's history; in a [session](session-mode.md#history), a line with a
+`--field` value is not recorded.
 
 `--field` and `-e` are mutually exclusive too: they are two ways to set
 fields, and gage won't guess which wins.

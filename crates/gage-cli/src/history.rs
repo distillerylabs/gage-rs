@@ -7,7 +7,8 @@
 //! Every line written here is one a human typed at the prompt. A
 //! passphrase, a value or a candidate number is read by the prompter,
 //! never by the REPL, so it can't reach this file: see "Command history
-//! must never contain plaintext" in the design doc.
+//! must never contain plaintext" in the design doc. A value typed on the
+//! command line itself is kept out by [`recordable`].
 
 use std::fs::File;
 use std::io::Write;
@@ -16,6 +17,13 @@ use std::path::{Path, PathBuf};
 use crate::exitcode::ExitCode;
 
 use crate::error::CliError;
+
+/// Whether a typed line may be kept, in the file or in recall. A line with
+/// an `=` may be setting `--field NAME=VALUE`, and is judged as raw text
+/// because a line that won't parse can carry a value as well (ADR-0071).
+pub fn recordable(line: &str) -> bool {
+    !line.contains('=')
+}
 
 pub struct History {
     path: Option<PathBuf>,

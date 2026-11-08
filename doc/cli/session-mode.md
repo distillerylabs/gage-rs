@@ -239,6 +239,11 @@ prints. A history file that can't be opened is reported once and the
 session runs without it. A [scripted session](#non-interactive-sessions-scripting)
 never opens it: its lines were never typed.
 
+A line containing `=` runs but isn't recorded, and the arrow keys won't
+bring it back, because it may be setting
+[`--field NAME=VALUE`](entries.md). Lines recorded by a version of `gage`
+before this rule stay in the file until you delete it.
+
 ### Trade-off against a shared agent
 
 Unlike `ssh-agent`, unlocking a vault in one terminal does not unlock it

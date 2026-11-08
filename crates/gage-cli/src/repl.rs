@@ -25,7 +25,7 @@ use crate::cli::{self, Outcome, ScriptSource};
 use crate::commands::{self, Keys};
 use crate::complete::{SessionHelper, resolve_session_command_name};
 use crate::error::{CliError, prefixed};
-use crate::history::History;
+use crate::history::{self, History};
 use crate::lineread::{LineReader, PlainLineReader, ReadOutcome, RustylineReader, read_one_line};
 use crate::registry::{Command, Registry, SessionVerb};
 use crate::shell::{self, PromptState, ShellSettings};
@@ -282,10 +282,12 @@ impl Repl<'_, '_> {
             // The typed line, and only it: see "Command history must
             // never contain plaintext". Failing to record it is reported
             // and the session goes on.
-            if let Err(e) = self.history.add(&line) {
-                report(io, &e);
+            if history::recordable(&line) {
+                if let Err(e) = self.history.add(&line) {
+                    report(io, &e);
+                }
+                self.reader.add_history(&line);
             }
-            self.reader.add_history(&line);
             // One line is one command: the idle timeout runs once before
             // it, never between its parts.
             let result = exec_line(

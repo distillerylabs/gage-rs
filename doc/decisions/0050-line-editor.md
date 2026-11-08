@@ -16,6 +16,8 @@ owns the history file; the editor does not.
 
 - History is never added automatically. The REPL adds each submitted,
   non-blank line itself and nothing else: no passphrase, no value.
+  [ADR-0071](0071-values-on-a-typed-line.md) leaves out a line that may
+  carry a value.
 - gage creates the history file, or tightens an existing one, to 0600 and
   appends to it. `rustyline` is built without default features, so its
   history is the in-memory recall list only, preloaded from the file.

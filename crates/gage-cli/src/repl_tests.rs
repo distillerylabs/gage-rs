@@ -966,6 +966,92 @@ fn session_history_records_commands_never_values() {
     );
 }
 
+const FIELD_VALUE: &str = "ZZFIELDVALUE";
+
+// A field's value is plaintext the human typed on the command line
+// itself, so the prompter can't keep it out: ADR-0071. The command still
+// runs, and the lines around it are still recorded.
+#[test]
+fn session_history_leaves_out_a_line_setting_a_field() {
+    let env = Env::new();
+    env.init("personal", &[]);
+
+    let insert = format!("insert Site --field pin={FIELD_VALUE}");
+    let r = env.session_ok(&[
+        "use personal",
+        PASSPHRASE,
+        &insert,
+        "entry-value",
+        "show Site --field pin",
+        "exit",
+    ]);
+    assert!(r.stdout.contains(FIELD_VALUE), "vacuous:\n{}", r.stdout);
+
+    assert_eq!(
+        env.history_text(),
+        "use personal\nshow Site --field pin\nexit\n"
+    );
+}
+
+// The line is recorded before it runs, so one that clap or the tokenizer
+// would refuse is typed text like any other, and carries a value as well.
+#[test]
+fn session_history_leaves_out_every_spelling_of_a_value() {
+    let env = Env::new();
+    env.init("personal", &[]);
+
+    let joined = format!("insert Site --field=pin={FIELD_VALUE}");
+    let misspelled = format!("insert Other --feild pin={FIELD_VALUE}");
+    let unbalanced = format!(r#"insert Other --field "pin={FIELD_VALUE}"#);
+    let r = env.session(&script(&[
+        "use personal",
+        PASSPHRASE,
+        &joined,
+        "entry-value",
+        &misspelled,
+        &unbalanced,
+        "exit",
+    ]));
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
+    assert!(
+        r.stderr.contains("--feild") && r.stderr.contains("unbalanced"),
+        "the bad lines were read as commands: {}",
+        r.stderr
+    );
+
+    assert_eq!(env.history_text(), "use personal\nexit\n");
+}
+
+/// A line reader that keeps what the REPL adds to its recall list.
+struct RecallList(Vec<String>);
+
+impl LineReader for RecallList {
+    fn read_line(&mut self, io: &mut Io, prompt: &str) -> std::io::Result<ReadOutcome> {
+        PlainLineReader.read_line(io, prompt)
+    }
+
+    fn add_history(&mut self, line: &str) {
+        self.0.push(line.to_string());
+    }
+}
+
+// The arrow keys are the other way back to a typed line.
+#[test]
+fn recall_leaves_out_a_line_setting_a_field() {
+    let env = Env::new();
+    env.init("personal", &[]);
+    let p = crate::entry_tests::with_value("entry-value");
+    let mut s = direct_session(&env, &p, Arc::new(MemLocker));
+    s.vault(Some("personal")).unwrap();
+
+    let mut recall = RecallList(Vec::new());
+    let stdin = format!("status\ninsert Site --field pin={FIELD_VALUE}\nstatus\nexit\n");
+    let (result, _) = run_repl(&env, s, &mut recall, &stdin);
+    result.unwrap();
+
+    assert_eq!(recall.0, ["status", "status", "exit"]);
+}
+
 // The file a session creates by
 // default; history.rs covers tightening one that already existed.
 #[test]
