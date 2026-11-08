@@ -34,8 +34,8 @@ without the other.
 
 **Least privilege, per job.** Workflows default to `contents: read`.
 `release.yml` grants `contents: write` only to `announce`, which creates
-the GitHub Release, and `id-token`/`attestations` write only to the build
-jobs, which attest. `release-plz.yml` grants `id-token: write` only to
+the GitHub Release, and `id-token`/`attestations` write only to `announce`
+as well, which attests ([ADR-0068](0068-attest-on-tags-only.md)). `release-plz.yml` grants `id-token: write` only to
 its `release` job, for crates.io trusted publishing.
 
 **No publish credential is a repo secret.** Each lives in an environment

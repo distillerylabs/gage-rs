@@ -10,7 +10,7 @@ The moving parts:
 | Piece | Does | Where |
 |---|---|---|
 | release-plz | opens the release PR (version bump, CHANGELOG); on merge, publishes `gage-core` then `gage-cli` to crates.io and pushes the tag `v<version>` | `.github/workflows/release-plz.yml`, `release-plz.toml` |
-| cargo-dist | on the tag, builds four archives, installers and the Homebrew formula; attests, smoke-tests, then creates the GitHub Release | `.github/workflows/release.yml`, `release-smoke.yml`, `dist-workspace.toml` |
+| cargo-dist | on the tag, builds four archives, installers and the Homebrew formula; smoke-tests, then attests and creates the GitHub Release | `.github/workflows/release.yml`, `release-smoke.yml`, `dist-workspace.toml` |
 
 `release.yml` is generated; never edit it by hand. See "Changing the release
 workflow" below.
@@ -43,8 +43,8 @@ workflow" below.
    human gate: nothing is published before it, and the tag (hence the
    GitHub Release) exists only after it.
 6. **Watch.** `release-plz.yml` publishes the crates and pushes the tag;
-   the tag starts `release.yml`: build, attest, smoke test, push the
-   formula to `distillerylabs/homebrew-tap`, create the GitHub Release.
+   the tag starts `release.yml`: build, smoke test, push the formula to
+   `distillerylabs/homebrew-tap`, attest, create the GitHub Release.
 7. **Verify** each channel against the new version: `cargo install
    gage-cli --locked`, `brew install distillerylabs/tap/gage`, the shell
    and PowerShell installers, and one downloaded archive per OS checked with

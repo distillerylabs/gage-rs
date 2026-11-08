@@ -117,10 +117,6 @@ jobs:
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       BUILD_MANIFEST_NAME: target/distrib/${{ join(matrix.targets, '-') }}-dist-manifest.json
-    permissions:
-      "attestations": "write"
-      "contents": "read"
-      "id-token": "write"
     steps:
       - name: enable windows longpaths
         run: |
@@ -157,10 +153,6 @@ jobs:
           # Actually do builds and make zips and whatnot
           dist build ${{ needs.plan.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
           echo "dist ran successfully"
-      - name: Attest
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
-        with:
-          subject-path: "target/distrib/*${{ join(matrix.targets, ', ') }}*"
       - id: cargo-dist
         name: Post-build
         # We force bash here just because github makes it really hard to get values up
@@ -366,10 +358,13 @@ jobs:
     # "host" however must run to completion, no skipping allowed!
     if: ${{ always() && needs.host.result == 'success' && (needs.publish-homebrew-formula.result == 'skipped' || needs.publish-homebrew-formula.result == 'success') }}
     runs-on: "ubuntu-22.04"
-    # gage-rs edit: the one job that writes to this repo; it creates the
-    # GitHub Release and uploads the artifacts to it.
+    # gage-rs edit: the one job that writes to this repo, which creates the
+    # GitHub Release and uploads the artifacts to it. Also the one job that
+    # can attest: it compiles nothing and runs only on a tag (ADR-0068).
     permissions:
+      "attestations": "write"
       "contents": "write"
+      "id-token": "write"
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
@@ -388,6 +383,11 @@ jobs:
         run: |
           # Remove the granular manifests
           rm -f artifacts/*-dist-manifest.json
+      - name: Attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            artifacts/*
       - name: Create GitHub Release
         env:
           PRERELEASE_FLAG: "${{ fromJson(needs.host.outputs.val).announcement_is_prerelease && '--prerelease' || '' }}"

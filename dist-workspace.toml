@@ -34,6 +34,9 @@ formula = "gage"
 publish-jobs = ["homebrew"]
 checksum = "sha256"
 github-attestations = true
+# In announce, not the build jobs (ADR-0068): it compiles nothing and runs
+# only on a release tag. Pull request builds hold no attestation rights.
+github-attestations-phase = "announce"
 # The GitHub Release is created last, after the smoke test and the tap
 # push, so a failed smoke never leaves a published release behind.
 github-release = "announce"
