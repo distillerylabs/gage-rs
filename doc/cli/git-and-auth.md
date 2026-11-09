@@ -24,6 +24,13 @@ gage git set-remote <name> <url>
 gage clone <url> [--name NAME] [--dir DIR] [--device NAME]
 ```
 
+A URL with credentials in it (`https://user:secret@host/...`, or any
+username on `http(s)`) is refused (exit `2`): it would be stored and shown
+in the clear. Store a token with `gage auth login` instead. An SSH username,
+as in `ssh://git@host/...`, is fine. A vault set up with one before this
+keeps working, doesn't show it in `vault info`, and loses it when you run
+`git set-remote` with a clean URL.
+
 - **`init --remote`** creates the vault and publishes its first commit
   straight away. gage never creates the repository for you: point it at an
   empty one you made on your git host. If the URL names a repository that
@@ -86,6 +93,10 @@ current vault's `origin`.
   including one a redirect points at: redirects are followed only on the
   first request of an operation. A host that rejects it gets no second
   try; the operation fails.
+- **A token is never sent over cleartext `http://`**, except to this
+  machine (`localhost` or a loopback address). A remote there that asks for
+  credentials fails (exit `5`) and says to use its HTTPS URL. One that
+  doesn't ask, such as a public repository, still works.
 - **A rejected or expired token fails legibly** (exit `5`), naming the
   host and `gage auth login` as the fix, rather than a bare HTTP 401 or
   403.

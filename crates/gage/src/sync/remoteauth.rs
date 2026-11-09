@@ -17,8 +17,10 @@ use std::path::{Path, PathBuf};
 use zeroize::Zeroizing;
 
 use crate::error::{ErrorKind, HasKind, Remedy};
+use crate::storage::atomicfile::loose_mode;
 use crate::storage::paths;
 use crate::storage::xdgpaths::Dirs;
+use crate::sync::syncerr::redact_userinfo;
 
 /// The loosest mode a stored token may have, and the mode it is written
 /// with.
@@ -56,6 +58,12 @@ pub enum Error {
     },
     #[error("cannot parse remote {url:?}: {reason}")]
     BadRemote { url: String, reason: String },
+    /// A new remote spelled with credentials in its URL, which would be
+    /// shown and stored in the clear (ADR-0074). `url` has them removed.
+    #[error(
+        "refusing a remote URL with credentials in it ({url:?}): remove them from the URL; gage stores a token per host instead"
+    )]
+    CredentialsInUrl { url: String },
     /// An SSH remote whose host only `~/.ssh/config` could resolve.
     #[error(
         "this remote depends on a ~/.ssh/config host alias, which gage does not read: {host:?} is not a resolvable host name (re-spelling the remote with the host's real name also works)"
@@ -79,6 +87,7 @@ impl HasKind for Error {
             Error::Path(e) => e.kind(),
             Error::EmptyToken
             | Error::BadRemote { .. }
+            | Error::CredentialsInUrl { .. }
             | Error::SshConfigAlias { .. }
             | Error::SshUnsupported { .. } => ErrorKind::Usage,
             Error::NoToken { .. } | Error::InsecureToken { .. } | Error::SshAgent { .. } => {
@@ -226,7 +235,7 @@ enum Remote {
 
 fn parse(remote: &str) -> Result<Remote, Error> {
     let bad = |reason: &str| Error::BadRemote {
-        url: remote.to_string(),
+        url: redact_userinfo(remote),
         reason: reason.to_string(),
     };
     if remote.contains("://") {
@@ -278,19 +287,70 @@ pub fn host(remote: &str) -> Result<String, Error> {
 }
 
 /// The host a remote would authenticate a *token* to, or `""` if it isn't
-/// a token candidate: a local path has no host, and an SSH remote uses
-/// ssh-agent. Mirrors [`method`]'s dispatch without loading anything, so a
+/// a token candidate: a local path has no host, an SSH remote uses
+/// ssh-agent, and a cleartext `http://` remote is never sent one. Mirrors [`method`]'s dispatch without loading anything, so a
 /// caller can decide to ask for a token before connecting (`gage init
 /// --remote`).
 pub fn token_host(remote: &str) -> Result<String, Error> {
     Ok(match parse(remote)? {
-        Remote::Url { scheme, host, .. } if is_http(&scheme) => host,
+        Remote::Url { scheme, host, .. } if is_http(&scheme) && token_may_travel_to(remote) => host,
         _ => String::new(),
     })
 }
 
 fn is_http(scheme: &str) -> bool {
     scheme.eq_ignore_ascii_case("https") || scheme.eq_ignore_ascii_case("http")
+}
+
+/// Whether `remote` may become a vault's remote: it parses, and it carries
+/// no credentials (ADR-0074).
+pub fn check_new_remote(remote: &str) -> Result<(), Error> {
+    parse(remote)?;
+    if carries_credentials(remote) {
+        return Err(Error::CredentialsInUrl {
+            url: redact_userinfo(remote),
+        });
+    }
+    Ok(())
+}
+
+/// `remote` as it may be shown: without credentials, for a vault whose
+/// remote was stored with them before they were refused. An SSH user
+/// isn't one, and stays.
+pub fn redacted(remote: &str) -> String {
+    if carries_credentials(remote) || (remote.contains("://") && parse(remote).is_err()) {
+        redact_userinfo(remote)
+    } else {
+        remote.to_string()
+    }
+}
+
+/// A URL password, or any userinfo on HTTP(S), where a token works in the
+/// username position too.
+fn carries_credentials(remote: &str) -> bool {
+    remote.contains("://")
+        && url::Url::parse(remote).is_ok_and(|url| {
+            url.password().is_some_and(|p| !p.is_empty())
+                || (is_http(url.scheme()) && !url.username().is_empty())
+        })
+}
+
+/// Whether a token may be sent to `url`: over HTTPS, or to this machine
+/// (ADR-0075). What can't be parsed gets no token.
+pub(crate) fn token_may_travel_to(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|url| match url.scheme() {
+        "http" => is_loopback(&url),
+        _ => true,
+    })
+}
+
+fn is_loopback(url: &url::Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    }
 }
 
 /// What a fetch or push offers a remote.
@@ -350,7 +410,7 @@ const SSH_SUPPORTED: bool = !cfg!(any(target_os = "ios", target_os = "android"))
 /// host cover both answers.
 fn method_for(dirs: &Dirs, remote: &str, ssh_supported: bool) -> Result<Method, Error> {
     let unsupported = || Error::SshUnsupported {
-        remote: remote.to_string(),
+        remote: redacted(remote),
     };
     match parse(remote)? {
         Remote::Local => Ok(Method::Local),
@@ -419,18 +479,6 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
 #[cfg(not(unix))]
 fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(dir)
-}
-
-#[cfg(unix)]
-fn loose_mode(meta: &std::fs::Metadata) -> Option<u32> {
-    use std::os::unix::fs::PermissionsExt;
-    let mode = meta.permissions().mode() & 0o777;
-    (mode & 0o077 != 0).then_some(mode)
-}
-
-#[cfg(not(unix))]
-fn loose_mode(_: &std::fs::Metadata) -> Option<u32> {
-    None
 }
 
 #[cfg(test)]

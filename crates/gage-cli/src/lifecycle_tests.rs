@@ -1254,6 +1254,61 @@ fn git_set_remote_sets_and_changes_origin_in_both_places() {
     }
 }
 
+const CREDENTIALED: &str = "https://me:ZZSECRETZZ@git.example.test/me/vault.git";
+
+#[test]
+fn a_remote_url_with_credentials_is_refused_on_the_way_in() {
+    let env = Env::new();
+    let path = env.init("personal", &[]);
+    let before = env.global();
+    let refused = |r: CliResult| {
+        assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
+        assert!(r.stderr.contains("credentials"), "{}", r.stderr);
+        assert!(!r.stderr.contains("ZZSECRETZZ"), "{}", r.stderr);
+    };
+
+    refused(env.run(&["git", "set-remote", "personal", CREDENTIALED]));
+    assert_eq!(gitrepo::remote_url(&path).unwrap(), None);
+    assert_eq!(env.global(), before);
+
+    refused(env.run(&["clone", CREDENTIALED, "--name", "other"]));
+    refused(env.run(&[
+        "init",
+        "other",
+        "--remote",
+        CREDENTIALED,
+        "--no-recovery-key",
+    ]));
+    assert_eq!(env.global(), before);
+}
+
+#[test]
+fn git_set_remote_refuses_a_url_that_does_not_parse() {
+    let env = Env::new();
+    let path = env.init("personal", &[]);
+    let r = env.run(&["git", "set-remote", "personal", "https://"]);
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
+    assert_eq!(gitrepo::remote_url(&path).unwrap(), None);
+}
+
+// A vault set up before the refusal keeps working, and doesn't show it.
+#[test]
+fn vault_info_hides_credentials_already_in_a_remote_url() {
+    let env = Env::new();
+    let path = env.init("personal", &[]);
+    let config = path.join(".git").join("config");
+    let mut text = std::fs::read_to_string(&config).unwrap();
+    text.push_str(&format!("[remote \"origin\"]\n\turl = {CREDENTIALED}\n"));
+    std::fs::write(&config, text).unwrap();
+
+    let info = env.ok(&["vault", "info", "personal"]).stdout;
+    assert!(!info.contains("ZZSECRETZZ"), "{info}");
+    assert!(
+        info.contains("remote: https://git.example.test/me/vault.git\n"),
+        "{info}"
+    );
+}
+
 #[test]
 fn git_set_remote_with_a_missing_argument_is_usage_and_changes_nothing() {
     let env = Env::new();

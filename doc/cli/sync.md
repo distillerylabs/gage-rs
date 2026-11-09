@@ -175,7 +175,9 @@ putting two passwords on the screen.
   be undone; it is never a silent loss. When the other side had deleted
   the entry, there is nothing more to keep and your version stays as it
   is. When *you* had deleted it, the other device's version comes back
-  under a fresh id.
+  under a fresh id. Writing that copy encrypts it, so if the recipient list
+  changed since this device last confirmed it, gage asks first, as it does
+  before any other write. Declining applies nothing.
 - **`s`** (skip) leaves that entry conflicted and moves on to the next.
   Any skip means nothing at all is applied and nothing is pushed, not even
   the answers you gave to the other entries: the divergence is still there

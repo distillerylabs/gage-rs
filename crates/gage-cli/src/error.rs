@@ -217,7 +217,6 @@ mod tests {
             CliError::from(Coded(ErrorKind::NotFound)),
             "commands.gage",
             3,
-            "show Foo",
         );
         for err in [&library, &made, &wrapped, &script] {
             let shown = prefixed(err);
@@ -225,10 +224,7 @@ mod tests {
             assert_eq!(shown.matches(ERROR_PREFIX).count(), 1, "{shown}");
         }
         assert_eq!(prefixed(&wrapped), "gage: saving: bad flag");
-        assert_eq!(
-            prefixed(&script),
-            "gage: commands.gage:3: show Foo: library failure"
-        );
+        assert_eq!(prefixed(&script), "gage: commands.gage:3: library failure");
         // The script's exit code is its command's, from the typed error.
         assert_eq!(script.code(), ExitCode::NotFound);
     }

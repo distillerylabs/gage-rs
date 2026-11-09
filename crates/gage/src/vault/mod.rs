@@ -25,6 +25,7 @@ use crate::storage::paths;
 use crate::storage::vaultconfig::{self, UnlockMethod, VaultId, VaultType};
 use crate::storage::xdgpaths::Dirs;
 use crate::sync::gitrepo;
+use crate::sync::remoteauth;
 use crate::sync::remotesync::{PullObserver, SyncerSeam};
 use crate::trust::recipient::exists;
 
@@ -261,6 +262,9 @@ pub enum CreateError {
     },
     #[error(transparent)]
     Git(#[from] gitrepo::Error),
+    /// The requested remote can't be used (ADR-0074).
+    #[error(transparent)]
+    Remote(#[from] remoteauth::Error),
 }
 
 impl From<vaultkey::Error> for CreateError {
@@ -291,6 +295,7 @@ impl HasKind for CreateError {
             | WriteFile { .. }
             | Git(_) => ErrorKind::Internal,
             VaultKey(e) => e.kind(),
+            Remote(e) => e.kind(),
         }
     }
 }
@@ -485,7 +490,7 @@ impl Vault {
         let file = vaultconfig::load(&self.config_path())?;
         let git = match file.vault.vault_type {
             VaultType::Git => Some(GitInfo {
-                remote: gitrepo::remote_url(&self.path)?,
+                remote: gitrepo::remote_url(&self.path)?.map(|url| remoteauth::redacted(&url)),
                 clean: gitrepo::is_clean(&self.path)?,
             }),
         };
@@ -526,8 +531,8 @@ impl Vault {
             });
         }
         let path = paths::identity_file_path(&self.dirs, &self.id, &device)?;
-        let wrapped =
-            identityfile::load(&path)?.ok_or_else(|| UnlockError::NoIdentityFile(path.clone()))?;
+        let wrapped = identityfile::load_private(&path)?
+            .ok_or_else(|| UnlockError::NoIdentityFile(path.clone()))?;
         let key = identityfile::open(&self.name, &device, &wrapped, prompter)?;
 
         // One lock attempt per unlock, so "warn once" is structural rather
@@ -870,6 +875,9 @@ fn validate_fields(spec: &CreateSpec, require_recipients: bool) -> Result<(), Cr
     validate_extras(spec, require_recipients)?;
     if spec.path.as_os_str().is_empty() {
         return Err(CreateError::EmptyPath);
+    }
+    if let Some(remote) = &spec.remote {
+        remoteauth::check_new_remote(remote)?;
     }
     Ok(())
 }

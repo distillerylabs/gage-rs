@@ -484,14 +484,14 @@ pub fn parse_field_flags(raw: &[String]) -> Result<BTreeMap<String, String>, Cli
         let Some((name, value)) = flag.split_once('=') else {
             return Err(fail(
                 ExitCode::Usage,
-                format!("--field {flag:?} must be NAME=VALUE"),
+                "--field must be NAME=VALUE".to_string(),
             ));
         };
         let name: String = name.chars().filter(|c| !c.is_whitespace()).collect();
         if name.is_empty() {
             return Err(fail(
                 ExitCode::Usage,
-                format!("--field {flag:?} has an empty NAME"),
+                "--field has an empty NAME".to_string(),
             ));
         }
         if fields.insert(name.clone(), value.to_string()).is_some() {

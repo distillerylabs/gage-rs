@@ -280,7 +280,7 @@ fn a_script_error_names_its_line() {
         &env,
         &r,
         ExitCode::NotFound,
-        "gage: $ROOT/commands.gage:3: show NoSuchEntry: no entry matches \"NoSuchEntry\"\n",
+        "gage: $ROOT/commands.gage:3: no entry matches \"NoSuchEntry\"\n",
     );
 }
 

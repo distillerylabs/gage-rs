@@ -129,6 +129,20 @@ fn set_mode(_file: &std::fs::File, _mode: u32) -> std::io::Result<()> {
     Ok(())
 }
 
+/// The mode of a file others can read or write, or `None` if it is private
+/// to its owner. Always `None` on Windows, which doesn't model these bits.
+#[cfg(unix)]
+pub(crate) fn loose_mode(meta: &std::fs::Metadata) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = meta.permissions().mode() & 0o777;
+    (mode & 0o077 != 0).then_some(mode)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn loose_mode(_: &std::fs::Metadata) -> Option<u32> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

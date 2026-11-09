@@ -130,9 +130,12 @@ fn token_host_only_names_http_hosts() {
     for (url, want) in [
         ("https://github.com/me/vault.git", "github.com"),
         (
-            "http://git.example.internal:8080/me/vault.git",
+            "https://git.example.internal:8080/me/vault.git",
             "git.example.internal",
         ),
+        ("http://127.0.0.1:8080/me/vault.git", "127.0.0.1"),
+        // No token will be sent there, so none is worth asking for.
+        ("http://git.example.internal:8080/me/vault.git", ""),
         ("git@github.com:me/vault.git", ""),
         ("ssh://git@git.example.internal/me/vault.git", ""),
         ("/tmp/remote.git", ""),
@@ -289,4 +292,89 @@ fn ssh_is_supported_exactly_where_the_build_has_it() {
         SSH_SUPPORTED,
         !cfg!(any(target_os = "ios", target_os = "android"))
     );
+}
+
+#[test]
+fn a_new_remote_may_not_carry_credentials() {
+    for url in [
+        "https://me:s3cret@github.com/me/vault.git",
+        "https://s3cret@github.com/me/vault.git",
+        "http://me:s3cret@git.example.internal/me/vault.git",
+        "ssh://git:s3cret@git.example.internal/me/vault.git",
+    ] {
+        let err = check_new_remote(url).unwrap_err();
+        assert!(
+            matches!(err, Error::CredentialsInUrl { .. }),
+            "{url}: {err}"
+        );
+        assert_eq!(err.kind(), ErrorKind::Usage, "{url}");
+        assert!(!err.to_string().contains("s3cret"), "{err}");
+    }
+}
+
+#[test]
+fn a_new_remote_may_name_an_ssh_user() {
+    for url in [
+        "https://github.com/me/vault.git",
+        "git@github.com:me/vault.git",
+        "ssh://git@git.example.internal/me/vault.git",
+        "/tmp/remote.git",
+    ] {
+        check_new_remote(url).unwrap();
+    }
+}
+
+#[test]
+fn a_new_remote_must_parse_and_its_error_hides_credentials() {
+    assert!(matches!(
+        check_new_remote("https://"),
+        Err(Error::BadRemote { .. })
+    ));
+    let err = check_new_remote("https://me:s3cret@bad host/x").unwrap_err();
+    assert!(matches!(err, Error::BadRemote { .. }), "{err}");
+    assert!(!err.to_string().contains("s3cret"), "{err}");
+}
+
+#[test]
+fn a_remote_is_shown_without_its_credentials() {
+    for (url, want) in [
+        (
+            "https://me:s3cret@github.com/me/v.git",
+            "https://github.com/me/v.git",
+        ),
+        (
+            "https://s3cret@github.com/me/v.git",
+            "https://github.com/me/v.git",
+        ),
+        (
+            "ssh://git:s3cret@host.example/me/v.git",
+            "ssh://host.example/me/v.git",
+        ),
+        (
+            "ssh://git@host.example/me/v.git",
+            "ssh://git@host.example/me/v.git",
+        ),
+        ("git@github.com:me/v.git", "git@github.com:me/v.git"),
+        ("/tmp/remote.git", "/tmp/remote.git"),
+    ] {
+        assert_eq!(redacted(url), want);
+    }
+}
+
+#[test]
+fn a_token_travels_only_over_https_or_loopback() {
+    for (url, want) in [
+        ("https://github.com/me/v.git", true),
+        ("http://github.com/me/v.git", false),
+        ("HTTP://GitHub.com/me/v.git", false),
+        ("http://192.168.1.10/me/v.git", false),
+        ("http://127.0.0.1:8080/me/v.git", true),
+        ("http://127.8.8.8/me/v.git", true),
+        ("http://[::1]:8080/me/v.git", true),
+        ("http://localhost:8080/me/v.git", true),
+        ("http://localhost.example/me/v.git", false),
+        ("not a url", false),
+    ] {
+        assert_eq!(token_may_travel_to(url), want, "{url}");
+    }
 }

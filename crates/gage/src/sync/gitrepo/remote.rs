@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use super::{Error, ORIGIN, fail, has_remote, isolate, open, require_clean_work_tree};
+use crate::error::Remedy;
 use crate::storage::xdgpaths::Dirs;
 use crate::sync::remoteauth::{self, Method};
 use crate::sync::syncerr::{self, Kind};
@@ -156,6 +157,7 @@ pub fn push(dir: &Path, opts: &RemoteOptions) -> Result<bool, Error> {
 /// pushed into it. Asking the remote what it has costs one round trip on a
 /// once-per-vault operation.
 pub fn clone(url: &str, dir: &Path, opts: &RemoteOptions) -> Result<(), Error> {
+    remoteauth::check_new_remote(url)?;
     isolate();
     // libgit2's `RepoBuilder::clone` refuses a non-empty target before it
     // touches the network; this manual clone must too, so a clone into a
@@ -418,6 +420,8 @@ struct Op<'m> {
     timed_out: Cell<bool>,
     /// Why the credentials callback refused, if it did.
     auth_refused: RefCell<Option<String>>,
+    /// The refusal was for asking over cleartext HTTP.
+    cleartext_refused: Cell<bool>,
     /// Credentials handed out so far (username-only requests not counted).
     offered: Cell<u32>,
     /// Fetch: a remote-tracking ref moved.
@@ -437,6 +441,7 @@ impl<'m> Op<'m> {
             timeout,
             timed_out: Cell::new(false),
             auth_refused: RefCell::new(None),
+            cleartext_refused: Cell::new(false),
             offered: Cell::new(0),
             updated: Cell::new(false),
             sent: Cell::new(false),
@@ -525,6 +530,15 @@ impl<'m> Op<'m> {
                     "{asking} asked for credentials; gage offers the token stored for {host} only to {host}"
                 )));
             }
+            // Here rather than in `method`: an HTTP remote that never asks
+            // still works anonymously, and this is the one place that sees
+            // the URL a redirect ended up at (ADR-0075).
+            if !remoteauth::token_may_travel_to(url) {
+                self.cleartext_refused.set(true);
+                return Err(self.refuse(format!(
+                    "{asking} asked for credentials over http://; gage sends the token stored for {host} only over https"
+                )));
+            }
         }
         if self.offered.get() > 0 {
             return Err(self.refuse(format!(
@@ -563,7 +577,11 @@ impl<'m> Op<'m> {
                 format!("no answer within {}s", self.timeout.as_secs()),
             ))
         } else if let Some(reason) = self.auth_refused.borrow().clone() {
-            Some(syncerr::Error::new(Kind::Auth, reason))
+            let refused = syncerr::Error::new(Kind::Auth, reason);
+            if self.cleartext_refused.get() {
+                return refused.with_remedy(Remedy::UseHttps).into();
+            }
+            Some(refused)
         } else if *self.method == Method::Local && !Path::new(&self.url).exists() {
             // libgit2 calls a missing path an unsupported URL protocol.
             Some(syncerr::Error::new(
@@ -579,5 +597,66 @@ impl<'m> Op<'m> {
             Some(e) => e.annotate_auth(self.method.host()).into(),
             None => fail(op, dir)(err),
         }
+    }
+}
+
+#[cfg(test)]
+mod credential_tests {
+    use super::*;
+    use crate::error::HasKind;
+    use zeroize::Zeroizing;
+
+    fn token_for(host: &str) -> Method {
+        Method::Token {
+            host: host.into(),
+            token: Zeroizing::new("tok_do_not_print_me".into()),
+        }
+    }
+
+    fn asked(op: &Op, url: &str) -> Result<git2::Cred, git2::Error> {
+        op.credentials(url, None, git2::CredentialType::USER_PASS_PLAINTEXT)
+    }
+
+    // Only the callback sees where a redirect ended up, so the refusal has
+    // to be there. A loopback server is all a test can answer on, so the
+    // callback is called directly.
+    #[test]
+    fn the_token_is_not_offered_over_cleartext_http() {
+        let method = token_for("git.example.test");
+        let url = "http://git.example.test/me/vault.git";
+        let op = Op::new(&method, url, REMOTE_OP_TIMEOUT);
+
+        assert!(asked(&op, url).is_err());
+        assert_eq!(op.offered.get(), 0);
+
+        let err = op.fail(
+            git2::Error::from_str("too many redirects or authentication replays"),
+            Direction::Fetch,
+            "fetching",
+            Path::new("/vault"),
+        );
+        assert!(err.to_string().contains("http://"), "{err}");
+        assert_eq!(err.remedy(), Some(Remedy::UseHttps), "{err}");
+    }
+
+    #[test]
+    fn a_redirect_down_to_http_gets_no_token() {
+        let method = token_for("git.example.test");
+        let op = Op::new(
+            &method,
+            "https://git.example.test/me/vault.git",
+            REMOTE_OP_TIMEOUT,
+        );
+        assert!(asked(&op, "http://git.example.test/me/vault.git").is_err());
+        assert_eq!(op.offered.get(), 0);
+    }
+
+    #[test]
+    fn the_token_is_offered_over_https() {
+        let method = token_for("git.example.test");
+        let url = "https://git.example.test/me/vault.git";
+        let op = Op::new(&method, url, REMOTE_OP_TIMEOUT);
+        assert!(asked(&op, url).is_ok());
+        assert_eq!(op.offered.get(), 1);
     }
 }

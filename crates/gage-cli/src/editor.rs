@@ -59,9 +59,7 @@ fn edit_yaml_in(dir: &Path, editor: Option<&str>, seed: &Entry) -> Result<Edited
     let scratch = Scratch::create(dir, &template)?;
     let running_editor =
         |e: std::io::Error| CliError::new(ExitCode::Internal, format!("running $EDITOR: {e}"));
-    let mut child = Command::new(&program)
-        .args(&args)
-        .arg(&scratch.path)
+    let mut child = editor_command(&program, &args, &scratch.path)
         .spawn()
         .map_err(running_editor)?;
     let status = wait_for_editor(&mut child, &signals).map_err(running_editor)?;
@@ -82,6 +80,17 @@ fn edit_yaml_in(dir: &Path, editor: Option<&str>, seed: &Entry) -> Result<Edited
         entry,
         unchanged: *edited == *template,
     })
+}
+
+/// The editor's command line and environment. It and whatever it starts
+/// inherit gage's environment, and have no use for the passphrase in it.
+fn editor_command(program: &Path, args: &[String], scratch: &Path) -> Command {
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .arg(scratch)
+        .env_remove(crate::scriptprompt::ENV_VAR);
+    command
 }
 
 /// The editor's exit status, once it has exited by itself or a caught
@@ -732,6 +741,19 @@ mod tests {
 
     fn is_empty(dir: &Path) -> bool {
         fs::read_dir(dir).unwrap().next().is_none()
+    }
+
+    // The editor and whatever it starts have no use for the passphrase.
+    #[test]
+    fn the_editor_does_not_inherit_the_passphrase_variable() {
+        let command = editor_command(Path::new("vi"), &[], Path::new("scratch"));
+        assert!(
+            command
+                .get_envs()
+                .any(|(name, value)| name == crate::scriptprompt::ENV_VAR && value.is_none()),
+            "{:?}",
+            command.get_envs().collect::<Vec<_>>()
+        );
     }
 
     #[test]

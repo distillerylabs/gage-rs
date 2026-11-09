@@ -19,6 +19,38 @@ pub(crate) const A_DEVICE: &str = "laptop-1";
 pub(crate) const B_DEVICE: &str = "laptop-2";
 pub(crate) const VAULT: &str = "personal";
 
+// An identity file others can read is refused until it's tightened. Windows
+// doesn't model the mode bits, as for token files.
+#[cfg(unix)]
+#[test]
+fn a_loose_identity_file_is_refused_at_unlock() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let env = Env::new();
+    env.init(VAULT, &[]);
+    let dir = env
+        .dirs
+        .data
+        .join("identities")
+        .join(env.entry(VAULT).id.unwrap());
+    let file = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.extension().is_some_and(|x| x == "age"))
+        .unwrap();
+    let unlocking = || FakePrompter::new().with_passphrase(PASSPHRASE);
+
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let r = env.run_with(&["show", "nothing"], &unlocking());
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
+    assert!(r.stderr.contains("0644"), "{}", r.stderr);
+    assert!(r.stderr.contains("want 0600"), "{}", r.stderr);
+
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let r = env.run_with(&["show", "nothing"], &unlocking());
+    assert_eq!(r.code, ExitCode::NotFound, "{}", r.stderr);
+}
+
 pub(crate) struct TwoDevices {
     pub(crate) a: Env,
     pub(crate) b: Env,
