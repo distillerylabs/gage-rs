@@ -17,10 +17,10 @@ use crate::storage::vaultconfig::{self, UnlockMethod, VaultId, VaultType};
 use crate::storage::xdgpaths::Dirs;
 use crate::testsupport::fast_scrypt;
 use crate::trust::recipient;
+#[cfg(unix)]
+use crate::vault::InitRollbackError;
 use crate::vault::lifecycle::hooks;
-use crate::vault::{
-    CloneError, CloneSpec, CreateError, InitError, InitRollbackError, InitSpec, NameError, Vault,
-};
+use crate::vault::{CloneError, CloneSpec, CreateError, InitError, InitSpec, NameError, Vault};
 
 const PASSPHRASE: &str = "correct horse battery staple";
 const NAME: &str = "personal";
@@ -103,6 +103,7 @@ impl Machine {
 
     /// Every per-vault directory this machine holds under its state root.
     /// The global config's lock file sits there too, and isn't one.
+    #[cfg(unix)]
     fn trust_caches(&self) -> Vec<PathBuf> {
         let Ok(entries) = std::fs::read_dir(&self.dirs.state) else {
             return Vec::new();
