@@ -54,7 +54,9 @@ pub struct Initialized {
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum InitError {
-    /// The name is taken ([`RegistryError::AlreadyRegistered`]).
+    /// The name is taken ([`RegistryError::AlreadyRegistered`]). If it was
+    /// taken while this call ran, the vault and identity exist and are not
+    /// rolled back.
     #[error(transparent)]
     Registry(#[from] RegistryError),
     /// The global config couldn't be read.
@@ -80,6 +82,12 @@ pub enum InitError {
     /// failed. Nothing is rolled back.
     #[error(transparent)]
     SaveRegistry(Box<config::Error>),
+}
+
+impl From<config::Error> for InitError {
+    fn from(e: config::Error) -> InitError {
+        InitError::SaveRegistry(Box::new(e))
+    }
 }
 
 impl From<UnlockError> for InitError {
@@ -147,7 +155,8 @@ pub enum CloneError {
     Name(#[from] NameError),
     #[error("device name {0:?} is invalid")]
     InvalidDeviceName(String),
-    /// The name is taken ([`RegistryError::AlreadyRegistered`]).
+    /// The name is taken ([`RegistryError::AlreadyRegistered`]). If it was
+    /// taken while this call ran, the clone exists and is not rolled back.
     #[error(transparent)]
     Registry(#[from] RegistryError),
     /// The global config couldn't be read.
@@ -172,6 +181,12 @@ pub enum CloneError {
     /// back.
     #[error(transparent)]
     SaveRegistry(config::Error),
+}
+
+impl From<config::Error> for CloneError {
+    fn from(e: config::Error) -> CloneError {
+        CloneError::SaveRegistry(e)
+    }
 }
 
 impl HasKind for CloneError {
@@ -215,15 +230,16 @@ impl Vault {
     ///    identity is removed again: it sits under an id no vault carries,
     ///    and nothing would ever point at it.
     /// 4. Register the vault, recording this device's public key while
-    ///    gage holds it without an unlock (ADR-0013). A failure here is
-    ///    not rolled back.
+    ///    gage holds it without an unlock (ADR-0013). The registry is read
+    ///    again for this, under its lock, so a vault registered during the
+    ///    steps above is kept (ADR-0077). A failure here, the name having
+    ///    been taken meanwhile included, is not rolled back.
     pub fn init(
         dirs: &Dirs,
         spec: &InitSpec,
         prompter: &dyn Prompter,
     ) -> Result<Initialized, InitError> {
-        let config_path = paths::global_config_file(dirs);
-        let mut global = config::load_or_default(&config_path)
+        let global = config::load_or_default(&paths::global_config_file(dirs))
             .map_err(|e| InitError::LoadRegistry(Box::new(e)))?;
         if global.vaults.contains_key(&spec.name) {
             return Err(RegistryError::AlreadyRegistered(spec.name.clone()).into());
@@ -277,22 +293,23 @@ impl Vault {
             }
         };
 
-        global.register(
-            &spec.name,
-            VaultEntry {
-                path: vault.path.clone(),
-                id: Some(vault.id.clone()),
-                vault_type: spec.vault_type,
-                device: spec.device.clone(),
-                pubkey: Some(pubkey.clone()),
-                method: spec.method.clone(),
-                git: GitMeta {
-                    origin: spec.remote.clone(),
+        before_registering();
+        config::update(dirs, |global| -> Result<(), InitError> {
+            Ok(global.register(
+                &spec.name,
+                VaultEntry {
+                    path: vault.path.clone(),
+                    id: Some(vault.id.clone()),
+                    vault_type: spec.vault_type,
+                    device: spec.device.clone(),
+                    pubkey: Some(pubkey.clone()),
+                    method: spec.method.clone(),
+                    git: GitMeta {
+                        origin: spec.remote.clone(),
+                    },
                 },
-            },
-        )?;
-        config::save_creating_dir(&config_path, &global)
-            .map_err(|e| InitError::SaveRegistry(Box::new(e)))?;
+            )?)
+        })?;
         Ok(Initialized { vault, pubkey })
     }
 
@@ -307,15 +324,17 @@ impl Vault {
     /// A clone that fails, or that turns out to hold a config this build
     /// can't use, is undone: a directory this call made is removed, and an
     /// empty one it was given is emptied again. A target that existed and
-    /// wasn't empty is never touched (git refuses it). A failure to
-    /// register is not rolled back.
+    /// wasn't empty is never touched (git refuses it). The registry is
+    /// read again to register, under its lock, so a vault registered during
+    /// the clone is kept (ADR-0077). A failure to register, the name having
+    /// been taken meanwhile included, is not rolled back.
     pub fn clone_remote(dirs: &Dirs, spec: &CloneSpec) -> Result<Cloned, CloneError> {
         check_name(&spec.name)?;
         if !devicename::valid(&spec.device) {
             return Err(CloneError::InvalidDeviceName(spec.device.clone()));
         }
-        let config_path = paths::global_config_file(dirs);
-        let mut global = config::load_or_default(&config_path).map_err(CloneError::LoadRegistry)?;
+        let global = config::load_or_default(&paths::global_config_file(dirs))
+            .map_err(CloneError::LoadRegistry)?;
         if global.vaults.contains_key(&spec.name) {
             return Err(RegistryError::AlreadyRegistered(spec.name.clone()).into());
         }
@@ -338,23 +357,25 @@ impl Vault {
         let file =
             vaultconfig::load(&super::config_path(&spec.path)).map_err(|e| undo(e.into()))?;
 
-        global.register(
-            &spec.name,
-            VaultEntry {
-                path: spec.path.clone(),
-                id: Some(file.vault.id.clone()),
-                vault_type: file.vault.vault_type,
-                device: spec.device.clone(),
-                // A clone holds no identity, so there is no public key to
-                // record until `identity add` puts one here.
-                pubkey: None,
-                method: file.method.default.clone(),
-                git: GitMeta {
-                    origin: Some(spec.url.clone()),
+        before_registering();
+        config::update(dirs, |global| -> Result<(), CloneError> {
+            Ok(global.register(
+                &spec.name,
+                VaultEntry {
+                    path: spec.path.clone(),
+                    id: Some(file.vault.id.clone()),
+                    vault_type: file.vault.vault_type,
+                    device: spec.device.clone(),
+                    // A clone holds no identity, so there is no public key
+                    // to record until `identity add` puts one here.
+                    pubkey: None,
+                    method: file.method.default.clone(),
+                    git: GitMeta {
+                        origin: Some(spec.url.clone()),
+                    },
                 },
-            },
-        )?;
-        config::save_creating_dir(&config_path, &global).map_err(CloneError::SaveRegistry)?;
+            )?)
+        })?;
 
         // Whether an identity exists, not whether it opens: asking for a
         // passphrase during a clone only to report the unlock was pointless
@@ -428,6 +449,18 @@ fn after_identity_created(id: &VaultId) {
     let _ = id;
 }
 
+/// Called just before a new vault is registered: the moment a test can play
+/// another process registering one during the slow step. A no-op outside
+/// this crate's tests, for the reason [`after_identity_created`] gives.
+fn before_registering() {
+    #[cfg(test)]
+    hooks::BEFORE_REGISTERING.with(|hook| {
+        if let Some(hook) = &*hook.borrow() {
+            hook();
+        }
+    });
+}
+
 #[cfg(test)]
 pub(crate) mod hooks {
     use std::cell::RefCell;
@@ -439,6 +472,7 @@ pub(crate) mod hooks {
     thread_local! {
         // Per thread, so a hook set by one test never reaches another.
         pub(super) static AFTER_IDENTITY: RefCell<Option<Hook>> = RefCell::new(None);
+        pub(super) static BEFORE_REGISTERING: RefCell<Option<Box<dyn Fn()>>> = RefCell::new(None);
     }
 
     /// Runs `hook` after each identity `Vault::init` writes on this thread,
@@ -448,11 +482,20 @@ pub(crate) mod hooks {
         Guard
     }
 
+    /// Runs `hook` before each registration `Vault::init` or
+    /// `Vault::clone_remote` makes on this thread, until the returned guard
+    /// drops.
+    pub(crate) fn before_registering(hook: impl Fn() + 'static) -> Guard {
+        BEFORE_REGISTERING.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+        Guard
+    }
+
     pub(crate) struct Guard;
 
     impl Drop for Guard {
         fn drop(&mut self) {
             AFTER_IDENTITY.with(|h| *h.borrow_mut() = None);
+            BEFORE_REGISTERING.with(|h| *h.borrow_mut() = None);
         }
     }
 }

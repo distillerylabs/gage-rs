@@ -80,10 +80,10 @@ pub fn info(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
 /// [`offer_orphaned_identity`]. Nothing about it can fail the command.
 pub fn remove(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result<(), CliError> {
     let name = arg(matches, "name");
-    let (path, mut global) = load_global(io)?;
-    let entry = global.unregister(name)?;
-    config::save_creating_dir(&path, &global)?;
     let dirs = dirs(io)?;
+    let entry = config::update(&dirs, |global| -> Result<_, CliError> {
+        Ok(global.unregister(name)?)
+    })?;
     if let Some(id) = &entry.id {
         trustcache::remove(&dirs, id)?;
     }
@@ -157,8 +157,7 @@ fn offer_orphaned_identity(
 }
 
 pub fn set_default(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
-    let (path, mut global) = load_global(io)?;
-    global.set_default(arg(matches, "name"))?;
-    config::save_creating_dir(&path, &global)?;
-    Ok(())
+    config::update(&dirs(io)?, |global| -> Result<_, CliError> {
+        Ok(global.set_default(arg(matches, "name"))?)
+    })
 }

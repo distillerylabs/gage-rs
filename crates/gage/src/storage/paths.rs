@@ -87,6 +87,12 @@ pub fn identity_file_path(dirs: &Dirs, vault_id: &VaultId, device: &str) -> Resu
     Ok(identities_dir(dirs, vault_id).join(format!("{device}.age")))
 }
 
+/// `$GAGE_STATE/global-config.lock`: held across a rewrite of the global
+/// config (ADR-0077). Beside `locks/`, which holds only vaults' locks.
+pub fn global_config_lock_file(dirs: &Dirs) -> PathBuf {
+    dirs.state.join("global-config.lock")
+}
+
 /// `$GAGE_STATE/locks/<vault-id>.lock`: the advisory write lock (see
 /// `vaultlock`). Under the state root because a lock is ephemeral,
 /// machine-local coordination: nothing to commit, sync or back up.
@@ -169,6 +175,14 @@ mod tests {
             ("lock_file_path", lock_file_path),
             ("trust_cache_dir", trust_cache_dir),
         ]
+    }
+
+    #[test]
+    fn global_config_lock_file_shape() {
+        assert_eq!(
+            global_config_lock_file(&dirs()),
+            dirs().state.join("global-config.lock")
+        );
     }
 
     #[test]

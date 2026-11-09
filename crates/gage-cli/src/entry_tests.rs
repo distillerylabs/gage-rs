@@ -1129,6 +1129,55 @@ fn lock_holder_trampoline() {
     lock.release().unwrap();
 }
 
+/// A child process holding the advisory lock at some path. A real process,
+/// since a thread-held lock would prove nothing about the file lock.
+pub(crate) struct LockHolder {
+    child: std::process::Child,
+    stdin: Option<std::process::ChildStdin>,
+}
+
+impl LockHolder {
+    pub(crate) fn release(&mut self) {
+        drop(self.stdin.take());
+    }
+}
+
+impl Drop for LockHolder {
+    fn drop(&mut self) {
+        self.release();
+        let _ = self.child.wait();
+    }
+}
+
+/// Starts a [`LockHolder`] on `lock_path`, returning once it has the lock.
+#[allow(clippy::disallowed_macros, clippy::disallowed_methods)]
+pub(crate) fn hold_lock(lock_path: &std::path::Path) -> LockHolder {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+
+    std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "entry_tests::lock_holder_trampoline",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(HOLDER_ENV, lock_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = BufReader::new(child.stderr.take().unwrap());
+    assert!(
+        stderr.lines().any(|l| l.unwrap() == "ACQUIRED"),
+        "the holder never took the lock"
+    );
+    let stdin = child.stdin.take();
+    LockHolder { child, stdin }
+}
+
 // Two registrations
 // of one repository, under different local names, contend on one lock: it
 // is keyed by the vault's id, not the name. A child process holds the lock
@@ -1138,8 +1187,6 @@ fn lock_holder_trampoline() {
 #[test]
 #[allow(clippy::disallowed_macros, clippy::disallowed_methods)]
 fn two_registrations_of_one_repository_share_one_lock() {
-    use std::io::{BufRead, BufReader};
-    use std::process::{Command, Stdio};
     use std::sync::mpsc;
     use std::time::Duration;
 
@@ -1153,25 +1200,7 @@ fn two_registrations_of_one_repository_share_one_lock() {
     // Held through the "personal" registration's id.
     let lock_path =
         gage::storage::paths::lock_file_path(&env.dirs, &env.entry("personal").id.clone().unwrap());
-    std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
-    let mut holder = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "entry_tests::lock_holder_trampoline",
-            "--exact",
-            "--nocapture",
-            "--test-threads=1",
-        ])
-        .env(HOLDER_ENV, &lock_path)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    let stderr = BufReader::new(holder.stderr.take().unwrap());
-    assert!(
-        stderr.lines().any(|l| l.unwrap() == "ACQUIRED"),
-        "the holder never took the lock"
-    );
+    let mut holder = hold_lock(&lock_path);
 
     let env_ref = &env;
     std::thread::scope(|scope| {
@@ -1184,14 +1213,14 @@ fn two_registrations_of_one_repository_share_one_lock() {
             rx.recv_timeout(Duration::from_millis(500)).is_err(),
             "insert through the other registration did not wait for the lock"
         );
-        drop(holder.stdin.take());
+        holder.release();
         assert_eq!(
             rx.recv_timeout(Duration::from_secs(10)),
             Ok(ExitCode::Success),
             "insert never proceeded after the lock was released"
         );
     });
-    let _ = holder.wait();
+    drop(holder);
     assert_eq!(env.entries("personal").len(), 1);
 }
 

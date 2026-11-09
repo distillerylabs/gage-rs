@@ -7,13 +7,20 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::{ErrorKind, HasKind};
-use crate::storage::atomicfile;
 use crate::storage::serde_opt::empty_as_none;
 use crate::storage::vaultconfig::{UnlockMethod, VaultId, VaultType};
+use crate::storage::xdgpaths::Dirs;
+use crate::storage::{atomicfile, paths, vaultlock};
+
+/// How long [`update`] waits for another process's rewrite to finish. A
+/// rewrite holds the lock for moments, so this is only ever reached when
+/// something is badly wrong.
+pub const UPDATE_LOCK_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Git-specific metadata for a vault, namespaced under its own table so a
 /// future vault type only ever adds a table rather than reshaping this one.
@@ -145,11 +152,17 @@ pub enum Error {
         path: PathBuf,
         source: atomicfile::Error,
     },
+    /// The lock held across a rewrite couldn't be taken.
+    #[error(transparent)]
+    Lock(vaultlock::Error),
 }
 
 impl HasKind for Error {
     fn kind(&self) -> ErrorKind {
-        ErrorKind::Internal
+        match self {
+            Error::Lock(e) => e.kind(),
+            _ => ErrorKind::Internal,
+        }
     }
 }
 
@@ -224,6 +237,44 @@ impl Global {
         self.current = Some(name.to_string());
         Ok(())
     }
+}
+
+/// Applies `f` to the global config, as the one way to change it
+/// (ADR-0077). The file is read after the lock is taken and written before
+/// it is released, so a change another process made in the meantime is
+/// kept. Nothing is written if `f` fails.
+///
+/// `f` must not wait on anything slow, a person or the network, or take
+/// another lock: reading first and calling this for the change is how to
+/// keep a slow step outside.
+pub fn update<T, E: From<Error>>(
+    dirs: &Dirs,
+    f: impl FnOnce(&mut Global) -> Result<T, E>,
+) -> Result<T, E> {
+    update_within(dirs, UPDATE_LOCK_TIMEOUT, f)
+}
+
+fn update_within<T, E: From<Error>>(
+    dirs: &Dirs,
+    timeout: Duration,
+    f: impl FnOnce(&mut Global) -> Result<T, E>,
+) -> Result<T, E> {
+    let lock_path = paths::global_config_lock_file(dirs);
+    if let Some(dir) = lock_path.parent() {
+        std::fs::create_dir_all(dir).map_err(|source| Error::CreateDir {
+            path: dir.to_path_buf(),
+            source,
+        })?;
+    }
+    // Released by dropping it, not `release`: once the save has landed, a
+    // failure to unlock mustn't report the change as failed, and closing
+    // the handle lets go regardless.
+    let _lock = vaultlock::Lock::acquire(&lock_path, timeout).map_err(Error::Lock)?;
+    let path = paths::global_config_file(dirs);
+    let mut global = load_or_default(&path)?;
+    let value = f(&mut global)?;
+    save_creating_dir(&path, &global)?;
+    Ok(value)
 }
 
 /// Reads the global config, treating a missing file as an empty registry:
@@ -641,5 +692,267 @@ mod tests {
         save(&path, &one_vault()).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
+    }
+}
+
+// Real, separate OS processes, for the reason vaultlock's tests give: what
+// matters is the file lock between processes, and a thread-based test would
+// also pass if the exclusion were scoped to something in-process.
+#[cfg(test)]
+#[allow(clippy::disallowed_macros, clippy::disallowed_methods)]
+mod update_tests {
+    use std::io::{BufRead, BufReader, Read};
+    use std::process::{Child, ChildStdin, Command, Stdio};
+    use std::sync::mpsc;
+    use std::time::Instant;
+
+    use super::*;
+    use crate::storage::vaultlock;
+
+    const WRITER_ROOT_ENV: &str = "GAGE_CONFIG_TEST_WRITER_ROOT";
+    const WRITER_NAME_ENV: &str = "GAGE_CONFIG_TEST_WRITER_NAME";
+    const HOLDER_ENV: &str = "GAGE_CONFIG_TEST_LOCK_HOLDER";
+
+    fn dirs_under(root: &Path) -> Dirs {
+        Dirs {
+            config: root.join("config"),
+            data: root.join("data"),
+            state: root.join("state"),
+        }
+    }
+
+    fn machine() -> (tempfile::TempDir, Dirs) {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = dirs_under(root.path());
+        (root, dirs)
+    }
+
+    fn entry() -> VaultEntry {
+        VaultEntry {
+            path: "/data/vaults/any".into(),
+            vault_type: VaultType::Git,
+            device: "laptop-1".into(),
+            method: "passphrase".into(),
+            ..Default::default()
+        }
+    }
+
+    fn saved(dirs: &Dirs) -> Global {
+        load_or_default(&paths::global_config_file(dirs)).unwrap()
+    }
+
+    /// Writes a registration straight to the file, as whoever holds the
+    /// lock would have.
+    fn write_directly(dirs: &Dirs, name: &str) {
+        let mut global = saved(dirs);
+        global.register(name, entry()).unwrap();
+        save_creating_dir(&paths::global_config_file(dirs), &global).unwrap();
+    }
+
+    /// The child side of the race: one registration, slow enough between
+    /// its read and its write that every writer overlaps.
+    #[test]
+    fn registering_writer_trampoline() {
+        let Some(root) = std::env::var_os(WRITER_ROOT_ENV) else {
+            return;
+        };
+        let name = std::env::var(WRITER_NAME_ENV).unwrap();
+        update(&dirs_under(Path::new(&root)), |global| {
+            std::thread::sleep(Duration::from_millis(50));
+            global.register(&name, entry()).unwrap();
+            Ok::<_, Error>(())
+        })
+        .unwrap();
+    }
+
+    /// The child side of the tests below: takes the lock, announces it on
+    /// stderr, and holds it until stdin closes.
+    #[test]
+    fn lock_holder_trampoline() {
+        let Some(path) = std::env::var_os(HOLDER_ENV) else {
+            return;
+        };
+        let lock = vaultlock::Lock::acquire(Path::new(&path), Duration::from_secs(5)).unwrap();
+        eprintln!("ACQUIRED");
+        let _ = std::io::stdin().read(&mut [0u8]);
+        lock.release().unwrap();
+    }
+
+    fn test_binary(test: &str) -> Command {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command.args([
+            &format!("storage::config::update_tests::{test}"),
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ]);
+        command
+    }
+
+    struct Holder {
+        child: Child,
+        stdin: Option<ChildStdin>,
+    }
+
+    impl Holder {
+        /// Returns once the child has the update lock.
+        fn spawn(dirs: &Dirs) -> Holder {
+            let path = paths::global_config_lock_file(dirs);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            let mut child = test_binary("lock_holder_trampoline")
+                .env(HOLDER_ENV, &path)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap();
+            let stderr = BufReader::new(child.stderr.take().unwrap());
+            assert!(
+                stderr.lines().any(|l| l.unwrap() == "ACQUIRED"),
+                "the holder never took the lock"
+            );
+            let stdin = child.stdin.take();
+            Holder { child, stdin }
+        }
+
+        fn release(&mut self) {
+            drop(self.stdin.take());
+        }
+    }
+
+    impl Drop for Holder {
+        fn drop(&mut self) {
+            self.release();
+            let _ = self.child.wait();
+        }
+    }
+
+    // The bug itself: writers that overlap each load the file, and without
+    // the lock the last save wins and the others' registrations are gone.
+    #[test]
+    fn overlapping_updates_from_separate_processes_all_land() {
+        let (root, dirs) = machine();
+        let names: Vec<String> = (0..6).map(|i| format!("vault-{i}")).collect();
+
+        let writers: Vec<Child> = names
+            .iter()
+            .map(|name| {
+                test_binary("registering_writer_trampoline")
+                    .env(WRITER_ROOT_ENV, root.path())
+                    .env(WRITER_NAME_ENV, name)
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .spawn()
+                    .unwrap()
+            })
+            .collect();
+        for mut writer in writers {
+            assert!(writer.wait().unwrap().success(), "a writer failed");
+        }
+
+        let got: Vec<String> = saved(&dirs).vaults.into_keys().collect();
+        assert_eq!(got, names);
+    }
+
+    // It waits for the holder, then works from the file as the holder left
+    // it, not from anything read before the wait.
+    #[test]
+    fn an_update_waits_for_the_lock_and_applies_to_what_it_finds() {
+        let (_root, dirs) = machine();
+        let mut holder = Holder::spawn(&dirs);
+
+        std::thread::scope(|scope| {
+            let (tx, rx) = mpsc::channel();
+            let waiting = &dirs;
+            scope.spawn(move || {
+                let result = update(waiting, |global| {
+                    global.register("mine", entry()).unwrap();
+                    Ok::<_, Error>(())
+                });
+                let _ = tx.send(result.is_ok());
+            });
+            assert!(
+                rx.recv_timeout(Duration::from_millis(300)).is_err(),
+                "the update did not wait for the lock"
+            );
+            write_directly(&dirs, "theirs");
+            holder.release();
+            assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(true));
+        });
+
+        let got: Vec<String> = saved(&dirs).vaults.into_keys().collect();
+        assert_eq!(got, ["mine", "theirs"]);
+    }
+
+    #[test]
+    fn a_contended_update_gives_up_without_running_or_saving() {
+        let (_root, dirs) = machine();
+        let _holder = Holder::spawn(&dirs);
+
+        let start = Instant::now();
+        let err = update_within(&dirs, Duration::ZERO, |_| -> Result<(), Error> {
+            panic!("ran without the lock")
+        })
+        .unwrap_err();
+
+        assert!(start.elapsed() < Duration::from_millis(500));
+        assert!(
+            matches!(err, Error::Lock(vaultlock::Error::Contended { .. })),
+            "{err:?}"
+        );
+        // Someone else is mid-write: a state to retry, not a fault.
+        assert_eq!(err.kind(), ErrorKind::Conflict);
+        assert!(!paths::global_config_file(&dirs).exists());
+    }
+
+    #[test]
+    fn a_failed_update_saves_nothing_and_releases_the_lock() {
+        let (_root, dirs) = machine();
+        write_directly(&dirs, "kept");
+        let before = saved(&dirs);
+
+        let err = update(&dirs, |global| {
+            global.unregister("kept").unwrap();
+            Err::<(), _>(Error::NotFound {
+                path: "/refused".into(),
+            })
+        })
+        .unwrap_err();
+
+        assert!(matches!(err, Error::NotFound { .. }), "{err:?}");
+        assert_eq!(saved(&dirs), before);
+        update_within(&dirs, Duration::ZERO, |_| Ok::<_, Error>(())).unwrap();
+    }
+
+    #[test]
+    fn a_first_update_creates_both_directories_and_starts_empty() {
+        let (_root, dirs) = machine();
+
+        let seen = update(&dirs, |global| {
+            let seen = global.clone();
+            global.register("first", entry()).unwrap();
+            Ok::<_, Error>(seen)
+        })
+        .unwrap();
+
+        assert_eq!(seen, Global::default());
+        assert_eq!(saved(&dirs).current.as_deref(), Some("first"));
+        assert!(paths::global_config_lock_file(&dirs).exists());
+    }
+
+    #[test]
+    fn an_unreadable_config_is_reported_and_not_overwritten() {
+        let (_root, dirs) = machine();
+        let path = paths::global_config_file(&dirs);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "not [valid").unwrap();
+
+        let err = update(&dirs, |_| -> Result<(), Error> {
+            panic!("ran on a config that doesn't parse")
+        })
+        .unwrap_err();
+
+        assert!(matches!(err, Error::Parse { .. }), "{err:?}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "not [valid");
     }
 }

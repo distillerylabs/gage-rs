@@ -417,6 +417,41 @@ fn a_failed_registry_save_leaves_the_vault_and_identity_in_place() {
     assert!(!paths::global_config_file(&m.dirs).exists());
 }
 
+// The passphrase prompts sit between the first read of the registry and
+// the registration: a vault registered in that time must not be lost.
+#[test]
+fn a_registration_made_while_init_ran_survives_it() {
+    let m = Rc::new(Machine::new());
+    let racer = Rc::clone(&m);
+    let _hook = hooks::before_registering(move || racer.preregister("other"));
+
+    Vault::init(&m.dirs, &m.spec(NAME), &passphrase()).unwrap();
+
+    let global = m.global();
+    assert!(global.vaults.contains_key("other"), "{global:?}");
+    assert!(global.vaults.contains_key(NAME), "{global:?}");
+}
+
+#[test]
+fn a_name_taken_while_init_ran_is_refused_and_the_winner_kept() {
+    let m = Rc::new(Machine::new());
+    let spec = m.spec(NAME);
+    let racer = Rc::clone(&m);
+    let _hook = hooks::before_registering(move || racer.preregister(NAME));
+
+    let err = Vault::init(&m.dirs, &spec, &passphrase()).unwrap_err();
+
+    assert!(
+        matches!(&err, InitError::Registry(RegistryError::AlreadyRegistered(n)) if n == NAME),
+        "{err:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::Conflict);
+    assert_eq!(m.global().vaults[NAME].path, m.path("elsewhere"));
+    // Not rolled back, like any other failure to register.
+    assert!(spec.path.join(".gage/config.toml").exists());
+    assert_eq!(m.identity_files().len(), 1);
+}
+
 // --- Vault::clone_remote ------------------------------------------------------
 
 /// A vault `init` created on its own machine and published to a bare
@@ -622,6 +657,44 @@ fn a_failed_registry_save_leaves_the_clone_in_place_unregistered() {
     let file = vaultconfig::load(&spec.path.join(".gage/config.toml")).unwrap();
     assert_eq!(file.vault.id, id);
     assert!(!paths::global_config_file(&m.dirs).exists());
+}
+
+// The network clone sits between the first read of the registry and the
+// registration: a vault registered in that time must not be lost.
+#[test]
+fn a_registration_made_while_clone_ran_survives_it() {
+    let (_first, remote, _id) = published();
+    let m = Rc::new(Machine::new());
+    let spec = clone_spec(&m, &remote);
+    let racer = Rc::clone(&m);
+    let _hook = hooks::before_registering(move || racer.preregister("other"));
+
+    Vault::clone_remote(&m.dirs, &spec).unwrap();
+
+    let global = m.global();
+    assert!(global.vaults.contains_key("other"), "{global:?}");
+    assert!(global.vaults.contains_key(&spec.name), "{global:?}");
+}
+
+#[test]
+fn a_name_taken_while_clone_ran_is_refused_and_the_winner_kept() {
+    let (_first, remote, _id) = published();
+    let m = Rc::new(Machine::new());
+    let spec = clone_spec(&m, &remote);
+    let racer = Rc::clone(&m);
+    let taken = spec.name.clone();
+    let _hook = hooks::before_registering(move || racer.preregister(&taken));
+
+    let err = Vault::clone_remote(&m.dirs, &spec).unwrap_err();
+
+    assert!(
+        matches!(&err, CloneError::Registry(RegistryError::AlreadyRegistered(n)) if *n == spec.name),
+        "{err:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::Conflict);
+    assert_eq!(m.global().vaults[&spec.name].path, m.path("elsewhere"));
+    // Not rolled back, like any other failure to register.
+    assert!(spec.path.join(".gage/config.toml").exists());
 }
 
 #[test]

@@ -1201,7 +1201,10 @@ fn vault_remove_drops_registration_but_leaves_files() {
     assert!(!global.vaults.contains_key("personal"));
     assert_eq!(global.current, None, "current named the removed vault");
     assert!(path.join(".git").exists());
-    assert_eq!(env.tree(), before, "remove touched the vault's files");
+    // The lock around the registry's rewrite stays, as a lock file does.
+    let lock = paths::global_config_lock_file(&env.dirs);
+    let after: Vec<_> = env.tree().into_iter().filter(|p| *p != lock).collect();
+    assert_eq!(after, before, "remove touched the vault's files");
 }
 
 #[test]
@@ -1440,5 +1443,63 @@ fn no_vault_command_doubles_gages_own_prefix() {
             "{name}: unprefixed:\n{}",
             r.stderr
         );
+    }
+}
+
+// Every command that rewrites the global config, run while another process
+// holds its lock. Each has to wait, and then keep what that process wrote,
+// which it can only do by reading the file after it has the lock.
+#[test]
+fn a_global_config_rewrite_waits_for_the_lock_and_keeps_what_it_finds() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    use crate::entry_tests::{env_with_vault, hold_lock};
+
+    const URL: &str = "https://example.invalid/personal.git";
+    type Check = fn(&Global);
+    let cases: [(&[&str], Check); 4] = [
+        (&["git", "set-remote", "personal", URL], |g| {
+            assert_eq!(g.vaults["personal"].git.origin.as_deref(), Some(URL));
+        }),
+        (&["identity", "add", "--device", "desktop"], |g| {
+            assert_eq!(g.vaults["personal"].device, "desktop");
+        }),
+        (&["vault", "remove", "other"], |g| {
+            assert!(!g.vaults.contains_key("other"));
+        }),
+        (&["vault", "set-default", "other"], |g| {
+            assert_eq!(g.current.as_deref(), Some("other"));
+        }),
+    ];
+
+    for (args, check) in cases {
+        let env = env_with_vault();
+        env.init("other", &[]);
+        let mut holder = hold_lock(&paths::global_config_lock_file(&env.dirs));
+
+        let env_ref = &env;
+        std::thread::scope(|scope| {
+            let (tx, rx) = mpsc::channel();
+            scope.spawn(move || {
+                let r = env_ref.run(args);
+                let _ = tx.send((r.code, r.stderr));
+            });
+            assert!(
+                rx.recv_timeout(Duration::from_millis(500)).is_err(),
+                "{args:?} did not wait for the lock"
+            );
+            let mut global = env.global();
+            let copy = global.vaults["personal"].clone();
+            global.vaults.insert("arrived".into(), copy);
+            env.save_global(&global);
+            holder.release();
+            let (code, stderr) = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            assert_eq!(code, ExitCode::Success, "{args:?} failed:\n{stderr}");
+        });
+
+        let global = env.global();
+        assert!(global.vaults.contains_key("arrived"), "{args:?} lost it");
+        check(&global);
     }
 }

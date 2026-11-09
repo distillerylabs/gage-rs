@@ -119,3 +119,4 @@ by this log; a format change needs an ADR as well as a new spec.
 
 - [0047](0047-two-vault-lock-order.md) Two vaults are locked in vault-id order
 - [0048](0048-yaml-crate.md) The YAML crate
+- [0077](0077-global-config-lock.md) The global config is rewritten under its own lock

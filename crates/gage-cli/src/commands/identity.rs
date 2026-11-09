@@ -12,7 +12,7 @@ use gage::UnlockMethod;
 use super::entry::use_flag;
 use super::init::resolve_device_name;
 use super::sync::with_resolved_vault;
-use super::{Keys, fail, load_global, out};
+use super::{Keys, dirs, fail, out};
 use crate::Io;
 use crate::error::CliError;
 
@@ -102,18 +102,18 @@ pub(super) fn record_local_identity(
     method: &UnlockMethod,
     pubkey: &str,
 ) -> Result<(), CliError> {
-    let (path, mut global) = load_global(io)?;
-    let entry = global.vaults.get_mut(vault).ok_or_else(|| {
-        fail(
-            ExitCode::NotFound,
-            format!("{vault:?} is not a registered vault"),
-        )
-    })?;
-    entry.device = device.to_string();
-    entry.method = method.clone();
-    entry.pubkey = Some(pubkey.to_string());
-    gage::storage::config::save_creating_dir(&path, &global)?;
-    Ok(())
+    gage::storage::config::update(&dirs(io)?, |global| {
+        let entry = global.vaults.get_mut(vault).ok_or_else(|| {
+            fail(
+                ExitCode::NotFound,
+                format!("{vault:?} is not a registered vault"),
+            )
+        })?;
+        entry.device = device.to_string();
+        entry.method = method.clone();
+        entry.pubkey = Some(pubkey.to_string());
+        Ok(())
+    })
 }
 
 pub fn list(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
