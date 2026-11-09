@@ -126,7 +126,8 @@ Not part of A1's acceptance.
   ([#190](https://github.com/distillerylabs/gage-rs/issues/190)).** An unlock
   prompt failure always reports as `LockedOrAuth`, even when the prompt
   itself broke. It stayed out of A1 because fixing it changes a CLI exit
-  code; see "Resolved decisions" above.
+  code; see "Resolved decisions" above. Fixed since by
+  [ADR-0076](../../../../decisions/0076-unlock-prompt-failure-kind.md).
 - **Distributing the bindings
   ([#191](https://github.com/distillerylabs/gage-rs/issues/191)).** `gage-ffi` isn't
   published to crates.io, and `gage-ios` builds against

@@ -254,6 +254,24 @@ fn a_failed_unlock_never_asks_for_the_value() {
     assert!(env.entries("personal").is_empty());
 }
 
+// Input that can't be read as a passphrase is a prompt that broke, not a
+// failed authentication (ADR-0076).
+#[test]
+fn an_unlock_whose_prompt_breaks_exits_internal() {
+    let env = env_with_vault();
+    let prompter = crate::prompter::TerminalPrompter::new(
+        &[0xff, 0xfe, b'\n'][..],
+        std::io::sink(),
+        crate::prompter::SecretInput::Lines,
+    );
+
+    let r = env.run_with(&["insert", "Bank"], &prompter);
+
+    assert_eq!(r.code, ExitCode::Internal, "{}", r.stderr);
+    assert!(r.stderr.contains("prompt failed"), "{}", r.stderr);
+    assert!(env.entries("personal").is_empty());
+}
+
 #[test]
 fn insert_value_stdin_trims_exactly_one_newline() {
     let env = env_with_vault();

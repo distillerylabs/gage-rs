@@ -294,6 +294,28 @@ fn a_failing_callback_keeps_its_message_and_the_library_kind() {
 }
 
 #[test]
+fn a_failing_callback_is_not_an_auth_failure() {
+    let f = Fixture::new(&[]);
+    let prompter = ScriptedPrompter::answering(vec![Answer::Fail(PromptError::Failed {
+        message: "dialog could not be shown".into(),
+    })]);
+
+    let err = f.open().unlock(prompter).unwrap_err();
+
+    assert!(matches!(err, GageError::Internal { .. }), "got {err:?}");
+}
+
+#[test]
+fn a_cancelled_callback_is_locked_or_auth() {
+    let f = Fixture::new(&[]);
+    let prompter = ScriptedPrompter::answering(vec![Answer::Fail(PromptError::Cancelled)]);
+
+    let err = f.open().unlock(prompter).unwrap_err();
+
+    assert!(matches!(err, GageError::LockedOrAuth { .. }), "got {err:?}");
+}
+
+#[test]
 fn an_unregistered_vault_is_not_found() {
     let f = Fixture::new(&[]);
 

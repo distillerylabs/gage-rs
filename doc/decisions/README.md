@@ -95,6 +95,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0036](0036-editor.md) `edit`: finding `$EDITOR` and the scratch file
 - [0070](0070-edit-scratch-signals.md) The edit scratch file and signals
 - [0037](0037-exit-code-taxonomy.md) Exit codes 0–7
+- [0076](0076-unlock-prompt-failure-kind.md) An unlock's prompt failure keeps the prompt's kind
 - [0049](0049-qr-crate.md) The QR crate: encode-only, no decoder
 - [0050](0050-line-editor.md) The line editor and the history file
 - [0071](0071-values-on-a-typed-line.md) Values on a typed line stay out of history

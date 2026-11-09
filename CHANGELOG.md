@@ -7,6 +7,13 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as
 
 ## [Unreleased]
 
+### Changed
+
+- A passphrase prompt that breaks before any answer was tried (a terminal that
+  can't be read, or piped input that isn't UTF-8) now exits `6` (`internal`)
+  instead of `5` (`locked-or-auth`). A declined prompt and a wrong passphrase
+  still exit `5`.
+
 ## [0.1.1](https://github.com/distillerylabs/gage-rs/compare/v0.1.0...v0.1.1) - 2026-10-31
 
 ### Other
