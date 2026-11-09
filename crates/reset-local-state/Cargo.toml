@@ -16,7 +16,7 @@ dist = false
 workspace = true
 
 [dependencies]
-gage = { package = "gage-core", path = "../gage", version = "0.1.1" }
+gage = { package = "gage-core", path = "../gage", version = "0.2.0" }
 
 [dev-dependencies]
 tempfile = "3"
