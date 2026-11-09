@@ -7,6 +7,34 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/distillerylabs/gage-rs/compare/v0.1.1...v0.2.0) - 2026-11-09
+
+### Other
+
+- Undo init and clone when registering them fails ([#184](https://github.com/distillerylabs/gage-rs/pull/184))
+- Rewrite the global config under its own lock ([#183](https://github.com/distillerylabs/gage-rs/pull/183))
+- Report an unlock's prompt failure with the prompt's own kind ([#190](https://github.com/distillerylabs/gage-rs/pull/190))
+- Harden script errors, the editor's environment, identity modes and remotes ([#220](https://github.com/distillerylabs/gage-rs/pull/220))
+- Keep lines that may carry a value out of session history ([#218](https://github.com/distillerylabs/gage-rs/pull/218))
+- Remove the edit scratch file when gage is ended by a signal ([#216](https://github.com/distillerylabs/gage-rs/pull/216))
+- Escape control characters in vault text the CLI renders ([#214](https://github.com/distillerylabs/gage-rs/pull/214))
+- Refuse a vault key file that doesn't continue the one last seen ([#207](https://github.com/distillerylabs/gage-rs/pull/207))
+- Surface failed entry authentication at the CLI and FFI; document its limits ([#201](https://github.com/distillerylabs/gage-rs/pull/201))
+- Rotate the MAC key on membership changes; re-stamp across a key change ([#200](https://github.com/distillerylabs/gage-rs/pull/200))
+- Authenticate entries with a per-vault MAC key; format v3 ([#199](https://github.com/distillerylabs/gage-rs/pull/199))
+- library create/join operations
+- Gate the Unix-only test helpers for Windows lint ([#184](https://github.com/distillerylabs/gage-rs/pull/184))
+- Restrict entry files to 0600 after every checkout ([#197](https://github.com/distillerylabs/gage-rs/pull/197))
+- Box the vault-key error variants to keep errors small on Windows
+- Scope the Device import to the Unix-only test
+- Harden the sync merge writer and checkout against non-regular-file tree entries
+- Bump the cargo-dependencies group with 3 updates
+- bindings for join + read
+- Merge branch '179-a1a-library-create-join' into 180-a1b-ios-build-ci
+- fix Windows lint (unused import, large InitError)
+- iOS build, no SSH on mobile, simulator smoke CI
+- UniFFI bindings spike for iOS (open, unlock, list)
+
 ### Changed
 
 - A passphrase prompt that breaks before any answer was tried (a terminal that
