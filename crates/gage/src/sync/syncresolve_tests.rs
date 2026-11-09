@@ -1138,6 +1138,57 @@ fn resolve_on(v: &Vault, identity: &Identity, p: &dyn Prompter) -> Result<SyncRe
     v.sync_resolving_with(p, &mut || Ok(identity))
 }
 
+/// A conflict on a vault whose recipient list changed since this device
+/// last confirmed it.
+fn with_unreviewed_list(f: Fixture) -> Fixture {
+    use crate::trust::trustcache_tests::{new_key, tamper_recipients_file};
+    tamper_recipients_file(f.vault(), &new_key());
+    f
+}
+
+// Keep-both encrypts, so it stops for review like every other encrypting
+// path. A no leaves nothing behind.
+#[test]
+fn keep_both_stops_for_a_changed_recipient_list() {
+    let f = with_unreviewed_list(Fixture::new());
+    let commits = gitrepo::commit_count(&f.vault().path).unwrap();
+    let declines = answering(&[Resolution::KeepBoth]).with_recipient_answers(&[false]);
+    let err = f.resolve(&declines).unwrap_err();
+    assert!(
+        matches!(
+            &*err.cause,
+            SyncCause::Trust(crate::trust::trustcache::TrustError::ChangeDeclined { .. })
+        ),
+        "{err}"
+    );
+    assert_eq!(declines.recipient_changes().len(), 1);
+    assert_eq!(gitrepo::commit_count(&f.vault().path).unwrap(), commits);
+    assert!(f.others().is_empty());
+
+    let accepts = answering(&[Resolution::KeepBoth]).with_recipient_answers(&[true]);
+    f.resolve(&accepts).unwrap();
+    assert_eq!(f.others().len(), 1);
+}
+
+// One review covers the whole resolution.
+#[test]
+fn keep_both_asks_about_a_changed_list_once() {
+    let f = with_unreviewed_list(Fixture::two());
+    let p =
+        answering(&[Resolution::KeepBoth, Resolution::KeepBoth]).with_recipient_answers(&[true]);
+    f.resolve(&p).unwrap();
+    assert_eq!(p.recipient_changes().len(), 1);
+}
+
+// Keeping one side encrypts nothing, so there's nothing to review yet.
+#[test]
+fn keeping_one_side_does_not_ask_about_the_list() {
+    let f = with_unreviewed_list(Fixture::new());
+    let p = answering(&[Resolution::KeepLocal]).with_recipient_answers(&[]);
+    f.resolve(&p).unwrap();
+    assert!(p.recipient_changes().is_empty());
+}
+
 #[test]
 fn keep_both_stamps_a_new_entry_that_verifies() {
     let f = Fixture::new();

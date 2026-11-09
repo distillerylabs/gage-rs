@@ -65,6 +65,8 @@ The private key is stored, wrapped with your passphrase (age's scrypt, at
 a work factor of 2^19), at
 `$GAGE_DATA/identities/<vault-id>/<device>.age`: outside the vault, so it
 is never committed or synced. The directory is `0700` and the file `0600`.
+On Unix, a file others can read is refused at unlock (exit `5`) until its
+mode is tightened ([ADR-0073](../decisions/0073-identity-file-mode.md)).
 The file is an ordinary passphrase-encrypted age-keygen key file, so the
 stock age tool can use it too (`age -d -i <device>.age ...`).
 

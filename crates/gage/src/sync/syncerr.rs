@@ -103,6 +103,12 @@ impl Error {
     /// wrong) a look at the path. Every other bucket is returned
     /// untouched: a divergence must never acquire a "check your token"
     /// suggestion.
+    /// The same failure with `remedy` as its advice.
+    pub(crate) fn with_remedy(mut self, remedy: Remedy) -> Error {
+        self.remedy = Some(remedy);
+        self
+    }
+
     pub fn annotate_auth(mut self, host: &str) -> Error {
         if self.kind != Kind::Auth {
             return self;
@@ -179,7 +185,7 @@ fn git_kind(err: &git2::Error) -> Option<Kind> {
 /// Removes the `user:password@` part of every URL in `s`. gage never puts a
 /// token in a URL, but a remote spelled with one would otherwise carry it
 /// into an error message.
-fn redact_userinfo(s: &str) -> String {
+pub(crate) fn redact_userinfo(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut rest = s;
     while let Some(at) = rest.find("://") {

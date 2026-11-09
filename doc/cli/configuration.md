@@ -157,4 +157,4 @@ see [Adding a device](enrollment.md#what-a-pending-request-is-on-disk).
 
 | Variable | What it does |
 |---|---|
-| `GAGE_PASSPHRASE` | Supplies the passphrase that opens an *existing* identity under `gage --script FILE` or `gage --stdin`, and only there: an ordinary one-shot command ignores it and prompts. It answers once, so a wrong value fails without a retry. It is never used to create a key (`init`, `identity add`). See [Session mode](session-mode.md#where-the-passphrase-comes-from). |
+| `GAGE_PASSPHRASE` | Supplies the passphrase that opens an *existing* identity under `gage --script FILE` or `gage --stdin`, and only there: an ordinary one-shot command ignores it and prompts. It answers once, so a wrong value fails without a retry. It is never used to create a key (`init`, `identity add`), and `$EDITOR` doesn't inherit it. See [Session mode](session-mode.md#where-the-passphrase-comes-from). |

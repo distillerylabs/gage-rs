@@ -185,7 +185,7 @@ pub fn run_script(
             ) {
                 Ok(true) => return Ok(()),
                 Ok(false) => {}
-                Err(e) => return Err(script_error(e, &name, n, line)),
+                Err(e) => return Err(script_error(e, &name, n)),
             }
         }
         unreachable!("the range has no end")
@@ -195,9 +195,11 @@ pub fn run_script(
 
 /// A failed line's error with where it came from, in the one place that
 /// can locate a failure in a file nobody watched run, keeping the exit
-/// code a script should fail with: the one its command would have.
-pub(crate) fn script_error(err: CliError, source: &str, line_no: usize, line: &str) -> CliError {
-    err.context(format!("{source}:{line_no}: {line}"))
+/// code a script should fail with: the one its command would have. The
+/// line itself stays out: it can hold a value, and this goes to a log
+/// (ADR-0072).
+pub(crate) fn script_error(err: CliError, source: &str, line_no: usize) -> CliError {
+    err.context(format!("{source}:{line_no}"))
 }
 
 /// The lines of a script, one at a time and never ahead.
@@ -356,13 +358,13 @@ fn exec_line_in(
     line: &str,
     mode: Mode,
 ) -> Result<bool, CliError> {
-    let mut args = split_line(line)?;
+    let mut args = split_line(line).map_err(|e| unparsed(mode, e))?;
     let Some(first) = args.first() else {
         return Ok(false);
     };
     // An unambiguous abbreviation of a top-level command runs it; the
     // first token only, so subcommands and flags are never abbreviated.
-    args[0] = resolve_session_command_name(reg, first)?;
+    args[0] = resolve_session_command_name(reg, first).map_err(|e| unparsed(mode, e.into()))?;
     let first = &args[0];
     let rest = &args[1..];
     match reg.command_named(first) {
@@ -404,15 +406,23 @@ fn run_command(
     }
     let root = cli::build(reg, &io.build);
     if cli::reached_path(&root, args).is_empty() {
-        return Err(CliError::new(
-            ExitCode::Usage,
-            format!(
-                "unknown command {:?}; type `help` for what's available in a session",
-                args[0]
+        return Err(unparsed(
+            mode,
+            CliError::new(
+                ExitCode::Usage,
+                format!(
+                    "unknown command {:?}; type `help` for what's available in a session",
+                    args[0]
+                ),
             ),
         ));
     }
-    match cli::parse(reg, &io.build, args, true)? {
+    let parsed = cli::parse(reg, &io.build, args, true).map_err(|e| {
+        // The command's own help, which holds nothing from the line.
+        let help = cli::command_help(&root, reg, &cli::reached_path(&root, args));
+        unparsed_with_help(mode, e, help.trim_end())
+    })?;
+    match parsed {
         Outcome::Print(text) => {
             print(io, &text);
             Ok(())
@@ -435,6 +445,28 @@ fn run_command(
         Outcome::Command(Command::Run(run), matches) => {
             commands::run(run, &matches, io, &mut Keys::Session(session))
         }
+    }
+}
+
+/// What a script says about a line it couldn't parse.
+const UNPARSED: &str =
+    "this line doesn't parse as a gage command; it isn't repeated here because it may hold a value";
+
+/// A line that never became a command. Typed, the complaint is shown as it
+/// is; in a script it is replaced, because it quotes tokens from the line
+/// (ADR-0072).
+fn unparsed(mode: Mode, err: CliError) -> CliError {
+    match mode {
+        Mode::Interactive => err,
+        Mode::Script => CliError::new(err.code(), UNPARSED),
+    }
+}
+
+/// [`unparsed`], keeping the failing command's help.
+fn unparsed_with_help(mode: Mode, err: CliError, help: &str) -> CliError {
+    match mode {
+        Mode::Interactive => err,
+        Mode::Script => CliError::new(err.code(), format!("{UNPARSED}\n\n{help}")),
     }
 }
 

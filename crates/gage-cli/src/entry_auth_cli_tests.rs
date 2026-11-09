@@ -124,7 +124,7 @@ fn a_script_stops_at_the_line_whose_index_build_hit_a_forged_entry() {
     assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
     assert!(
         r.stderr
-            .contains(&format!(":1: ls: entry {id} failed authentication")),
+            .contains(&format!(":1: entry {id} failed authentication")),
         "{}",
         r.stderr
     );

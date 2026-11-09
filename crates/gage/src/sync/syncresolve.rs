@@ -24,7 +24,7 @@
 //! a list it no longer has. Those are re-sealed here, unasked, in the merge
 //! commit (ADR-0066).
 
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell};
 use std::collections::BTreeMap;
 use std::time::Instant;
 
@@ -310,6 +310,18 @@ impl Vault {
         let mut adds = BTreeMap::new();
         let mut restamped = BTreeMap::new();
         let mut skipped = 0;
+        // Before anything is sealed, as on every other encrypting path. Once:
+        // a yes to a mismatched list leaves it mismatched, and asking again
+        // would ask about the same list.
+        let reviewed = Cell::new(false);
+        let review = || -> Result<(), SyncCause> {
+            if !reviewed.get() {
+                self.confirm_recipient_trust(prompter)
+                    .map_err(SyncCause::Trust)?;
+                reviewed.set(true);
+            }
+            Ok(())
+        };
         // The version a human kept, re-sealed if a key change left it
         // behind. A deletion has nothing to seal.
         let keep = |side: MergeSide,
@@ -321,6 +333,7 @@ impl Vault {
                 MergeSide::Remote => &c.remote.entry,
             };
             if let (true, Some(e)) = (keys.stale == Some(side), kept) {
+                review()?;
                 restamped.insert(c.path.clone(), keys.seal(c.id, e)?);
             }
             Ok(())
@@ -357,6 +370,7 @@ impl Vault {
                         // its key. Written through verbatim: its
                         // created/updated/updated_by are the losing side's
                         // own, the provenance the prompt just showed.
+                        review().map_err(|cause| fail(cause, &report))?;
                         let new = new_id();
                         let ciphertext = keys
                             .seal(new, theirs)
@@ -380,6 +394,7 @@ impl Vault {
             return Err(fail(SyncCause::Unresolved { total }, &report));
         }
         for path in stale_entries(&merge) {
+            review().map_err(|cause| fail(cause, &report))?;
             let sealed = self
                 .restamp_stale(&merge, &path, identity, &keys)
                 .map_err(|cause| fail(cause, &report))?;

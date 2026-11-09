@@ -337,6 +337,7 @@ pub fn commit_all(dir: &Path, message: &str) -> Result<String, Error> {
 /// Points `origin` at `url`, adding the remote if there is none: `git
 /// remote add` or `git remote set-url`, whichever applies.
 pub fn set_remote(dir: &Path, url: &str) -> Result<(), Error> {
+    remoteauth::check_new_remote(url)?;
     let repo = open(dir)?;
     // set-url writes the config key whether or not the remote exists, so
     // one call covers "add" and "change", and repairs an origin left with

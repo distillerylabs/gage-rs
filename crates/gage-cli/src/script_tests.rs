@@ -233,11 +233,37 @@ fn script_aborts_on_the_first_failing_command() {
         r.stdout
     );
     assert!(
-        r.stderr.contains("commands.gage:2: show NoSuchEntry"),
+        r.stderr.contains("commands.gage:2: no entry matches"),
         "no source:line: text in {:?}",
         r.stderr
     );
     assert_eq!(r.stderr.matches("gage: ").count(), 1, "{}", r.stderr);
+}
+
+// A script's stderr lands in CI logs, so a failed line is located, never
+// repeated, whether the command ran or the line never parsed.
+#[test]
+fn a_failed_line_does_not_repeat_what_it_held() {
+    const VALUE: &str = "ZZSECRETVALUEZZ";
+    for line in [
+        format!("recipient approve --code {VALUE}"),
+        format!("insert Router --field {VALUE}"),
+        format!("insert Router --field ={VALUE}"),
+        format!("insert Router --field pin={VALUE} --no-such-flag"),
+        format!("insert Router --field pin=two {VALUE}"),
+        format!("insert Router --field \"pin={VALUE}"),
+        format!("{VALUE} --code x"),
+    ] {
+        let env = with_github();
+        let r = env.run_script(&["use personal", &line]);
+        assert_ne!(r.code, ExitCode::Success, "{line}");
+        assert!(
+            r.stderr.contains("commands.gage:2: "),
+            "{line}: {}",
+            r.stderr
+        );
+        assert!(!r.stderr.contains(VALUE), "{line}: {}", r.stderr);
+    }
 }
 
 // `--stdin` names its stream, and an ambiguous query's error carries the
@@ -249,7 +275,7 @@ fn a_failed_stdin_line_names_the_stream_and_keeps_an_ambiguous_list() {
     // Exact titles win, so ambiguity takes a substring both share.
     let r = env.run_stdin_script(&["use personal", "show Git"]);
     assert_eq!(r.code, ExitCode::Ambiguous, "{}", r.stderr);
-    assert!(r.stderr.contains("<stdin>:2: show Git"), "{}", r.stderr);
+    assert!(r.stderr.contains("<stdin>:2: "), "{}", r.stderr);
     assert!(r.stderr.contains("GitHub backup"), "{}", r.stderr);
 }
 
@@ -365,7 +391,7 @@ fn script_runs_the_session_verbs_and_stops_on_a_usage_error() {
     let r = env.run_script(&["status extra", "status"]);
     assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(
-        r.stderr.contains("commands.gage:1: status extra"),
+        r.stderr.contains("commands.gage:1: usage: status"),
         "{}",
         r.stderr
     );
@@ -526,11 +552,7 @@ fn script_assume_yes_answers_the_recipient_change_and_without_it_the_write_is_re
     tamper_recipients_file(&env.vault_dir(), &new_key());
     let r = run(&env, &[]);
     assert_eq!(r.code, ExitCode::Conflict, "{}", r.stderr);
-    assert!(
-        r.stderr.contains("commands.gage:2: insert Router"),
-        "{}",
-        r.stderr
-    );
+    assert!(r.stderr.contains("commands.gage:2: "), "{}", r.stderr);
 
     let env = env_with_vault();
     env.bootstrap_trust();
@@ -565,7 +587,7 @@ fn stdin_session_command_argument_counts_are_checked() {
         assert_eq!(r.code, ExitCode::Usage, "{line}: {}", r.stderr);
         assert!(r.stderr.contains(want), "{line}: {}", r.stderr);
         assert!(
-            r.stderr.contains(&format!("<stdin>:1: {line}")),
+            r.stderr.contains(&format!("<stdin>:1: {want}")),
             "{line}: {}",
             r.stderr
         );
@@ -683,11 +705,7 @@ fn wrong_gage_passphrase_fails_after_one_attempt() {
         "does not name the variable: {}",
         r.stderr
     );
-    assert!(
-        r.stderr.contains("commands.gage:1: use personal"),
-        "{}",
-        r.stderr
-    );
+    assert!(r.stderr.contains("commands.gage:1: "), "{}", r.stderr);
     // gage names itself once, not again inside a wrapped refusal.
     assert_eq!(r.stderr.matches("gage: ").count(), 1, "{}", r.stderr);
     assert!(

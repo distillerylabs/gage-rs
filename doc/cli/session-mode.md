@@ -269,12 +269,14 @@ Each vault is unlocked at most once. What differs is deliberate:
 - **It stops at the first failing line.** A script has nobody to notice a
   line that failed halfway down, and carrying on would run the rest
   against a state its author never anticipated. The message names the
-  source, the line number and the line, and the exit code is the failing
-  command's own:
+  source and the line number, and the exit code is the failing command's
+  own. It doesn't repeat the line, which can hold a `--code` or `--field`
+  value and would land in a CI log, so a line that doesn't parse gets a
+  fixed message and the command's usage instead of the parser's complaint:
 
   ```
   $ gage --script deploy.gage
-  gage: deploy.gage:3: show NoSuchEntry: no entry matches "NoSuchEntry"
+  gage: deploy.gage:3: no entry matches "NoSuchEntry"
   $ echo $?
   3
   ```
@@ -313,7 +315,7 @@ In this fixed order:
 3. Otherwise a refusal, exit `5` (`locked-or-auth`), naming the variable:
 
    ```
-   gage: <stdin>:1: use personal: no way to unlock vault "personal" without a terminal: set GAGE_PASSPHRASE
+   gage: <stdin>:1: no way to unlock vault "personal" without a terminal: set GAGE_PASSPHRASE
    ```
 
    Never a read that can't be answered, and never a command line taken
@@ -332,7 +334,7 @@ unlock. That request goes to a human when there is one (`--script FILE` on
 a terminal) and is refused when there isn't:
 
 ```
-gage: <stdin>:2: identity add --device laptop-2: creating an identity for vault "personal" needs a passphrase typed by a human, and this run has no terminal to ask on; run it from a shell instead (GAGE_PASSPHRASE is deliberately not used for a new identity)
+gage: <stdin>:2: creating an identity for vault "personal" needs a passphrase typed by a human, and this run has no terminal to ask on; run it from a shell instead (GAGE_PASSPHRASE is deliberately not used for a new identity)
 ```
 
 The refusal consumes nothing: the lines after it are still commands.

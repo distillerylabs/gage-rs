@@ -7,6 +7,7 @@
 //! Nothing here touches a terminal: every passphrase arrives through a
 //! [`Prompter`], and how many tries a human gets is the frontend's call.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use zeroize::Zeroizing;
@@ -85,6 +86,13 @@ pub enum UnlockError {
     /// something with no usable key line.
     #[error("identity file is corrupt: {0}")]
     CorruptIdentityFile(String),
+    /// The identity file is readable by more than its owner. It is
+    /// refused rather than used, as a loose token file is (ADR-0073).
+    #[error(
+        "identity file permissions are too permissive: {} is {mode:04o}, want 0600",
+        path.display()
+    )]
+    InsecureIdentityFile { path: PathBuf, mode: u32 },
     #[error("{action} {}: {source}", path.display())]
     Io {
         action: &'static str,
@@ -108,7 +116,8 @@ impl HasKind for UnlockError {
             | UnsupportedMethod { .. }
             | WrongPassphrase(_)
             | Prompter(_)
-            | EmptyPassphrase => ErrorKind::LockedOrAuth,
+            | EmptyPassphrase
+            | InsecureIdentityFile { .. } => ErrorKind::LockedOrAuth,
             UnsafePath(e) => e.kind(),
             CorruptIdentityFile(_) => ErrorKind::Conflict,
             Io { .. } | Write(_) | Config(_) | Wrap(_) => ErrorKind::Internal,
@@ -148,7 +157,7 @@ pub fn create(
     p: &dyn Prompter,
 ) -> Result<String, UnlockError> {
     let path = paths::identity_file_path(dirs, vault_id, device)?;
-    if let Some(wrapped) = load(&path)? {
+    if let Some(wrapped) = load_private(&path)? {
         let key = open(vault_name, device, &wrapped, p)?;
         p.warn(&Warning::from(format!(
             "reusing the existing local identity file for {vault_name:?} (device {device}) rather than generating a new one"
@@ -321,6 +330,31 @@ pub(crate) fn load(path: &Path) -> Result<Option<Vec<u8>>, UnlockError> {
             source,
         }),
     }
+}
+
+/// The wrapped file at `path` for opening, or `None` if there is none. A
+/// file others can read is refused (ADR-0073). The mode is read from the
+/// open file, so it is the mode of the bytes returned.
+pub(crate) fn load_private(path: &Path) -> Result<Option<Vec<u8>>, UnlockError> {
+    let io = |source| UnlockError::Io {
+        action: "reading",
+        path: path.to_path_buf(),
+        source,
+    };
+    let mut file = match std::fs::File::open(path) {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(io(e)),
+    };
+    if let Some(mode) = atomicfile::loose_mode(&file.metadata().map_err(io)?) {
+        return Err(UnlockError::InsecureIdentityFile {
+            path: path.to_path_buf(),
+            mode,
+        });
+    }
+    let mut data = Vec::new();
+    file.read_to_end(&mut data).map_err(io)?;
+    Ok(Some(data))
 }
 
 /// Runs the passphrase exchange until `wrapped` opens, the prompter stops

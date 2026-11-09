@@ -822,6 +822,18 @@ fn strings(v: &[&str]) -> Vec<String> {
 // a missing `=`, an empty name and a whitespace-only name (the first
 // loop), a duplicate name and names equal after stripping (the second),
 // through the CLI: nothing scripted, so an unlock would panic. Each case
+// A flag that went wrong may be a value in the wrong place: the message
+// says what's wrong with it and doesn't quote it.
+#[test]
+fn a_bad_field_flag_is_not_quoted_back() {
+    let env = env_with_vault();
+    for flag in ["ZZVALUEZZ", "=ZZVALUEZZ"] {
+        let r = env.run_with(&["insert", "x", "--field", flag], &FakePrompter::new());
+        assert_eq!(r.code, ExitCode::Usage, "{flag}: {}", r.stderr);
+        assert!(!r.stderr.contains("ZZVALUEZZ"), "{flag}: {}", r.stderr);
+    }
+}
+
 // also checks the message says which mistake it was,
 // and a duplicate is named after stripping.
 #[test]

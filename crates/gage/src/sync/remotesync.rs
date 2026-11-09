@@ -31,6 +31,7 @@ use crate::storage::xdgpaths::Dirs;
 use crate::sync::gitrepo::{self, MergeResult, RemoteOptions, RemoteState};
 use crate::sync::syncerr::Kind;
 use crate::sync::syncresolve::stale_entries;
+use crate::trust::trustcache::TrustError;
 use crate::vault::Vault;
 
 pub use crate::sync::gitrepo::REMOTE_OP_TIMEOUT;
@@ -270,6 +271,9 @@ pub enum SyncCause {
     /// Decrypting a side of a conflict, or encrypting keep-both's copy,
     /// failed. Nothing was applied.
     Entry(entry::Error),
+    /// The recipient review before re-encrypting refused or couldn't run.
+    /// Nothing was applied.
+    Trust(TrustError),
     /// Conflicts were skipped (the report's `skipped` of `total`), so
     /// nothing was applied or pushed.
     Unresolved { total: usize },
@@ -326,6 +330,7 @@ impl std::fmt::Display for SyncError {
             SyncCause::Prompt(e) => e.fmt(f),
             SyncCause::Unlock(e) => write!(f, "unlocking to resolve a conflict: {e}"),
             SyncCause::Entry(e) => e.fmt(f),
+            SyncCause::Trust(e) => e.fmt(f),
             SyncCause::NotAnEntry(path) => write!(
                 f,
                 "{path:?} changed on both sides and is not an entry, so there is no version of it to choose; \
@@ -353,6 +358,7 @@ impl std::error::Error for SyncError {
             SyncCause::Prompt(e) => e.source(),
             SyncCause::Unlock(e) => Some(e),
             SyncCause::Entry(e) => e.source(),
+            SyncCause::Trust(e) => e.source(),
             SyncCause::Conflict
             | SyncCause::NotAnEntry(_)
             | SyncCause::Unresolved { .. }
@@ -375,6 +381,7 @@ impl HasKind for SyncError {
             SyncCause::Prompt(e) => e.kind(),
             SyncCause::Unlock(e) => e.kind(),
             SyncCause::Entry(e) => e.kind(),
+            SyncCause::Trust(e) => e.kind(),
             SyncCause::NotAnEntry(_) | SyncCause::Unresolved { .. } | SyncCause::Aborted => {
                 ErrorKind::Conflict
             }
@@ -390,6 +397,7 @@ impl HasKind for SyncError {
             SyncCause::Prompt(e) => e.remedy(),
             SyncCause::Unlock(e) => e.remedy(),
             SyncCause::Entry(e) => e.remedy(),
+            SyncCause::Trust(e) => e.remedy(),
             SyncCause::NotAnEntry(_) | SyncCause::Aborted => None,
         }
     }

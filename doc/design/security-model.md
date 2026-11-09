@@ -127,6 +127,11 @@ Known, bounded, and not fixed on purpose.
 - **A SIGKILL or power loss leaves the `edit` scratch file behind**, and so
   can Ctrl-C or closing the console on Windows: nothing runs to remove it
   ([ADR-0070](../decisions/0070-edit-scratch-signals.md)).
+- **Decrypted values are not page-locked or reliably wiped.** Identity
+  secrets and the session index are; an entry's `value` and `fields`, once
+  decrypted to be shown or edited, live in ordinary heap. Copies can outlast
+  the command, stay after `lock`, and reach swap, though core dumps stay
+  suppressed.
 - **The enrollment code reaches command history on the approving device**
   when given with `--code`. The exposure is device-local, the code dies in
   24 hours and the request is deleted on approval; omitting `--code` and

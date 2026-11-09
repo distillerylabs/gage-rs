@@ -66,7 +66,7 @@ pub enum Remedy {
     AuthLogin { host: String },
     /// Store `host`'s token again, or fix the token file's permissions.
     AuthLoginAgain { host: String },
-    /// Use the remote's HTTPS URL with a stored token instead of SSH.
+    /// Use the remote's HTTPS URL with a stored token instead.
     UseHttps,
     /// Forget the registration `name` and clone the vault again.
     ReRegister { name: String },

@@ -52,6 +52,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0013](0013-orphan-identity-by-pubkey.md) `vault remove` compares public keys and asks
 - [0052](0052-vault-id-type.md) Vault ids are a validated type
 - [0053](0053-vault-type-closed-method-open.md) Vault type is closed, unlock method is open
+- [0073](0073-identity-file-mode.md) An identity file others can read is refused
 - [0065](0065-entry-authentication.md) Entries are authenticated by a per-vault MAC key; format v3; v2 is refused
 - [0066](0066-mac-key-rotation.md) The MAC key rotates when a key is dropped; retired keys stay for history; a merge straddling a key change is re-stamped
 - [0067](0067-key-continuity.md) A device refuses a key file that doesn't continue the key it last saw
@@ -66,6 +67,8 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0018](0018-remote-timeout.md) Network operations are bounded to 30 s
 - [0019](0019-file-merge.md) gage's own file-level merge
 - [0020](0020-remote-auth.md) Tokens reach libgit2 through the credentials callback
+- [0074](0074-credentials-in-remote-urls.md) A remote URL may not carry credentials
+- [0075](0075-token-over-https-only.md) A token travels only over HTTPS or to this machine
 - [0021](0021-sync-conflict-resolution.md) Conflict resolution
 - [0064](0064-no-symlinks-in-a-vault.md) A vault contains only regular files; gage never follows or materializes a symlink
 
@@ -87,6 +90,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0032](0032-command-availability.md) Which commands work in a session
 - [0033](0033-recipient-prompt.md) Recipient-change confirmation and `--yes`
 - [0034](0034-script-passphrase.md) `GAGE_PASSPHRASE` in script mode
+- [0072](0072-script-errors-name-the-line.md) A script error locates its line and doesn't repeat it
 - [0035](0035-clipboard.md) Clipboard and its clear
 - [0036](0036-editor.md) `edit`: finding `$EDITOR` and the scratch file
 - [0070](0070-edit-scratch-signals.md) The edit scratch file and signals
