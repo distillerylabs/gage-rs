@@ -115,9 +115,9 @@ impl HasKind for UnlockError {
             | NoIdentityFile(_)
             | UnsupportedMethod { .. }
             | WrongPassphrase(_)
-            | Prompter(_)
             | EmptyPassphrase
             | InsecureIdentityFile { .. } => ErrorKind::LockedOrAuth,
+            Prompter(e) => e.kind(),
             UnsafePath(e) => e.kind(),
             CorruptIdentityFile(_) => ErrorKind::Conflict,
             Io { .. } | Write(_) | Config(_) | Wrap(_) => ErrorKind::Internal,
@@ -128,6 +128,7 @@ impl HasKind for UnlockError {
         use UnlockError::*;
         match self {
             NoIdentityFile(_) => Some(Remedy::EnrollOrRecover),
+            Prompter(e) => e.remedy(),
             UnsafePath(e) => e.remedy(),
             _ => None,
         }

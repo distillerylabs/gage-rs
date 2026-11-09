@@ -5,7 +5,7 @@
 use clap::ArgMatches;
 use gage::{storage::config, sync::gitrepo};
 
-use super::{arg, load_global};
+use super::{arg, dirs};
 use crate::Io;
 use crate::error::CliError;
 
@@ -13,12 +13,12 @@ use crate::error::CliError;
 /// `[vaults.<name>.git].origin` in one call, so the two never drift.
 pub fn set_remote(matches: &ArgMatches, io: &mut Io) -> Result<(), CliError> {
     let (name, url) = (arg(matches, "name"), arg(matches, "url"));
-    let (path, mut global) = load_global(io)?;
-    let mut entry = global.entry(name)?.clone();
+    config::update(&dirs(io)?, |global| {
+        let mut entry = global.entry(name)?.clone();
 
-    gitrepo::set_remote(&entry.path, url)?;
-    entry.git.origin = Some(url.to_string());
-    global.vaults.insert(name.to_string(), entry);
-    config::save_creating_dir(&path, &global)?;
-    Ok(())
+        gitrepo::set_remote(&entry.path, url)?;
+        entry.git.origin = Some(url.to_string());
+        global.vaults.insert(name.to_string(), entry);
+        Ok(())
+    })
 }

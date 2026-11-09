@@ -1,8 +1,8 @@
 //! `gage init`: resolves the defaults (device name, target path), refuses
 //! what is knowable from the flags, generates a recovery key, and hands
 //! the rest to `Vault::init`, which creates this device's identity (the
-//! passphrase prompt), creates the vault and registers it, removing the
-//! identity again if the vault can't be created (ADR-0061). Only once the
+//! passphrase prompt), creates the vault and registers it, removing what
+//! it made if either step fails (ADR-0061, ADR-0078). Only once the
 //! vault is registered is the recovery key delivered; it was never shown
 //! or stored before then, so it needs no rollback.
 //!
@@ -172,7 +172,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         remote: flag("remote"),
     };
     // Validates, asks for the new passphrase, creates and registers, and
-    // removes the identity again if the vault can't be created.
+    // removes what it made again if either step fails.
     let Initialized {
         vault: created,
         pubkey,

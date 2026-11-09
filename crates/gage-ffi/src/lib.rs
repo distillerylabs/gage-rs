@@ -174,6 +174,12 @@ pub enum GageError {
     },
 }
 
+impl From<config::Error> for GageError {
+    fn from(e: config::Error) -> GageError {
+        GageError::from_core(e)
+    }
+}
+
 impl GageError {
     fn new(kind: ErrorKind, message: String, remedy: Option<Remedy>) -> GageError {
         match kind {
@@ -793,17 +799,17 @@ impl Vault {
         method: &UnlockMethod,
         pubkey: &str,
     ) -> Result<(), GageError> {
-        let path = paths::global_config_file(&self.dirs);
-        let mut global = config::load_or_default(&path).map_err(GageError::from_core)?;
-        let name = &self.inner.name;
-        let entry = global
-            .vaults
-            .get_mut(name)
-            .ok_or_else(|| GageError::from_core(RegistryError::NotRegistered(name.clone())))?;
-        entry.device = device.to_string();
-        entry.method = method.clone();
-        entry.pubkey = Some(pubkey.to_string());
-        config::save_creating_dir(&path, &global).map_err(GageError::from_core)
+        config::update(&self.dirs, |global| {
+            let name = &self.inner.name;
+            let entry = global
+                .vaults
+                .get_mut(name)
+                .ok_or_else(|| GageError::from_core(RegistryError::NotRegistered(name.clone())))?;
+            entry.device = device.to_string();
+            entry.method = method.clone();
+            entry.pubkey = Some(pubkey.to_string());
+            Ok(())
+        })
     }
 }
 

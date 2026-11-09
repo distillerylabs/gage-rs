@@ -294,6 +294,28 @@ fn a_failing_callback_keeps_its_message_and_the_library_kind() {
 }
 
 #[test]
+fn a_failing_callback_is_not_an_auth_failure() {
+    let f = Fixture::new(&[]);
+    let prompter = ScriptedPrompter::answering(vec![Answer::Fail(PromptError::Failed {
+        message: "dialog could not be shown".into(),
+    })]);
+
+    let err = f.open().unlock(prompter).unwrap_err();
+
+    assert!(matches!(err, GageError::Internal { .. }), "got {err:?}");
+}
+
+#[test]
+fn a_cancelled_callback_is_locked_or_auth() {
+    let f = Fixture::new(&[]);
+    let prompter = ScriptedPrompter::answering(vec![Answer::Fail(PromptError::Cancelled)]);
+
+    let err = f.open().unlock(prompter).unwrap_err();
+
+    assert!(matches!(err, GageError::LockedOrAuth { .. }), "got {err:?}");
+}
+
+#[test]
 fn an_unregistered_vault_is_not_found() {
     let f = Fixture::new(&[]);
 
@@ -1472,4 +1494,82 @@ fn a_wiped_entry_holds_no_secret_anywhere_it_could() {
     };
     assert_eq!(items[0], Extra::Plain(String::new()));
     assert_eq!(items[1], Extra::Text(String::new()));
+}
+
+const HOLDER_ENV: &str = "GAGE_FFI_TEST_LOCK_HOLDER";
+
+/// The child side of the test below: takes the lock, announces it on stderr,
+/// and holds it until stdin closes.
+#[test]
+fn lock_holder_trampoline() {
+    use std::io::Read;
+
+    let Some(path) = std::env::var_os(HOLDER_ENV) else {
+        return;
+    };
+    let lock =
+        gage::storage::vaultlock::Lock::acquire(Path::new(&path), Duration::from_secs(5)).unwrap();
+    eprintln!("ACQUIRED");
+    let _ = std::io::stdin().read(&mut [0u8]);
+    lock.release().unwrap();
+}
+
+// Recording the device is a rewrite of the global config like any other: it
+// waits for another process's, and keeps what that one wrote. The holder is
+// a real process, since a thread-held lock would prove nothing about the
+// file lock.
+#[test]
+fn enroll_records_the_device_under_the_global_config_lock() {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::sync::mpsc;
+
+    let owner = Owner::publishing(&[]);
+    let phone = Phone::new();
+    let vault = phone.clone_from(owner.remote.path()).vault;
+    let lock_path = paths::global_config_lock_file(&phone.dirs);
+    std::fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+    let mut holder = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "tests::lock_holder_trampoline",
+            "--exact",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(HOLDER_ENV, &lock_path)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let stderr = BufReader::new(holder.stderr.take().unwrap());
+    assert!(
+        stderr.lines().any(|l| l.unwrap() == "ACQUIRED"),
+        "the holder never took the lock"
+    );
+
+    let config_path = paths::global_config_file(&phone.dirs);
+    let enrolled = &vault;
+    std::thread::scope(|scope| {
+        let (tx, rx) = mpsc::channel();
+        scope.spawn(move || {
+            let result = enrolled.enroll(DEVICE.into(), None, answering_passphrase());
+            let _ = tx.send(result.is_ok());
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_millis(500)).is_err(),
+            "enroll did not wait for the lock"
+        );
+        let mut global = config::load(&config_path).unwrap();
+        let copy = global.vaults[VAULT].clone();
+        global.vaults.insert("arrived".into(), copy);
+        config::save_creating_dir(&config_path, &global).unwrap();
+        drop(holder.stdin.take());
+        assert_eq!(rx.recv_timeout(Duration::from_secs(10)), Ok(true));
+    });
+    let _ = holder.wait();
+
+    let global = config::load(&config_path).unwrap();
+    assert!(global.vaults.contains_key("arrived"), "{global:?}");
+    assert_eq!(global.entry(VAULT).unwrap().device, DEVICE);
 }

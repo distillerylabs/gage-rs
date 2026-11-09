@@ -77,6 +77,9 @@ secret and lives apart from the data below.
 - **`$GAGE_STATE/locks/<vault-id>.lock`**: the per-vault write lock, held
   while a write or a sync command runs and released by the OS if the
   process dies.
+- **`$GAGE_STATE/global-config.lock`**: held for the moment a command
+  rewrites `$GAGE_CONFIG/config.toml`, so two processes can't overwrite each
+  other's change. Released by the OS if the process dies.
 - **`$GAGE_STATE/tokens/<host>`**: the HTTPS token `gage auth login`
   stored for a git host, mode `0600` in a `0700` directory. One per host,
   shared by every vault on it. Local device state, never synced: a token

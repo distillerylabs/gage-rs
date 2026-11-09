@@ -17,6 +17,8 @@ use crate::storage::vaultconfig::{self, UnlockMethod, VaultId, VaultType};
 use crate::storage::xdgpaths::Dirs;
 use crate::testsupport::fast_scrypt;
 use crate::trust::recipient;
+#[cfg(unix)]
+use crate::vault::InitRollbackError;
 use crate::vault::lifecycle::hooks;
 use crate::vault::{CloneError, CloneSpec, CreateError, InitError, InitSpec, NameError, Vault};
 
@@ -97,6 +99,19 @@ impl Machine {
             }
         }
         found
+    }
+
+    /// Every per-vault directory this machine holds under its state root.
+    /// The global config's lock file sits there too, and isn't one.
+    #[cfg(unix)]
+    fn trust_caches(&self) -> Vec<PathBuf> {
+        let Ok(entries) = std::fs::read_dir(&self.dirs.state) else {
+            return Vec::new();
+        };
+        entries
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.is_dir() && path.file_name().is_some_and(|name| name != "locks"))
+            .collect()
     }
 }
 
@@ -393,11 +408,11 @@ fn a_failed_rollback_is_reported_beside_the_failure() {
 
 #[cfg(unix)]
 #[test]
-fn a_failed_registry_save_leaves_the_vault_and_identity_in_place() {
+fn a_failed_registry_save_removes_the_vault_and_identity() {
     let m = Machine::new();
     let spec = m.spec(NAME);
     std::fs::create_dir_all(&m.dirs.config).unwrap();
-    let Some(_ro) = read_only(&m.dirs.config) else {
+    let Some(ro) = read_only(&m.dirs.config) else {
         return;
     };
 
@@ -408,13 +423,181 @@ fn a_failed_registry_save_leaves_the_vault_and_identity_in_place() {
         "{err:?}"
     );
     assert_eq!(err.kind(), ErrorKind::Internal);
-    // As today (decision 6): not rolled back.
-    let file = vaultconfig::load(&spec.path.join(".gage/config.toml")).unwrap();
+    assert!(
+        !spec.path.exists(),
+        "the unregistered vault was left behind"
+    );
+    assert!(m.identity_files().is_empty());
+    assert!(!paths::global_config_file(&m.dirs).exists());
+    assert!(m.trust_caches().is_empty(), "{:?}", m.trust_caches());
+
+    // Nothing is left in a retry's way.
+    drop(ro);
+    let made = Vault::init(&m.dirs, &spec, &passphrase()).unwrap();
     assert_eq!(
         m.identity_files(),
-        vec![paths::identity_file_path(&m.dirs, &file.vault.id, DEVICE).unwrap()]
+        vec![paths::identity_file_path(&m.dirs, &made.vault.id, DEVICE).unwrap()]
     );
-    assert!(!paths::global_config_file(&m.dirs).exists());
+    assert!(m.global().vaults.contains_key(NAME));
+}
+
+#[cfg(unix)]
+#[test]
+fn a_failed_registry_save_leaves_an_empty_target_directory_empty() {
+    let m = Machine::new();
+    let spec = m.spec(NAME);
+    std::fs::create_dir(&spec.path).unwrap();
+    std::fs::create_dir_all(&m.dirs.config).unwrap();
+    let Some(_ro) = read_only(&m.dirs.config) else {
+        return;
+    };
+
+    Vault::init(&m.dirs, &spec, &passphrase()).unwrap_err();
+
+    assert!(spec.path.is_dir(), "the caller's own directory was removed");
+    assert_eq!(std::fs::read_dir(&spec.path).unwrap().count(), 0);
+}
+
+// The id is minted by the call, so it is what tells this call's vault from
+// anything else that has come to be at the path.
+#[test]
+fn a_target_that_no_longer_carries_the_minted_id_is_left_alone() {
+    let m = Rc::new(Machine::new());
+    let spec = m.spec(NAME);
+    let racer = Rc::clone(&m);
+    let config_file = spec.path.join(".gage/config.toml");
+    let replaced = config_file.clone();
+    let _hook = hooks::before_registering(move || {
+        let id = vaultconfig::load(&replaced).unwrap().vault.id;
+        let raw = std::fs::read_to_string(&replaced).unwrap();
+        std::fs::write(&replaced, raw.replace(id.as_str(), VaultId::new().as_str())).unwrap();
+        racer.preregister(NAME);
+    });
+
+    let err = Vault::init(&m.dirs, &spec, &passphrase()).unwrap_err();
+
+    assert!(matches!(err, InitError::Registry(_)), "{err:?}");
+    assert!(config_file.exists(), "another vault's files were deleted");
+    assert!(m.identity_files().is_empty());
+}
+
+#[cfg(unix)]
+#[test]
+fn a_vault_that_cant_be_removed_is_reported_and_keeps_its_identity() {
+    let m = Rc::new(Machine::new());
+    let spec = m.spec(NAME);
+    let guard: Rc<Cell<Option<Restore>>> = Rc::default();
+    let skipped = Rc::new(Cell::new(false));
+    let _hook = {
+        let (racer, gage_dir, guard, skipped) = (
+            Rc::clone(&m),
+            spec.path.join(".gage"),
+            guard.clone(),
+            skipped.clone(),
+        );
+        hooks::before_registering(move || {
+            racer.preregister(NAME);
+            match read_only(&gage_dir) {
+                Some(g) => guard.set(Some(g)),
+                None => skipped.set(true),
+            }
+        })
+    };
+
+    let err = Vault::init(&m.dirs, &spec, &passphrase()).unwrap_err();
+    if skipped.get() {
+        return;
+    }
+
+    let InitError::RegistrationRollbackFailed { cause, rollback } = &err else {
+        panic!("{err:?}");
+    };
+    assert!(matches!(**cause, InitError::Registry(_)), "{cause:?}");
+    assert!(
+        matches!(&**rollback, InitRollbackError::Vault { path, .. } if *path == spec.path),
+        "{rollback:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::Internal);
+    assert_eq!(
+        err.to_string(),
+        format!("{cause} (and undoing the new vault failed: {rollback})")
+    );
+    // The identity goes only once the vault it opens has gone.
+    drop(guard.take());
+    assert_eq!(m.identity_files().len(), 1);
+    assert!(spec.path.join(".gage").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn an_identity_that_cant_be_removed_after_a_failed_registration_is_reported() {
+    let m = Rc::new(Machine::new());
+    let spec = m.spec(NAME);
+    let guard: Rc<Cell<Option<Restore>>> = Rc::default();
+    let skipped = Rc::new(Cell::new(false));
+    let _identity_hook = {
+        let (dirs, guard, skipped) = (m.dirs.clone(), guard.clone(), skipped.clone());
+        hooks::after_identity_created(move |id| {
+            match read_only(&paths::identities_dir(&dirs, id)) {
+                Some(g) => guard.set(Some(g)),
+                None => skipped.set(true),
+            }
+        })
+    };
+    let racer = Rc::clone(&m);
+    let _name_hook = hooks::before_registering(move || racer.preregister(NAME));
+
+    let err = Vault::init(&m.dirs, &spec, &passphrase()).unwrap_err();
+    if skipped.get() {
+        return;
+    }
+
+    let InitError::RegistrationRollbackFailed { rollback, .. } = &err else {
+        panic!("{err:?}");
+    };
+    assert!(
+        matches!(**rollback, InitRollbackError::Identity(_)),
+        "{rollback:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::Internal);
+    assert!(!spec.path.exists());
+    drop(guard.take());
+    assert_eq!(m.identity_files().len(), 1);
+}
+
+// The passphrase prompts sit between the first read of the registry and
+// the registration: a vault registered in that time must not be lost.
+#[test]
+fn a_registration_made_while_init_ran_survives_it() {
+    let m = Rc::new(Machine::new());
+    let racer = Rc::clone(&m);
+    let _hook = hooks::before_registering(move || racer.preregister("other"));
+
+    Vault::init(&m.dirs, &m.spec(NAME), &passphrase()).unwrap();
+
+    let global = m.global();
+    assert!(global.vaults.contains_key("other"), "{global:?}");
+    assert!(global.vaults.contains_key(NAME), "{global:?}");
+}
+
+#[test]
+fn a_name_taken_while_init_ran_is_refused_and_the_winner_kept() {
+    let m = Rc::new(Machine::new());
+    let spec = m.spec(NAME);
+    let racer = Rc::clone(&m);
+    let _hook = hooks::before_registering(move || racer.preregister(NAME));
+
+    let err = Vault::init(&m.dirs, &spec, &passphrase()).unwrap_err();
+
+    assert!(
+        matches!(&err, InitError::Registry(RegistryError::AlreadyRegistered(n)) if n == NAME),
+        "{err:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::Conflict);
+    assert_eq!(m.global().vaults[NAME].path, m.path("elsewhere"));
+    // Undone, like any other failure to register.
+    assert!(!spec.path.exists());
+    assert!(m.identity_files().is_empty());
 }
 
 // --- Vault::clone_remote ------------------------------------------------------
@@ -602,12 +785,12 @@ fn clone_refuses_a_bad_name_or_device_before_cloning() {
 
 #[cfg(unix)]
 #[test]
-fn a_failed_registry_save_leaves_the_clone_in_place_unregistered() {
+fn a_failed_registry_save_removes_the_clone() {
     let (_first, remote, id) = published();
     let m = Machine::new();
     let spec = clone_spec(&m, &remote);
     std::fs::create_dir_all(&m.dirs.config).unwrap();
-    let Some(_ro) = read_only(&m.dirs.config) else {
+    let Some(ro) = read_only(&m.dirs.config) else {
         return;
     };
 
@@ -618,10 +801,93 @@ fn a_failed_registry_save_leaves_the_clone_in_place_unregistered() {
         "{err:?}"
     );
     assert_eq!(err.kind(), ErrorKind::Internal);
-    // As today (decision 6): not rolled back.
-    let file = vaultconfig::load(&spec.path.join(".gage/config.toml")).unwrap();
-    assert_eq!(file.vault.id, id);
+    assert!(
+        !spec.path.exists(),
+        "the unregistered clone was left behind"
+    );
     assert!(!paths::global_config_file(&m.dirs).exists());
+
+    // Nothing is left in a retry's way.
+    drop(ro);
+    let cloned = Vault::clone_remote(&m.dirs, &spec).unwrap();
+    assert_eq!(cloned.vault.id, id);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_clone_that_cant_be_removed_after_a_failed_registration_is_reported() {
+    let (_first, remote, _id) = published();
+    let m = Rc::new(Machine::new());
+    let spec = clone_spec(&m, &remote);
+    let guard: Rc<Cell<Option<Restore>>> = Rc::default();
+    let skipped = Rc::new(Cell::new(false));
+    let _hook = {
+        let (racer, taken, gage_dir, guard, skipped) = (
+            Rc::clone(&m),
+            spec.name.clone(),
+            spec.path.join(".gage"),
+            guard.clone(),
+            skipped.clone(),
+        );
+        hooks::before_registering(move || {
+            racer.preregister(&taken);
+            match read_only(&gage_dir) {
+                Some(g) => guard.set(Some(g)),
+                None => skipped.set(true),
+            }
+        })
+    };
+
+    let err = Vault::clone_remote(&m.dirs, &spec).unwrap_err();
+    if skipped.get() {
+        return;
+    }
+
+    let CloneError::RollbackFailed { cause, path, .. } = &err else {
+        panic!("{err:?}");
+    };
+    assert!(matches!(**cause, CloneError::Registry(_)), "{cause:?}");
+    assert_eq!(*path, spec.path);
+    assert_eq!(err.kind(), ErrorKind::Internal);
+    drop(guard.take());
+}
+
+// The network clone sits between the first read of the registry and the
+// registration: a vault registered in that time must not be lost.
+#[test]
+fn a_registration_made_while_clone_ran_survives_it() {
+    let (_first, remote, _id) = published();
+    let m = Rc::new(Machine::new());
+    let spec = clone_spec(&m, &remote);
+    let racer = Rc::clone(&m);
+    let _hook = hooks::before_registering(move || racer.preregister("other"));
+
+    Vault::clone_remote(&m.dirs, &spec).unwrap();
+
+    let global = m.global();
+    assert!(global.vaults.contains_key("other"), "{global:?}");
+    assert!(global.vaults.contains_key(&spec.name), "{global:?}");
+}
+
+#[test]
+fn a_name_taken_while_clone_ran_is_refused_and_the_winner_kept() {
+    let (_first, remote, _id) = published();
+    let m = Rc::new(Machine::new());
+    let spec = clone_spec(&m, &remote);
+    let racer = Rc::clone(&m);
+    let taken = spec.name.clone();
+    let _hook = hooks::before_registering(move || racer.preregister(&taken));
+
+    let err = Vault::clone_remote(&m.dirs, &spec).unwrap_err();
+
+    assert!(
+        matches!(&err, CloneError::Registry(RegistryError::AlreadyRegistered(n)) if *n == spec.name),
+        "{err:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::Conflict);
+    assert_eq!(m.global().vaults[&spec.name].path, m.path("elsewhere"));
+    // Undone, like any other failure to register.
+    assert!(!spec.path.exists());
 }
 
 #[test]

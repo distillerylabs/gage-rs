@@ -829,6 +829,50 @@ fn unlock_retries_through_the_prompter_and_stops_when_it_stops() {
     assert_eq!(p.unlock_requests().len(), 3, "2 answers + 1 refusal");
 }
 
+// A prompt that broke is not a person failing to authenticate (ADR-0076).
+#[test]
+fn an_unlock_the_prompter_ended_has_the_prompters_kind() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    for (reason, want) in [
+        (PromptError::Cancelled, ErrorKind::LockedOrAuth),
+        (PromptError::TooManyAttempts, ErrorKind::LockedOrAuth),
+        (
+            PromptError::NoMatchingPassphrase(3),
+            ErrorKind::LockedOrAuth,
+        ),
+        (PromptError::Refused("no".into()), ErrorKind::LockedOrAuth),
+        (
+            PromptError::UnsupportedKind("yubikey".into()),
+            ErrorKind::Internal,
+        ),
+        (
+            PromptError::Io(io::Error::other("tty gone")),
+            ErrorKind::Internal,
+        ),
+    ] {
+        let err = v
+            .unlock(&FakePrompter::new().with_unlock_error(reason))
+            .unwrap_err();
+        assert!(matches!(err, UnlockError::Prompter(_)), "{err:?}");
+        assert_eq!(err.kind(), want, "{err:?}");
+    }
+}
+
+// A wrong answer was given, so this is an authentication failure whatever
+// ended the asking afterwards (ADR-0076).
+#[test]
+fn a_prompt_that_breaks_after_a_wrong_passphrase_stays_an_auth_failure() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    let p = prompter(&["wrong"]).with_unlock_error(PromptError::Io(io::Error::other("tty gone")));
+
+    let err = v.unlock(&p).unwrap_err();
+
+    assert!(matches!(err, UnlockError::WrongPassphrase(_)), "{err:?}");
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
+}
+
 #[test]
 fn unlock_does_not_retry_on_non_passphrase_failures() {
     let m = Machine::new();

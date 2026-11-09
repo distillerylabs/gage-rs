@@ -34,6 +34,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0068](0068-attest-on-tags-only.md) Only the tag-only `announce` job can attest release archives
 - [0060](0060-mobile-bindings.md) Mobile bindings live in this repo; the apps don't
 - [0061](0061-library-creates-and-registers.md) Creating or joining a vault is one library operation, registration included
+- [0078](0078-failed-registration-rollback.md) A failed registration undoes the vault or clone
 - [0063](0063-what-crosses-the-bindings.md) Secrets cross the bindings on request; remedies cross as data
 
 ### Format and storage
@@ -95,6 +96,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0036](0036-editor.md) `edit`: finding `$EDITOR` and the scratch file
 - [0070](0070-edit-scratch-signals.md) The edit scratch file and signals
 - [0037](0037-exit-code-taxonomy.md) Exit codes 0–7
+- [0076](0076-unlock-prompt-failure-kind.md) An unlock's prompt failure keeps the prompt's kind
 - [0049](0049-qr-crate.md) The QR crate: encode-only, no decoder
 - [0050](0050-line-editor.md) The line editor and the history file
 - [0071](0071-values-on-a-typed-line.md) Values on a typed line stay out of history
@@ -118,3 +120,4 @@ by this log; a format change needs an ADR as well as a new spec.
 
 - [0047](0047-two-vault-lock-order.md) Two vaults are locked in vault-id order
 - [0048](0048-yaml-crate.md) The YAML crate
+- [0077](0077-global-config-lock.md) The global config is rewritten under its own lock
