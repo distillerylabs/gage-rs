@@ -40,6 +40,11 @@ directory at all, is refused too (exit `1`), after the passphrase prompt.
 The identity generated for it is removed again, so a failed `init` leaves
 no key and no vault behind and can simply be retried.
 
+The same goes for the last step. If the vault can't be registered, because
+the global config can't be written or another process took the name
+meanwhile, `init` removes the new vault and its identity before reporting
+the failure. A target directory you made yourself is emptied, not removed.
+
 ### The passphrase
 
 `init` asks you to choose a passphrase, twice: there is nothing to check a
@@ -155,6 +160,8 @@ gage clone <remote-url> [--name NAME] [--dir PATH] [--device NAME]
 
 Clones the git repository and reads its `.gage/config.toml` to learn the
 vault's default decryption method. Cloning does **not** grant you access.
+A clone that fails, or that can't be registered, is removed again, so it can
+simply be retried.
 
 If this machine holds no identity for the vault, `clone` says so and, on a
 terminal, offers to set up an enrollment request right there:

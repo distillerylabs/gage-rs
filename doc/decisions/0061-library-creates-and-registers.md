@@ -44,7 +44,8 @@ new, so its rollback can never delete a key that existed before the call.
 **Failures are typed.** A rollback that itself fails is `RollbackFailed`,
 carrying both errors. A registered name is `RegistryError::AlreadyRegistered`,
 and a frontend adds its own hint (the CLI's `--name`). A registry save that
-fails after the vault exists is its own variant, and is not rolled back.
+fails after the vault exists is its own variant, and is rolled back
+([ADR-0078](0078-failed-registration-rollback.md)).
 
 This narrows the old rule that the library never writes global config: it
 writes the registration a create or join makes. Other registration edits
@@ -54,7 +55,7 @@ until a second frontend needs them.
 ## Consequences
 
 - No CLI output, exit code or prompt order changed.
-- Neither operation locks global config while it registers. Two processes
-  can lose a registration, and a failed save is not rolled back. Both are
-  tracked as their own issues; this ADR moved the code without changing
-  either behavior.
+- This ADR moved the code without changing how registration fails. Later
+  decisions did: registering takes a lock
+  ([ADR-0077](0077-global-config-lock.md)), and a failed registration is
+  rolled back ([ADR-0078](0078-failed-registration-rollback.md)).

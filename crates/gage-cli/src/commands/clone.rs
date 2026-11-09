@@ -83,7 +83,7 @@ pub fn run(matches: &ArgMatches, io: &mut Io, prompter: &dyn Prompter) -> Result
         device: device.clone(),
     };
     // Clones, refuses a format_version this build doesn't know, and
-    // registers; a failed clone is undone, leaving a --dir that already
+    // registers; a failure is undone, leaving a --dir that already
     // existed as it was (ADR-0061).
     let cloned = match Vault::clone_remote(&dirs, &spec) {
         Ok(cloned) => cloned,

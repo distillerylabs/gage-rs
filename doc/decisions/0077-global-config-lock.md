@@ -41,9 +41,8 @@ changes, and the spec isn't edited.
 ## Consequences
 
 - The process that loses a race for a name now gets an error, and its vault
-  or clone stays on disk unregistered, the same state a failed save leaves.
-  What to do with those files is
-  [#184](https://github.com/distillerylabs/gage-rs/issues/184).
+  or clone is rolled back, as after a failed save
+  ([ADR-0078](0078-failed-registration-rollback.md)).
 - An unwritable `$GAGE_STATE` now fails any command that rewrites the global
   config, as it already fails every write to a vault.
 - A build older than this one doesn't take the lock, so a mix of old and new
