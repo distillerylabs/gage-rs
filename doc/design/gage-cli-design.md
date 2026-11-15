@@ -1384,6 +1384,13 @@ giving up far more than the problem required.
   wrong trade for a smoother first run. It would also help exactly one
   host while every other host still pasted a token, reintroducing the
   host-specialness this whole section exists to avoid.
+- **`auth login` tests a token before storing it**, against the current
+  vault's origin when that is on the same host: the fetch and push
+  services' ref advertisements, which is where hosts check write access, and
+  nothing past them ([ADR-0080](../decisions/0080-remote-access-check.md)).
+  A token the host refuses is not stored, so it can't replace a working
+  one; a read-only one is stored with a warning, since syncing still pulls;
+  an unreachable host stores it unchecked, since logging in is local.
 - **An expired token fails legibly.** PATs expire; when one does, `gage`
   says so and names `gage auth login`, rather than surfacing a bare 403
   from the transport layer.

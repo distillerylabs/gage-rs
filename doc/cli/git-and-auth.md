@@ -58,9 +58,9 @@ Network work gives up after 30 seconds (one window for a whole sync's
 fetch and push) rather than hanging a terminal on a dead host.
 
 Enrolling a device needs **write** access to the remote: `gage identity
-enroll` commits and pushes its request. A token that can read but not
-write is only found out at the push, and the error names
-`gage auth login`. A device without write access joins by the manual path
+enroll` commits and pushes its request. `gage auth login` warns about a token
+that can read but not write. A token stored some other way is only found out
+at the push, and the error names `gage auth login`. A device without write access joins by the manual path
 instead (`gage identity add` there, `gage recipient add` here). See
 [Adding a device](enrollment.md#enrollment-needs-the-network-and-fails-if-it-cant-reach-it).
 
@@ -97,6 +97,18 @@ current vault's `origin`.
   machine (`localhost` or a loopback address). A remote there that asks for
   credentials fails (exit `5`) and says to use its HTTPS URL. One that
   doesn't ask, such as a public repository, still works.
+- **`login` tests the token before storing it** when the current vault's
+  remote is on that host. It asks the host for the repository's refs for
+  fetching and for pushing, and stops there: nothing is fetched or pushed.
+  - A token that can read and push is stored, and `login` says so.
+  - A token the host refuses is **not stored** (exit `5`), so a mistyped or
+    wrongly scoped token never replaces a working one.
+  - A token that can read but not push is stored with a warning: syncing
+    pulls, but writes, approvals and enrolling a device will be refused.
+  - If the host can't be reached, the token is stored unchecked, with a
+    warning.
+  - A token for any other host (`--host` naming one no current vault uses)
+    is stored without a check, and `login` says it wasn't checked.
 - **A rejected or expired token fails legibly** (exit `5`), naming the
   host and `gage auth login` as the fix, rather than a bare HTTP 401 or
   403.

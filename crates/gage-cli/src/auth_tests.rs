@@ -2,8 +2,9 @@
 //! Vaults get an origin through `git set-remote`.
 
 use crate::exitcode::ExitCode;
+use gage::gittest::{self, Answer, HttpRecorder};
 use gage::prompter::FakePrompter;
-use gage::{gittest, sync::gitrepo};
+use gage::sync::gitrepo;
 
 use crate::lifecycle_tests::Env;
 use crate::registry::{Availability, registry};
@@ -84,14 +85,15 @@ fn auth_logout_forgets_the_token() {
 #[test]
 fn host_defaults_to_the_current_vaults_origin() {
     let env = Env::new();
-    env.vault_with_origin("https://git.example.com/me/vault.git");
+    let recorder = granting(true);
+    env.vault_with_origin(&recorder.url("me/vault.git"));
     let r = env.auth(&["auth", "login"]);
     assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
-    assert!(r.stdout.contains("git.example.com"), "{}", r.stdout);
-    assert!(env.token_path("git.example.com").exists());
+    assert!(r.stdout.contains(HOST), "{}", r.stdout);
+    assert!(env.token_path(HOST).exists());
 
     env.ok(&["auth", "logout"]);
-    assert!(!env.token_path("git.example.com").exists());
+    assert!(!env.token_path(HOST).exists());
 }
 
 #[test]
@@ -128,13 +130,20 @@ fn auth_status_with_no_tokens_falls_back_to_the_current_vaults_host() {
 #[test]
 fn auth_login_reads_the_origin_from_the_repository_when_config_lags() {
     let env = Env::new();
+    let recorder = granting(true);
     let path = env.init("personal", &[]);
-    gitrepo::set_remote(&path, "https://git.example.com/me/vault.git").unwrap();
+    gitrepo::set_remote(&path, &recorder.url("me/vault.git")).unwrap();
     assert_eq!(env.entry("personal").git.origin, None, "config lags");
 
     let r = env.auth(&["auth", "login"]);
     assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
-    assert!(r.stdout.contains("git.example.com"), "{}", r.stdout);
+    assert!(r.stdout.contains(HOST), "{}", r.stdout);
+    assert!(
+        recorder
+            .authorizations()
+            .contains(&gittest::basic("gage", TOKEN)),
+        "the token was not checked against the repository's origin"
+    );
 }
 
 #[test]
@@ -250,4 +259,145 @@ fn no_auth_failure_doubles_gages_own_prefix() {
     );
     assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
     assert!(!r.stderr.contains(&doubled), "{}", r.stderr);
+}
+
+// #232: login tests the token against the current vault's origin before
+// storing it, through the loopback recorder standing in for the host.
+
+const HOST: &str = "127.0.0.1";
+
+fn granting(push: bool) -> HttpRecorder {
+    HttpRecorder::start(Answer::Grant {
+        token: TOKEN.into(),
+        push,
+    })
+}
+
+#[test]
+fn login_checks_the_token_and_says_it_can_push() {
+    let env = Env::new();
+    let recorder = granting(true);
+    let url = recorder.url("me/vault.git");
+    env.vault_with_origin(&url);
+
+    let r = env.auth(&["auth", "login"]);
+
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
+    assert_eq!(
+        r.stdout,
+        format!("gage: stored a token for {HOST}; it can read and push to {url}\n")
+    );
+    assert_eq!(r.stderr, "");
+    assert_eq!(
+        std::fs::read_to_string(env.token_path(HOST)).unwrap(),
+        TOKEN
+    );
+}
+
+#[test]
+fn login_with_a_read_only_token_stores_it_and_warns_about_writes() {
+    let env = Env::new();
+    let recorder = granting(false);
+    let url = recorder.url("me/vault.git");
+    env.vault_with_origin(&url);
+
+    let r = env.auth(&["auth", "login"]);
+
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
+    assert!(env.token_path(HOST).exists());
+    assert!(
+        r.stdout.contains(&format!("stored a token for {HOST}")),
+        "{}",
+        r.stdout
+    );
+    for want in [
+        url.as_str(),
+        "can read",
+        "not push",
+        "enroll",
+        "write access",
+    ] {
+        assert!(r.stderr.contains(want), "{want}: {}", r.stderr);
+    }
+}
+
+#[test]
+fn login_with_a_refused_token_stores_nothing_and_keeps_the_old_one() {
+    let env = Env::new();
+    let recorder = HttpRecorder::start(Answer::Grant {
+        token: "ghp_the_one_the_host_wants".into(),
+        push: true,
+    });
+    env.vault_with_origin(&recorder.url("me/vault.git"));
+    env.run_with(
+        &["auth", "login"],
+        &FakePrompter::new().with_value("ghp_the_one_the_host_wants"),
+    );
+
+    let r = env.auth(&["auth", "login"]);
+
+    assert_eq!(r.code, ExitCode::LockedOrAuth, "{}", r.stderr);
+    assert!(r.stderr.starts_with("gage: "), "{}", r.stderr);
+    for want in [HOST, "refused", "not stored"] {
+        assert!(r.stderr.contains(want), "{want}: {}", r.stderr);
+    }
+    // Not a loop: the fix is a different token, not this command again.
+    assert!(!r.stderr.contains("run `gage auth login"), "{}", r.stderr);
+    assert!(!r.stderr.contains(TOKEN) && !r.stdout.contains(TOKEN));
+    assert_eq!(
+        std::fs::read_to_string(env.token_path(HOST)).unwrap(),
+        "ghp_the_one_the_host_wants"
+    );
+}
+
+#[test]
+fn login_offline_stores_the_token_unchecked_and_says_so() {
+    let env = Env::new();
+    env.vault_with_origin(&gittest::refused_url());
+
+    let r = env.auth(&["auth", "login"]);
+
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
+    assert!(env.token_path(HOST).exists());
+    for want in ["could not reach", "unchecked"] {
+        assert!(r.stderr.contains(want), "{want}: {}", r.stderr);
+    }
+}
+
+#[test]
+fn login_with_host_naming_the_current_vaults_host_checks_it() {
+    let env = Env::new();
+    let recorder = granting(true);
+    env.vault_with_origin(&recorder.url("me/vault.git"));
+
+    let r = env.auth(&["auth", "login", "--host", HOST]);
+
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
+    assert!(r.stdout.contains("can read and push"), "{}", r.stdout);
+}
+
+#[test]
+fn login_for_a_host_no_vault_here_uses_is_stored_unchecked() {
+    let env = Env::new();
+    let recorder = granting(true);
+    env.vault_with_origin(&recorder.url("me/vault.git"));
+
+    let r = env.auth(&["auth", "login", "--host", "github.com"]);
+
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
+    assert_eq!(
+        r.stdout,
+        "gage: stored a token for github.com; the current vault's remote is elsewhere, so it was not checked\n"
+    );
+    assert!(recorder.requests().is_empty(), "{:?}", recorder.requests());
+}
+
+#[test]
+fn an_empty_token_is_refused_before_anything_is_contacted() {
+    let env = Env::new();
+    let recorder = granting(true);
+    env.vault_with_origin(&recorder.url("me/vault.git"));
+    let r = env.run_with(&["auth", "login"], &FakePrompter::new().with_value(" \n"));
+    assert_eq!(r.code, ExitCode::Usage, "{}", r.stderr);
+    assert!(recorder.requests().is_empty());
 }
