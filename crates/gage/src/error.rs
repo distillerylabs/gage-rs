@@ -77,12 +77,9 @@ pub enum Remedy {
     SetRemote,
     /// Forget `vault` here, clone it again, then ask to join it.
     Reclone { vault: String },
-    /// Ask to join the vault again; after storing a token first when the
-    /// remote refused access, for `host` if it is known.
-    EnrollAgain {
-        auth_refused: bool,
-        host: Option<String>,
-    },
+    /// Ask to join the vault again. A remote that refused access says
+    /// [`Remedy::AuthLogin`] instead (ADR-0079).
+    EnrollAgain,
     /// Push what was committed locally.
     Push,
     /// Ask again, allowing a duplicate title.
@@ -98,6 +95,30 @@ pub enum Remedy {
     Yes,
 }
 
+impl Remedy {
+    /// Whether this is what gets a refusing remote to let this device in:
+    /// a token to store, a token file to fix, an HTTPS URL to use.
+    pub fn fixes_remote_access(&self) -> bool {
+        matches!(
+            self,
+            Remedy::AuthLogin { .. } | Remedy::AuthLoginAgain { .. } | Remedy::UseHttps
+        )
+    }
+
+    /// The remedy for a failure that wraps `cause` and would advise `own`:
+    /// `own`, falling back to `cause`'s, unless `cause`'s fixes remote
+    /// access. That one is never shadowed: retrying, pushing or enrolling
+    /// again with the same credentials is refused again, and a frontend
+    /// recognizes a refusal by its remedy whatever operation hit it
+    /// (ADR-0079).
+    pub(crate) fn unless_access(cause: Option<Remedy>, own: Option<Remedy>) -> Option<Remedy> {
+        match cause {
+            Some(cause) if cause.fixes_remote_access() => Some(cause),
+            cause => own.or(cause),
+        }
+    }
+}
+
 /// An error that knows its [`ErrorKind`], and the [`Remedy`] for it if
 /// there is one. An error that wraps another passes both through, unless
 /// it knows better.
@@ -108,3 +129,7 @@ pub trait HasKind {
         None
     }
 }
+
+#[cfg(test)]
+#[path = "error_tests.rs"]
+mod tests;

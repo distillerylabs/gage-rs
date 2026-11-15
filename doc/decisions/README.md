@@ -36,6 +36,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0061](0061-library-creates-and-registers.md) Creating or joining a vault is one library operation, registration included
 - [0078](0078-failed-registration-rollback.md) A failed registration undoes the vault or clone
 - [0063](0063-what-crosses-the-bindings.md) Secrets cross the bindings on request; remedies cross as data
+- [0079](0079-access-remedy-is-never-shadowed.md) A refusal of access keeps its remedy
 
 ### Format and storage
 

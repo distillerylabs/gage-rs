@@ -567,19 +567,64 @@ fn enroll_push_rejected_for_write_access_keeps_what_it_made() {
 
     assert!(matches!(err, EnrollmentError::Push(_)), "{err}");
     assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
-    assert!(
-        matches!(
-            err.remedy(),
-            Some(crate::error::Remedy::EnrollAgain {
-                auth_refused: true,
-                ..
-            })
-        ),
+    // No host to store a token for (a local path, or a fake): asking again
+    // is all there is to say.
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::EnrollAgain),
         "{err}"
     );
     assert!(identity_exists(&b, B_DEVICE), "the identity is kept");
     assert_eq!(commits(&b.vault), before + 1, "the local commit is kept");
     assert_eq!(b.vault.pending_enrollments().unwrap().len(), 1);
+}
+
+// #227: a token that can read but not write clones fine and is refused at
+// the push. The remedy is the one a refused fetch carries, so a frontend
+// that sends the person to store a token on a refused clone does so here
+// too (ADR-0079).
+#[test]
+fn enroll_push_refused_by_a_host_carries_the_same_remedy_as_a_refused_fetch() {
+    let (_a, b) = pair();
+    let refused = auth_refusal().annotate_auth("github.com");
+    let vault = b
+        .vault
+        .clone()
+        .with_remote_syncer(TestSyncer::failing_push(&b.vault, refused.clone()));
+
+    let err = vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap_err();
+
+    assert!(matches!(err, EnrollmentError::Push(_)), "{err}");
+    assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
+    assert_eq!(err.remedy(), refused.remedy(), "{err}");
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::AuthLogin {
+            host: "github.com".into()
+        })
+    );
+    assert!(identity_exists(&b, B_DEVICE), "the identity is kept");
+}
+
+// Not every push failure is a refusal of access: one that isn't still says
+// to ask again.
+#[test]
+fn enroll_push_that_fails_otherwise_says_to_enroll_again() {
+    let (_a, b) = pair();
+    let offline = syncerr::Error::new(syncerr::Kind::Unreachable, "connection refused");
+    let vault = b
+        .vault
+        .clone()
+        .with_remote_syncer(TestSyncer::failing_push(&b.vault, offline));
+
+    let err = vault.enroll(B_DEVICE, DAY, &b_prompter()).unwrap_err();
+
+    assert!(matches!(err, EnrollmentError::Push(_)), "{err}");
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::EnrollAgain),
+        "{err}"
+    );
 }
 
 #[test]

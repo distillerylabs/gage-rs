@@ -42,20 +42,9 @@ pub fn render(remedy: &Remedy) -> String {
             ", so discard this copy (`gage vault remove {vault}`), `gage clone` it again, \
              then run `gage identity enroll`"
         ),
-        Remedy::EnrollAgain {
-            auth_refused: false,
-            ..
-        } => ", so running `gage identity enroll` again is the way forward".into(),
-        Remedy::EnrollAgain {
-            auth_refused: true,
-            host: Some(host),
-        } => format!(
-            "; run `gage auth login --host {host}` first, then `gage identity enroll` again"
-        ),
-        Remedy::EnrollAgain {
-            auth_refused: true,
-            host: None,
-        } => "; run `gage auth login` first, then `gage identity enroll` again".into(),
+        Remedy::EnrollAgain => {
+            ", so running `gage identity enroll` again is the way forward".into()
+        }
         Remedy::Push => " — run `gage push` to finish it".into(),
         Remedy::Force => "; use --force to insert a duplicate".into(),
         Remedy::ChooseDevice => "; choose another with --device".into(),
@@ -132,25 +121,8 @@ mod tests {
                 ", so discard this copy (`gage vault remove work`), `gage clone` it again, then run `gage identity enroll`",
             ),
             (
-                Remedy::EnrollAgain {
-                    auth_refused: false,
-                    host: None,
-                },
+                Remedy::EnrollAgain,
                 ", so running `gage identity enroll` again is the way forward",
-            ),
-            (
-                Remedy::EnrollAgain {
-                    auth_refused: true,
-                    host: Some(host()),
-                },
-                "; run `gage auth login --host github.com` first, then `gage identity enroll` again",
-            ),
-            (
-                Remedy::EnrollAgain {
-                    auth_refused: true,
-                    host: None,
-                },
-                "; run `gage auth login` first, then `gage identity enroll` again",
             ),
             (Remedy::Push, " — run `gage push` to finish it"),
             (Remedy::Force, "; use --force to insert a duplicate"),
