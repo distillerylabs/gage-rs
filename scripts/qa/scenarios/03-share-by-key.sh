@@ -56,12 +56,27 @@ step "recipient add refuses a key that is already a recipient"
 g alice -i "$(unlock alice)" -- recipient add "$BOB_KEY" --device bob-again
 expect_exit 1
 
-step "bob pulls and reads; the pull warns that recipients changed"
+step "bob pulls and reads; his own approval is not a recipient change"
+# He looked before he was a recipient, which records nothing (#228): his
+# first use as a recipient is the first use.
 g bob -- pull
 expect_exit 0
+expect_no_err 'recipient list changed'
 g bob -i "$(unlock bob)" -- show Shared
 expect_exit 0
 expect_out '^s3cret$'
+expect_no_err 'recipient list changed'
+
+step "alice adds carol behind bob's back; bob's pull warns"
+g carol -- clone "$R" --device carol-laptop
+g carol -i "$(lines "$(pw carol)" "$(pw carol)")" -- identity add --device carol-laptop
+CAROL_KEY="$(grep -oE 'age1[0-9a-z]{58}' <<<"$OUT$ERR" | head -1)"
+expect_true "identity add printed an age public key" test -n "$CAROL_KEY"
+g alice -i "$(unlock alice)" -- recipient add "$CAROL_KEY" --device carol-laptop
+expect_exit 0
+g bob -- pull
+expect_exit 0
+expect_err 'recipient list changed'
 
 step "bob's first write asks to confirm the new recipient list"
 # No terminal: refused before reading anything (ADR-0033), so a
@@ -76,7 +91,7 @@ step "on a terminal the review names the new key; declining writes nothing"
 gtty bob "$(dialogue "$PROMPT_PW" "$(pw bob)" 'Value for' tty-v 'trust this recipient list\?' n)" -- insert FromBob
 expect_exit 1
 expect_out 'Recipients for "team" changed'
-expect_out "$BOB_KEY|bob-laptop"
+expect_out "$CAROL_KEY|carol-laptop"
 expect_no_out "$(pw bob)"
 g bob -i "$(unlock bob)" -- show FromBob
 expect_exit 3

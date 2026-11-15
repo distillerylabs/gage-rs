@@ -73,12 +73,16 @@ expect_true "no identity file was written" bash -c "! ls '$(persona_home bob)'/d
 step "a script's write to a changed recipient list fails 1 without --yes"
 g bob -i "$(lines "$(pw bob)" "$(pw bob)")" -- identity add --device bob-laptop
 BOB_KEY="$(grep -oE 'age1[0-9a-z]{58}' <<<"$OUT$ERR" | head -1)"
-# Bob looks at the vault before he is added: trust-on-first-use records
-# the list he saw (doc/cli/identities-and-recipients.md), so the add below is
-# a change. Without this look, his first write would trust the new list.
-g bob -i "$(unlock bob)" -- show Alpha
-expect_exit 5
+# Bob's own addition is not a change to him (#228), so his first read as
+# a recipient records the list; dave's addition after it is the change.
 g alice -i "$(unlock alice)" -- recipient add "$BOB_KEY" --device bob-laptop
+g bob -- pull
+g bob -e "GAGE_PASSPHRASE=$(pw bob)" -i "$(lines 'show Alpha')" -- --stdin
+expect_exit 0
+g dave -- clone "$R" --device dave-laptop
+g dave -i "$(lines "$(pw dave)" "$(pw dave)")" -- identity add --device dave-laptop
+DAVE_KEY="$(grep -oE 'age1[0-9a-z]{58}' <<<"$OUT$ERR" | head -1)"
+g alice -i "$(unlock alice)" -- recipient add "$DAVE_KEY" --device dave-laptop
 g bob -- pull
 g bob -e "GAGE_PASSPHRASE=$(pw bob)" -i "$(lines 'generate FromScript')" -- --stdin
 expect_exit 1

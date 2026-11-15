@@ -183,7 +183,7 @@ impl Vault {
     /// What this machine's registration records for the vault, or blanks
     /// when there is none: a missing or unreadable one skips the checks it
     /// feeds and is never an error here.
-    fn recorded_registration(&self) -> Recorded {
+    pub(crate) fn recorded_registration(&self) -> Recorded {
         let Ok(global) = config::load(&paths::global_config_file(self.dirs())) else {
             return Recorded::default();
         };
@@ -200,8 +200,8 @@ impl Vault {
 }
 
 #[derive(Default)]
-struct Recorded {
-    device: String,
-    pubkey: Option<String>,
-    method: UnlockMethod,
+pub(crate) struct Recorded {
+    pub(crate) device: String,
+    pub(crate) pubkey: Option<String>,
+    pub(crate) method: UnlockMethod,
 }

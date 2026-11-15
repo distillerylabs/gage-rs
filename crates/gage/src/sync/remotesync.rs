@@ -420,7 +420,8 @@ pub(crate) fn local(err: gitrepo::Error) -> SyncError {
 impl Vault {
     /// Fetches and fast-forwards, and never does anything else: a
     /// divergence is reported in the report, not merged ("Sync model"'s
-    /// fast-forward-only rule). Waits for the write lock.
+    /// fast-forward-only rule). Waits for the write lock. Silent: a
+    /// frontend's pull is [`Vault::pull_checked`].
     pub fn pull(&self) -> Result<SyncReport, SyncError> {
         self.under_write_lock(|deadline| self.pull_locked(deadline))
     }
@@ -428,7 +429,8 @@ impl Vault {
     /// Publishes local commits. A rejected push fetches, merges a
     /// divergence whose two sides touched different paths, and pushes
     /// again; a real conflict is reported with nothing changed. Waits for
-    /// the write lock.
+    /// the write lock. Silent: a frontend's push is
+    /// [`Vault::push_checked`].
     pub fn push(&self) -> Result<SyncReport, SyncError> {
         self.under_write_lock(|deadline| self.push_locked(deadline))
     }
@@ -439,6 +441,33 @@ impl Vault {
     /// is [`Vault::sync_resolving`]'s.
     pub fn sync(&self) -> Result<SyncReport, SyncError> {
         self.under_write_lock(|deadline| self.sync_locked(deadline))
+    }
+
+    /// [`Vault::pull`] for a frontend: then the opportunistic recipient
+    /// check, which warns through `prompter` when the list differs from
+    /// the one this device last confirmed. A fast-forward unlocks nothing,
+    /// so without it another device's recipient change would arrive in
+    /// silence (#235). Like the unlock hook, it never asks and never
+    /// regenerates the cache, and never fails the pull.
+    pub fn pull_checked(&self, prompter: &dyn Prompter) -> Result<SyncReport, SyncError> {
+        self.under_write_lock(|deadline| {
+            let report = self.pull_locked(deadline)?;
+            self.warn_recipient_trust(prompter);
+            Ok(report)
+        })
+    }
+
+    /// [`Vault::push`] for a frontend, with [`Vault::pull_checked`]'s
+    /// check after it: a rejected push fetches and merges the other
+    /// device's commits, a recipient change among them. The check runs
+    /// whether or not the push then succeeded, since a merge that landed
+    /// stays landed.
+    pub fn push_checked(&self, prompter: &dyn Prompter) -> Result<SyncReport, SyncError> {
+        self.under_write_lock(|deadline| {
+            let result = self.push_locked(deadline);
+            self.warn_recipient_trust(prompter);
+            result
+        })
     }
 
     /// The sync, with the write lock already held.

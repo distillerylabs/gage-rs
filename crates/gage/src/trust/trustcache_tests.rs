@@ -840,6 +840,88 @@ fn sync_warns_on_a_clean_fast_forward() {
     assert!(p.recipient_changes().is_empty(), "a sync asked a question");
 }
 
+/// Another device's legitimate `recipient add`, published: the change a
+/// manual pull or push brings in. Returns the device it added.
+fn publish_routine_change(s: &crate::sync::remotesync::tests::SyncVault) -> &'static str {
+    let other = s.other();
+    commit_routine_change_at(&other, "phone-1", &new_key());
+    other.push();
+    "phone-1"
+}
+
+/// A commit of this device's own that touches no recipient file, so a
+/// push of it has something to send and a merge with the remote is
+/// disjoint.
+fn commit_local_note(s: &crate::sync::remotesync::tests::SyncVault, name: &str) {
+    std::fs::write(s.vault.path.join(name), "a note\n").unwrap();
+    gitrepo::commit_all(&s.vault.path, "a local note").unwrap();
+}
+
+/// The opportunistic warning, once, asking nothing and approving nothing.
+fn assert_warned_only(
+    s: &crate::sync::remotesync::tests::SyncVault,
+    p: &FakePrompter,
+    added: &str,
+) {
+    let warnings = p.warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains("recipient list changed"),
+        "{warnings:?}"
+    );
+    assert!(warnings[0].contains("1 added"), "{warnings:?}");
+    assert!(p.recipient_changes().is_empty(), "it asked a question");
+    let cache = s.vault.load_trust_cache().unwrap().unwrap();
+    assert!(
+        !String::from_utf8_lossy(&cache.known_config).contains(added),
+        "it regenerated the cache"
+    );
+}
+
+// #235: `gage pull` runs the hook `gage sync` does.
+#[test]
+fn pull_warns_on_a_fast_forward_that_changes_the_list() {
+    use crate::sync::remotesync::tests::SyncVault;
+    let s = SyncVault::new();
+    drop(s.unlock());
+    let added = publish_routine_change(&s);
+
+    let p = FakePrompter::new();
+    let report = s.vault.pull_checked(&p).unwrap();
+    assert!(report.pulled, "{report:?}");
+    assert_warned_only(&s, &p, added);
+}
+
+// #235: a rejected push fetches and merges, which brings the change in.
+#[test]
+fn push_warns_when_its_merge_brings_in_a_list_change() {
+    use crate::sync::remotesync::tests::SyncVault;
+    let s = SyncVault::new();
+    drop(s.unlock());
+    let added = publish_routine_change(&s);
+    commit_local_note(&s, "note.txt");
+
+    let p = FakePrompter::new();
+    let report = s.vault.push_checked(&p).unwrap();
+    assert!(report.merged && report.pushed, "{report:?}");
+    assert_warned_only(&s, &p, added);
+}
+
+#[test]
+fn pull_and_push_with_no_list_change_warn_nothing() {
+    use crate::sync::remotesync::tests::SyncVault;
+    let s = SyncVault::new();
+    drop(s.unlock());
+    let other = s.other();
+    other.write_commit_push("other.txt", "theirs\n", "another device's note");
+
+    let p = FakePrompter::new();
+    assert!(s.vault.pull_checked(&p).unwrap().pulled);
+    commit_local_note(&s, "note.txt");
+    assert!(s.vault.push_checked(&p).unwrap().pushed);
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+}
+
 // --- recipient verbs: refusal, trust and regeneration -----------------------
 
 /// What origin's branch points at now, read through a fresh clone.
@@ -1376,4 +1458,132 @@ fn a_local_recipient_add_needs_no_review_of_its_own_key_file() {
         .add_recipient("phone-1", &new_key(), &identity, &p)
         .unwrap();
     assert_eq!(t.vault.check_recipient_trust().unwrap(), None);
+}
+
+// --- a device checked before its approval (#228) --------------------------
+
+/// Records `pubkey` as this device's own key in its registration: the
+/// state of a device that has enrolled and is waiting for approval, whose
+/// key the committed list doesn't carry yet. The identity file is left
+/// alone, so an unlock still works.
+fn register_own_key(t: &TrustVault, pubkey: Option<&str>) {
+    let path = paths::global_config_file(&t.dirs);
+    let mut global = config::load(&path).unwrap();
+    global.vaults.get_mut(NAME).unwrap().pubkey = pubkey.map(str::to_string);
+    config::save_creating_dir(&path, &global).unwrap();
+}
+
+/// What `recipient approve` on another device leaves behind for this one:
+/// its own key appended to both files, and the vault key re-sealed.
+fn commit_own_approval(t: &TrustVault, own: &str) {
+    commit_routine_change(&t.vault, "phone-1", own);
+    replace_vault_key(&t.vault);
+}
+
+/// The record a pending device saved before this fix: the list from before
+/// its approval, adopted as a first use.
+fn save_pre_approval_record(t: &TrustVault) {
+    register_own_key(t, None);
+    assert_eq!(t.vault.check_recipient_trust().unwrap(), None);
+    assert!(t.cache().is_some());
+}
+
+#[test]
+fn a_pending_device_saves_no_first_record() {
+    let t = TrustVault::new();
+    register_own_key(&t, Some(&new_key()));
+    let p = unlocking();
+    t.unlock(&p);
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+    assert!(t.cache().is_none(), "a pending device adopted a list");
+    assert!(!t.known_config_path().exists());
+}
+
+#[test]
+fn a_device_checked_before_its_approval_does_not_warn_after_it() {
+    let t = TrustVault::new();
+    let own = new_key();
+    register_own_key(&t, Some(&own));
+    t.bootstrap();
+    commit_own_approval(&t, &own);
+
+    let p = unlocking();
+    t.unlock(&p);
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+    let cache = t
+        .cache()
+        .expect("the first use as a recipient is the record");
+    assert!(String::from_utf8_lossy(&cache.known_config).contains(&own));
+}
+
+#[test]
+fn a_record_from_before_the_approval_settles_on_the_next_check() {
+    let t = TrustVault::new();
+    let own = new_key();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&own));
+    commit_own_approval(&t, &own);
+
+    let p = unlocking();
+    t.unlock(&p);
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+    let cache = t.cache().unwrap();
+    assert!(String::from_utf8_lossy(&cache.known_config).contains(&own));
+    assert_eq!(
+        cache.vault_key_hash,
+        Some(sha256_hex(&t.vault.path.join(VAULT_KEY_FILE)))
+    );
+
+    // Settled, not silenced: the next change warns as any would.
+    commit_routine_change(&t.vault, "tablet-1", &new_key());
+    let warning = t.vault.check_recipient_trust().unwrap().expect("a warning");
+    assert_eq!(warning.delta(), "1 added");
+}
+
+#[test]
+fn own_approval_with_another_recipient_still_warns() {
+    let t = TrustVault::new();
+    let own = new_key();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&own));
+    commit_own_approval(&t, &own);
+    commit_routine_change(&t.vault, "stranger", &new_key());
+
+    let warning = t.vault.check_recipient_trust().unwrap().expect("a warning");
+    assert_eq!(warning.added.len(), 2, "{warning:?}");
+}
+
+#[test]
+fn own_approval_with_another_config_change_still_warns() {
+    let t = TrustVault::new();
+    let own = new_key();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&own));
+    commit_own_approval(&t, &own);
+    tamper_config_method_only(&t.vault);
+
+    assert!(t.vault.check_recipient_trust().unwrap().is_some());
+}
+
+#[test]
+fn own_approval_over_a_mismatched_recipients_file_still_warns() {
+    let t = TrustVault::new();
+    let own = new_key();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&own));
+    commit_own_approval(&t, &own);
+    tamper_recipients_file(&t.vault, &new_key());
+
+    let warning = t.vault.check_recipient_trust().unwrap().expect("a warning");
+    assert!(warning.mismatched());
+}
+
+#[test]
+fn an_added_key_that_is_not_this_devices_still_warns() {
+    let t = TrustVault::new();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&new_key()));
+    commit_own_approval(&t, &new_key());
+
+    assert!(t.vault.check_recipient_trust().unwrap().is_some());
 }
