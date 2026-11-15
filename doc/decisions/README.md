@@ -71,6 +71,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0020](0020-remote-auth.md) Tokens reach libgit2 through the credentials callback
 - [0074](0074-credentials-in-remote-urls.md) A remote URL may not carry credentials
 - [0075](0075-token-over-https-only.md) A token travels only over HTTPS or to this machine
+- [0080](0080-remote-access-check.md) A token is checked by asking for both ref advertisements
 - [0021](0021-sync-conflict-resolution.md) Conflict resolution
 - [0064](0064-no-symlinks-in-a-vault.md) A vault contains only regular files; gage never follows or materializes a symlink
 

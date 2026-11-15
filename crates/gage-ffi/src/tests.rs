@@ -25,9 +25,10 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::{
-    ClonedVault, GageError, Identity, PromptError, Prompter, Remedy, Roots, UnlockKind,
-    UnlockPurpose, UnlockRequest, UnlockResponse, Vault, VaultRemote, Warning, clone_vault,
-    init_vault, remote_token_hosts, remove_remote_token, save_remote_token,
+    ClonedVault, GageError, Identity, PromptError, Prompter, Remedy, RemoteAccess, Roots,
+    UnlockKind, UnlockPurpose, UnlockRequest, UnlockResponse, Vault, VaultRemote, Warning,
+    check_remote_token, clone_vault, init_vault, remote_token_hosts, remove_remote_token,
+    save_remote_token,
 };
 
 const PASSPHRASE: &str = "correct horse battery staple";
@@ -1606,4 +1607,68 @@ fn enroll_records_the_device_under_the_global_config_lock() {
     let global = config::load(&config_path).unwrap();
     assert!(global.vaults.contains_key("arrived"), "{global:?}");
     assert_eq!(global.entry(VAULT).unwrap().device, DEVICE);
+}
+
+// #232: a token is tested before it is relied on, by URL (Join, before a
+// clone) and by vault (Settings, before saving one).
+
+fn granting(push: bool) -> HttpRecorder {
+    HttpRecorder::start(RecorderAnswer::Grant {
+        token: TOKEN.into(),
+        push,
+    })
+}
+
+#[test]
+fn a_token_is_checked_by_url_without_being_stored() {
+    let phone = Phone::new();
+    let recorder = granting(false);
+
+    let access = check_remote_token(
+        phone.roots(),
+        recorder.url("me/vault.git"),
+        Some(TOKEN.into()),
+    )
+    .unwrap();
+
+    assert_eq!(access, RemoteAccess::ReadOnly);
+    assert!(remote_token_hosts(phone.roots()).unwrap().is_empty());
+}
+
+#[test]
+fn a_vault_checks_a_candidate_token_and_then_its_stored_one() {
+    let recorder = granting(true);
+    let (phone, vault) = phone_with_origin(recorder.url("me/vault.git"));
+
+    assert_eq!(
+        vault.check_remote_token(Some(TOKEN.into())).unwrap(),
+        RemoteAccess::ReadWrite
+    );
+    // Nothing stored yet, so the stored-token check goes anonymous and is
+    // refused, naming the host to store one for.
+    let err = vault.check_remote_token(None).unwrap_err();
+    assert!(matches!(err, GageError::LockedOrAuth { .. }), "got {err:?}");
+    assert_eq!(
+        err.remedy(),
+        Some(Remedy::AuthLogin {
+            host: RECORDER_HOST.into()
+        })
+    );
+
+    save_remote_token(phone.roots(), RECORDER_HOST.into(), TOKEN.into()).unwrap();
+    assert_eq!(
+        vault.check_remote_token(None).unwrap(),
+        RemoteAccess::ReadWrite
+    );
+}
+
+#[test]
+fn a_refused_token_check_never_carries_the_token() {
+    let recorder = granting(true);
+    let (_phone, vault) = phone_with_origin(recorder.url("me/vault.git"));
+    let err = vault
+        .check_remote_token(Some("tok_wrong".into()))
+        .unwrap_err();
+    assert!(matches!(err, GageError::LockedOrAuth { .. }), "got {err:?}");
+    assert!(!format!("{err} {err:?}").contains("tok_wrong"), "{err:?}");
 }

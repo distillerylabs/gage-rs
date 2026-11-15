@@ -224,16 +224,77 @@ pub(crate) fn remote_branch(
     method: &Method,
     opts: &RemoteOptions,
 ) -> Result<String, Error> {
+    let mut heads: Vec<String> = advertised(url, method, opts, Direction::Fetch)?
+        .into_iter()
+        .filter_map(|name| name.strip_prefix("refs/heads/").map(str::to_string))
+        .collect();
+    heads.sort();
+    match heads.len() {
+        0 => Err(Error::NoBranches {
+            url: url.to_string(),
+        }),
+        1 => Ok(heads.remove(0)),
+        _ => ["main", "master"]
+            .into_iter()
+            .find(|preferred| heads.iter().any(|h| h == preferred))
+            .map(str::to_string)
+            .ok_or(Error::AmbiguousBranch {
+                url: url.to_string(),
+                branches: heads,
+            }),
+    }
+}
+
+/// What a remote lets the credentials offered to it do: [`check_access`]'s
+/// answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Access {
+    /// Both the fetch and the push service accepted them.
+    ReadWrite,
+    /// The fetch service accepted them and the push service refused them:
+    /// a token issued without write access, or none on a public
+    /// repository. Pulls work; the first push fails as access refused.
+    ReadOnly,
+}
+
+/// Tests what `method` gets from `url`, changing nothing on either side
+/// (#232, ADR-0080). It asks the fetch service for its ref advertisement,
+/// then the push service, which is as far as `git push --dry-run` goes on
+/// the network and where hosts check write access. Nothing is downloaded
+/// or sent, and no vault's repository is opened: a scratch one hosts the
+/// connections. One `opts` timeout covers both.
+///
+/// A fetch side that refuses is the error, in `syncerr`'s buckets like any
+/// fetch's, so a refused token is auth with the host-naming remedy. A push
+/// side that refuses as auth is [`Access::ReadOnly`]; failing any other
+/// way, it is the error.
+pub fn check_access(url: &str, method: &Method, opts: &RemoteOptions) -> Result<Access, Error> {
+    let deadline = Instant::now() + opts.timeout;
+    advertised(url, method, opts, Direction::Fetch)?;
+    let rest = opts
+        .clone()
+        .with_timeout(deadline.saturating_duration_since(Instant::now()));
+    match advertised(url, method, &rest, Direction::Push) {
+        Ok(_) => Ok(Access::ReadWrite),
+        Err(Error::Sync(e)) if e.kind() == Kind::Auth => Ok(Access::ReadOnly),
+        Err(e) => Err(e),
+    }
+}
+
+/// The ref names `url`'s fetch or push service advertises, through
+/// `method`'s credentials. It connects and lists, and nothing more.
+fn advertised(
+    url: &str,
+    method: &Method,
+    opts: &RemoteOptions,
+    direction: Direction,
+) -> Result<Vec<String>, Error> {
     isolate();
     let op = Op::new(method, url, opts.timeout);
-    let classify = |e| {
-        op.fail(
-            e,
-            Direction::Fetch,
-            "listing the branches of",
-            Path::new(url),
-        )
-    };
+    // Classified as a fetch either way: a connection that only lists refs
+    // is never refused for divergence, which a push's classification
+    // assumes of whatever it can't otherwise place.
+    let classify = |e| op.fail(e, Direction::Fetch, "listing the refs of", Path::new(url));
     // git2's connect takes no redirect option, and a detached remote gets
     // libgit2's built-in `Initial`, which WinHTTP reads as "anywhere". An
     // anonymous remote on a scratch repository reads the policy from that
@@ -251,30 +312,20 @@ pub(crate) fn remote_branch(
         })
         .map_err(fail("preparing a scratch repository in", scratch.path()))?;
     let mut remote = repo.remote_anonymous(url).map_err(classify)?;
+    let git_direction = match direction {
+        Direction::Fetch => git2::Direction::Fetch,
+        Direction::Push => git2::Direction::Push,
+    };
     let connection = remote
-        .connect_auth(git2::Direction::Fetch, Some(op.callbacks()), None)
+        .connect_auth(git_direction, Some(op.callbacks()), None)
         .map_err(classify)?;
-    let mut heads: Vec<String> = connection
+    let names = connection
         .list()
         .map_err(classify)?
         .iter()
-        .filter_map(|h| h.name().strip_prefix("refs/heads/").map(str::to_string))
+        .map(|h| h.name().to_string())
         .collect();
-    heads.sort();
-    match heads.len() {
-        0 => Err(Error::NoBranches {
-            url: url.to_string(),
-        }),
-        1 => Ok(heads.remove(0)),
-        _ => ["main", "master"]
-            .into_iter()
-            .find(|preferred| heads.iter().any(|h| h == preferred))
-            .map(str::to_string)
-            .ok_or(Error::AmbiguousBranch {
-                url: url.to_string(),
-                branches: heads,
-            }),
-    }
+    Ok(names)
 }
 
 /// `path`'s bytes as the vault's history has published them: at the

@@ -5,8 +5,9 @@
 //! wire instead, which is the stronger check. `std::net` only, no new
 //! dependency, and nothing listens beyond 127.0.0.1.
 //!
-//! It never speaks the git protocol: every exchange ends in a failure the
-//! test picks, which is the point. What is under test is what arrived.
+//! It speaks no more of the git protocol than a ref advertisement
+//! ([`Answer::Grant`]): every exchange ends there or in a failure the test
+//! picks, which is the point. What is under test is what arrived.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -29,7 +30,16 @@ pub enum Answer {
     /// `401` until a request carries credentials, then `302` to
     /// `location`: a host that accepted the token and moved.
     RedirectAfterAuth(String),
+    /// `401` until a request carries `token` as gage sends it, then the
+    /// ref advertisement of a one-commit repository for the fetch service,
+    /// and for the push service too only if `push`; a token that can read
+    /// but not push gets `403` there, as GitHub answers one. Nothing past
+    /// the advertisement: a fetch or push that goes on fails.
+    Grant { token: String, push: bool },
 }
+
+/// The one ref [`Answer::Grant`] advertises.
+pub const GRANTED_REF: &str = "refs/heads/main";
 
 /// One request as the recorder saw it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,13 +163,30 @@ fn serve(stream: TcpStream, answer: &Answer, requests: &Mutex<Vec<Request>>) {
     let authed = authorization.is_some();
     requests.lock().unwrap().push(Request {
         method,
-        target,
+        target: target.clone(),
         host,
         authorization,
     });
 
     let challenge = "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"gittest\"\r\n";
+    let mut body = String::new();
     let response = match answer {
+        Answer::Grant { token, push } if authed_as(requests, token) => {
+            let service = ["git-upload-pack", "git-receive-pack"]
+                .into_iter()
+                .find(|s| target.contains(s));
+            match service {
+                Some("git-receive-pack") if !push => "HTTP/1.1 403 Forbidden\r\n".to_string(),
+                Some(service) => {
+                    body = advertisement(service);
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/x-{service}-advertisement\r\n"
+                    )
+                }
+                None => "HTTP/1.1 404 Not Found\r\n".to_string(),
+            }
+        }
+        Answer::Grant { .. } => challenge.to_string(),
         Answer::Challenge => challenge.to_string(),
         Answer::Status(code) => format!("HTTP/1.1 {code} {}\r\n", reason(*code)),
         Answer::RedirectFirst(location) if !authed => {
@@ -171,9 +198,47 @@ fn serve(stream: TcpStream, answer: &Answer, requests: &Mutex<Vec<Request>>) {
         Answer::RedirectFirst(_) | Answer::RedirectAfterAuth(_) => challenge.to_string(),
     };
     let mut stream = stream;
-    let _ = stream
-        .write_all(format!("{response}Content-Length: 0\r\nConnection: close\r\n\r\n").as_bytes());
+    let _ = stream.write_all(
+        format!(
+            "{response}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .as_bytes(),
+    );
     let _ = stream.flush();
+}
+
+/// Whether the request just recorded carried `token` as gage sends it.
+fn authed_as(requests: &Mutex<Vec<Request>>, token: &str) -> bool {
+    let want = basic("gage", token);
+    requests
+        .lock()
+        .unwrap()
+        .last()
+        .is_some_and(|r| r.authorization.as_deref() == Some(want.as_str()))
+}
+
+/// A smart-HTTP ref advertisement for `service`: one branch,
+/// [`GRANTED_REF`], at a commit the recorder doesn't have.
+fn advertisement(service: &str) -> String {
+    let caps = if service == "git-receive-pack" {
+        "report-status"
+    } else {
+        "agent=gittest"
+    };
+    let oid = "1".repeat(40);
+    [
+        pkt_line(&format!("# service={service}\n")),
+        "0000".to_string(),
+        pkt_line(&format!("{oid} {GRANTED_REF}\0{caps}\n")),
+        "0000".to_string(),
+    ]
+    .concat()
+}
+
+/// `payload` framed as a git pkt-line: four hex digits of total length.
+fn pkt_line(payload: &str) -> String {
+    format!("{:04x}{payload}", payload.len() + 4)
 }
 
 fn reason(code: u16) -> &'static str {
@@ -225,6 +290,14 @@ mod tests {
             assert_eq!(base64(plain.as_bytes()), encoded, "{plain:?}");
         }
         assert_eq!(basic("gage", "tok"), "Basic Z2FnZTp0b2s=");
+    }
+
+    #[test]
+    fn pkt_lines_count_their_own_header() {
+        assert_eq!(
+            pkt_line("# service=git-upload-pack\n"),
+            "001e# service=git-upload-pack\n"
+        );
     }
 
     #[test]

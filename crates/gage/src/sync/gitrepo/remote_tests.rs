@@ -9,6 +9,7 @@ use super::worktree_tests::{head_id, read, write};
 use super::*;
 use crate::gittest::{self, Answer, BareRemote, Device, HttpRecorder};
 use crate::storage::xdgpaths::Dirs;
+use crate::sync::remoteauth::Method;
 use crate::sync::syncerr::Kind;
 
 fn opts() -> RemoteOptions {
@@ -670,4 +671,107 @@ fn the_redirect_policy_matches_the_http_backend() {
         assert!(matches!(remote::REDIRECTS, git2::RemoteRedirect::Initial));
         assert_eq!(remote::REDIRECTS_CONFIG, "initial");
     }
+}
+
+// #232: the access check. Against the recorder's ref advertisement, a token
+// that both services accept can push, and one only the fetch service
+// accepts can read. The recorder has no objects, so a check that tried to
+// download or send anything would fail instead of answering.
+
+fn token(value: &str) -> Method {
+    Method::Token {
+        host: "127.0.0.1".into(),
+        token: zeroize::Zeroizing::new(value.into()),
+    }
+}
+
+fn grant(push: bool) -> HttpRecorder {
+    HttpRecorder::start(Answer::Grant {
+        token: TOKEN.into(),
+        push,
+    })
+}
+
+#[test]
+fn check_access_reads_and_writes_with_a_token_both_services_accept() {
+    let recorder = grant(true);
+    let access = check_access(&recorder.url("me/vault.git"), &token(TOKEN), &opts()).unwrap();
+    assert_eq!(access, Access::ReadWrite);
+
+    let requests = recorder.requests();
+    for service in ["git-upload-pack", "git-receive-pack"] {
+        assert!(
+            requests.iter().any(|r| r.target.contains(service)
+                && r.authorization == Some(gittest::basic("gage", TOKEN))),
+            "{service} never saw the token: {requests:?}"
+        );
+    }
+    // Ref advertisements only: no pack was asked for or sent.
+    assert!(requests.iter().all(|r| r.method == "GET"), "{requests:?}");
+}
+
+#[test]
+fn check_access_with_a_token_the_push_service_refuses_is_read_only() {
+    let recorder = grant(false);
+    let access = check_access(&recorder.url("me/vault.git"), &token(TOKEN), &opts()).unwrap();
+    assert_eq!(access, Access::ReadOnly);
+    assert!(
+        recorder
+            .requests()
+            .iter()
+            .any(|r| r.target.contains("git-receive-pack")),
+        "the push service was never asked"
+    );
+}
+
+#[test]
+fn check_access_with_a_refused_token_is_an_auth_error_naming_the_host() {
+    let recorder = grant(true);
+    let err =
+        check_access(&recorder.url("me/vault.git"), &token("tok_wrong"), &opts()).unwrap_err();
+    assert_eq!(sync_kind(&err), Kind::Auth, "{err}");
+    assert_eq!(
+        err.remedy(),
+        Some(crate::error::Remedy::AuthLogin {
+            host: "127.0.0.1".into()
+        }),
+        "{err}"
+    );
+    assert!(!format!("{err} {err:?}").contains("tok_wrong"), "{err:?}");
+    // A token refused for reading is never tried for writing.
+    assert!(
+        !recorder
+            .requests()
+            .iter()
+            .any(|r| r.target.contains("git-receive-pack")),
+        "{:?}",
+        recorder.requests()
+    );
+}
+
+#[test]
+fn check_access_to_an_unreachable_remote_is_unreachable() {
+    let err = check_access(&gittest::refused_url(), &token(TOKEN), &opts()).unwrap_err();
+    assert_eq!(sync_kind(&err), Kind::Unreachable, "{err}");
+}
+
+#[test]
+fn check_access_with_no_time_left_is_unreachable() {
+    let recorder = grant(true);
+    let err = check_access(
+        &recorder.url("me/vault.git"),
+        &token(TOKEN),
+        &opts().with_timeout(Duration::ZERO),
+    )
+    .unwrap_err();
+    assert_eq!(sync_kind(&err), Kind::Unreachable, "{err}");
+}
+
+#[test]
+fn check_access_to_a_local_remote_changes_nothing_there() {
+    let (_dir, remote) = published_repo();
+    let before = Device::clone(remote.path()).head();
+    let access = check_access(url(&remote), &Method::Local, &opts()).unwrap();
+    assert_eq!(access, Access::ReadWrite);
+    assert_eq!(Device::clone(remote.path()).head(), before);
 }

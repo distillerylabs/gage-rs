@@ -3,6 +3,7 @@
 
 pub mod gitrepo;
 pub mod remoteauth;
+pub mod remotecheck;
 pub mod remotesync;
 pub mod syncerr;
 pub mod syncresolve;

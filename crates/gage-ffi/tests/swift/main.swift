@@ -113,6 +113,14 @@ func join() {
     }
 
     do {
+        let access = try vault.checkRemoteToken(token: nil)
+        expect(access == .readWrite, "the local remote checked as \(access)")
+        print("smoke: checked the remote's access")
+    } catch {
+        fail("check remote token: \(error)")
+    }
+
+    do {
         try saveRemoteToken(roots: phoneRoots, host: "git.example.com", token: "tok")
         let stored = try remoteTokenHosts(roots: phoneRoots)
         expect(stored == ["git.example.com"], "stored tokens for \(stored)")
