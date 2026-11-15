@@ -84,8 +84,12 @@ gone.
 
 An HTTPS remote that needs a token needs it stored first, under the URL's host:
 `saveRemoteToken(roots:host:token:)`. `removeRemoteToken` and `remoteTokenHosts`
-manage them; **nothing returns a stored token**. iOS and Android have no SSH
-([ADR-0062](../../doc/decisions/0062-no-ssh-on-mobile.md)).
+manage them; **nothing returns a stored token**. For a vault you already
+have, `vault.remote()` gives its remote's `url`, with any credentials stored
+in it removed, and `tokenHost`, the host to save its token under (`nil` when
+no token is ever sent: a local path, SSH, or plain `http://`). It reads the
+vault on every call, so it follows a remote changed from a computer. iOS and
+Android have no SSH ([ADR-0062](../../doc/decisions/0062-no-ssh-on-mobile.md)).
 
 ### Reading
 
