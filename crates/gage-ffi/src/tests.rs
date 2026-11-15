@@ -529,10 +529,7 @@ fn every_library_remedy() -> Vec<gage::Remedy> {
         R::EnrollOrRecover,
         R::SetRemote,
         R::Reclone { vault: "v".into() },
-        R::EnrollAgain {
-            auth_refused: true,
-            host: Some("h".into()),
-        },
+        R::EnrollAgain,
         R::Push,
         R::Force,
         R::ChooseDevice,

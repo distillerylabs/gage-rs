@@ -73,12 +73,9 @@ pub enum Remedy {
     SetRemote,
     /// Forget `vault` here, clone it again, then ask to join it.
     Reclone { vault: String },
-    /// Ask to join the vault again; after storing a token first when the
-    /// remote refused access, for `host` if it is known.
-    EnrollAgain {
-        auth_refused: bool,
-        host: Option<String>,
-    },
+    /// Ask to join the vault again. A remote that refused access says
+    /// `AuthLogin` instead, as it does for every operation.
+    EnrollAgain,
     /// Push what was committed locally.
     Push,
     /// Ask again, allowing a duplicate title.
@@ -118,10 +115,7 @@ impl From<&gage::Remedy> for Remedy {
             R::Reclone { vault } => Remedy::Reclone {
                 vault: vault.clone(),
             },
-            R::EnrollAgain { auth_refused, host } => Remedy::EnrollAgain {
-                auth_refused: *auth_refused,
-                host: host.clone(),
-            },
+            R::EnrollAgain => Remedy::EnrollAgain,
             R::Push => Remedy::Push,
             R::Force => Remedy::Force,
             R::ChooseDevice => Remedy::ChooseDevice,

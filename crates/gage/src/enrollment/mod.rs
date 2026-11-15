@@ -336,15 +336,9 @@ impl HasKind for EnrollmentError {
             DeviceNameTaken { .. } => Some(Remedy::ChooseDevice),
             NameTaken { .. } => Some(Remedy::ApproveWithDevice),
             ApprovalDiverged { remedy, .. } => Some(remedy.clone()),
-            // Enrolling again is the way forward, after storing a token
-            // when the remote refused the one it had.
-            Push(e) => Some(Remedy::EnrollAgain {
-                auth_refused: e.remote_kind() == Some(crate::sync::syncerr::Kind::Auth),
-                host: match e.remedy() {
-                    Some(Remedy::AuthLogin { host }) => Some(host),
-                    _ => None,
-                },
-            }),
+            // Enrolling again is the way forward, unless the remote refused
+            // access: then what it refused says what fixes it (ADR-0079).
+            Push(e) => Remedy::unless_access(e.remedy(), Some(Remedy::EnrollAgain)),
             ReservedDeviceLabel(e) => e.remedy(),
             Recipient(e) => e.remedy(),
             RemoteUnreachable(e) | Sync(e) => e.remedy(),

@@ -576,7 +576,7 @@ impl Vault {
                 let cause = offline_or_error(&err);
                 prompter.warn(&Warning {
                     text: format!("{}: {}", clause.text, cause.text),
-                    remedy: clause.remedy.or(cause.remedy),
+                    remedy: Remedy::unless_access(cause.remedy, clause.remedy),
                 });
             }
         }

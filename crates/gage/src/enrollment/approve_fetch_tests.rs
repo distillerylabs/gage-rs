@@ -253,6 +253,37 @@ fn approval_warns_when_its_push_fails() {
     assert!(remote_has(&a, &request_path(&req)), "the push didn't fail");
 }
 
+// Pushing again with the same token would be refused again: a host that
+// refuses access gets the token remedy, not approval's own (ADR-0079).
+#[test]
+fn approval_whose_push_a_host_refuses_names_the_token_not_a_push() {
+    let a = SyncVault::new();
+    insert_as(&a, "an entry");
+    let (_m, req) = enrolled(&a, "phone-1");
+    let identity = a.unlock();
+    let refusing = a.vault.clone().with_remote_syncer(Arc::new(FakeSyncer {
+        push_err: Some(syncerr::Error::new(syncerr::Kind::Auth, "403").annotate_auth("github.com")),
+        ..FakeSyncer::default()
+    }));
+    let p = unlocks();
+
+    approve_with(&refusing, &identity, &req, &p).unwrap();
+
+    let warned = p.warned();
+    let pushed = warned
+        .iter()
+        .find(|w| w.text.contains("locked out"))
+        .expect("the approval's clause");
+    assert_eq!(
+        pushed.remedy,
+        Some(crate::error::Remedy::AuthLogin {
+            host: "github.com".into()
+        }),
+        "{}",
+        pushed.text
+    );
+}
+
 // Once the push lands, the
 // request another device still saw is the already-a-recipient no-op:
 // what makes the failed-push state self-healing.
