@@ -26,8 +26,8 @@ use zeroize::Zeroizing;
 
 use crate::{
     ClonedVault, GageError, Identity, PromptError, Prompter, Remedy, Roots, UnlockKind,
-    UnlockPurpose, UnlockRequest, UnlockResponse, Vault, Warning, clone_vault, init_vault,
-    remote_token_hosts, remove_remote_token, save_remote_token,
+    UnlockPurpose, UnlockRequest, UnlockResponse, Vault, VaultRemote, Warning, clone_vault,
+    init_vault, remote_token_hosts, remove_remote_token, save_remote_token,
 };
 
 const PASSPHRASE: &str = "correct horse battery staple";
@@ -815,6 +815,43 @@ fn a_new_vault_with_a_remote_is_published_by_sync() {
 
     assert!(report.pushed, "{report:?}");
     assert!(gittest::Device::clone(remote.path()).exists(".gage/config.toml"));
+}
+
+#[test]
+fn a_vault_without_a_remote_reports_none() {
+    assert_eq!(Fixture::new(&[]).open().remote().unwrap(), None);
+}
+
+#[test]
+fn a_cloned_vault_reports_the_remote_it_was_cloned_from() {
+    let owner = Owner::publishing(&[("alpha", "v", &[])]);
+    let phone = Phone::new();
+    let url = owner.remote.path().to_str().unwrap().to_string();
+
+    let cloned = phone.clone_from(owner.remote.path());
+
+    assert_eq!(
+        cloned.vault.remote().unwrap(),
+        Some(VaultRemote {
+            url,
+            token_host: None,
+        })
+    );
+}
+
+#[test]
+fn an_https_remote_crosses_with_its_token_host() {
+    let fixture = Fixture::new(&[]);
+    let vault = fixture.open();
+    gitrepo::set_remote(&vault.inner.path, "https://git.example.com/me/v.git").unwrap();
+
+    assert_eq!(
+        vault.remote().unwrap(),
+        Some(VaultRemote {
+            url: "https://git.example.com/me/v.git".into(),
+            token_host: Some("git.example.com".into()),
+        })
+    );
 }
 
 #[test]

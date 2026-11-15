@@ -372,6 +372,17 @@ pub struct GitInfo {
     pub clean: bool,
 }
 
+/// A git vault's remote, as a frontend may show it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteInfo {
+    /// The URL without credentials (ADR-0074).
+    pub url: String,
+    /// The host a token for this remote is stored under, `None` if it is
+    /// never offered one: a local path, an SSH remote, cleartext `http://`
+    /// (ADR-0075), or a URL that doesn't parse.
+    pub token_host: Option<String>,
+}
+
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum InfoError {
@@ -492,7 +503,7 @@ impl Vault {
         let file = vaultconfig::load(&self.config_path())?;
         let git = match file.vault.vault_type {
             VaultType::Git => Some(GitInfo {
-                remote: gitrepo::remote_url(&self.path)?.map(|url| remoteauth::redacted(&url)),
+                remote: self.remote()?.map(|remote| remote.url),
                 clean: gitrepo::is_clean(&self.path)?,
             }),
         };
@@ -503,6 +514,18 @@ impl Vault {
             recipients: file.recipients.len(),
             git,
         })
+    }
+
+    /// The vault's remote, read from its repository on every call so it
+    /// follows a `git set-remote` made elsewhere; `None` if it has none.
+    /// Nothing about a stored token is read.
+    pub fn remote(&self) -> Result<Option<RemoteInfo>, gitrepo::Error> {
+        Ok(gitrepo::remote_url(&self.path)?.map(|url| RemoteInfo {
+            token_host: remoteauth::token_host(&url)
+                .ok()
+                .filter(|host| !host.is_empty()),
+            url: remoteauth::redacted(&url),
+        }))
     }
 
     /// Proves this device can decrypt the vault, asking `prompter` for
@@ -1787,6 +1810,85 @@ mod tests {
                 remote: Some("/somewhere.git".into()),
                 clean: false,
             })
+        );
+    }
+
+    fn remote_of(root: &tempfile::TempDir, url: Option<&str>) -> Option<RemoteInfo> {
+        let (spec, entry) = registered(root);
+        if let Some(url) = url {
+            // Straight into the repository: a remote stored before ADR-0074
+            // refused credentials, which `set_remote` no longer writes.
+            git2::Repository::open(&spec.path)
+                .unwrap()
+                .remote_set_url("origin", url)
+                .unwrap();
+        }
+        Vault::from_registration(&test_dirs(), "personal", &entry)
+            .unwrap()
+            .remote()
+            .unwrap()
+    }
+
+    #[test]
+    fn remote_is_none_without_one() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(remote_of(&root, None), None);
+    }
+
+    #[test]
+    fn remote_reports_an_https_url_and_its_token_host() {
+        let root = tempfile::tempdir().unwrap();
+        assert_eq!(
+            remote_of(&root, Some("https://git.example.com:8443/me/v.git")),
+            Some(RemoteInfo {
+                url: "https://git.example.com:8443/me/v.git".into(),
+                token_host: Some("git.example.com".into()),
+            })
+        );
+    }
+
+    #[test]
+    fn remote_hides_stored_credentials_and_keeps_the_host() {
+        let root = tempfile::tempdir().unwrap();
+        let remote = remote_of(
+            &root,
+            Some("https://gage:tok_secret@git.example.com/me/v.git"),
+        )
+        .unwrap();
+        assert_eq!(remote.url, "https://git.example.com/me/v.git");
+        assert_eq!(remote.token_host.as_deref(), Some("git.example.com"));
+        assert!(!format!("{remote:?}").contains("tok_secret"), "{remote:?}");
+    }
+
+    #[test]
+    fn remote_offers_no_token_host_where_no_token_travels() {
+        for url in [
+            "/somewhere.git",
+            "git@github.com:me/v.git",
+            "ssh://git@github.com/me/v.git",
+            "http://git.example.com/me/v.git",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let remote = remote_of(&root, Some(url)).unwrap();
+            assert_eq!(remote.url, url);
+            assert_eq!(remote.token_host, None, "{url}");
+        }
+    }
+
+    #[test]
+    fn remote_follows_a_change_made_after_opening() {
+        let root = tempfile::tempdir().unwrap();
+        let (spec, entry) = registered(&root);
+        let vault = Vault::from_registration(&test_dirs(), "personal", &entry).unwrap();
+        gitrepo::set_remote(&spec.path, "https://one.example.com/v.git").unwrap();
+        assert_eq!(
+            vault.remote().unwrap().unwrap().token_host.as_deref(),
+            Some("one.example.com")
+        );
+        gitrepo::set_remote(&spec.path, "https://two.example.com/v.git").unwrap();
+        assert_eq!(
+            vault.remote().unwrap().unwrap().token_host.as_deref(),
+            Some("two.example.com")
         );
     }
 

@@ -620,6 +620,18 @@ pub fn clone_vault(
     })
 }
 
+/// A vault's remote, as the app may show it: never its credentials or
+/// anything about its token (ADR-0074, ADR-0063).
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct VaultRemote {
+    /// The URL, with any credentials stored in it removed.
+    pub url: String,
+    /// The host a token for this remote is saved under with
+    /// [`save_remote_token`], or `None` if the remote is never offered one:
+    /// a local path, SSH, or cleartext `http://`.
+    pub token_host: Option<String>,
+}
+
 /// One registered vault.
 #[derive(Debug, uniffi::Object)]
 pub struct Vault {
@@ -639,6 +651,16 @@ impl Vault {
         let inner =
             gage::Vault::from_registration(&dirs, &name, entry).map_err(GageError::from_core)?;
         Ok(Arc::new(Vault { inner, dirs }))
+    }
+
+    /// The vault's remote, or `None` if it has none. Read from the vault on
+    /// every call, so it follows a remote changed on another computer.
+    pub fn remote(&self) -> Result<Option<VaultRemote>, GageError> {
+        let remote = self.inner.remote().map_err(GageError::from_core)?;
+        Ok(remote.map(|r| VaultRemote {
+            url: r.url,
+            token_host: r.token_host,
+        }))
     }
 
     /// Unlocks this device's identity, asking `prompter` for as many tries
