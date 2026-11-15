@@ -840,6 +840,88 @@ fn sync_warns_on_a_clean_fast_forward() {
     assert!(p.recipient_changes().is_empty(), "a sync asked a question");
 }
 
+/// Another device's legitimate `recipient add`, published: the change a
+/// manual pull or push brings in. Returns the device it added.
+fn publish_routine_change(s: &crate::sync::remotesync::tests::SyncVault) -> &'static str {
+    let other = s.other();
+    commit_routine_change_at(&other, "phone-1", &new_key());
+    other.push();
+    "phone-1"
+}
+
+/// A commit of this device's own that touches no recipient file, so a
+/// push of it has something to send and a merge with the remote is
+/// disjoint.
+fn commit_local_note(s: &crate::sync::remotesync::tests::SyncVault, name: &str) {
+    std::fs::write(s.vault.path.join(name), "a note\n").unwrap();
+    gitrepo::commit_all(&s.vault.path, "a local note").unwrap();
+}
+
+/// The opportunistic warning, once, asking nothing and approving nothing.
+fn assert_warned_only(
+    s: &crate::sync::remotesync::tests::SyncVault,
+    p: &FakePrompter,
+    added: &str,
+) {
+    let warnings = p.warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains("recipient list changed"),
+        "{warnings:?}"
+    );
+    assert!(warnings[0].contains("1 added"), "{warnings:?}");
+    assert!(p.recipient_changes().is_empty(), "it asked a question");
+    let cache = s.vault.load_trust_cache().unwrap().unwrap();
+    assert!(
+        !String::from_utf8_lossy(&cache.known_config).contains(added),
+        "it regenerated the cache"
+    );
+}
+
+// #235: `gage pull` runs the hook `gage sync` does.
+#[test]
+fn pull_warns_on_a_fast_forward_that_changes_the_list() {
+    use crate::sync::remotesync::tests::SyncVault;
+    let s = SyncVault::new();
+    drop(s.unlock());
+    let added = publish_routine_change(&s);
+
+    let p = FakePrompter::new();
+    let report = s.vault.pull_checked(&p).unwrap();
+    assert!(report.pulled, "{report:?}");
+    assert_warned_only(&s, &p, added);
+}
+
+// #235: a rejected push fetches and merges, which brings the change in.
+#[test]
+fn push_warns_when_its_merge_brings_in_a_list_change() {
+    use crate::sync::remotesync::tests::SyncVault;
+    let s = SyncVault::new();
+    drop(s.unlock());
+    let added = publish_routine_change(&s);
+    commit_local_note(&s, "note.txt");
+
+    let p = FakePrompter::new();
+    let report = s.vault.push_checked(&p).unwrap();
+    assert!(report.merged && report.pushed, "{report:?}");
+    assert_warned_only(&s, &p, added);
+}
+
+#[test]
+fn pull_and_push_with_no_list_change_warn_nothing() {
+    use crate::sync::remotesync::tests::SyncVault;
+    let s = SyncVault::new();
+    drop(s.unlock());
+    let other = s.other();
+    other.write_commit_push("other.txt", "theirs\n", "another device's note");
+
+    let p = FakePrompter::new();
+    assert!(s.vault.pull_checked(&p).unwrap().pulled);
+    commit_local_note(&s, "note.txt");
+    assert!(s.vault.push_checked(&p).unwrap().pushed);
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+}
+
 // --- recipient verbs: refusal, trust and regeneration -----------------------
 
 /// What origin's branch points at now, read through a fresh clone.

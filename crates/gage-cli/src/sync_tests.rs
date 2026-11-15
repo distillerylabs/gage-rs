@@ -261,6 +261,63 @@ fn push_publishes_and_pull_catches_up() {
     assert!(Device::clone(remote.path()).exists("mine.txt"));
 }
 
+/// Another device's legitimate `recipient add`, published.
+fn publish_recipient_add(remote: &BareRemote) {
+    let other = Device::clone(remote.path());
+    let pubkey = age::x25519::Identity::generate().to_public().to_string();
+    let keys = other.read(".age-recipients");
+    other.write(".age-recipients", &format!("{keys}{pubkey}\n"));
+    let config = other.path().join(".gage").join("config.toml");
+    let mut file = vaultconfig::load(&config).unwrap();
+    file.recipients.push(vaultconfig::Recipient {
+        device: "phone-1".into(),
+        pubkey,
+    });
+    vaultconfig::save(&config, &file).unwrap();
+    other.commit("gage: recipient add phone-1");
+    other.push();
+}
+
+fn assert_recipient_warning(p: &FakePrompter) {
+    let warnings = p.warnings();
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains("recipient list changed"),
+        "{warnings:?}"
+    );
+    assert!(p.recipient_changes().is_empty(), "it asked a question");
+}
+
+// #235: the manual verbs warn as `sync` does.
+#[test]
+fn pull_warns_about_a_recipient_change_it_brings_in() {
+    let env = Env::new();
+    let (_, remote) = env.init_with_remote("personal");
+    assert_eq!(env.run_with(&["ls"], &unlocks()).code, ExitCode::Success);
+    publish_recipient_add(&remote);
+
+    let p = FakePrompter::new();
+    let r = env.run_with(&["pull"], &p);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
+    assert_recipient_warning(&p);
+    assert!(p.unlock_requests().is_empty(), "a pull unlocked");
+}
+
+#[test]
+fn push_warns_about_a_recipient_change_its_merge_brings_in() {
+    let env = Env::new();
+    let (vault, remote) = env.init_with_remote("personal");
+    assert_eq!(env.run_with(&["ls"], &unlocks()).code, ExitCode::Success);
+    publish_recipient_add(&remote);
+    local_commit(&vault, "local.txt", "local");
+
+    let p = FakePrompter::new();
+    let r = env.run_with(&["push"], &p);
+    assert_eq!(r.code, ExitCode::Success, "{}", r.stderr);
+    assert!(r.stdout.contains("merged"), "{}", r.stdout);
+    assert_recipient_warning(&p);
+}
+
 // `show` knows nothing of
 // remotes, but it unlocks, and unlocking pulls.
 #[test]

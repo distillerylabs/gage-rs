@@ -67,14 +67,14 @@ expect_exit 0
 expect_out '^s3cret$'
 expect_no_err 'recipient list changed'
 
-step "alice adds carol behind bob's back; bob's sync warns"
+step "alice adds carol behind bob's back; bob's pull warns"
 g carol -- clone "$R" --device carol-laptop
 g carol -i "$(lines "$(pw carol)" "$(pw carol)")" -- identity add --device carol-laptop
 CAROL_KEY="$(grep -oE 'age1[0-9a-z]{58}' <<<"$OUT$ERR" | head -1)"
 expect_true "identity add printed an age public key" test -n "$CAROL_KEY"
 g alice -i "$(unlock alice)" -- recipient add "$CAROL_KEY" --device carol-laptop
 expect_exit 0
-g bob -i "$(unlock bob)" -- sync
+g bob -- pull
 expect_exit 0
 expect_err 'recipient list changed'
 

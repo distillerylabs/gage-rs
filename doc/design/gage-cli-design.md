@@ -1503,10 +1503,11 @@ The mechanism behind "change detection" above:
   don't otherwise trigger it: on every vault unlock — session `use` and a
   one-shot command's implicit unlock alike, the same hook "Sync model"'s
   auto fetch+pull uses, so a plain `gage show`/`ls` surfaces the warning
-  too, not just whatever command happens to write next — and on `sync`
-  explicitly, since a sync that fast-forwards cleanly with no conflicting
-  entry never needs to unlock any identity at all and so wouldn't
-  otherwise pass through the unlock hook. Either way you see the warning
+  too, not just whatever command happens to write next — and on the
+  manual `sync`, `pull` and `push` explicitly, since a fast-forward or a
+  merge with no conflicting entry never needs to unlock any identity at
+  all and so wouldn't otherwise pass through the unlock hook. (`push`
+  brings commits in too: a rejected push fetches and merges.) Either way you see the warning
   when you sit down (or run any command at all), not only at the moment
   you're about to write.
 - **What a mismatch looks like — a plaintext diff, always.** `gage` never

@@ -40,8 +40,9 @@ pub fn flags() -> Vec<Arg> {
 /// Fetch and fast-forward, never merge: a divergence is reported, as a
 /// conflict for a script to see.
 pub fn pull(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    let prompter = keys.prompter();
     with_resolved_vault(matches, io, keys, |io, vault| {
-        let report = vault.pull()?;
+        let report = vault.pull_checked(prompter)?;
         if report.diverged {
             return Err(
                 fail(ExitCode::Conflict, report.summary()).with_remedy(Some(report.remedy()))
@@ -54,8 +55,9 @@ pub fn pull(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), Cl
 
 /// Publish, merging a divergence whose two sides touched different paths.
 pub fn push(matches: &ArgMatches, io: &mut Io, keys: &mut Keys) -> Result<(), CliError> {
+    let prompter = keys.prompter();
     with_resolved_vault(matches, io, keys, |io, vault| {
-        finish(io, vault, vault.push())
+        finish(io, vault, vault.push_checked(prompter))
     })
 }
 
