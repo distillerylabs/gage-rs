@@ -306,7 +306,12 @@ were, so the same question comes back next time.
   A change to the key file alone is reported as its own case
   ("`.gage/vault-key.age` was replaced on its own").
   The first time you use a vault there is nothing to compare against, and
-  that first look is trusted.
+  that first look is trusted. A device still waiting for its enrollment to
+  be approved records nothing yet: its first look is its first use as a
+  recipient, so its own approval is never reported as a change. Neither
+  is it on a device that recorded a list before approval anyway: when the
+  only change is this device's own key being added, the record quietly
+  moves to the new list.
 - **Two outcomes.** If the two recipient files still agree, confirming
   records the new list as reviewed and the question stops. If they
   *disagree* (the signature of someone editing `.age-recipients` alone),

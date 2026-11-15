@@ -426,11 +426,21 @@ impl Vault {
         &self,
     ) -> Result<Option<RecipientChangeWarning>, TrustError> {
         let current = self.current_trust_state()?;
+        let own = self.recorded_registration().pubkey;
         let Some(cache) = self.load_trust_cache()? else {
             // First use. The first list a device sees is trusted on faith:
             // inherent to trust-on-first-use, and why this is a backstop
-            // rather than a guarantee.
-            self.save_trust_cache(&current)?;
+            // rather than a guarantee. A device still waiting for approval
+            // has nothing to protect yet, so its first use is its first
+            // read as a recipient: adopting the list from before its
+            // approval would warn about the approval itself.
+            let pending = match &own {
+                Some(key) => !self.recipients()?.iter().any(|r| r.pubkey == *key),
+                None => false,
+            };
+            if !pending {
+                self.save_trust_cache(&current)?;
+            }
             return Ok(None);
         };
         let recipients_same = cache.known_config == current.known_config
@@ -463,10 +473,21 @@ impl Vault {
             )
         };
         let (added, removed) = self.recipient_delta(&cache.known_config)?;
+        let verification = self.verify_recipients()?;
+        if verification.in_sync
+            && let Some(key) = &own
+            && self.only_change_is_own_approval(&cache.known_config, key)?
+        {
+            // A record saved while this device was pending, before the
+            // check above held off: it settles to the list this device can
+            // now read under, as a first use would have.
+            self.save_trust_cache(&current)?;
+            return Ok(None);
+        }
         Ok(Some(RecipientChangeWarning {
             vault: self.name.clone(),
             diff,
-            verification: self.verify_recipients()?,
+            verification,
             added,
             removed,
             last_confirmed: cache.confirmed_at,
@@ -486,14 +507,7 @@ impl Vault {
         &self,
         cached: &[u8],
     ) -> Result<(Vec<Recipient>, Vec<Recipient>), TrustError> {
-        let path = self.trust_cache_dir().join(KNOWN_CONFIG_FILE);
-        let was: vaultconfig::File =
-            toml::from_str(&String::from_utf8_lossy(cached)).map_err(|source| {
-                TrustError::Parse {
-                    path,
-                    source: Box::new(source),
-                }
-            })?;
+        let was = self.parse_cached_config(cached)?;
         let now = self.recipients()?;
         let had = |key: &str| was.recipients.iter().any(|r| r.pubkey == key);
         let has = |key: &str| now.iter().any(|r| r.pubkey == key);
@@ -505,6 +519,32 @@ impl Vault {
             .cloned()
             .collect();
         Ok((added, removed))
+    }
+
+    /// The cached config copy, through the plain decoder for the reason
+    /// [`Vault::recipient_delta`] gives.
+    fn parse_cached_config(&self, cached: &[u8]) -> Result<vaultconfig::File, TrustError> {
+        toml::from_str(&String::from_utf8_lossy(cached)).map_err(|source| TrustError::Parse {
+            path: self.trust_cache_dir().join(KNOWN_CONFIG_FILE),
+            source: Box::new(source),
+        })
+    }
+
+    /// Whether the committed `config.toml` is the cached copy plus this
+    /// device's own key and nothing else: its approval, seen by a record
+    /// saved before it. That one addition grants nobody but this device
+    /// anything, so it is the one change not worth a warning. Anything
+    /// else in the same change (another key, a removal, any other field)
+    /// and the whole change is reported as usual.
+    fn only_change_is_own_approval(&self, cached: &[u8], own: &str) -> Result<bool, TrustError> {
+        let was = self.parse_cached_config(cached)?;
+        if was.recipients.iter().any(|r| r.pubkey == own) {
+            return Ok(false);
+        }
+        let mut now = vaultconfig::load(&self.config_path())?;
+        let before = now.recipients.len();
+        now.recipients.retain(|r| r.pubkey != own);
+        Ok(now.recipients.len() + 1 == before && now == was)
     }
 
     /// The blocking pre-encrypt check, run under the vault lock before

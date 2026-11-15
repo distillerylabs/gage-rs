@@ -1377,3 +1377,131 @@ fn a_local_recipient_add_needs_no_review_of_its_own_key_file() {
         .unwrap();
     assert_eq!(t.vault.check_recipient_trust().unwrap(), None);
 }
+
+// --- a device checked before its approval (#228) --------------------------
+
+/// Records `pubkey` as this device's own key in its registration: the
+/// state of a device that has enrolled and is waiting for approval, whose
+/// key the committed list doesn't carry yet. The identity file is left
+/// alone, so an unlock still works.
+fn register_own_key(t: &TrustVault, pubkey: Option<&str>) {
+    let path = paths::global_config_file(&t.dirs);
+    let mut global = config::load(&path).unwrap();
+    global.vaults.get_mut(NAME).unwrap().pubkey = pubkey.map(str::to_string);
+    config::save_creating_dir(&path, &global).unwrap();
+}
+
+/// What `recipient approve` on another device leaves behind for this one:
+/// its own key appended to both files, and the vault key re-sealed.
+fn commit_own_approval(t: &TrustVault, own: &str) {
+    commit_routine_change(&t.vault, "phone-1", own);
+    replace_vault_key(&t.vault);
+}
+
+/// The record a pending device saved before this fix: the list from before
+/// its approval, adopted as a first use.
+fn save_pre_approval_record(t: &TrustVault) {
+    register_own_key(t, None);
+    assert_eq!(t.vault.check_recipient_trust().unwrap(), None);
+    assert!(t.cache().is_some());
+}
+
+#[test]
+fn a_pending_device_saves_no_first_record() {
+    let t = TrustVault::new();
+    register_own_key(&t, Some(&new_key()));
+    let p = unlocking();
+    t.unlock(&p);
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+    assert!(t.cache().is_none(), "a pending device adopted a list");
+    assert!(!t.known_config_path().exists());
+}
+
+#[test]
+fn a_device_checked_before_its_approval_does_not_warn_after_it() {
+    let t = TrustVault::new();
+    let own = new_key();
+    register_own_key(&t, Some(&own));
+    t.bootstrap();
+    commit_own_approval(&t, &own);
+
+    let p = unlocking();
+    t.unlock(&p);
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+    let cache = t
+        .cache()
+        .expect("the first use as a recipient is the record");
+    assert!(String::from_utf8_lossy(&cache.known_config).contains(&own));
+}
+
+#[test]
+fn a_record_from_before_the_approval_settles_on_the_next_check() {
+    let t = TrustVault::new();
+    let own = new_key();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&own));
+    commit_own_approval(&t, &own);
+
+    let p = unlocking();
+    t.unlock(&p);
+    assert!(p.warnings().is_empty(), "{:?}", p.warnings());
+    let cache = t.cache().unwrap();
+    assert!(String::from_utf8_lossy(&cache.known_config).contains(&own));
+    assert_eq!(
+        cache.vault_key_hash,
+        Some(sha256_hex(&t.vault.path.join(VAULT_KEY_FILE)))
+    );
+
+    // Settled, not silenced: the next change warns as any would.
+    commit_routine_change(&t.vault, "tablet-1", &new_key());
+    let warning = t.vault.check_recipient_trust().unwrap().expect("a warning");
+    assert_eq!(warning.delta(), "1 added");
+}
+
+#[test]
+fn own_approval_with_another_recipient_still_warns() {
+    let t = TrustVault::new();
+    let own = new_key();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&own));
+    commit_own_approval(&t, &own);
+    commit_routine_change(&t.vault, "stranger", &new_key());
+
+    let warning = t.vault.check_recipient_trust().unwrap().expect("a warning");
+    assert_eq!(warning.added.len(), 2, "{warning:?}");
+}
+
+#[test]
+fn own_approval_with_another_config_change_still_warns() {
+    let t = TrustVault::new();
+    let own = new_key();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&own));
+    commit_own_approval(&t, &own);
+    tamper_config_method_only(&t.vault);
+
+    assert!(t.vault.check_recipient_trust().unwrap().is_some());
+}
+
+#[test]
+fn own_approval_over_a_mismatched_recipients_file_still_warns() {
+    let t = TrustVault::new();
+    let own = new_key();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&own));
+    commit_own_approval(&t, &own);
+    tamper_recipients_file(&t.vault, &new_key());
+
+    let warning = t.vault.check_recipient_trust().unwrap().expect("a warning");
+    assert!(warning.mismatched());
+}
+
+#[test]
+fn an_added_key_that_is_not_this_devices_still_warns() {
+    let t = TrustVault::new();
+    save_pre_approval_record(&t);
+    register_own_key(&t, Some(&new_key()));
+    commit_own_approval(&t, &new_key());
+
+    assert!(t.vault.check_recipient_trust().unwrap().is_some());
+}

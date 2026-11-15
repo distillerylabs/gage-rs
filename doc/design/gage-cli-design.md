@@ -1483,7 +1483,15 @@ The mechanism behind "change detection" above:
   would miss anyone who edits `.age-recipients` directly without touching
   `config.toml` to match. Together, "the cache" means: what recipients did
   I last see and approve, as of the last time I encrypted (or explicitly
-  reviewed) here. A separate `key-continuity.toml` holds a fingerprint of
+  reviewed) here. A device whose own key (recorded in its registration)
+  isn't on the committed list yet, one waiting for approval, writes no
+  cache: it has nothing to protect, and adopting the pre-approval list
+  would warn about its own approval forever after. Its first use as a
+  recipient is the first use. For the same reason, a record that differs
+  from the committed state only by this device's own key being added (in
+  `config.toml`, with `verify` passing) is regenerated silently rather
+  than reported: that one addition grants nobody but this device
+  anything. A separate `key-continuity.toml` holds a fingerprint of
   the vault key this device last saw, which every use of the key must
   continue ([ADR-0067](../decisions/0067-key-continuity.md)).
 - **When it's checked.** Before any operation that encrypts
