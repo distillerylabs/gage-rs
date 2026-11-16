@@ -81,6 +81,5 @@ a checkout of this repo while both are changing.
 - UniFFI's crates are MPL-2.0. `deny.toml` allows that licence for those
   crates by name, not workspace-wide. It is file-level copyleft: shipping
   them obliges only that changes to UniFFI's own files stay MPL.
-- How the Swift package and the Android library are distributed, and
-  whether `gage-ffi` is published, is decided when there is something to
-  distribute.
+- How the bindings are distributed is [ADR-0083](0083-bindings-distribution.md):
+  an app builds them at a release tag, and nothing prebuilt is published.
