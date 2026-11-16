@@ -651,6 +651,77 @@ pub fn clone_vault(
     })
 }
 
+/// What happened to a removed vault's directory.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
+pub enum CloneRemoval {
+    Removed,
+    /// Nothing was there.
+    Absent,
+    /// Kept: it isn't in `<data>/vaults/`, where these bindings clone to.
+    KeptOutsideVaultsDir,
+    /// Kept: the vault registered as `name` uses it too.
+    KeptSharedWith {
+        name: String,
+    },
+}
+
+/// What [`remove_vault`] did.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct RemovedVault {
+    pub clone: CloneRemoval,
+    /// An identity file was there and has been deleted.
+    pub identity_removed: bool,
+    /// Whether this device's key is still on the vault's recipient list. It
+    /// stays there until someone who can write the vault removes it from a
+    /// computer, so say so. `None` when it couldn't be told.
+    pub still_a_recipient: Option<bool>,
+}
+
+/// Removes the vault registered as `name` from this device: its clone, its
+/// trust record, this device's identity file if `delete_identity`, and its
+/// registration. Contacts nothing and changes nothing on the remote, and
+/// leaves the saved token for its host alone (ADR-0082).
+///
+/// Refused with `Conflict`, removing nothing, when something exists only
+/// here: no remote (remedy `SetRemote`), commits never pushed (`Push`),
+/// uncommitted changes, or, with `delete_identity`, a key that is the
+/// vault's only one. Ask the person, then call again with
+/// `discard_local_only` to remove it anyway. Keep the identity
+/// (`delete_identity` false) for the `ReRegister` and `Reclone` remedies:
+/// cloning again then reads, or asks to join, with the same key. A failure
+/// part way keeps the registration, so calling again finishes.
+#[uniffi::export]
+pub fn remove_vault(
+    roots: Roots,
+    name: String,
+    delete_identity: bool,
+    discard_local_only: bool,
+) -> Result<RemovedVault, GageError> {
+    let removed = gage::Vault::remove_from_device(
+        &roots.dirs(),
+        &name,
+        &gage::vault::RemoveOptions {
+            delete_identity,
+            discard_local_only,
+        },
+    )
+    .map_err(GageError::from_core)?;
+    Ok(RemovedVault {
+        clone: match removed.clone {
+            gage::vault::CloneRemoval::Removed => CloneRemoval::Removed,
+            gage::vault::CloneRemoval::Absent => CloneRemoval::Absent,
+            gage::vault::CloneRemoval::Kept(gage::vault::KeptClone::OutsideVaultsDir) => {
+                CloneRemoval::KeptOutsideVaultsDir
+            }
+            gage::vault::CloneRemoval::Kept(gage::vault::KeptClone::SharedWith(name)) => {
+                CloneRemoval::KeptSharedWith { name }
+            }
+        },
+        identity_removed: removed.identity_removed,
+        still_a_recipient: removed.still_a_recipient,
+    })
+}
+
 /// A vault's remote, as the app may show it: never its credentials or
 /// anything about its token (ADR-0074, ADR-0063).
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
