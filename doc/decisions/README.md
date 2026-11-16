@@ -33,6 +33,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0059](0059-release-pipeline.md) The release pipeline's trust model
 - [0068](0068-attest-on-tags-only.md) Only the tag-only `announce` job can attest release archives
 - [0060](0060-mobile-bindings.md) Mobile bindings live in this repo; the apps don't
+- [0083](0083-bindings-distribution.md) Apps build the bindings from a release tag; nothing prebuilt is published
 - [0061](0061-library-creates-and-registers.md) Creating or joining a vault is one library operation, registration included
 - [0078](0078-failed-registration-rollback.md) A failed registration undoes the vault or clone
 - [0082](0082-removing-a-vault-from-a-device.md) Removing a vault from a device refuses to lose what only it holds
