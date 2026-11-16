@@ -15,6 +15,7 @@ mod code;
 mod enroll;
 mod name;
 mod seal;
+mod waiting;
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -25,6 +26,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 pub use approve::{Approval, ApprovalOutcome, ApprovalResult};
+pub use waiting::ApprovalCheckError;
 
 use crate::entry::LockError;
 use crate::error::{ErrorKind, HasKind, Remedy};
@@ -681,3 +683,5 @@ mod payload_tests;
 mod reserved_tests;
 #[cfg(test)]
 mod seal_tests;
+#[cfg(test)]
+mod waiting_tests;

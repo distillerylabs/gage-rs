@@ -767,6 +767,17 @@ impl Vault {
         })
     }
 
+    /// Pulls, then says whether this device has been approved: whether the
+    /// key [`Vault::enroll`] recorded is on the vault's recipient list.
+    /// Unlocks nothing, so it needs no passphrase; `prompter` only hears
+    /// warnings. A device that never asked to join from here is `Usage`
+    /// with the `EnrollOrRecover` remedy (ADR-0081).
+    pub fn check_approved(&self, prompter: Arc<dyn Prompter>) -> Result<bool, GageError> {
+        self.inner
+            .check_approved(&Bridge(prompter.as_ref()))
+            .map_err(GageError::from_core)
+    }
+
     /// Every entry `pattern` matches, ignoring case, in its title or
     /// description, then its value and fields. Decrypts the whole vault.
     pub fn search(

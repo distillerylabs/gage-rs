@@ -939,6 +939,63 @@ fn once_approved_sync_then_unlock_reads_the_vault() {
 }
 
 #[test]
+fn check_approved_says_whether_the_device_was_approved_without_a_passphrase() {
+    let owner = Owner::publishing(&[("alpha", "v-alpha", &[])]);
+    let phone = Phone::new();
+    let vault = phone.clone_from(owner.remote.path()).vault;
+    let request = vault
+        .enroll(DEVICE.into(), None, answering_passphrase())
+        .unwrap();
+
+    // A prompter with no answers: asking it for a passphrase would fail.
+    let silent = ScriptedPrompter::answering(vec![]);
+    assert!(!vault.check_approved(silent.clone()).unwrap());
+
+    owner.approve(&request.code);
+    assert!(vault.check_approved(silent.clone()).unwrap());
+    assert!(silent.requests().is_empty(), "{:?}", silent.requests());
+
+    // The check pulled, so the unlock that follows reads.
+    let identity = vault.unlock(answering_passphrase()).unwrap();
+    assert_eq!(vault.list(identity).unwrap().len(), 1);
+    assert!(silent.warnings().is_empty(), "{:?}", silent.warnings());
+}
+
+#[test]
+fn check_approved_before_asking_to_join_says_to_enroll() {
+    let owner = Owner::publishing(&[]);
+    let phone = Phone::new();
+    let vault = phone.clone_from(owner.remote.path()).vault;
+
+    let err = vault
+        .check_approved(ScriptedPrompter::answering(vec![]))
+        .unwrap_err();
+
+    assert!(matches!(err, GageError::Usage { .. }), "got {err:?}");
+    assert_eq!(err.remedy(), Some(Remedy::EnrollOrRecover), "{err:?}");
+}
+
+#[test]
+fn check_approved_with_an_unreachable_remote_is_unreachable() {
+    let owner = Owner::publishing(&[]);
+    let phone = Phone::new();
+    let cloned = phone.clone_from(owner.remote.path()).vault;
+    cloned
+        .enroll(DEVICE.into(), None, answering_passphrase())
+        .unwrap();
+    let vault = Vault {
+        inner: cloned.inner.clone().with_remote_syncer(Arc::new(Offline)),
+        dirs: phone.dirs.clone(),
+    };
+
+    let err = vault
+        .check_approved(ScriptedPrompter::answering(vec![]))
+        .unwrap_err();
+
+    assert!(matches!(err, GageError::Unreachable { .. }), "got {err:?}");
+}
+
+#[test]
 fn enrolling_again_once_a_recipient_publishes_nothing() {
     let owner = Owner::publishing(&[]);
     let (_phone, vault, _identity) = joined(&owner);

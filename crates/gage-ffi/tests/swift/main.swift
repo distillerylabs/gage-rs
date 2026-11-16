@@ -5,8 +5,10 @@
 // `smoke.sh` runs one mode at a time, because an approval happens between two:
 //
 //   basic   opens, unlocks and lists the fixture's own vault
-//   join    clones it as a new device and enrolls, leaving the code in a file
-//   read    once the fixture has approved: syncs, unlocks and reads
+//   join    clones it as a new device and enrolls, leaving the code in a file,
+//           and checks it isn't approved yet
+//   read    once the fixture has approved: syncs, checks it's approved,
+//           unlocks and reads
 import Foundation
 
 let passphrase = "correct horse battery staple"
@@ -113,6 +115,16 @@ func join() {
     }
 
     do {
+        let answers = Answers(passphrase)
+        let approved = try vault.checkApproved(prompter: answers)
+        expect(!approved, "a device waiting for approval checked as approved")
+        expect(answers.purposes.isEmpty, "checking for approval asked for \(answers.purposes)")
+        print("smoke: checked for approval while waiting")
+    } catch {
+        fail("check approved while waiting: \(error)")
+    }
+
+    do {
         let access = try vault.checkRemoteToken(token: nil)
         expect(access == .readWrite, "the local remote checked as \(access)")
         print("smoke: checked the remote's access")
@@ -138,6 +150,10 @@ func read() {
         let vault = try Vault.open(roots: phoneRoots, name: "personal")
         let report = try vault.sync(prompter: Answers(passphrase))
         expect(report.pulled, "sync pulled nothing: \(report)")
+        let answers = Answers(passphrase)
+        let approved = try vault.checkApproved(prompter: answers)
+        expect(approved, "an approved device checked as waiting")
+        expect(answers.purposes.isEmpty, "checking for approval asked for \(answers.purposes)")
         let identity = try vault.unlock(prompter: Answers(passphrase))
         print("smoke: synced and unlocked")
 
