@@ -56,7 +56,7 @@ fn conflict_is_the_multi_line_trust_refusal() {
         &r,
         ExitCode::Conflict,
         concat!(
-            "gage: \"personal\"'s recipient list changed since this device last confirmed it, and its two recipient files now disagree; run `gage recipient verify`\n",
+            "gage: the recipient list of \"personal\" changed since this device last confirmed it, and its two recipient files now disagree; run `gage recipient verify`\n",
             "gage: the recipient files of \"personal\" disagree:\n",
             "  age1qqqsyqcyq5rqwzqfpg9scrgwpugpzysnzs23v9ccrydpk8qarc0savhh7m is in .age-recipients but not in .gage/config.toml\n",
             "gage: fix this with `gage recipient verify --repair`, which rewrites .age-recipients from .gage/config.toml and says what it drops\n",
@@ -268,7 +268,7 @@ fn a_read_warns_with_the_verify_hint() {
         &env,
         &r,
         ExitCode::Success,
-        "gage: \"personal\"'s recipient list changed since this device last confirmed it, and its two recipient files now disagree; run `gage recipient verify`\n",
+        "gage: the recipient list of \"personal\" changed since this device last confirmed it, and its two recipient files now disagree; run `gage recipient verify`\n",
     );
 }
 

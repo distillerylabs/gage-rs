@@ -414,10 +414,15 @@ fn delta_with_no_recipient_change_says_edited_alone() {
     assert!(w.added.is_empty() && w.removed.is_empty(), "{w:?}");
     assert_eq!(w.delta(), ".age-recipients was edited on its own");
     assert!(
-        w.summary().contains("recipient list changed"),
+        w.summary().starts_with(&format!(
+            "the recipient list of {:?} changed since this device last confirmed it",
+            w.vault
+        )),
         "{}",
         w.summary()
     );
+    // #233: the quoted name is never followed by a possessive.
+    assert!(!w.summary().contains("\"'s"), "{}", w.summary());
 }
 
 // The
@@ -773,7 +778,7 @@ fn unlock_warns_opportunistically_without_blocking() {
     let warnings = p.warnings();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
-        warnings[0].contains("recipient list changed"),
+        warnings[0].contains("changed since this device last confirmed it"),
         "{warnings:?}"
     );
     assert!(warnings[0].contains("1 added"), "{warnings:?}");
@@ -866,7 +871,7 @@ fn assert_warned_only(
     let warnings = p.warnings();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
-        warnings[0].contains("recipient list changed"),
+        warnings[0].contains("changed since this device last confirmed it"),
         "{warnings:?}"
     );
     assert!(warnings[0].contains("1 added"), "{warnings:?}");

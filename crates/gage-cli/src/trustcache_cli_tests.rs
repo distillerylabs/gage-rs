@@ -397,11 +397,17 @@ fn reads_warn_opportunistically_in_one_shot_mode() {
         let r = env.run_with(args, &p);
         assert_eq!(r.code, ExitCode::Success, "{args:?}: {}", r.stderr);
         assert!(
-            r.stderr.contains("recipient list changed"),
+            r.stderr
+                .contains("changed since this device last confirmed it"),
             "{args:?}: {}",
             r.stderr
         );
-        assert!(!r.stdout.contains("recipient list changed"), "{}", r.stdout);
+        assert!(
+            !r.stdout
+                .contains("changed since this device last confirmed it"),
+            "{}",
+            r.stdout
+        );
         assert!(r.stdout.contains(entry), "{args:?}: {}", r.stdout);
         assert!(p.recipient_changes().is_empty(), "{args:?} asked");
     }

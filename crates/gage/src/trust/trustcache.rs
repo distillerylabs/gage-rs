@@ -91,13 +91,13 @@ impl RecipientChangeWarning {
     pub fn summary(&self) -> String {
         if self.mismatched() {
             return format!(
-                "{:?}'s recipient list changed since this device last confirmed it, and its two \
+                "the recipient list of {:?} changed since this device last confirmed it, and its two \
                  recipient files now disagree",
                 self.vault
             );
         }
         format!(
-            "{:?}'s recipient list changed since this device last confirmed it ({}); \
+            "the recipient list of {:?} changed since this device last confirmed it ({}); \
              the next write here will ask you to review it.",
             self.vault,
             self.delta()
@@ -647,7 +647,7 @@ pub struct RecipientRepair {
 /// the whole decision: rewriting `.age-recipients` is only safe if the
 /// operator agrees the keys it removes shouldn't have been there.
 fn repair_prompt(vault: &str, repair: &RecipientRepair) -> String {
-    let mut text = format!("Rewrite {vault:?}'s .age-recipients from .gage/config.toml?");
+    let mut text = format!("Rewrite .age-recipients in {vault:?} from .gage/config.toml?");
     for k in &repair.dropped {
         text.push_str(&format!(
             "\n  drop {k} (it can read anything written while it was listed)"

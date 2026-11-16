@@ -282,7 +282,7 @@ fn assert_recipient_warning(p: &FakePrompter) {
     let warnings = p.warnings();
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     assert!(
-        warnings[0].contains("recipient list changed"),
+        warnings[0].contains("changed since this device last confirmed it"),
         "{warnings:?}"
     );
     assert!(p.recipient_changes().is_empty(), "it asked a question");

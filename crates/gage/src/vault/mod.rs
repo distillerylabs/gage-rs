@@ -610,7 +610,7 @@ impl Vault {
         })?;
         if entry.device.is_empty() || entry.method.as_str().is_empty() {
             return Err(UnlockError::NoLocalIdentity(format!(
-                "{:?}'s registration records no device/method for this machine",
+                "the registration of {:?} records no device/method for this machine",
                 self.name
             )));
         }

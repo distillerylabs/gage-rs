@@ -323,7 +323,12 @@ fn format_v3_unlocks_and_lists() {
     }
     assert_eq!(r.stdout.lines().count(), fx::ENTRIES.len(), "{}", r.stdout);
     // The trust cache matches the committed recipients: no warning.
-    assert!(!r.stderr.contains("recipient list changed"), "{}", r.stderr);
+    assert!(
+        !r.stderr
+            .contains("changed since this device last confirmed it"),
+        "{}",
+        r.stderr
+    );
 }
 
 /// `show` prints the value (or one field) exactly; `cat` prints the whole

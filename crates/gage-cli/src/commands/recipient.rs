@@ -214,7 +214,7 @@ fn repair(io: &mut Io, vault: &Vault, prompter: &dyn Prompter) -> Result<(), Cli
         out(
             io,
             &[format!(
-                "gage: {:?}'s recipient files are already in sync; nothing to repair",
+                "gage: the recipient files of {:?} are already in sync; nothing to repair",
                 vault.name
             )],
         );
