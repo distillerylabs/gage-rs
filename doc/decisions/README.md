@@ -117,6 +117,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0044](0044-enroll-print-only.md) No offline enrollment path
 - [0045](0045-enroll-remote.md) When enroll touches the network
 - [0046](0046-enroll-verbs.md) Enrollment command names
+- [0081](0081-checking-for-approval.md) A device checks for its approval by its key on the recipient list
 
 ### Locking and dependencies
 

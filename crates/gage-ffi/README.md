@@ -37,8 +37,8 @@ working example is [`tests/swift/main.swift`](tests/swift/main.swift).
 ### Threading
 
 **Call everything off the main thread.** Every export blocks: unlocking runs
-scrypt, which takes about a second, and `cloneVault`, `enroll`, `sync` and
-`unlock` wait on the network. A write can also wait for the vault's lock.
+scrypt, which takes about a second, and `cloneVault`, `enroll`, `sync`,
+`checkApproved` and `unlock` wait on the network. A write can also wait for the vault's lock.
 
 `Prompter` methods run on the thread that made the call. To ask the person,
 hop to the main thread, block until they answer, and return the answer.
@@ -68,10 +68,20 @@ let cloned = try cloneVault(roots: roots, name: "personal", url: url, device: "a
 if !cloned.holdsIdentity {
     let request = try cloned.vault.enroll(device: "alice-iphone", ttlSeconds: nil, prompter: prompter)
     // Show request.code. Someone who can already read the vault approves it.
-    // Then, on this device:
-    _ = try cloned.vault.sync(prompter: prompter)
+    // Then, on this device, as often as the person asks:
+    if try cloned.vault.checkApproved(prompter: prompter) {
+        let identity = try cloned.vault.unlock(prompter: prompter)
+    }
 }
 ```
+
+`checkApproved` pulls and says whether this device's key is on the vault's
+recipient list. It unlocks nothing, so it asks for no passphrase: check for
+approval with it rather than by unlocking and reading. A device that never
+asked to join from here throws `Usage` with the `enrollOrRecover` remedy, and
+an unreachable remote throws `Unreachable`, not "still waiting". Being on the
+list is the other device's claim; the first read is what proves this one can
+decrypt ([ADR-0081](../../doc/decisions/0081-checking-for-approval.md)).
 
 The vault goes in `<data>/vaults/<name>`. A failed `initVault` or `cloneVault`
 is undone, leaving no vault and no identity it made. The exception is a failure
@@ -229,6 +239,7 @@ Publishes a vault to a local bare remote with `examples/smoke_fixture.rs`,
 builds `tests/swift/main.swift` against the XCFramework, and runs it in a
 throwaway iOS simulator (created and deleted by the script). Swift opens,
 unlocks and lists, and checks the wrong-passphrase and unknown-vault errors.
-Then it clones the vault as a new device and enrolls, the fixture approves the
-request, and Swift syncs, unlocks, searches, shows and reveals. CI runs both
+Then it clones the vault as a new device, enrolls and checks it isn't approved
+yet, the fixture approves the request, and Swift syncs, checks it's approved,
+unlocks, searches, shows and reveals. CI runs both
 targets in `.github/workflows/mobile.yml`.
