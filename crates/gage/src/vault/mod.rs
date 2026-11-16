@@ -37,11 +37,15 @@ mod lifecycle;
 pub use lifecycle::{
     CloneError, CloneSpec, Cloned, InitError, InitRollbackError, InitSpec, Initialized,
 };
+mod removal;
+pub use removal::{CloneRemoval, KeptClone, LocalOnly, RemoveError, RemoveOptions, Removed};
 
 #[cfg(test)]
 pub(crate) mod lifecycle_tests;
 #[cfg(test)]
 pub(crate) mod reencrypt_tests;
+#[cfg(test)]
+pub(crate) mod removal_tests;
 #[cfg(test)]
 pub(crate) mod sync_index_tests;
 #[cfg(test)]

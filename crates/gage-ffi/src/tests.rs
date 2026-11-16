@@ -25,10 +25,10 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::{
-    ClonedVault, GageError, Identity, PromptError, Prompter, Remedy, RemoteAccess, Roots,
-    UnlockKind, UnlockPurpose, UnlockRequest, UnlockResponse, Vault, VaultRemote, Warning,
-    check_remote_token, clone_vault, init_vault, remote_token_hosts, remove_remote_token,
-    save_remote_token,
+    CloneRemoval, ClonedVault, GageError, Identity, PromptError, Prompter, Remedy, RemoteAccess,
+    RemovedVault, Roots, UnlockKind, UnlockPurpose, UnlockRequest, UnlockResponse, Vault,
+    VaultRemote, Warning, check_remote_token, clone_vault, init_vault, remote_token_hosts,
+    remove_remote_token, remove_vault, save_remote_token,
 };
 
 const PASSPHRASE: &str = "correct horse battery staple";
@@ -1728,4 +1728,71 @@ fn a_refused_token_check_never_carries_the_token() {
         .unwrap_err();
     assert!(matches!(err, GageError::LockedOrAuth { .. }), "got {err:?}");
     assert!(!format!("{err} {err:?}").contains("tok_wrong"), "{err:?}");
+}
+
+// --- remove_vault -------------------------------------------------------------
+
+#[test]
+fn remove_vault_removes_the_clone_identity_and_registration_and_says_it_is_still_listed() {
+    let phone = Phone::new();
+    let remote = gittest::new_bare_remote();
+    let made = init_vault(
+        phone.roots(),
+        VAULT.into(),
+        DEVICE.into(),
+        Some(remote.path().to_str().unwrap().into()),
+        true,
+        answering_passphrase(),
+    )
+    .unwrap();
+    made.vault.sync(answering_passphrase()).unwrap();
+    let identity = paths::identity_file_path(&phone.dirs, &made.vault.inner.id, DEVICE).unwrap();
+    assert!(identity.is_file());
+
+    let removed = remove_vault(phone.roots(), VAULT.into(), true, false).unwrap();
+
+    assert_eq!(
+        removed,
+        RemovedVault {
+            clone: CloneRemoval::Removed,
+            identity_removed: true,
+            still_a_recipient: Some(true),
+        }
+    );
+    assert!(!phone.vault_dir().exists());
+    assert!(!identity.exists());
+    let err = Vault::open(phone.roots(), VAULT.into()).unwrap_err();
+    assert!(matches!(err, GageError::NotFound { .. }), "got {err:?}");
+}
+
+#[test]
+fn remove_vault_refuses_the_only_copy_until_told_to_discard_it() {
+    let phone = Phone::new();
+    init_vault(
+        phone.roots(),
+        VAULT.into(),
+        DEVICE.into(),
+        None,
+        false,
+        answering_passphrase(),
+    )
+    .unwrap();
+
+    let err = remove_vault(phone.roots(), VAULT.into(), false, false).unwrap_err();
+    assert!(matches!(err, GageError::Conflict { .. }), "got {err:?}");
+    assert_eq!(err.remedy(), Some(Remedy::SetRemote));
+    assert!(phone.vault_dir().exists());
+    Vault::open(phone.roots(), VAULT.into()).unwrap();
+
+    let removed = remove_vault(phone.roots(), VAULT.into(), false, true).unwrap();
+    assert_eq!(removed.clone, CloneRemoval::Removed);
+    assert!(!removed.identity_removed, "kept when not asked");
+    assert!(!phone.vault_dir().exists());
+}
+
+#[test]
+fn remove_vault_of_an_unregistered_name_is_not_found() {
+    let phone = Phone::new();
+    let err = remove_vault(phone.roots(), VAULT.into(), false, false).unwrap_err();
+    assert!(matches!(err, GageError::NotFound { .. }), "got {err:?}");
 }

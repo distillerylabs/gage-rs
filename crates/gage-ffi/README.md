@@ -38,7 +38,7 @@ working example is [`tests/swift/main.swift`](tests/swift/main.swift).
 
 **Call everything off the main thread.** Every export blocks: unlocking runs
 scrypt, which takes about a second, and `cloneVault`, `enroll`, `sync`,
-`checkApproved` and `unlock` wait on the network. A write can also wait for the vault's lock.
+`checkApproved` and `unlock` wait on the network. A write, and `removeVault`, can also wait for the vault's lock.
 
 `Prompter` methods run on the thread that made the call. To ask the person,
 hop to the main thread, block until they answer, and return the answer.
@@ -110,6 +110,41 @@ the stored one. A refused token throws `LockedOrAuth` with the `authLogin`
 remedy, and an unreachable host throws `Unreachable`. Nothing is fetched or
 pushed ([ADR-0080](../../doc/decisions/0080-remote-access-check.md)).
 
+### Removing a vault
+
+```swift
+do {
+    let removed = try removeVault(roots: roots, name: "personal",
+                                  deleteIdentity: true, discardLocalOnly: false)
+    if removed.stillARecipient == true {
+        // Say this device stays on the vault's recipient list until someone
+        // removes it from a computer.
+    }
+} catch GageError.Conflict(let message, let remedy) {
+    // Something exists only on this device. Show message; if the person
+    // still wants it gone, call again with discardLocalOnly: true.
+}
+```
+
+`removeVault` deletes `<data>/vaults/<name>`, the vault's trust record,
+this device's identity file when `deleteIdentity` is true, and then the
+registration. It contacts nothing, changes nothing on the remote, and leaves
+the saved token for the remote's host alone: other vaults may use it.
+
+It throws `Conflict` and removes nothing when something exists only on this
+device: no remote (remedy `.setRemote`), commits never pushed as of the last
+sync (`.push`), uncommitted changes, or, with `deleteIdentity`, a key that is
+the vault's only recipient, so that no copy anywhere could be opened again.
+`discardLocalOnly: true` removes it anyway; ask first. A clone that is
+missing or broken is removed without asking.
+
+For the `.reRegister` and `.reclone` remedies, pass `deleteIdentity: false`.
+Cloning again then reads, or asks to join, with the same key. Only a
+directory inside `<data>/vaults/` that no other registration uses is
+deleted; `clone` says what happened to it. A failure part way keeps the
+registration, so calling again finishes
+([ADR-0082](../../doc/decisions/0082-removing-a-vault-from-a-device.md)).
+
 ### Reading
 
 ```swift
@@ -168,7 +203,7 @@ suggestion.
 | `.sync`, `.syncAgain` | sync, or sync again |
 | `.recipientVerify`, `.recipientRepair` | the vault's recipient files disagree |
 | `.useHttps` | use the remote's HTTPS URL |
-| `.reRegister(name:)`, `.reclone(vault:)` | forget the vault here and clone it again |
+| `.reRegister(name:)`, `.reclone(vault:)` | forget the vault here (`removeVault`, keeping the identity) and clone it again |
 | `.enrollAgain(authRefused:host:)` | ask to join again, storing a token first if `authRefused` |
 | `.chooseDevice`, `.passName(plain:)` | pick another device name, or name the vault |
 | others | belong to writes and to frontends with flags; a later release uses them |
