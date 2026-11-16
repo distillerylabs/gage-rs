@@ -20,7 +20,7 @@ use crate::storage::xdgpaths::Dirs;
 use crate::storage::{paths, vaultlock};
 use crate::sync::gitrepo::{self, RemoteState};
 use crate::trust::trustcache::{self, TrustError};
-use crate::vault::Vault;
+use crate::vault::{Layout, Vault};
 
 /// What [`Vault::remove_from_device`] removes besides the registration and
 /// the clone.
@@ -33,6 +33,10 @@ pub struct RemoveOptions {
     /// Remove even what exists only on this device: see [`LocalOnly`].
     /// Without it, the removal is refused while there is any.
     pub discard_local_only: bool,
+    /// Where the clone is looked for: the bindings pass
+    /// [`Layout::Managed`], so a clone whose roots have moved is still
+    /// found (ADR-0084).
+    pub layout: Layout,
 }
 
 /// What [`Vault::remove_from_device`] did.
@@ -179,7 +183,8 @@ impl Vault {
     /// itself or on its remote: this device stays a recipient
     /// ([`Removed::still_a_recipient`]).
     ///
-    /// The clone is deleted only when it sits directly inside
+    /// The clone is looked for where [`RemoveOptions::layout`] places it,
+    /// and deleted only when that is directly inside
     /// `$GAGE_DATA/vaults/`, where a frontend that names no path puts it,
     /// and no other registration points at it; otherwise it is kept and
     /// [`CloneRemoval::Kept`] says why. The saved token for the remote's
@@ -200,11 +205,14 @@ impl Vault {
     ) -> Result<Removed, RemoveError> {
         let global = config::load_or_default(&paths::global_config_file(dirs))
             .map_err(RemoveError::LoadRegistry)?;
-        let entry = global.entry(name)?.clone();
+        let layout = options.layout;
+        let entry = layout.resolve(dirs, name, global.entry(name)?);
         let shared_with = global
             .vaults
             .iter()
-            .find(|(other, e)| other.as_str() != name && e.path == entry.path)
+            .find(|(other, e)| {
+                other.as_str() != name && layout.resolve(dirs, other, e).path == entry.path
+            })
             .map(|(other, _)| other.clone());
 
         // Released by dropping it, as `config::update` does: once things are

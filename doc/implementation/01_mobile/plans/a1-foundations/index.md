@@ -116,7 +116,8 @@ Not part of A1's acceptance.
   registration records absolute paths, and iOS can change an app's
   container path across updates and restores, so a vault might stop
   opening. Not yet reproduced: confirm it first. Settle it before a real
-  app ships.
+  app ships. Fixed since by
+  [ADR-0084](../../../../decisions/0084-bindings-place-vaults-by-name.md).
 - **Keychain token store
   ([#187](https://github.com/distillerylabs/gage-rs/issues/187)).** Remote
   tokens are files under the app's `Roots` today. Not urgent.
