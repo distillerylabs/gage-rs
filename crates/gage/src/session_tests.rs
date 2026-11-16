@@ -332,6 +332,29 @@ fn a_seeded_current_vault_is_unlocked_by_its_first_use() {
     assert_eq!(unlock_count(&p, "personal"), 1);
 }
 
+// #250: a working tree deleted while the session holds its key is
+// reported as missing by the next read, not listed as an empty vault.
+#[test]
+fn a_vault_whose_tree_goes_missing_mid_session_is_not_listed_as_empty() {
+    let d = Device::new(&["personal"]);
+    d.seed("personal", &["github"]);
+    let p = unlocks(1);
+    let mut s = d.session(&p, current_personal());
+    s.use_vault("personal").unwrap();
+    std::fs::remove_dir_all(&d.vaults["personal"].path).unwrap();
+
+    let err = s.list(None).unwrap_err();
+
+    assert!(
+        matches!(
+            err,
+            SessionError::Entry(crate::entry::Error::VaultMissing { .. })
+        ),
+        "{err:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::NotFound);
+}
+
 // --- the same Vault methods -------------------------------------------------
 
 // A round trip across

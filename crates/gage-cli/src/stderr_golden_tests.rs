@@ -196,6 +196,25 @@ fn unreachable_is_a_push_to_a_missing_path() {
     );
 }
 
+// #250: a registered vault whose clone is gone is missing, not empty, and
+// says how to get it back. Refused before any passphrase is asked for.
+#[test]
+fn not_found_is_a_vault_whose_working_tree_is_gone() {
+    let env = Env::new();
+    let path = env.init("personal", &[]);
+    std::fs::remove_dir_all(&path).unwrap();
+    let p = gage::prompter::FakePrompter::new();
+    let r = env.run_with(&["ls"], &p);
+    assert_golden(
+        &env,
+        &r,
+        ExitCode::NotFound,
+        "gage: vault \"personal\" is missing from this device: nothing at $ROOT/data/gage/vaults/personal; re-register it with `gage vault remove personal` and `gage clone`\n",
+    );
+    assert!(p.unlock_requests().is_empty(), "asked for a passphrase");
+    assert_eq!(r.stdout, "");
+}
+
 // --- hints, warnings, scripts ---------------------------------------------
 
 #[test]

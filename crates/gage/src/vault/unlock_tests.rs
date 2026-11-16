@@ -10,7 +10,7 @@ use crate::crypto::crypt::{self, Recipient};
 use crate::crypto::identity::SECRET_KEY_PREFIX;
 use crate::crypto::locker::Locker;
 use crate::crypto::memlock;
-use crate::error::{ErrorKind, HasKind};
+use crate::error::{ErrorKind, HasKind, Remedy};
 use crate::prompter::{FakePrompter, Kind, PromptError, Purpose};
 use crate::storage::config::{self, Global, VaultEntry};
 use crate::storage::identityfile::{self, MARKER_FILE_NAME, UnlockError};
@@ -60,8 +60,15 @@ impl Machine {
         config::save_creating_dir(&paths::global_config_file(&self.dirs), &global).unwrap();
     }
 
+    /// A vault value whose working tree is only the marker `unlock`
+    /// checks for (#250): these tests are about the identity, not the
+    /// vault's contents.
     fn vault(&self, name: &str, id: &VaultId) -> Vault {
-        Vault::for_tests(&self.dirs, name, id)
+        let vault = Vault::for_tests(&self.dirs, name, id);
+        let config = vault.config_path();
+        std::fs::create_dir_all(config.parent().unwrap()).unwrap();
+        std::fs::write(config, "").unwrap();
+        vault
     }
 
     fn create_identity(&self, id: &VaultId, name: &str, device: &str) -> String {
@@ -999,6 +1006,47 @@ fn unlock_rejects_an_empty_passphrase() {
     assert!(matches!(err, UnlockError::EmptyPassphrase), "{err}");
     assert_eq!(err.kind(), ErrorKind::LockedOrAuth);
     assert_eq!(p.unlock_requests().len(), 1);
+}
+
+// #250: a registered vault whose working tree is gone is refused, before
+// any passphrase is asked for, rather than unlocked into a vault that
+// then lists as empty. The remedy is the one that fixes it.
+#[test]
+fn unlock_refuses_a_vault_whose_working_tree_is_gone_before_asking() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    std::fs::remove_dir_all(&v.path).unwrap();
+    let p = prompter(&[PASSPHRASE]);
+
+    let err = v.unlock(&p).unwrap_err();
+
+    assert!(
+        matches!(&err, UnlockError::VaultMissing { vault, path } if vault == "personal" && *path == v.path),
+        "{err:?}"
+    );
+    assert_eq!(err.kind(), ErrorKind::NotFound);
+    assert_eq!(
+        err.remedy(),
+        Some(Remedy::ReRegister {
+            name: "personal".into()
+        })
+    );
+    assert!(err.to_string().contains("is missing"), "{err}");
+    assert!(p.unlock_requests().is_empty(), "asked for a passphrase");
+}
+
+// A half-removed tree (the directory left, its config gone) is missing too.
+#[test]
+fn unlock_refuses_a_working_tree_without_its_config() {
+    let m = Machine::new();
+    let (v, _) = m.unlockable("personal", "laptop-1");
+    std::fs::remove_file(v.config_path()).unwrap();
+    let p = prompter(&[PASSPHRASE]);
+
+    let err = v.unlock(&p).unwrap_err();
+
+    assert!(matches!(err, UnlockError::VaultMissing { .. }), "{err:?}");
+    assert!(p.unlock_requests().is_empty(), "asked for a passphrase");
 }
 
 fn assert_no_local_identity(err: UnlockError) {

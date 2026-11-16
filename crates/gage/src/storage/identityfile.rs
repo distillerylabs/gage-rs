@@ -66,6 +66,12 @@ pub enum UnlockError {
         "this device unlocks {vault:?} with method {method:?}, which this build cannot perform"
     )]
     UnsupportedMethod { vault: String, method: String },
+    /// The vault is registered but its working tree is gone: deleted, or
+    /// never where the registration points. Refused before any passphrase
+    /// is asked for, so it never unlocks into a vault that lists as empty
+    /// (ADR-0085).
+    #[error("vault {vault:?} is missing from this device: nothing at {}", path.display())]
+    VaultMissing { vault: String, path: PathBuf },
     /// A device name or vault id that would have become a path component
     /// failed validation (ADR-0010, ADR-0006).
     #[error(transparent)]
@@ -120,6 +126,7 @@ impl HasKind for UnlockError {
             Prompter(e) => e.kind(),
             UnsafePath(e) => e.kind(),
             CorruptIdentityFile(_) => ErrorKind::Conflict,
+            VaultMissing { .. } => ErrorKind::NotFound,
             Io { .. } | Write(_) | Config(_) | Wrap(_) => ErrorKind::Internal,
         }
     }
@@ -128,6 +135,9 @@ impl HasKind for UnlockError {
         use UnlockError::*;
         match self {
             NoIdentityFile(_) => Some(Remedy::EnrollOrRecover),
+            VaultMissing { vault, .. } => Some(Remedy::ReRegister {
+                name: vault.clone(),
+            }),
             Prompter(e) => e.remedy(),
             UnsafePath(e) => e.remedy(),
             _ => None,

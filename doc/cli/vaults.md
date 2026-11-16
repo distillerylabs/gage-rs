@@ -63,6 +63,10 @@ passphrase. A wrong one is re-asked, up to
 three attempts in all, then exits `5`; a missing identity file is `5` too.
 A damaged identity file is `1` (`conflict`) and is never re-asked, since no
 passphrase can fix it.
+A vault whose files are gone from where its registration points (deleted,
+or half-removed) is `3` (`not-found`), before any passphrase is asked for,
+rather than unlocked and listed as empty. Forget it with `gage vault remove`
+and `gage clone` it again.
 
 ### The identity file
 
