@@ -15,7 +15,7 @@ use crate::sync::gitrepo::{self, RemoteOptions};
 
 mod recorder;
 
-pub use recorder::{Answer, HttpRecorder, Request, basic};
+pub use recorder::{Answer, GRANTED_REF, HttpRecorder, Request, basic};
 
 /// A bare repository in its own temp directory, deleted on drop. Two calls
 /// never collide, even within one test.

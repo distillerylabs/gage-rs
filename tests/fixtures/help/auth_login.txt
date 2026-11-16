@@ -5,6 +5,10 @@ Scope it as narrowly as the host allows — on GitHub, a fine-grained personal
 access token limited to the vault's own repository, not a classic repo-scoped
 one that reaches every repository you own.
 
+If the current vault's remote is on that host, the token is tested there
+first, without changing anything: a token the host refuses is not stored, and
+one that can read but not push is stored with a warning.
+
 Usage:
   gage auth login [OPTIONS]
 

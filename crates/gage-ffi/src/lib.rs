@@ -19,7 +19,7 @@ use gage::recovery::new_recovery_key;
 use gage::storage::config::RegistryError;
 use gage::storage::xdgpaths::Dirs;
 use gage::storage::{config, paths};
-use gage::sync::remoteauth;
+use gage::sync::{remoteauth, remotecheck};
 use gage::{CloneSpec, ErrorKind, HasKind, InitSpec, UnlockMethod, VaultType};
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -582,6 +582,43 @@ pub fn remote_token_hosts(roots: Roots) -> Result<Vec<String>, GageError> {
     remoteauth::hosts(&roots.dirs()).map_err(GageError::from_core)
 }
 
+/// What a remote lets a token do, as [`check_remote_token`] found it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum RemoteAccess {
+    /// Fetches and pushes are both accepted.
+    ReadWrite,
+    /// Fetches are accepted and pushes refused: the token was issued
+    /// without write access. Syncing pulls, and the first push (an
+    /// enrollment request, a write) fails as access refused.
+    ReadOnly,
+}
+
+impl From<remotecheck::Access> for RemoteAccess {
+    fn from(access: remotecheck::Access) -> RemoteAccess {
+        match access {
+            remotecheck::Access::ReadWrite => RemoteAccess::ReadWrite,
+            remotecheck::Access::ReadOnly => RemoteAccess::ReadOnly,
+        }
+    }
+}
+
+/// Tests what the remote at `url` lets `token` do, changing nothing on it:
+/// for Join, before the clone. With `token`, that token is tried and not
+/// stored, so a bad one can be refused before [`save_remote_token`]
+/// replaces a good one; without, the one stored for the host (or none) is.
+/// A refused token is `LockedOrAuth` with the host-naming remedy.
+#[uniffi::export]
+pub fn check_remote_token(
+    roots: Roots,
+    url: String,
+    token: Option<String>,
+) -> Result<RemoteAccess, GageError> {
+    let token = token.map(Zeroizing::new);
+    remotecheck::check_remote(&roots.dirs(), &url, token.as_deref().map(String::as_str))
+        .map(RemoteAccess::from)
+        .map_err(GageError::from_core)
+}
+
 /// Clones the vault at `url` and registers it as `name` for `device`. Cloning
 /// grants no access: see [`ClonedVault::holds_identity`]. A failed clone is
 /// undone.
@@ -655,6 +692,17 @@ impl Vault {
             url: r.url,
             token_host: r.token_host,
         }))
+    }
+
+    /// [`check_remote_token`] against this vault's remote: for Settings, a
+    /// new token before it is saved, or the stored one. A vault with no
+    /// remote is `Usage` with the `SetRemote` remedy.
+    pub fn check_remote_token(&self, token: Option<String>) -> Result<RemoteAccess, GageError> {
+        let token = token.map(Zeroizing::new);
+        self.inner
+            .check_remote(token.as_deref().map(String::as_str))
+            .map(RemoteAccess::from)
+            .map_err(GageError::from_core)
     }
 
     /// Unlocks this device's identity, asking `prompter` for as many tries

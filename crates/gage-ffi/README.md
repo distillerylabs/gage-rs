@@ -91,6 +91,15 @@ no token is ever sent: a local path, SSH, or plain `http://`). It reads the
 vault on every call, so it follows a remote changed from a computer. iOS and
 Android have no SSH ([ADR-0062](../../doc/decisions/0062-no-ssh-on-mobile.md)).
 
+To test a token before relying on it, `checkRemoteToken(roots:url:token:)`
+(for Join, before the clone) or `vault.checkRemoteToken(token:)` (for
+Settings) asks the host and returns `.readWrite`, or `.readOnly` for a token
+that can fetch but not push. A token passed in is tried and **not stored**,
+so check a new one first and save it only if it works. Pass `nil` to check
+the stored one. A refused token throws `LockedOrAuth` with the `authLogin`
+remedy, and an unreachable host throws `Unreachable`. Nothing is fetched or
+pushed ([ADR-0080](../../doc/decisions/0080-remote-access-check.md)).
+
 ### Reading
 
 ```swift
