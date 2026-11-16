@@ -13,7 +13,8 @@ use crate::storage::xdgpaths::Dirs;
 use crate::sync::{gitrepo, remoteauth};
 use crate::testsupport::fast_scrypt;
 use crate::vault::{
-    CloneRemoval, InitSpec, KeptClone, LocalOnly, RemoveError, RemoveOptions, Removed, Vault,
+    CloneRemoval, InitSpec, KeptClone, Layout, LocalOnly, RemoveError, RemoveOptions, Removed,
+    Vault,
 };
 
 const NAME: &str = "personal";
@@ -233,6 +234,7 @@ fn deleting_the_only_key_is_refused_unless_discarded() {
         .remove(RemoveOptions {
             delete_identity: true,
             discard_local_only: true,
+            ..Default::default()
         })
         .unwrap();
     assert!(removed.identity_removed);
@@ -291,6 +293,87 @@ fn a_clone_another_registration_shares_is_kept() {
         CloneRemoval::Kept(KeptClone::SharedWith("alias".into()))
     );
     assert!(m.path().exists());
+    assert!(m.global().vaults.contains_key("alias"));
+}
+
+/// Points the registration where the roots used to be, as an iOS update or
+/// restore leaves it (ADR-0084). The clone itself stays where it is.
+fn record_a_stale_path(m: &Machine) {
+    let stale = m._root.path().join("old-container/data/vaults").join(NAME);
+    config::update(&m.dirs, |g| -> Result<(), config::Error> {
+        g.vaults.get_mut(NAME).unwrap().path = stale.clone();
+        Ok(())
+    })
+    .unwrap();
+}
+
+#[test]
+fn a_managed_removal_finds_the_clone_after_the_roots_move() {
+    let m = machine(PUBLISHED);
+    let identity = m.identity();
+    record_a_stale_path(&m);
+
+    let removed = m
+        .remove(RemoveOptions {
+            layout: Layout::Managed,
+            ..delete_identity()
+        })
+        .unwrap();
+
+    assert_eq!(
+        removed,
+        Removed {
+            clone: CloneRemoval::Removed,
+            identity_removed: true,
+            still_a_recipient: Some(true),
+        }
+    );
+    assert!(!m.path().exists());
+    assert!(!identity.exists());
+    assert!(!m.registered());
+}
+
+#[test]
+fn a_managed_removal_still_refuses_what_only_the_moved_clone_holds() {
+    let m = machine(Setup {
+        remote: false,
+        push: false,
+        other_recipient: true,
+    });
+    record_a_stale_path(&m);
+
+    let err = m
+        .remove(RemoveOptions {
+            layout: Layout::Managed,
+            ..Default::default()
+        })
+        .unwrap_err();
+
+    assert_eq!(refused(err), LocalOnly::NoRemote);
+    assert!(m.path().exists());
+    assert!(m.registered());
+}
+
+// What the bindings never register: two names, one recorded path. Under
+// `Managed` each name is its own directory, so neither shares.
+#[test]
+fn a_managed_removal_compares_placed_paths_not_recorded_ones() {
+    let m = machine(PUBLISHED);
+    let entry = m.global().entry(NAME).unwrap().clone();
+    config::update(&m.dirs, |g| -> Result<(), config::Error> {
+        g.vaults.insert("alias".into(), entry.clone());
+        Ok(())
+    })
+    .unwrap();
+
+    let removed = m
+        .remove(RemoveOptions {
+            layout: Layout::Managed,
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(removed.clone, CloneRemoval::Removed);
     assert!(m.global().vaults.contains_key("alias"));
 }
 

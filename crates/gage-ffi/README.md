@@ -256,11 +256,12 @@ The bindings wipe what they hold; they can't reach what you hold
 - **Core dumps.** The CLI suppresses them in its own `main`; a library can't.
   The app decides.
 
-**A known gap: container paths.** A registration records the vault's absolute
-path, but iOS can change an app's container path across updates and restores. So
-a vault registered before such a change may not open after it, until this is
-solved in a later release
-([#188](https://github.com/distillerylabs/gage-rs/issues/188)).
+**Container paths.** iOS can change an app's container path across updates and
+restores. The bindings look for every vault at `<data>/vaults/<name>` under the
+`Roots` you pass on each call, never at the absolute path recorded when it was
+registered, so a vault still opens and removes after the container moves. Build
+`Roots` fresh at each launch; don't persist them
+([ADR-0084](../../doc/decisions/0084-bindings-place-vaults-by-name.md)).
 
 Page locking and the vault lock have run in the simulator, which uses the Mac's
 kernel, so they are unproven on hardware. A device that refuses page locking

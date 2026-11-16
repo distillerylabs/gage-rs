@@ -3,7 +3,8 @@
 //! does.
 //!
 //! - `smoke_fixture setup <root> <remote>` creates a git vault named
-//!   `personal` under `<root>/config`, `<root>/data` and `<root>/state`, made
+//!   `personal` at `<root>/data/vaults/personal`, as the bindings place it,
+//!   under `<root>/config`, `<root>/data` and `<root>/state`, made
 //!   through the same `Vault::init` an app reaches, with two entries, and
 //!   publishes it to the bare repository `<remote>`.
 //! - `smoke_fixture approve <root> <code>` approves the request that opens
@@ -43,7 +44,9 @@ fn setup(root: &Path, remote: &str) {
         &dirs(root),
         &InitSpec {
             name: VAULT.into(),
-            path: root.join(VAULT),
+            // Where the bindings place every vault, and so where the Swift
+            // side's `Vault.open` looks for it (ADR-0084).
+            path: paths::vaults_dir(&dirs(root)).join(VAULT),
             vault_type: VaultType::Git,
             method: UnlockMethod::Passphrase,
             device: "smoke-device".into(),

@@ -20,6 +20,7 @@ use gage::storage::config::RegistryError;
 use gage::storage::xdgpaths::Dirs;
 use gage::storage::{config, paths};
 use gage::sync::{remoteauth, remotecheck};
+use gage::vault::Layout;
 use gage::{CloneSpec, ErrorKind, HasKind, InitSpec, UnlockMethod, VaultType};
 use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
@@ -703,6 +704,7 @@ pub fn remove_vault(
         &gage::vault::RemoveOptions {
             delete_identity,
             discard_local_only,
+            layout: Layout::Managed,
         },
     )
     .map_err(GageError::from_core)?;
@@ -743,15 +745,21 @@ pub struct Vault {
 
 #[uniffi::export]
 impl Vault {
-    /// The vault registered as `name` under `roots`.
+    /// The vault registered as `name` under `roots`, looked for at
+    /// `<data>/vaults/<name>` under the roots given now, so it still opens
+    /// after the app's container moves (ADR-0084).
     #[uniffi::constructor]
     pub fn open(roots: Roots, name: String) -> Result<Arc<Vault>, GageError> {
         let dirs = roots.dirs();
         let global = config::load_or_default(&paths::global_config_file(&dirs))
             .map_err(GageError::from_core)?;
-        let entry = global.entry(&name).map_err(GageError::from_core)?;
+        let entry = Layout::Managed.resolve(
+            &dirs,
+            &name,
+            global.entry(&name).map_err(GageError::from_core)?,
+        );
         let inner =
-            gage::Vault::from_registration(&dirs, &name, entry).map_err(GageError::from_core)?;
+            gage::Vault::from_registration(&dirs, &name, &entry).map_err(GageError::from_core)?;
         Ok(Arc::new(Vault { inner, dirs }))
     }
 

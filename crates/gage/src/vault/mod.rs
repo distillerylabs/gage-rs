@@ -53,6 +53,36 @@ pub(crate) mod twodevice_tests;
 #[cfg(test)]
 pub(crate) mod unlock_tests;
 
+/// Where a registered vault's working tree is taken to be (ADR-0084).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Layout {
+    /// The path the registration records. The CLI's: the person chose
+    /// where the vault lives, and nothing moves it.
+    #[default]
+    Recorded,
+    /// `$GAGE_DATA/vaults/<name>`, whatever the registration records. For a
+    /// frontend that places every vault there itself and whose roots can
+    /// move, such as an iOS app, whose container path changes across
+    /// updates and restores.
+    Managed,
+}
+
+impl Layout {
+    /// `entry`, with its path where this layout places the vault
+    /// registered as `name`. A name that isn't one plain path component
+    /// was never placed by a `Managed` frontend, and keeps its recorded
+    /// path rather than becoming one.
+    pub fn resolve(self, dirs: &Dirs, name: &str, entry: &VaultEntry) -> VaultEntry {
+        match self {
+            Layout::Managed if check_name(name).is_ok() => VaultEntry {
+                path: paths::vaults_dir(dirs).join(name),
+                ..entry.clone()
+            },
+            _ => entry.clone(),
+        }
+    }
+}
+
 /// The message of the one commit [`Vault::create`] makes.
 pub const INIT_COMMIT_MESSAGE: &str = "gage: initialize vault";
 
@@ -2042,6 +2072,52 @@ mod tests {
             if let Ok(name) = name_from_url(url) {
                 assert!(check_name(&name).is_err(), "{url:?} inferred {name:?}");
             }
+        }
+    }
+
+    /// A registration made where the roots used to be (ADR-0084).
+    fn stale_entry() -> VaultEntry {
+        VaultEntry {
+            path: "/old-container/data/gage/vaults/personal".into(),
+            id: Some(vaultconfig::VaultId::new()),
+            device: "phone".into(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn layout_recorded_keeps_the_registered_path() {
+        let entry = stale_entry();
+        let resolved = Layout::Recorded.resolve(&test_dirs(), "personal", &entry);
+        assert_eq!(resolved, entry);
+    }
+
+    #[test]
+    fn layout_managed_places_the_vault_in_the_vaults_dir_whatever_is_recorded() {
+        let entry = stale_entry();
+        let resolved = Layout::Managed.resolve(&test_dirs(), "personal", &entry);
+        assert_eq!(
+            resolved.path,
+            paths::vaults_dir(&test_dirs()).join("personal")
+        );
+        assert_eq!(
+            VaultEntry {
+                path: entry.path.clone(),
+                ..resolved
+            },
+            entry,
+            "only the path changes"
+        );
+    }
+
+    // No name the bindings could have registered fails the check, and a
+    // name that does never becomes a path component.
+    #[test]
+    fn layout_managed_keeps_the_recorded_path_for_a_name_that_is_not_one_component() {
+        let entry = stale_entry();
+        for name in ["", "..", "a/b", "../personal"] {
+            let resolved = Layout::Managed.resolve(&test_dirs(), name, &entry);
+            assert_eq!(resolved, entry, "{name:?}");
         }
     }
 }

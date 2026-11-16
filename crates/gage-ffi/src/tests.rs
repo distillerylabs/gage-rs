@@ -52,7 +52,9 @@ impl Fixture {
             state: root.path().join("state"),
         };
         let id = VaultId::new();
-        let path = root.path().join(VAULT);
+        // Where the bindings place every vault, and so where `Vault::open`
+        // looks for it (ADR-0084).
+        let path = paths::vaults_dir(&dirs).join(VAULT);
         let pubkey = identityfile::create(
             &dirs,
             &id,
@@ -1788,6 +1790,82 @@ fn remove_vault_refuses_the_only_copy_until_told_to_discard_it() {
     assert_eq!(removed.clone, CloneRemoval::Removed);
     assert!(!removed.identity_removed, "kept when not asked");
     assert!(!phone.vault_dir().exists());
+}
+
+// --- a moved container (#188, ADR-0084) ---------------------------------------
+
+fn dirs_in(container: &Path) -> Dirs {
+    Dirs {
+        config: container.join("config"),
+        data: container.join("data"),
+        state: container.join("state"),
+    }
+}
+
+/// iOS can move an app's container across an update or a restore. The files
+/// come along; every absolute path recorded inside them is now wrong.
+#[test]
+fn a_vault_opens_reads_and_removes_after_the_app_container_moves() {
+    fast_scrypt();
+    let outer = tempfile::tempdir().unwrap();
+    let (before, after) = (outer.path().join("before"), outer.path().join("after"));
+    let remote = gittest::new_bare_remote();
+    {
+        let made = init_vault(
+            roots_of(&dirs_in(&before)),
+            VAULT.into(),
+            DEVICE.into(),
+            Some(remote.path().to_str().unwrap().into()),
+            // A second key, so deleting this device's isn't refused.
+            true,
+            answering_passphrase(),
+        )
+        .unwrap();
+        let identity = made.vault.unlock(answering_passphrase()).unwrap();
+        made.vault
+            .inner
+            .insert(
+                &identity.inner,
+                NewEntry {
+                    title: "moved".into(),
+                    value: "v".into(),
+                    ..NewEntry::default()
+                },
+                true,
+                &FakePrompter::new(),
+            )
+            .unwrap();
+        made.vault.sync(answering_passphrase()).unwrap();
+    }
+    std::fs::rename(&before, &after).unwrap();
+    let dirs = dirs_in(&after);
+
+    let vault = Vault::open(roots_of(&dirs), VAULT.into()).unwrap();
+    assert_eq!(
+        vault.inner.path,
+        paths::vaults_dir(&dirs).join(VAULT),
+        "placed under the roots it was given, not where it was registered"
+    );
+    let identity = vault.unlock(answering_passphrase()).unwrap();
+    let titles: Vec<String> = vault
+        .list(identity)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.title)
+        .collect();
+    assert_eq!(titles, ["moved"]);
+    drop(vault);
+
+    let removed = remove_vault(roots_of(&dirs), VAULT.into(), true, false).unwrap();
+    assert_eq!(
+        removed,
+        RemovedVault {
+            clone: CloneRemoval::Removed,
+            identity_removed: true,
+            still_a_recipient: Some(true),
+        }
+    );
+    assert!(!paths::vaults_dir(&dirs).join(VAULT).exists());
 }
 
 #[test]
