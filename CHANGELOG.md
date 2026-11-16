@@ -7,6 +7,22 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as
 
 ## [Unreleased]
 
+## [0.3.0](https://github.com/distillerylabs/gage-rs/compare/v0.2.0...v0.3.0) - 2026-11-16
+
+### Other
+
+- Refuse a vault whose working tree is gone instead of listing it as empty ([#250](https://github.com/distillerylabs/gage-rs/pull/250))
+- Stop putting a possessive after a quoted name ([#233](https://github.com/distillerylabs/gage-rs/pull/233))
+- Test the token in gage auth login before storing it ([#232](https://github.com/distillerylabs/gage-rs/pull/232))
+- Keep the access remedy when a wrapper adds its own ([#227](https://github.com/distillerylabs/gage-rs/pull/227))
+- Warn about recipient changes on gage pull and push ([#235](https://github.com/distillerylabs/gage-rs/pull/235))
+- Find a bindings vault from its roots and name, not its recorded path ([#188](https://github.com/distillerylabs/gage-rs/pull/188))
+- Remove a vault from the device ([#229](https://github.com/distillerylabs/gage-rs/pull/229))
+- Check for approval without unlocking ([#231](https://github.com/distillerylabs/gage-rs/pull/231))
+- Check a remote token before relying on it ([#232](https://github.com/distillerylabs/gage-rs/pull/232))
+- Read a vault's remote URL and token host ([#230](https://github.com/distillerylabs/gage-rs/pull/230))
+- Don't warn a device about its own approval ([#228](https://github.com/distillerylabs/gage-rs/pull/228))
+
 ## [0.2.0](https://github.com/distillerylabs/gage-rs/compare/v0.1.1...v0.2.0) - 2026-11-09
 
 ### Other
