@@ -91,7 +91,7 @@ pub enum RecoveryError {
 fn not_recovery(device: &Option<String>, pubkey: &str, vault: &str) -> String {
     match device {
         Some(device) => format!(
-            "it is {device:?}'s key, and only the {RECOVERY_DEVICE_LABEL:?} key can enroll a device this way"
+            "it is the key of device {device:?}, and only the {RECOVERY_DEVICE_LABEL:?} key can enroll a device this way"
         ),
         None => format!("its public key {pubkey} is not a recipient of vault {vault:?}"),
     }

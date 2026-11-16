@@ -61,11 +61,11 @@ step "bob pulls and reads; his own approval is not a recipient change"
 # first use as a recipient is the first use.
 g bob -- pull
 expect_exit 0
-expect_no_err 'recipient list changed'
+expect_no_err 'changed since this device last confirmed it'
 g bob -i "$(unlock bob)" -- show Shared
 expect_exit 0
 expect_out '^s3cret$'
-expect_no_err 'recipient list changed'
+expect_no_err 'changed since this device last confirmed it'
 
 step "alice adds carol behind bob's back; bob's pull warns"
 g carol -- clone "$R" --device carol-laptop
@@ -76,7 +76,7 @@ g alice -i "$(unlock alice)" -- recipient add "$CAROL_KEY" --device carol-laptop
 expect_exit 0
 g bob -- pull
 expect_exit 0
-expect_err 'recipient list changed'
+expect_err 'changed since this device last confirmed it'
 
 step "bob's first write asks to confirm the new recipient list"
 # No terminal: refused before reading anything (ADR-0033), so a

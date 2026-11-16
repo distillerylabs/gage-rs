@@ -485,7 +485,7 @@ fn rotate_lines(vault: &str, res: &RotateResult) -> Vec<String> {
     let first = match &res.retired {
         None => format!("gage: added a recovery key to vault {vault:?} (it had none)"),
         Some(retired) => {
-            format!("gage: replaced vault {vault:?}'s recovery key; retired {retired}")
+            format!("gage: replaced the recovery key of vault {vault:?}; retired {retired}")
         }
     };
     let noun = if res.reencrypted == 1 {

@@ -409,7 +409,7 @@ fn write_recovery_key_file(
         fail(
             ExitCode::Internal,
             format!(
-                "{vault:?}'s recipient list is committed, but writing its recovery key to {} failed: {e}\n\
+                "the recipient list of {vault:?} is committed, but writing its recovery key to {} failed: {e}\n\
                  gage: that key is lost — `gage recovery rotate` replaces it with a new one",
                 dest.display()
             ),
@@ -417,7 +417,7 @@ fn write_recovery_key_file(
     })?;
     let _ = writeln!(
         io.stderr,
-        "gage: wrote {vault:?}'s recovery key to {}\n\
+        "gage: wrote the recovery key of {vault:?} to {}\n\
          gage: it is not encrypted, and anyone who has it can read every secret in this vault.\n\
          gage: gage keeps no other copy. Move it somewhere offline and delete this file.",
         dest.display()

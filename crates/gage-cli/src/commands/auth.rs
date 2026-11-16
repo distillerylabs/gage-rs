@@ -68,7 +68,7 @@ fn resolve_host(explicit: Option<&str>, io: &Io) -> Result<String, CliError> {
         return Err(fail(
             ExitCode::Usage,
             format!(
-                "vault {name:?}'s remote ({}) is a local path, which needs no token; pass --host to name one",
+                "the remote of vault {name:?} ({}) is a local path, which needs no token; pass --host to name one",
                 remoteauth::redacted(&origin)
             ),
         ));
