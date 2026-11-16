@@ -12,9 +12,34 @@
 # key shown on screen (see below). After the last pair the command runs to
 # completion. Everything the terminal showed is copied to stdout, and the
 # script exits with the command's own exit status (124 on a timeout).
+#
+# A prompt gage reads with echo off (a passphrase, or an entry's value) is
+# printed before echo goes off, so a reply sent the moment the prompt shows
+# can land while echo is still on and be shown. A human can't type that
+# fast; a script can. So after such a prompt the reply waits until the
+# terminal's echo is off, as the Rust test
+# real_prompter_reads_a_passphrase_without_echoing does, and exits 126 if
+# it never goes off rather than typing a secret onto the screen (#246).
 set timeout [expr {[info exists env(QA_TTY_TIMEOUT)] ? $env(QA_TTY_TIMEOUT) : 30}]
 log_user 1
 spawn -noecho {*}$argv
+set tty $spawn_out(slave,name)
+
+# The prompts gage reads with echo off, matched against what the terminal
+# showed.
+set secret_prompt {passphrase|Value for}
+
+# Waits, up to 10 seconds, for the terminal to stop echoing.
+proc wait_echo_off {tty prompt} {
+    set deadline [expr {[clock milliseconds] + 10000}]
+    while {![regexp {(^|\s)-echo(\s|$)} [exec stty -a < $tty]]} {
+        if {[clock milliseconds] > $deadline} {
+            puts stderr "\ntty.exp: echo never went off after /$prompt/"
+            exit 126
+        }
+        after 5
+    }
+}
 
 set pairs {}
 if {[info exists env(QA_DIALOGUE)]} {
@@ -48,6 +73,9 @@ foreach {re reply} $pairs {
         }
         send -- "[string range $key end-[expr {$n - 1}] end]\r"
     } else {
+        if {[regexp -nocase $secret_prompt $expect_out(0,string)]} {
+            wait_echo_off $tty $re
+        }
         send -- "$reply\r"
     }
 }
