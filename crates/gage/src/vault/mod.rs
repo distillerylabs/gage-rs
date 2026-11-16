@@ -583,6 +583,15 @@ impl Vault {
         self.sync_on_unlock(prompter);
 
         let (device, method) = self.local_identity_record()?;
+        // After the registration (a vault this device has no identity for
+        // says that first) and before the passphrase: there is nothing to
+        // unlock into (ADR-0085).
+        if self.tree_missing() {
+            return Err(UnlockError::VaultMissing {
+                vault: self.name.clone(),
+                path: self.path.clone(),
+            });
+        }
         if let UnlockMethod::Other(method) = method {
             return Err(UnlockError::UnsupportedMethod {
                 vault: self.name.clone(),
@@ -794,6 +803,18 @@ impl Vault {
     /// Where this vault's committed config lives.
     pub(crate) fn config_path(&self) -> PathBuf {
         config_path(&self.path)
+    }
+
+    /// Whether the vault's working tree is gone: no `.gage/config.toml`,
+    /// which every vault has from its first commit. A config that is there
+    /// but unreadable is not missing; whatever reads it reports that.
+    /// Resolving a registration doesn't check this (removing a deleted
+    /// clone has to work); unlocking and listing do (ADR-0085).
+    pub(crate) fn tree_missing(&self) -> bool {
+        matches!(
+            std::fs::symlink_metadata(self.config_path()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound
+        )
     }
 }
 

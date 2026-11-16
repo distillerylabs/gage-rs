@@ -312,6 +312,13 @@ pub enum Error {
     /// complaint is the one outcome this layer must never produce.
     #[error("refusing to write an entry that does not survive its own YAML round trip: {0}")]
     Unfaithful(String),
+    /// The vault's working tree is gone, so a missing `entries/` says
+    /// nothing about what it holds (ADR-0085).
+    #[error("vault {vault:?} is missing from this device: nothing at {}", path.display())]
+    VaultMissing {
+        vault: String,
+        path: std::path::PathBuf,
+    },
     #[error("reading .age-recipients: {0}")]
     Recipients(#[from] crate::trust::recipient::RecipientsFileError),
     #[error("{action} {path}: {source}")]
@@ -336,7 +343,7 @@ impl From<crate::crypto::vaultkey::Error> for Error {
 impl HasKind for Error {
     fn kind(&self) -> ErrorKind {
         match self {
-            Error::EntryNotFound { .. } => ErrorKind::NotFound,
+            Error::EntryNotFound { .. } | Error::VaultMissing { .. } => ErrorKind::NotFound,
             Error::Crypt(e) => e.kind(),
             Error::VaultKey(e) => e.kind(),
             Error::Parse(_) | Error::Unauthenticated { .. } => ErrorKind::Conflict,
@@ -352,6 +359,9 @@ impl HasKind for Error {
         match self {
             Error::Crypt(e) => e.remedy(),
             Error::VaultKey(e) => e.remedy(),
+            Error::VaultMissing { vault, .. } => Some(Remedy::ReRegister {
+                name: vault.clone(),
+            }),
             _ => None,
         }
     }

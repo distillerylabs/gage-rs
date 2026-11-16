@@ -143,13 +143,22 @@ impl Vault {
     /// The ids of every entry file in `entries/`, sorted. It reads only
     /// filenames (no decryption, no ciphertext access), so it needs no
     /// identity. A vault with no `entries/` directory yet has no entries,
-    /// not an error. Subdirectories and files that aren't a canonical
+    /// not an error, but one whose working tree is gone is refused rather
+    /// than listed as empty (ADR-0085). Subdirectories and files that aren't a canonical
     /// `<uuid>.age` are skipped rather than failing the whole listing.
     pub fn entry_ids(&self) -> Result<Vec<Uuid>, Error> {
         let dir = self.entries_dir();
         let listing = match std::fs::read_dir(&dir) {
             Ok(l) => l,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                if self.tree_missing() {
+                    return Err(Error::VaultMissing {
+                        vault: self.name.clone(),
+                        path: self.path.clone(),
+                    });
+                }
+                return Ok(Vec::new());
+            }
             Err(source) => {
                 return Err(Error::Io {
                     action: "listing",
@@ -286,7 +295,7 @@ fn restrict_dir(_dir: &std::path::Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use crate::entry::{AuthFailure, Extra, Timestamp, new_id};
-    use crate::error::{ErrorKind, HasKind};
+    use crate::error::{ErrorKind, HasKind, Remedy};
     use crate::storage::xdgpaths::Dirs;
     use crate::testsupport::fast_scrypt;
 
@@ -317,6 +326,7 @@ mod tests {
             let public: Vec<String> = keys.iter().map(|k| k.to_public().to_string()).collect();
             recipient::save(&vault.path.join(".age-recipients"), &public).unwrap();
             std::fs::create_dir_all(vault.path.join(".gage")).unwrap();
+            std::fs::write(vault.config_path(), "").unwrap();
             VaultKey::generate()
                 .save(&vault.path, &vault.encrypt_recipients().unwrap())
                 .unwrap();
@@ -815,5 +825,25 @@ mod tests {
     fn entry_ids_without_an_entries_dir_is_an_empty_list() {
         let f = Fixture::new(1);
         assert_eq!(f.vault.entry_ids().unwrap(), Vec::<Uuid>::new());
+    }
+
+    // #250: no `entries/` in a vault that is there means no entries yet;
+    // in one whose working tree is gone it means nothing, and is refused.
+    #[test]
+    fn entry_ids_of_a_vault_whose_working_tree_is_gone_is_an_error() {
+        let f = Fixture::new(1);
+        std::fs::remove_dir_all(&f.vault.path).unwrap();
+        let err = f.vault.entry_ids().unwrap_err();
+        assert!(
+            matches!(&err, Error::VaultMissing { vault, path } if vault == "work" && *path == f.vault.path),
+            "{err:?}"
+        );
+        assert_eq!(err.kind(), ErrorKind::NotFound);
+        assert_eq!(
+            err.remedy(),
+            Some(Remedy::ReRegister {
+                name: "work".into()
+            })
+        );
     }
 }

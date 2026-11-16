@@ -38,6 +38,7 @@ by this log; a format change needs an ADR as well as a new spec.
 - [0078](0078-failed-registration-rollback.md) A failed registration undoes the vault or clone
 - [0082](0082-removing-a-vault-from-a-device.md) Removing a vault from a device refuses to lose what only it holds
 - [0084](0084-bindings-place-vaults-by-name.md) The bindings find a vault from their roots and its name, not its recorded path
+- [0085](0085-a-missing-vault-is-refused-at-unlock.md) A vault whose working tree is gone is refused at unlock, not at resolve
 - [0063](0063-what-crosses-the-bindings.md) Secrets cross the bindings on request; remedies cross as data
 - [0079](0079-access-remedy-is-never-shadowed.md) A refusal of access keeps its remedy
 
