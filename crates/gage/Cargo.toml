@@ -58,7 +58,7 @@ zeroize = "1"
 # `cred` feature.
 url = "2"
 saphyr = { version = "0.3", default-features = false }
-jiff = { version = "0.2", default-features = false, features = ["std"] }
+jiff = { version = "1.0", default-features = false, features = ["std"] }
 saphyr-parser = "0.3"
 # `generate`'s OS CSPRNG (OsRng). The same rand_core age already pulls in.
 rand_core = { version = "0.6", features = ["getrandom"] }
