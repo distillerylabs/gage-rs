@@ -841,7 +841,7 @@ impl Vault {
             device: request.device,
             pubkey: request.pubkey,
             code: std::mem::take(&mut *request.code),
-            expires: request.expires.into(),
+            expires: system_time(Timestamp::from(request.expires)),
             published: request.published,
         })
     }

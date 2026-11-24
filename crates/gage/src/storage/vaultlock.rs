@@ -13,7 +13,7 @@ use std::fmt;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use crate::error::{ErrorKind, HasKind};
 
@@ -29,17 +29,13 @@ const POLL_INTERVAL: Duration = Duration::from_millis(20);
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HolderInfo {
     pub pid: Option<u32>,
-    pub since: Option<SystemTime>,
+    pub since: Option<jiff::Timestamp>,
 }
 
 impl fmt::Display for HolderInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match (self.pid, self.since) {
-            (Some(pid), Some(since)) => write!(
-                f,
-                "pid {pid} (since {})",
-                humantime::format_rfc3339_seconds(since)
-            ),
+            (Some(pid), Some(since)) => write!(f, "pid {pid} (since {since:.0})"),
             (Some(pid), None) => write!(f, "pid {pid}"),
             (None, _) => f.write_str("another process"),
         }
@@ -186,7 +182,7 @@ fn write_holder(file: &mut File) -> std::io::Result<()> {
     let record = format!(
         "pid={}\nsince={}\n",
         std::process::id(),
-        humantime::format_rfc3339_nanos(SystemTime::now())
+        jiff::Timestamp::now()
     );
     file.set_len(0)?;
     file.seek(SeekFrom::Start(0))?;
@@ -205,7 +201,7 @@ fn read_holder(file: &mut File) -> HolderInfo {
     for line in String::from_utf8_lossy(&buf).lines() {
         match line.split_once('=') {
             Some(("pid", v)) => holder.pid = v.parse().ok(),
-            Some(("since", v)) => holder.since = humantime::parse_rfc3339(v).ok(),
+            Some(("since", v)) => holder.since = v.parse().ok(),
             _ => {}
         }
     }
@@ -490,11 +486,41 @@ mod tests {
     #[test]
     fn holder_info_renders_for_humans() {
         assert_eq!(HolderInfo::default().to_string(), "another process");
-        let since = humantime::parse_rfc3339("2026-01-02T03:04:05Z").unwrap();
+        // Whole seconds for a human: the fraction is cut, never rounded up.
+        let since = "2026-01-02T03:04:05.987654321Z".parse().unwrap();
         let h = HolderInfo {
             pid: Some(42),
             since: Some(since),
         };
         assert_eq!(h.to_string(), "pid 42 (since 2026-01-02T03:04:05Z)");
+    }
+
+    #[test]
+    fn holder_record_round_trips() {
+        let (_dir, path) = lock_path();
+        let mut file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&path)
+            .unwrap();
+        let before = jiff::Timestamp::now();
+        write_holder(&mut file).unwrap();
+        let after = jiff::Timestamp::now();
+        let holder = read_holder(&mut file);
+        assert_eq!(holder.pid, Some(std::process::id()));
+        let since = holder.since.expect("since parses back");
+        assert!(before <= since && since <= after, "{since} not now");
+    }
+
+    #[test]
+    fn holder_record_with_a_bad_since_keeps_the_pid() {
+        let (_dir, path) = lock_path();
+        std::fs::write(&path, "pid=7\nsince=yesterday\n").unwrap();
+        let mut file = File::open(&path).unwrap();
+        let holder = read_holder(&mut file);
+        assert_eq!(holder.pid, Some(7));
+        assert_eq!(holder.since, None);
     }
 }

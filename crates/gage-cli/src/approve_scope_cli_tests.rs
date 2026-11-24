@@ -367,7 +367,10 @@ fn pending_renders_expiry_in_the_local_timezone() {
         let tz = TimeZone::fixed(offset(hours));
         *e.a().time_zone.lock().unwrap() = tz.clone();
         let r = e.a().ok(&["recipient", "pending"]);
-        let wall = expires.to_zoned(tz).strftime("%Y-%m-%d %H:%M").to_string();
+        let wall = expires
+            .to_zoned_datetime(tz)
+            .strftime("%Y-%m-%d %H:%M")
+            .to_string();
         assert!(r.stdout.contains(&wall), "want {wall} in\n{}", r.stdout);
         seen.push(r.stdout);
     }

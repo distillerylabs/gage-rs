@@ -470,7 +470,9 @@ fn short_request_id(id: &str) -> &str {
 }
 
 fn local(t: Timestamp, tz: &TimeZone) -> String {
-    t.to_zoned(tz.clone()).strftime(TIME_FORMAT).to_string()
+    t.to_zoned_datetime(tz.clone())
+        .strftime(TIME_FORMAT)
+        .to_string()
 }
 
 fn until(t: Timestamp) -> Duration {
