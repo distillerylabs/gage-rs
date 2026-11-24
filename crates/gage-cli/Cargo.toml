@@ -34,7 +34,7 @@ hostname = "0.4"
 # `log` renders commit times in the local zone, which needs jiff to find it;
 # the library keeps its instants zone-free. Windows has no tz database to
 # read, so jiff bundles one there.
-jiff = { version = "0.2", default-features = false, features = ["std", "tz-system"] }
+jiff = { version = "1.0", default-features = false, features = ["std", "tz-system"] }
 rpassword = "7.5"
 # The session's line editor (ADR-0050). No default features: gage
 # owns the history file itself (0600, append-only), so rustyline's
@@ -53,7 +53,7 @@ arboard = { version = "3.7.0", default-features = false, features = ["wayland-da
 # A one-shot `-c`'s Ctrl-C, installed only for its wait.
 ctrlc = "3.5.2"
 # `-q/--qr` (ADR-0049): encoding only, no image rendering.
-qrcode = { version = "0.14.1", default-features = false }
+qrcode = { version = "0.15.0", default-features = false }
 # The clipboard keeper remembers a digest of what it wrote, never the value.
 sha2 = "0.11"
 subtle = "2"
@@ -70,5 +70,5 @@ age = "0.12.1"
 libc = "0.2"
 
 [target."cfg(windows)".dependencies]
-jiff = { version = "0.2", default-features = false, features = ["tzdb-bundle-platform"] }
+jiff = { version = "1.0", default-features = false, features = ["tzdb-bundle-platform"] }
 windows-sys = { version = "0.61", features = ["Win32_System_Diagnostics_Debug"] }

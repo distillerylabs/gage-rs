@@ -161,7 +161,9 @@ fn timeline(groups: Vec<(Uuid, Vec<LogEntry>)>, tag: bool, tz: &TimeZone) -> Vec
 }
 
 fn format_time(when: jiff::Timestamp, tz: &TimeZone) -> String {
-    when.to_zoned(tz.clone()).strftime(TIME_FORMAT).to_string()
+    when.to_zoned_datetime(tz.clone())
+        .strftime(TIME_FORMAT)
+        .to_string()
 }
 
 fn short_hash(hash: &str) -> &str {

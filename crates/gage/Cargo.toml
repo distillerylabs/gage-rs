@@ -40,7 +40,6 @@ test-support = []
 # every target but iOS and Android below (ADR-0062).
 git2 = { version = "0.21", default-features = false, features = ["https", "vendored-libgit2", "vendored-openssl"] }
 libz-sys = { version = "1", features = ["static"] }
-humantime = "2"
 tempfile = "3"
 thiserror = "2"
 uuid = { version = "1", features = ["v4"] }
@@ -58,7 +57,7 @@ zeroize = "1"
 # `cred` feature.
 url = "2"
 saphyr = { version = "0.3", default-features = false }
-jiff = { version = "0.2", default-features = false, features = ["std"] }
+jiff = { version = "1.0", default-features = false, features = ["std"] }
 saphyr-parser = "0.3"
 # `generate`'s OS CSPRNG (OsRng). The same rand_core age already pulls in.
 rand_core = { version = "0.6", features = ["getrandom"] }

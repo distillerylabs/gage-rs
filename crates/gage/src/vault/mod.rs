@@ -1145,8 +1145,7 @@ fn make_dir(path: &Path, mode: u32) -> Result<(), CreateError> {
 
 /// Today's date in UTC, `YYYY-MM-DD`: the RFC 3339 timestamp's date part.
 fn utc_date_today() -> String {
-    let now = humantime::format_rfc3339_seconds(std::time::SystemTime::now()).to_string();
-    now[..10].to_string()
+    jiff::Timestamp::now().strftime("%Y-%m-%d").to_string()
 }
 
 #[cfg(test)]
@@ -1367,9 +1366,9 @@ mod tests {
     fn create_records_the_utc_creation_date() {
         let root = tempfile::tempdir().unwrap();
         let spec = valid_spec(&root, "myvault");
-        let before = humantime::format_rfc3339(std::time::SystemTime::now()).to_string();
+        let before = jiff::Timestamp::now().to_string();
         let created = created(&spec).vault.created;
-        let after = humantime::format_rfc3339(std::time::SystemTime::now()).to_string();
+        let after = jiff::Timestamp::now().to_string();
         assert_eq!(created.len(), 10, "{created:?}");
         assert!(
             created == before[..10] || created == after[..10],

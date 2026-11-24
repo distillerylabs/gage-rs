@@ -472,7 +472,8 @@ fn request_passphrase(
 /// up front, so it never reallocates and leaves a stray copy of the key.
 fn format_identity_file(key: &age::x25519::Identity, recipient: &str) -> Zeroizing<Vec<u8>> {
     use age::secrecy::ExposeSecret;
-    let created = humantime::format_rfc3339_seconds(std::time::SystemTime::now()).to_string();
+    // `.0` cuts to whole seconds, age-keygen's precision.
+    let created = format!("{:.0}", jiff::Timestamp::now());
     let secret = key.to_string();
     let parts: [&str; 7] = [
         "# created: ",
@@ -511,5 +512,28 @@ fn make_private_dir(dir: &Path) -> Result<(), UnlockError> {
     #[cfg(not(unix))]
     {
         builder.create(dir).map_err(fail)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // age-keygen's header: `# created: ` then an RFC 3339 instant in UTC
+    // to the whole second, the shape the stock age CLI writes.
+    #[test]
+    fn identity_file_records_creation_in_whole_utc_seconds() {
+        let key = age::x25519::Identity::generate();
+        let recipient = key.to_public().to_string();
+        let before = jiff::Timestamp::now().as_second();
+        let file = format_identity_file(&key, &recipient);
+        let after = jiff::Timestamp::now().as_second();
+        let text = std::str::from_utf8(&file).unwrap();
+        let first = text.lines().next().unwrap();
+        let created = first.strip_prefix("# created: ").unwrap();
+        assert_eq!(created.len(), "2026-01-02T03:04:05Z".len(), "{created:?}");
+        assert!(created.ends_with('Z'), "{created:?}");
+        let at = created.parse::<jiff::Timestamp>().unwrap().as_second();
+        assert!((before..=after).contains(&at), "{created} not now");
     }
 }
