@@ -7,6 +7,12 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) as
 
 ## [Unreleased]
 
+## [0.3.1](https://github.com/distillerylabs/gage-rs/compare/v0.3.0...v0.3.1) - 2026-11-24
+
+### Other
+
+- Clear the new RustSec advisories and move to jiff 1.0 ([#254](https://github.com/distillerylabs/gage-rs/pull/254))
+
 ## [0.3.0](https://github.com/distillerylabs/gage-rs/compare/v0.2.0...v0.3.0) - 2026-11-16
 
 ### Other
